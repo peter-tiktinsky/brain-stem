@@ -291,8 +291,8 @@
     {
       "mode": "0755",
       "path": "hooks/pre-write-guard.sh",
-      "sha256": "74c7fde67698a8de18b3cf480dc2a04df6be6a159eb58faa8d52bd9ada12ab24",
-      "size": 108110
+      "sha256": "1edb2df4fb994126ced19a12db97dffd0a57035f0d2c7c4a0f45d63065017baf",
+      "size": 108145
     },
     {
       "mode": "0755",
@@ -357,8 +357,8 @@
     {
       "mode": "0755",
       "path": "hooks/stop-drift-scan.sh",
-      "sha256": "79467cfe12e6d6a506905b9c1f716f6d5a5b7e0ac2d64ca20e1424c588bd0b86",
-      "size": 3276
+      "sha256": "df646ac08e692bade3e2061c3a250a3e2d1545889f3f6c12760643831022d82d",
+      "size": 3582
     },
     {
       "mode": "0755",
@@ -1195,7 +1195,7 @@
       "size": 1241
     }
   ],
-  "generated_at": "2026-06-02T12:19:29Z",
+  "generated_at": "2026-06-02T15:33:13Z",
   "generator_sha256": "6948c7c2bb55ebf08948150a55b7cc7057c0a6d3ef19b2d82675197dc1f1ef43",
-  "version": "v1.0.0"
+  "version": "v1.0.1"
 }

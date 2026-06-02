@@ -145,9 +145,9 @@ fi
 # intermittently and that's accepted as cosmetic. ANY Edit|Write to that
 # folder is still denied with one exception: README.md itself, which is the
 # coexistence marker. Stale-reference bugs still fail loudly here.
-if [[ "$FILE_PATH" == "$PLANS_DIR_DEAD/README.md" ]]; then
+if [[ -n "$PLANS_DIR_DEAD" && "$FILE_PATH" == "$PLANS_DIR_DEAD/README.md" ]]; then
   : # allow (placeholder marker — coexistence README)
-elif [[ "$FILE_PATH" == "$PLANS_DIR_DEAD/"* ]] || [[ "$FILE_PATH" == "$PLANS_DIR_DEAD" ]]; then
+elif [[ -n "$PLANS_DIR_DEAD" && ( "$FILE_PATH" == "$PLANS_DIR_DEAD/"* || "$FILE_PATH" == "$PLANS_DIR_DEAD" ) ]]; then
   format_output_deny "PreToolUse" "Dead path ~/.claude/plans/ — migrated to ~/.claude-plans/ on 2026-04-13. This folder is a permanent placeholder; only its README.md may be written. Update your reference to use \$PLANS_DIR (from ~/.claude/hooks/lib/paths.sh) or the new absolute path ~/.claude-plans/. See the migration handoff in your installation docs for context."
   exit 0
 fi
@@ -285,7 +285,7 @@ fi
 # R-27 plan-root classification — sourced from the shared helper to eliminate
 # the hook ↔ librarian drift surface.
 # classify_plan_path returns is_plan|is_manifest|top_segment.
-source "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/lib/plan-path.sh"
+source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/plan-path.sh"
 PS_INFO=$(classify_plan_path "$FILE_PATH")
 PS_IS_PLAN="${PS_INFO%%|*}"
 PS_REST="${PS_INFO#*|}"

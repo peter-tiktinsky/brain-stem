@@ -18,6 +18,10 @@ if [[ -z "$SESSION_ID" ]]; then
 fi
 
 # Bundle-at-load — read the composed governance bundle.
+# FOUNDATION_MASTER is resolved by each consumer (not exported by paths.sh);
+# the canonical idiom guards against an unbound value under `set -u` on a
+# clean install where the bundle is absent.
+FOUNDATION_MASTER="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
 if [[ ! -f "$FOUNDATION_MASTER" ]]; then
   exit 0
 fi
