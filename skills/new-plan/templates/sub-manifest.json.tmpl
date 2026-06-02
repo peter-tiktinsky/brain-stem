@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "project": "{{title}}",
+  "spec_path": "{{plan_dir}}/spec.md",
+  "architecture_path": null,
+  "type": "sub-plan",
+  "parent_plan": "{{parent_plan}}",
+  "sub_plan_id": "{{sub_plan_id}}",
+  "status": "planned",
+  "phase_2_scaffolded_at": "{{date}}",
+  "tasks": [
+    {
+      "id": "T-1",
+      "title": "Define spec",
+      "description": "Flesh out spec.md (Problem / Constraints / Solution Approach) and replace all template placeholders for this sub-plan.",
+      "acceptance_criteria": [
+        "Complete all spec.md sections",
+        "Replace template placeholder rows"
+      ],
+      "file_references": [
+        "{{plan_dir}}/spec.md"
+      ],
+      "depends_on": [],
+      "max_budget_usd": 2
+    }
+  ],
+  "dependencies": {
+    "parallel_ok": [],
+    "blocks": []
+  },
+  "decision_records": []
+}

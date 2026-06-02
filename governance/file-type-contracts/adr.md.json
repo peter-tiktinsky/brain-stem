@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/adr.md.json",
+  "title": "ADR-NN-<slug>.md (plan decision record) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for plan-tree Architecture Decision Records at <plan>/decisions/ADR-NN-<slug>.md. The k8s ValidatingAdmissionPolicy paramKind for the ADR record type. Decisions that would otherwise be buried in spec prose / context-packets / handoffs become short, immutable, individually-addressable, supersession-tracked records — the RFC→ADR best-practice borrow (Nygard ADR format). Matcher convention declared at governance/plans-rules.json :: decision_records; manifest pointer array at schemas/plan-manifest-schema.json :: decision_records[].",
+  "version": "1.0.0",
+  "status": "runtime",
+  "design_source": "RFC→ADR best-practice synthesis (Nygard 'Documenting Architecture Decisions')",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "decision_records",
+  "_design_notes": {
+    "consumer": "librarian plan-index (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
+    "lockstep_pair": "governance/plans-rules.json :: decision_records (convention) + schemas/plan-manifest-schema.json :: decision_records[] (manifest pointer shape)",
+    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + plans-rules.json decision_records convention + plan-manifest-schema.json decision_records[] + governance/_index.json coupled_surfaces move in one commit"
+  },
+
+  "type": "adr",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/decisions/ADR-*.md"
+  },
+
+  "filename_pattern": "^ADR-[0-9]{2,}-[a-z][a-z0-9-]+\\.md$",
+  "filename_rationale": "ADR-NN-<slug>.md — NN is a monotonic two-digit (or wider) creation-order ordinal within the plan's decisions/ dir; slug is a short kebab-case decision name. Ordinal is immutable once published (like task IDs).",
+
+  "numbering": "monotonic-two-digit-creation-order-within-plan",
+
+  "immutable_post_accepted": true,
+  "immutable_rationale": "An accepted ADR is an immutable record of a decision made at a point in time. A decision change does NOT edit the original — it creates a NEW ADR that supersedes the prior one (the prior ADR's Status flips to `superseded-by-ADR-NN`; the new ADR references what it supersedes in Context). Mirrors the RFC→ADR supersession chain; distinct from the in-place amendment pattern used by spec.md.",
+
+  "body_structure": {
+    "h1": {
+      "required": true,
+      "level": 1,
+      "match_rule": "must begin with the ADR ordinal — `# ADR-NN: <Title>`",
+      "rationale": "Heading carries the addressable ordinal; readers and the manifest pointer key on ADR-NN."
+    },
+    "status_line": {
+      "required": true,
+      "placement": "immediately below H1",
+      "marker": "**Status:**",
+      "value_enum": ["proposed", "accepted", "rejected", "deprecated"],
+      "value_superseded_form": "superseded-by-ADR-NN",
+      "value_pattern": "^(proposed|accepted|rejected|deprecated|superseded-by-ADR-[0-9]{2,})$",
+      "value_enum_note": "Status enum reconciled to the MADR-canonical {proposed, accepted, rejected, deprecated} + superseded-by-ADR-NN form, across the three coupled surfaces (this contract + governance/plans-rules.json :: decision_records.status_enum + schemas/plan-manifest-schema.json :: decision_records[].status) under R-37 documentary lockstep. MADR captures rejected options as first-class records.",
+      "rationale": "A single status token (or the concrete supersession form). The supersession form embeds the superseding ADR ordinal so the chain is human-readable; the manifest pointer carries the bare token + a separate superseded_by field."
+    },
+    "required_sections": ["Context", "Decision", "Consequences"],
+    "section_order": ["Context", "Decision", "Consequences"],
+    "section_semantics": {
+      "Context": "The forces at play — the situation, constraints, and tensions that make a decision necessary. Factual and neutral; does not state the decision.",
+      "Decision": "The decision made, stated in active voice ('We will …'). One decision per ADR.",
+      "Consequences": "What becomes easier and what becomes harder as a result — including follow-on work, accepted trade-offs, and anything a superseding ADR would need to revisit."
+    },
+    "optional_sections": {
+      "considered_options": {
+        "heading": "Considered Options",
+        "aliases": ["Considered Options", "Alternatives", "Considered Options / Alternatives"],
+        "required": false,
+        "required_when": "the Decision had real contested alternatives (a genuine fork with more than one viable path)",
+        "placement": "between Context and Decision (the alternatives the Decision chose among)",
+        "rationale": "MADR's load-bearing thesis is that capturing the REJECTED options + their trade-offs is what makes a record valuable later. Required only on contested decisions; preserves the size_limits.max_lines 120 cap (long rationale stays in context-packets/ or the spec).",
+        "section_heading_level": 2
+      }
+    },
+    "section_heading_level": 2
+  },
+
+  "supersession": {
+    "mechanism": "new ADR supersedes old; old ADR Status → `superseded-by-ADR-NN`; new ADR names the superseded ADR in its Context",
+    "never_in_place_edit": true,
+    "manifest_field": "decision_records[].superseded_by"
+  },
+
+  "frontmatter_required_hints": [
+    "title",
+    "type (= adr)",
+    "status",
+    "parent_plan (depth >= 3 per R-28)",
+    "created"
+  ],
+
+  "size_limits": {
+    "max_lines": 120,
+    "rationale": "ADRs are short by design — one decision, the forces behind it, and its consequences. Long rationale belongs in context-packets/ or the spec; the ADR is the durable record, not the working material."
+  },
+
+  "write_shape": "create-only"
+}

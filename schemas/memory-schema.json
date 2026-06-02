@@ -1,0 +1,206 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://brain-stem.local/schemas/memory-schema.json",
+  "schema_version": "2.0.0",
+  "title": "Memory file frontmatter contract (System A — curated file-memory)",
+  "description": "YAML frontmatter contract every file under ~/.claude/projects/<project>/memory/*.md MUST carry. Codifies the System-A curated-memory frontmatter contract. Schema validates the frontmatter block parsed as an object; additionalProperties is true so memory files may carry per-type extensions alongside the universal fields.",
+
+  "_design_notes": {
+    "purpose": "Codify the two-axis memory contract: filename prefix carries provenance, the `type:` frontmatter field carries retrieval axis. Foundation-repo only; adopter live memory cutover is OUT OF SCOPE.",
+
+    "two_axes": {
+      "provenance_axis_filename_prefix": {
+        "description": "Filename prefix declares where a memory originated (preserved muscle memory + grep patterns + retroactive compatibility). Convention: <prefix>_<kebab-slug>.md.",
+        "mapping": {
+          "user_*": "Identity, preferences, conventions. Default type: semantic.",
+          "feedback_*": "Lessons-from-incident OR workflow rules. Default type: procedural (LangMem defines procedural memory as the agent updating its own instructions from accumulated feedback; reflection rides this provenance prefix, not a separate retrieval type).",
+          "project_*": "Active-project context, decisions, status. Default type: semantic; may mix in episodic for session-specific records.",
+          "reference_*": "External-system pointers (Linear project, Grafana dashboard, repo URL, etc.). Default type: semantic.",
+          "episode_*": "Session-outcome capture (CoALA situation/thought/action/result). Always type: episodic. Authored by hooks/session-episode-write.sh."
+        }
+      },
+      "retrieval_axis_type_field": {
+        "description": "The `type:` frontmatter field declares retrieval-axis classification. Drives MEMORY.md template grouping, single 180d re-validation staleness signal, and future retrieval-shaped operations.",
+        "values": {
+          "semantic": "Facts, preferences, conventions, identity. Stable knowledge.",
+          "episodic": "Session/event records, decision narratives. Time-anchored. Never decays.",
+          "procedural": "Workflow rules with explicit steps + their rationale. Imperative knowledge; absorbs lessons-from-incident (the feedback_ corpus)."
+        }
+      }
+    },
+
+    "revalidation_interval_days": {
+      "_description": "Single re-validation interval. Per-type half-lives are deferred to v1.1 — a single 180-day interval applies to all non-episodic memory. Consumed by the librarian memory-staleness capability; flags entries where last_validated exceeds the interval (propose-only, never deletes). Per-file `confidence` and explicit operator override at run time both supersede the default.",
+      "non_episodic": 180,
+      "episodic": null
+    },
+
+    "body_conventions": {
+      "_description": "Markdown body shape is NOT validated by this JSON Schema (no JSON path into body bytes). Conventions are documentary; regression tests verify body-shape compliance for episodic entries only.",
+      "feedback_procedural": "Rule sentence (lead) + **Why:** (incident/preference rationale; 1-2 lines) + **How to apply:** (edge-case judgment; 1-2 lines). Per ~/.claude/CLAUDE.md feedback-authoring contract.",
+      "project_semantic": "Lead with fact or decision + **Why:** (motivation, constraint, deadline) + **How to apply:** (how this shapes future suggestions). Project memories decay fast; the Why pins relevance.",
+      "user_semantic": "Lead with the identity/preference statement; rationale optional but recommended for non-obvious preferences.",
+      "reference_semantic": "Lead with the external-system pointer (URL or system name) + purpose (what consumer of the pointer needs to know).",
+      "episode_episodic_coala": "Per CoALA paper (arXiv 2309.02427). Sections: ## Situation (1-2 lines: what triggered the session) → ## Thought (1-3 lines: model interpretation / decision frame) → ## Action (1-3 lines: what was done) → ## Result (1-3 lines: outcome + downstream signal). Authored by hooks/session-episode-write.sh."
+    },
+
+    "legacy_field_aliases": {
+      "_description": "Fields the corpus carries today under legacy names. The new field name is authoritative; legacy names will continue to be accepted (additionalProperties: true) and the staleness/staleness-derived capabilities will read the canonical name. Adopter migration is opt-in (no forced rewrite).",
+      "last_verified": "→ last_validated (canonical for the single 180d re-validation signal).",
+      "originSessionId": "→ source_session_id (snake_case canonicalization)."
+    },
+
+    "anthropic_load_contract": "The harness loads only the first 200 lines OR 25KB of MEMORY.md (whichever comes first; documented at code.claude.com/docs/en/memory). This per-file schema governs frontmatter for files referenced FROM MEMORY.md; the MEMORY.md cap itself is enforced by R-59 (governance/mandatory-files-rules.json + hooks/pre-write-guard.sh advisory).",
+
+    "consumers": [
+      "hooks/pre-write-guard.sh (R-45 hygiene rule; auto-stamp updated/last_validated)",
+      "hooks/memory-auto-stamp.sh (PostToolUse last_validated auto-stamp)",
+      "skills/librarian/capabilities/memory-staleness.sh (propose-only single-180d re-validation flagging)",
+      "hooks/session-episode-write.sh (episodic capture; required to emit conformant frontmatter)",
+      "templates/MEMORY.md.template (type-grouped index sections)",
+      "tests (regression)"
+    ],
+
+    "schema_version_policy": "SemVer. Additive field additions = minor bump. Required-field changes or enum reductions = major bump (R-37 atomic lockstep with consumers above). The 1.0.0 → 2.0.0 bump dropped the `reflective` enum value (4 → 3, enum reduction = MAJOR) and promoted last_validated to required."
+  },
+
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "type",
+    "tags",
+    "created",
+    "updated",
+    "last_validated"
+  ],
+  "additionalProperties": true,
+
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short slug identifying this memory. SHOULD match the filename stem (kebab-case) when feasible. Used by the [[wikilink]] graph (related[] entries point to this slug)."
+    },
+
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RETRIEVAL HOOK — not a topic summary. Lead with the rule, trigger, or fact so a future-session relevance check happens in <100 tokens. Anti-pattern: 'Notes on tagging' (burns scan budget). Good: 'Every non-exempt vault file carries tags; orphans in graph view = hygiene alert.'"
+    },
+
+    "type": {
+      "type": "string",
+      "enum": ["semantic", "episodic", "procedural"],
+      "description": "Retrieval-axis classification. See _design_notes.two_axes.retrieval_axis_type_field for value semantics. Orthogonal to the filename-prefix provenance axis. `reflective` was dropped at the 2.0.0 MAJOR bump — reflection is a consolidation process that rides the feedback_ provenance prefix, not a storage type."
+    },
+
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 0,
+      "description": "Free-form retrieval tags. May be empty []; presence-of-key required as a hygiene baseline (signals the author considered tag coverage at write time)."
+    },
+
+    "created": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Memory authoring date (YYYY-MM-DD). Auto-stamped on file create by hooks/pre-write-guard.sh. Immutable after first write."
+    },
+
+    "updated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Last edit date (YYYY-MM-DD). Auto-stamped on every write by hooks/pre-write-guard.sh. Does NOT reset the re-validation clock (last_validated is the sole decay input)."
+    },
+
+    "last_validated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Last date an operator confirmed this memory is still true (YYYY-MM-DD). REQUIRED (promoted at the 2.0.0 MAJOR bump). Bootstrap value = created when first introduced; auto-stamped on adopter writes by hooks/memory-auto-stamp.sh (fresh installs are conformant — no migration). The SOLE decay input for the single 180-day re-validation signal."
+    },
+
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence in memory accuracy. low = experimental hypothesis; medium = inferred from observation; high = explicitly confirmed by operator. Consumed for supersession tie-break (a high memory can't be auto-superseded by a lower one) and within-section index sort. Absent = no-op (NOT imputed medium)."
+    },
+
+    "supersedes": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Slug of the memory file this one replaces (without .md extension). Drives audit-time deduplication and supersedes-chain traversal."
+    },
+
+    "superseded_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Slug of the memory file that replaces this one (without .md extension). Set when retiring a memory in place; readers MUST follow the pointer to the new authority before applying."
+    },
+
+    "scope": {
+      "type": "string",
+      "pattern": "^(global|project:[a-z0-9][a-z0-9-]*|engagement:[a-z0-9][a-z0-9-]*)$",
+      "description": "Visibility / applicability scope. 'global' = applies everywhere (default if absent; the globalize-to-RULES candidate marker). 'project:<slug>' = scoped to a single plan slug. 'engagement:<name>' = scoped to a single engagement folder. Future retrieval-side filtering will key on this field."
+    },
+
+    "related": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Slugs of related memories (without .md extension). Drives the [[wikilink]] graph used by retrieval-time scoring. Liberal linkage encouraged; a related slug that doesn't yet exist as a file is fine — it marks a memory worth writing later."
+    },
+
+    "source_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Originating Claude session UUID. REQUIRED on type=episodic (the session lineage is the load-bearing field for replay). Optional on other types; useful as a provenance pointer when a non-trivial memory crystallized from a specific session."
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "episodic" } },
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["source_session_id"],
+        "description": "Episodic memories require source_session_id so a future session can pull the originating-session record. Enforced for episodic capture-hook output."
+      }
+    }
+  ],
+
+  "examples": [
+    {
+      "name": "no-calendar-gates",
+      "description": "Calendar gates (e.g., 'wait 30 days') in plan close-out are arbitrary; prefer volume / data / event-driven gates. Audit is permanent infrastructure, not a campaign.",
+      "type": "procedural",
+      "tags": ["plan-close-out", "audit-design"],
+      "created": "2026-05-09",
+      "updated": "2026-05-12",
+      "last_validated": "2026-05-12",
+      "confidence": "high",
+      "source_session_id": "90618d9b-6b3f-4688-a0ae-ff8afd79c064"
+    },
+    {
+      "name": "vault-operating-philosophy",
+      "description": "Capture is cheap, the assistant organizes, systems thinking, historical data is sacred.",
+      "type": "semantic",
+      "tags": ["operating-philosophy", "vault"],
+      "created": "2026-03-01",
+      "updated": "2026-05-15",
+      "last_validated": "2026-05-15",
+      "confidence": "high"
+    },
+    {
+      "name": "episode-2026-05-24-mvp-spec",
+      "description": "MVP spec authored after the path-selection fork.",
+      "type": "episodic",
+      "tags": ["memory-substrate", "session-record"],
+      "created": "2026-05-24",
+      "updated": "2026-05-24",
+      "last_validated": "2026-05-24",
+      "source_session_id": "317e0014-3386-4026-a528-d34008052815"
+    }
+  ]
+}

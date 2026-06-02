@@ -1,0 +1,172 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://brain-stem.example/schemas/foundation-master/v1.json",
+  "title": "Foundation Master Bundle",
+  "description": "Composed foundation governance bundle (clean-room v2 pillar shape; schema_version 2.0.0 pillars). Built deterministically from the 8 authoring pillars (frontmatter-rules + tagging-rules + naming-rules + mandatory-files-rules + doc-dependencies + file-type-contracts/*.json + vault-writers-rules + plans-rules) plus _index.json by tools/build-foundation-master.sh and committed at governance/foundation-master.json. Shipped as immutable artifact to adopter ~/.claude/governance/foundation-master.json; adopters never build. The runtime contract slots the hooks read (foundation-master.json#types == .frontmatter.types, #r32_type_aliases == .frontmatter.r32_type_aliases, #r32_exempt_paths, #r47_exempt_paths_composed, #r47_tag_cap, #tagging.taxonomy.dimension_prefixes) are declared per governance/_index.json cross_cutting rules-index. This validator is intentionally light: structural shape only; inner pillar content is governed by each pillar's own contracts. The clean-room v2 pillars carry the D7 two-axis register at `_rules[]` (NOT a legacy `rules[]` array); R-47's r47_exempt_paths source is tagging-rules.json#_rules[id=R-47].r47_exempt_paths, composed into r47_exempt_paths_composed per the pillar's own r47_exempt_paths_provenance. Repo-only schema; matches the clean-room v2 pillar shape.",
+  "type": "object",
+  "required": ["schema_version", "_meta", "frontmatter", "tagging", "naming", "mandatory_files", "doc_dependencies", "file_type_contracts", "vault_writers", "plans", "_index", "r47_exempt_paths_composed", "r32_exempt_paths", "r47_tag_cap"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "_description": {
+      "type": "string"
+    },
+    "_meta": {
+      "type": "object",
+      "required": ["bundle_version", "built_at", "source_file_mtimes", "build_tool", "deterministic_serialization"],
+      "additionalProperties": false,
+      "properties": {
+        "bundle_version": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "sha256 of the canonical-serialized bundle content (excluding _meta block itself). Same source files -> same hash. Hook bundle-read path uses this for cache-invalidation."
+        },
+        "built_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO8601 UTC build timestamp"
+        },
+        "source_file_mtimes": {
+          "type": "object",
+          "description": "Map of source-file path -> ISO8601 UTC mtime. Hook bundle-read path may use this for staleness detection.",
+          "patternProperties": {
+            "^governance/.+\\.json$": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        },
+        "build_tool": {
+          "type": "string",
+          "const": "tools/build-foundation-master.sh"
+        },
+        "deterministic_serialization": {
+          "type": "string",
+          "description": "Note declaring the serialization discipline used (e.g., 'jq -S sorted-keys canonical JSON')"
+        },
+        "source_files_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "_provenance": {
+          "type": "string"
+        }
+      }
+    },
+    "frontmatter": {
+      "type": "object",
+      "description": "Full governance/frontmatter-rules.json content (clean-room v2; carries types + tier_compliance + path_routing + retired_types + the D7 _rules register). build-time composition may inject r32_type_aliases (.frontmatter.r32_type_aliases) when a gate-config source is present; absent in the clean-room (gate-config dropped) and the consumer falls back to // {}.",
+      "required": ["schema_version", "pillar", "types", "tier_compliance"],
+      "additionalProperties": true,
+      "properties": {
+        "pillar": {"const": "frontmatter"},
+        "r32_type_aliases": {
+          "type": "object",
+          "description": "Optional alias-type -> canonical-type map composed at build time when a gate-config source is present. Absent in the clean-room. Hooks read .frontmatter.r32_type_aliases // {}.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "tagging": {
+      "type": "object",
+      "description": "Full governance/tagging-rules.json content (clean-room v2 canonical taxonomy; R-47 r47_exempt_paths homed at _rules[id=R-47]).",
+      "required": ["schema_version", "pillar", "taxonomy"],
+      "additionalProperties": true,
+      "properties": {
+        "pillar": {"const": "tagging"}
+      }
+    },
+    "naming": {
+      "type": "object",
+      "description": "Full governance/naming-rules.json content (clean-room v2).",
+      "required": ["schema_version", "pillar"],
+      "additionalProperties": true,
+      "properties": {
+        "pillar": {"const": "naming"}
+      }
+    },
+    "mandatory_files": {
+      "type": "object",
+      "description": "Full governance/mandatory-files-rules.json content (clean-room v2).",
+      "required": ["schema_version", "pillar", "mandates"],
+      "additionalProperties": true,
+      "properties": {
+        "pillar": {"const": "mandatory-files"}
+      }
+    },
+    "doc_dependencies": {
+      "type": "object",
+      "description": "Full governance/doc-dependencies.json content (first-class authoring pillar per feedback_doc_deps_first_class).",
+      "required": ["version", "entries"],
+      "additionalProperties": true
+    },
+    "file_type_contracts": {
+      "type": "object",
+      "description": "Map of file-type-name -> contract object. Each key matches a file in governance/file-type-contracts/<name>.json (k8s paramKind pattern; matcher in mandatory-files-rules.json mandates.<file_type>).",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "vault_writers": {
+      "type": "object",
+      "description": "Full governance/vault-writers-rules.json content (pillar 7). Carries pillar 7 fields daily_processing_root + writer_manifest_path + historical_data_warning_default.",
+      "required": [
+        "historical_data_warning_default",
+        "vault_writer_state_root",
+        "claude_state_root",
+        "daily_processing_root",
+        "writer_manifest_path"
+      ],
+      "additionalProperties": true
+    },
+    "plans": {
+      "type": "object",
+      "description": "Full governance/plans-rules.json content (pillar 8). Covers plan-tree governance: root file mandates, plan-folder quartet, slug/subplan rules, backlog row contract, lifecycle status transitions.",
+      "required": [
+        "root_files",
+        "plan_folder_quartet",
+        "slug_rules",
+        "lifecycle"
+      ],
+      "additionalProperties": true
+    },
+    "_index": {
+      "type": "object",
+      "description": "Full governance/_index.json content (pillar registry + cross-cutting meta-rules + dissolved_schemas registry).",
+      "required": ["schema_version", "pillars", "cross_cutting_meta_rules"],
+      "additionalProperties": true
+    },
+    "r47_exempt_paths_composed": {
+      "type": "array",
+      "description": "Deterministic union of R-47 exempt-paths composed from tagging-rules.json#_rules[id=R-47].r47_exempt_paths (clean-room v2 canonical declaration). Deduped + sorted for deterministic ordering. Consumed by pre-write-guard.sh R-47 advisory.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "r32_exempt_paths": {
+      "type": "array",
+      "description": "R-32 type-check exempt globs. Composed from a gate-config source when present; empty in the clean-room (gate-config dropped). Consumer reads .r32_exempt_paths[]?.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "r47_tag_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-file tag count cap; default 25 in the clean-room (no gate-config source)."
+    },
+    "_sp13_provenance": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,369 @@
+---
+name: librarian
+description: The vault/plan/governance librarian — a single skill with a flat, capability-name-keyed set of capabilities under capabilities/. Audits and reconciles governance pillars, plan-tree status, vault indices, and the Vault Writers ecosystem; renders manifest-derived read-replicas (tasks.md, _index.md, _backlog.md, _archive.md, rules-index). Routes to a capability by name; the capability bodies execute, they are not loaded inline.
+disable-model-invocation: false
+---
+
+# librarian
+
+The librarian is ONE skill with a flat `capabilities/` directory keyed
+by capability NAME. This SKILL.md is a `<500-line` dispatcher:
+each capability gets a `## Capability:` heading + a one-line purpose + a runtime
+pointer. The per-capability prose lives in the capability `.sh` body's header,
+the `capability-registry.json` `output_contract` block (the contract-of-record),
+and the single GENERATED `docs/capability-reference.md` (generated
+at release by `tools/`, not hand-authored here — anti-third-copy).
+
+## Topology
+
+- **Registry (contract-of-record):** `capability-registry.json` — per-capability
+  `output_contract` (files-written · schema · validation · failure-mode) + the
+  capability↔schema/path dependency map. Regenerated, never hand-edited.
+- **Bijection:** `capability-registry-parity.sh` keys a strict bijection on the
+  `## Capability:` headings BELOW. Heading set == registry key set == on-disk
+  `capabilities/*.sh` set (the disk→registry orphan check is the 5th
+  drift class). Move only the prose beneath a heading; never drop a
+  heading without co-updating the parity auditor's `SKILL_MD` target.
+- **Finding contract:** all capabilities emit findings via
+  `hooks/lib/findings.sh` (`emit_finding` / `emit_event`). There is NO
+  `schemas/librarian-finding-schema.json` — that reference is a PHANTOM,
+  resolved to `hooks/lib/findings.sh`.
+- **Failure mode (all bodies):** block-and-log, never write-and-hope.
+- **bash 3.2 (R-23)** + argv-based Python heredoc (R-24) across every body.
+
+## Invocation
+
+```
+/librarian <capability> [flags]      # run one capability by name
+/librarian full                      # the audit-set sweep
+```
+
+The capability NAME is the routing key — there is no per-domain sub-skill and no
+`domain:` registry field (no current consumer). Domain
+is the rule CATEGORY axis, not a skill boundary.
+
+---
+
+## Capability: governance-parity-audit
+
+Audit-time alignment backstop for the dual-surface governance pattern — walks
+the pillar JSON surfaces + their narrative spokes, emits drift findings by
+pillar (rule-id-mismatch, field-missing, tier-mismatch, source-divergence,
+foundation-upgrade-touches-shadowed-entry, meta-rule-coverage-gap,
+pillar-schema-malformed).
+Runtime: `capabilities/governance-parity-audit.sh`.
+
+## Capability: index-maintain
+
+The first self-healing capability under the R-34 boundary — reconciles each
+non-exempt folder's `_index.md` contents-enum table against filesystem reality;
+auto-corrects mechanical drift (Lines/Type/rows/updated:/bootstrap) inside the
+sentinels, flags semantic drift, never overwrites hand-tuned content.
+Runtime: `capabilities/index-maintain.sh`.
+
+## Capability: log-subtype-canonical
+
+Audit-time (Layer 2) detector of unregistered `#log/*` / `#status/*` subtypes +
+near-match drift in the registry (the Layer-1 write-time hook lives elsewhere, not
+here). Categories: log-subtype-unregistered, log-subtype-near-match-drift,
+log-subtype-owner-orphan.
+Runtime: `capabilities/log-subtype-canonical.sh`.
+
+## Capability: writers-index-refresh
+
+Regenerates the canonical `Vault Writers/_index.md` catalog table from the
+writer-reference files (sentinel-bounded; per-writer contract validation;
+operator narrative preserved).
+Runtime: `capabilities/writers-index-refresh.sh`.
+
+## Capability: writers-overlap-refresh
+
+Regenerates `Vault Writers/_overlap-matrix.md` — derives a glob form of each
+destination path, clusters by glob equivalence, surfaces ≥2-writer clusters,
+write-shape conflicts, and doc-deps writer-fan-in producer-join mismatches.
+Runtime: `capabilities/writers-overlap-refresh.sh`.
+
+## Capability: writers-health-audit
+
+Read-only daily sweep of writer-reference files + skill registry + path_routing
+for operational drift (dormant-writer, unresolved-destination,
+orphan-writer-skill-ref, orphan-destination-ref, multi-writer-overlap). No vault
+write.
+Runtime: `capabilities/writers-health-audit.sh`.
+
+## Capability: rules-index
+
+The governance-rules-index regenerator — assembles a librarian-derived
+read-replica of the rule register from the per-pillar `_rules[]` SoT + the
+`_index.json` meta block, grouped by category with a retired-tombstone section.
+Ships UNVALIDATED (no schema). DISTINCT from the `rules-hygiene` body.
+Runtime: `capabilities/rules-index.sh`.
+
+## Capability: tasks-render
+
+Regenerates a single plan's `tasks.md` from its `manifest.tasks[]` —
+sentinel-bounded read-replica with operator-narrative + per-row-Notes
+survivorship, idempotent, `--check` parity mode. manifest read-only.
+Runtime: `capabilities/tasks-render.sh`.
+
+## Capability: subplan-aggregate
+
+Pull-based master `sub_plans[]` aggregator — reads each
+sub-plan's published status into the master's `sub_plans[]` read-replica
+(element shape `{sub_plan_id, slug, status, graduation_timestamp}`; the
+graduation_timestamp WRITER; coarse-bucket keying). Never
+hand-edited.
+Runtime: `capabilities/subplan-aggregate.sh`.
+
+## Capability: trinity-drift-detect
+
+Detects spec/manifest/tasks/T-N status disagreement (the existing trinity axis)
+AND the master↔sub aggregation axis (R-61 aggregation-integrity, R-62
+sub-publishes-upward, R-63 sub-peer-isolation advisory). Reconciler-only, never
+write-time.
+Runtime: `capabilities/trinity-drift-detect.sh`.
+
+## Capability: drift-sweep
+
+Frontmatter-drift sweep over vault `.md` against the governance bundle PLUS the
+master↔sub aggregation axis with an optional `--fix` that repairs a master's
+`sub_plans[]` via the canonical aggregator (single-writer invariant).
+Runtime: `capabilities/drift-sweep.sh`.
+
+## Capability: plan-index
+
+Regenerates `<plans-root>/_index.md` as a status-grouped navigation index;
+reader cap — READS the master `sub_plans[]` aggregate for the per-master
+coarse-bucket rollup. The plan-index.md capability contract is governed by the
+registry `output_contract` (no governance/librarian-capabilities/ doc).
+Runtime: `capabilities/plan-index.sh`.
+
+## Capability: backlog-index
+
+Regenerates `<plans-root>/_backlog.md` from `{researching, planned}` manifests;
+reader cap — master-row-only policy (READS the aggregate) + satellite
+-pointer retarget off the retired per-plan satellite to the plan dir /
+master `handoff.md`.
+Runtime: `capabilities/backlog-index.sh`.
+
+## Capability: plan-archive
+
+Promotes closed plans to archived + appends to `<plans-root>/_archive.md`;
+reader cap — master-subtree archival gate (a master archives only when every
+`sub_plans[]` entry is terminal). Data-driven cooldown; idempotent.
+Runtime: `capabilities/plan-archive.sh`.
+
+## Capability: capability-registry-parity
+
+Audits `capability-registry.json` against the `## Capability:` headings + the
+on-disk `capabilities/*.sh` — 5 drift classes: bijection, script-missing,
+schema-version, emits→writes_manifest_subtree, and the disk→registry
+orphan check. Report-only (exit 0).
+Runtime: `capabilities/capability-registry-parity.sh`.
+
+## Capability: frontmatter-enforce
+
+Validates (and optionally `--fix`es) frontmatter on vault files against the
+26-row type table; runs the provides-canonicality, size-monitoring, and
+schema-type-coverage drift audits, persisting `drift_findings.*` to the
+librarian-manifest.
+Runtime: `capabilities/frontmatter-enforce.sh`.
+
+## Capability: placement-validate
+
+Validates vault file placement against the governance placement rules (reads
+`vault.logs_whitelist_subdirs` from the user-manifest); emits placement
+findings.
+Runtime: `capabilities/placement-validate.sh`.
+
+## Capability: xref-check
+
+Cross-reference integrity check over vault `.md` links; computes the xref_graph
+into the librarian-manifest.
+Runtime: `capabilities/xref-check.sh`.
+
+## Capability: stale-detect
+
+Detects stale plan-root + vault files past their freshness threshold (walks
+plan roots via `hooks/lib/plan-path.sh`).
+Runtime: `capabilities/stale-detect.sh`.
+
+## Capability: tag-coverage-audit
+
+Audits vault tag-taxonomy coverage (reads `vault.tag_audit_exemptions` from the
+user-manifest); emits coverage findings.
+Runtime: `capabilities/tag-coverage-audit.sh`.
+
+## Capability: sanctioned-schema-drift-detect
+
+Byte-diffs the 2 sanctioned schemas (plans-schema, plan-manifest-schema)
+between the foundation-repo source and the live `~/.claude/schemas/` install;
+exit 1 on drift. Self-contained (no lib source).
+Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
+
+## Capability: handoff-disposition-check
+
+Checks every close-out follow-up carries one of the 3 dispositions (FIX NOW /
+ABSORB / STANDALONE); emits disposition-gap findings.
+Runtime: `capabilities/handoff-disposition-check.sh`.
+
+## Capability: plan-parent-resolve
+
+Resolves the R-28 `parent_plan:` frontmatter convention (via
+`hooks/lib/frontmatter.sh`) and surfaces drift findings where a sub-task file's
+parent does not resolve.
+Runtime: `capabilities/plan-parent-resolve.sh`.
+
+## Capability: librarian-manifest-validate
+
+Validates a staged `librarian-manifest.json` write against
+`schemas/librarian-manifest-schema.json` (tier ajv → python-jsonschema →
+minimal); DENY (exit 1) + diagnostic log on schema-invalid.
+Runtime: `capabilities/librarian-manifest-validate.sh`.
+
+## Capability: skill-parity
+
+Audits the skill registry against the on-disk skill bodies for parity drift.
+Runtime: `capabilities/skill-parity.sh`.
+
+## Capability: waiver-audit
+
+Read-only audit of the governance waiver registry (the canonical writer is
+`hooks/lib/cascade-waiver.sh`, elsewhere).
+Runtime: `capabilities/waiver-audit.sh`.
+
+## Capability: rules-hygiene
+
+The `.claude/rules` lifecycle auditor — audits rule files against
+`schemas/rules-schema.json` (judgment cap, requires confirmation). DISTINCT
+from the `rules-index` regenerator.
+Runtime: `capabilities/rules-hygiene.sh`.
+
+## Capability: log-archive
+
+Archives old log files from `Vault/Logs/` per retention thresholds (dashboard
+3d / general 7d) using `hooks/lib/dates.sh`.
+Runtime: `capabilities/log-archive.sh`.
+
+## Capability: backup
+
+Snapshots the `system.backup_targets[]` filesystem paths (read from the
+user-manifest via `umr_get_array`); records `scan_state.backup`.
+Runtime: `capabilities/backup.sh`.
+
+## Capability: wikilink-repair
+
+Rename-aware wikilink fixups over vault `.md` files (dry-run by default; atomic
+per-file rewrite after review).
+Runtime: `capabilities/wikilink-repair.sh`.
+
+## Capability: rename-detect
+
+Detects file renames via `git log --diff-filter=R` across the vault + plans
+roots; with `--register`, appends `drift_findings.rename_detected` to the
+librarian-manifest (late-sources `hooks/lib/manifest.sh`). Upstream signal for
+rename-cascade.
+Runtime: `capabilities/rename-detect.sh`.
+
+## Capability: rename-cascade
+
+Consumes rename-detect output and cascades wikilink updates downstream across
+vault `.md` files (dry-run by default).
+Runtime: `capabilities/rename-cascade.sh`.
+
+## Capability: rename-history-sync
+
+Appends detected renames to the librarian-manifest `rename_history[]` (the
+rename pipeline's history writer).
+Runtime: `capabilities/rename-history-sync.sh`.
+
+## Capability: memory-globalize
+
+Promotes a vault memory entry to a global `.claude/rules/<name>.md` rule (only
+with `--apply`; validates the candidate vs `schemas/rules-schema.json`;
+name-collision guard; requires confirmation).
+Runtime: `capabilities/memory-globalize.sh`.
+
+## Capability: memory-hygiene
+
+The memory lifecycle auditor — index-health + staleness over
+`system.memory_dir` (resolved via `hooks/lib/paths.sh`; thresholds via
+`hooks/lib/dates.sh`; requires confirmation).
+Runtime: `capabilities/memory-hygiene.sh`.
+
+## Capability: memory-staleness
+
+Detects stale memory entries against `schemas/memory-schema.json` staleness
+thresholds; emits NDJSON candidates (skip-and-log).
+Runtime: `capabilities/memory-staleness.sh`.
+
+## Capability: session-close
+
+The load-bearing session-close orchestrator — chains the
+core capability set; cut caps degrade via `run_capability`
+skip-not-installed.
+Runtime: `capabilities/session-close.sh`.
+
+## Capability: review
+
+The operator-facing DRAIN of `.review-queue.json` — the consumer
+half of the guaranteed-surfacing mechanism whose producer/banner/mandate/stop-block
+halves already ship. Judgment-tier (an LLM diff-presentation + decision loop, like
+`memory-hygiene`); requires confirmation; never auto-fires `AskUserQuestion`. This
+is a SKILL.md judgment RUBRIC with NO `capabilities/review.sh` disk body — the
+mechanical state writes are the four `hooks/lib/review-queue.sh` primitives
+(`confirm_item`/`reject_item`/`defer_item`/`suppress_item`); the rubric below is the
+judgment loop that decides which to call (a spec-only registry entry without a disk
+body is bijection-legal; the orphan check is the converse).
+Runtime: none (judgment rubric — see the rubric below; the registry `review` entry is
+`implementation_status: spec-only`).
+
+### Rubric (the review walk)
+
+1. **Source the primitives.** `source "$CLAUDE_HOME/hooks/lib/review-queue.sh"` (the
+   `enqueue_item` producer + the four state-transition drains
+   `confirm_item`/`reject_item`/`defer_item`/`suppress_item` + the reader
+   `review_queue_pending_count`). Resolve the queue file via the lib's
+   `_rq_queue_file` (memory-state tier, beside `.consolidation-state.json`).
+2. **Read OPEN items.** Select items with `state == "open"`. Each carries
+   `{id, subject, classification (revalidation|hygiene|conflict|promotion), severity
+   (low|medium|high), defer_count, dismiss_count, diff?, ...}` per
+   `schemas/review-queue-schema.json`.
+3. **Sort + cap.** High-severity first, then oldest-first. Process at most ~20 items
+   per pass (batch cap) — surface the remaining count and stop.
+4. **Auto-suppress (anti-fatigue).** Before presenting, for any LOW-severity `hygiene`
+   item whose `dismiss_count >= 3`, call `suppress_item <id>` and skip it.
+   **Revalidation items are EXEMPT from auto-suppress** — they always surface.
+5. **Present (per item).** Render a DIFF + a plain-language impact statement — NOT a bare
+   APPROVE. State what changes, where, and why it surfaced.
+6. **Collect exactly one disposition** per item — never auto-fire `AskUserQuestion`:
+   - **CONFIRM** → apply the class-appropriate write INSIDE this walk, then `confirm_item <id>`:
+     - `promotion` → write the buffered proposal to `{system.memory_dir}/*.md` (the ONLY
+       System-B→System-A memory write — Gate 1; `mem-promote` NEVER writes — the apply
+       point is HERE, inside the review walk).
+     - `revalidation` → stamp `last_validated: <today>` on the referenced memory file
+       (resets the 180d clock).
+     - `conflict` → record the operator-chosen resolution (conflicts are operator-decided,
+       never auto-resolved).
+   - **REJECT-WITH-REASON** → `reject_item <id> "<reason>"` (reason MANDATORY).
+   - **DEFER (capped)** → `defer_item <id> "<reason>"` (reason MANDATORY; `defer_count++`).
+     At `defer_count >= 2` force-escalate — the item stays in the queue (a bare defer
+     NEVER clears it).
+7. **Report.** Summarize per class: confirmed / rejected / deferred / suppressed counts +
+   the remaining OPEN count (which the SessionStart banner re-surfaces next session).
+
+> **Class asymmetry (v1.0.0, operator-ratified):** the `conflict` + `promotion` classes
+> are fully end-to-end (live producers exist + this drain). The `revalidation` +
+> `hygiene` classes have a working DRAIN here but their PRODUCER is deferred to v1.1 —
+> "N memories due for revalidation" stays 0 until v1.1. Accepted asymmetry.
+
+### Output Contract (review)
+
+- **Files written:** `{system.memory_dir}/*.md` (on a CONFIRM of a promotion item — Gate 1,
+  with confirmation) + `.review-queue.json` (every disposition, via the lib primitives).
+- **Schema:** items validated against `schemas/review-queue-schema.json` (the lib's
+  `enqueue_item` validates on append; the drains preserve the schema-defined `state` enum).
+  Memory writes validate against `schemas/memory-schema.json`.
+- **Validation:** queue resolved via `hooks/lib/review-queue.sh`; memory-dir via
+  `hooks/lib/paths.sh`; requires confirmation on every write.
+- **Failure mode:** **block-and-log** — abort on validation failure; no partial state.

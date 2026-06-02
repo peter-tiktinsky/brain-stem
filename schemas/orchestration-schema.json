@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Orchestration Manifest",
+  "description": "Per-user autonomous job configuration: launchd plists, cron schedules, tripwires, observability. Populated by onboarding interview; owned by librarian post-seed.",
+  "type": "object",
+  "required": ["schema_version", "platform", "jobs", "tripwires", "observability"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "platform": {
+      "const": "darwin-launchd"
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "enabled", "schedule", "command", "idle_watchdog_sec"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "schedule": {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["hour", "minute"],
+                "properties": {
+                  "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+                  "minute": { "type": "integer", "minimum": 0, "maximum": 59 },
+                  "dow": {
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 },
+                    "maxItems": 1,
+                    "description": "Single launchd Weekday (0=Sunday, 6=Saturday). Renderer reads dow[0]; multi-element arrays are rejected to match runtime semantics."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["interval_sec"],
+                "properties": {
+                  "interval_sec": { "type": "integer", "minimum": 60 }
+                }
+              }
+            ]
+          },
+          "command": { "type": "string" },
+          "log_path": { "type": "string" },
+          "idle_watchdog_sec": {
+            "type": "integer",
+            "default": 180
+          },
+          "single_instance": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use lockf -k -t 0 re-exec pattern"
+          },
+          "cold_wake_probe": {
+            "type": "boolean",
+            "default": true
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 3600,
+            "description": "Job wall-clock timeout in seconds; consumed by job-runner.sh (CLI override > orchestration.json > fallback 3600)"
+          },
+          "model": {
+            "type": "string",
+            "enum": ["sonnet", "opus", "haiku"],
+            "default": "sonnet",
+            "description": "Claude model for --model flag; consumed by job-runner.sh (CLI override > orchestration.json > fallback sonnet)"
+          },
+          "budget_usd": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-job --max-budget-usd cap; consumed by job-runner.sh. Absent means unlimited (no flag passed)."
+          },
+          "skip_weekends": {
+            "type": "boolean",
+            "default": true,
+            "description": "If true, the cron wrapper exits 0 on Saturday + Sunday without firing claude. Consumed by librarian-cron.sh via SKIP_WEEKENDS env (exported into the launchd plist EnvironmentVariables block by render-launchd.sh; default true). Architect ignores this field — its weekly schedule is owned by schedule.dow."
+          }
+        }
+      }
+    },
+    "tripwires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "semantics", "contract"],
+        "properties": {
+          "id": { "type": "string" },
+          "semantics": { "enum": ["contents", "existence"] },
+          "contract": {
+            "type": "string",
+            "description": "Human-readable failure mode"
+          },
+          "path": { "type": "string" },
+          "expected_contents_regex": { "type": "string" }
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "required": ["morning_brief_staleness_h", "librarian_staleness_h", "sessionstart_banner_staleness_h"],
+      "properties": {
+        "morning_brief_staleness_h": { "type": "integer", "default": 48 },
+        "librarian_staleness_h": { "type": "integer", "default": 24 },
+        "sessionstart_banner_staleness_h": { "type": "integer", "default": 24 },
+        "filename_epoch_parsing": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

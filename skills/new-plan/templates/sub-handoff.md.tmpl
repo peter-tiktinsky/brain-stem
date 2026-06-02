@@ -1,0 +1,56 @@
+---
+title: {{title}} — Handoff
+type: handoff
+status: draft
+created: {{date}}
+updated: {{date}}
+---
+
+# {{title}} — Handoff (sub-plan {{sub_plan_id}})
+
+Append-only session record. Newest entry at top.
+
+<!--
+SHAPE CONTRACT — governance/file-type-contracts/handoff.md.json + the
+session-continuity protocol. STRICTLY APPEND-ONLY, NEWEST-FIRST. Never edit a prior session
+block — corrections land as a NEW block referencing the prior one. New sessions PREPEND a
+`## Session N — <title>` block directly below this line.
+handoff.md is EXEMPT from the parent_plan frontmatter requirement at any depth (R-28) — so
+this sub-plan handoff carries no parent_plan line (unlike its sibling spec.md / tasks.md /
+manifest.json).
+SUB-PLAN handoff: records this sub-plan's session arc and PUBLISHES terminal status upward —
+when the sub-plan reaches a terminal state, the librarian reconciler pulls its published
+status + graduation_timestamp into the master's sub_plans[] aggregate (sub-publishes-upward).
+The task-done marker convention lives here (`<!-- task-done: NN/T-M -->`).
+Per-session block target 300-1,500 tokens. Hard cap 50KB -> split to handoff-archive.md.
+-->
+
+## Session 0 — scaffold
+
+**Date:** {{date}}
+**Next session:** T-1 — {{first task title}}
+
+### Scope
+{{What this session set out to do.}}
+
+### Decision-Quality Protocol passes
+{{Any DQP fork decided this session. Omit if none.}}
+
+### Locks captured
+{{Decisions/constraints locked this session.}}
+
+### Spec deltas
+{{Any spec.md amendments. Omit if none.}}
+
+### Files modified
+| File | Change |
+|------|--------|
+| `{{path}}` | {{created / modified / deleted}} |
+
+### Follow-up dispositions
+{{Close-out follow-ups, each with one disposition: FIX NOW / ABSORB / STANDALONE. Omit if none.}}
+
+### Memories saved
+{{Auto-memory entries written this session. Omit if none.}}
+
+---

@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://brain-stem.local/schemas/rules-schema.json",
+  "schema_version": "1.0.0",
+  "title": "Rule file frontmatter contract (~/.claude/rules/*.md + <project>/.claude/rules/*.md)",
+  "description": "YAML frontmatter contract every Markdown file under a `.claude/rules/` directory MUST carry. `.claude/rules/` is the documented scale-beyond / global surface for instructions that load every session regardless of cwd (~/.claude/rules/) or every session within one project (<project>/.claude/rules/). The harness reads `description` (scan hook) and `paths` (glob activation) directly; the STEM governance fields (`provenance`, `source_memory`, `promoted_at`, `tags`) are additive and ignored by the harness but consumed by the memory→RULES promotion (memory-globalize) + rules-hygiene. Schema validates the frontmatter block parsed as an object; additionalProperties is true so rule files may carry the harness-native shape unchanged. Sibling contract to schemas/memory-schema.json.",
+
+  "_design_notes": {
+    "purpose": "Codify the global/project rule surface: the `scope:` router on a memory points global facts at `~/.claude/rules/`, where a promotion step (memory-globalize) elevates them as unscoped or glob-scoped rules. This schema is the validation contract that promotion (block-and-log, never write-and-hope) and rules-hygiene check against. REPO-ONLY at GA — never shipped to the adopter schemas; the two consumers degrade to a structural fallback that mirrors this contract when the file is absent (the intended adopter degradation). Adopter live rules cutover is OUT OF SCOPE (release-ceremony-gated).",
+
+    "ship_tier": "repo-only (authoring-side). Not one of the adopter-shipped schemas. Lets the jsonschema block-and-log validation path run repo-side instead of always degrading to the structural fallback.",
+
+    "two_activation_modes": {
+      "_description": "The harness loads .claude/rules/*.md by one of two modes, keyed on presence of the `paths:` frontmatter key (confirmed against the shipped binary).",
+      "unscoped": "No `paths:` key — the file loads at session start alongside CLAUDE.md. Use for cross-cutting rules that should fire every session (universal preferences, refusal patterns, style conventions). This is where promoted `scope: global` memories land by default.",
+      "glob_scoped": "`paths:` array of glob patterns — the file loads only when the session reads a file matching any pattern. Use for domain-scoped rules (per-language style, infra conventions) to keep the always-on context budget small."
+    },
+
+    "global_vs_project_surface": {
+      "_description": "Location, not frontmatter, determines a rule's scope. There is NO `scope:` field on rules — the directory is the scope declaration. This is the structural counterpart to the memory `scope:` router (memory-schema.json :: scope).",
+      "user_scope": "~/.claude/rules/*.md — applies to every project session (the global surface; the destination of `scope: global` memory promotion).",
+      "project_scope": "<project>/.claude/rules/*.md — applies only when that project is the working tree. Project scope wins on conflict (same precedence as CLAUDE.md)."
+    },
+
+    "provenance_axis": {
+      "_description": "The `provenance` field distinguishes how a rule got here. Hand-authored rules are the common case (the README worked examples); promoted rules carry the source-memory lineage so a future auditor can trace a global rule back to the project memory that crystallized it, and so promotion is idempotent (re-running promotion finds the existing `source_memory` pointer and skips). Absent `provenance` defaults to `hand-authored` (additivity contract — the harness-native shape with only description+paths is valid and treated as hand-authored).",
+      "values": {
+        "hand-authored": "Written directly by a human or a non-promotion skill. Default when `provenance` is absent.",
+        "promoted-from-memory": "Elevated from a project memory carrying `scope: global` by the memory-globalize capability. REQUIRES `source_memory` (the slug of the originating memory; pairs with that memory's `promoted_to:` pointer)."
+      }
+    },
+
+    "size_ceiling": {
+      "_description": "Body line-count is NOT validated by this JSON Schema (no JSON path into body bytes). The ceiling is documentary here + enforced by the rules-hygiene librarian capability (propose-only NDJSON, mirroring the MEMORY.md cap advisory at mandatory-files-rules.json :: R-59). Industry convergence: Cursor .mdc, GitHub Copilot applyTo:.",
+      "max_lines": 500,
+      "rationale": "One concern per file; split when a file outgrows a single domain. Rules that grow past ~500 lines are usually two rules wearing one filename."
+    },
+
+    "no_auto_writes_to_claude_md": "Promotion targets ~/.claude/rules/ ONLY — never global ~/.claude/CLAUDE.md. CLAUDE.md stays hand-curated (one-time no-clobber install seed).",
+
+    "relationship_to_memory_schema": "Sibling contract to schemas/memory-schema.json. Memory = project layer (auto-fed, 200-line/25KB capped, isolated per git-root). Rules = global/scale-beyond layer (uncapped by the harness, loaded every session). The memory `scope:` field is the router between them; promotion is the transport.",
+
+    "consumers": [
+      "skills/librarian/capabilities/memory-globalize.sh (memory->RULES promotion — validates a candidate `scope: global` memory against THIS schema before writing to ~/.claude/rules/; block-and-log. Resolves the schema foundation-repo -> live install at lines 149-157; degrades to the structural fallback at lines 205-210 when absent)",
+      "skills/librarian/capabilities/rules-hygiene.sh (frontmatter validity + size ceiling + dead-glob audit; propose-only NDJSON. Resolves the schema at lines 106-114; structural fallback when absent)",
+      "templates/claude-home-rules-readme-template.md (adopter-facing authoring guidance; its worked examples validate against this schema)",
+      "internal/tests (regression — validates the README worked examples + a synthetic promoted rule)"
+    ],
+
+    "schema_version_policy": "SemVer. Additive field additions = minor bump. Required-field changes or enum reductions = major bump (R-37 atomic lockstep with consumers above)."
+  },
+
+  "type": "object",
+  "required": [
+    "description"
+  ],
+  "additionalProperties": true,
+
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RETRIEVAL HOOK read by the harness when scanning rules — not a topic summary. Lead with the trigger or rule so the harness's relevance check is cheap. Anti-pattern: 'TypeScript notes'. Good: 'Block live aws/gcloud/terraform apply calls; require dry-run + operator confirmation first.'"
+    },
+
+    "paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Optional glob-activation patterns. When present, the rule loads ONLY in sessions that read a file matching any pattern (glob-scoped / lazy mode). When ABSENT, the rule is unscoped and loads at every session start. Patterns follow the harness glob syntax (e.g., '**/*.ts', 'infrastructure/**/*.tf')."
+    },
+
+    "provenance": {
+      "type": "string",
+      "enum": ["hand-authored", "promoted-from-memory"],
+      "description": "How this rule got here. Default 'hand-authored' when absent. 'promoted-from-memory' is set by the memory-globalize capability when elevating a `scope: global` memory, and REQUIRES `source_memory`. Lets rules-hygiene + a future auditor distinguish curated rules from elevated ones, and makes promotion idempotent."
+    },
+
+    "source_memory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Slug of the project memory this rule was promoted from (without .md extension). REQUIRED when provenance = promoted-from-memory. Pairs with the source memory's `promoted_to:` pointer so the lineage is bidirectional and promotion is re-run-safe."
+    },
+
+    "promoted_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Date (YYYY-MM-DD) the promotion ran. Optional; meaningful only when provenance = promoted-from-memory. Stamped by the memory-globalize capability at write time."
+    },
+
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 0,
+      "description": "Optional free-form retrieval/hygiene tags. Ignored by the harness; consumed by rules-hygiene for corpus organization. May be empty []."
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": { "provenance": { "const": "promoted-from-memory" } },
+        "required": ["provenance"]
+      },
+      "then": {
+        "required": ["source_memory"],
+        "description": "Promoted rules MUST carry source_memory so the originating memory is traceable and promotion is idempotent. Enforced for memory-globalize output."
+      }
+    }
+  ],
+
+  "examples": [
+    {
+      "description": "TypeScript style: 2-space indent, no default exports, explicit return types on exported functions.",
+      "paths": ["**/*.ts", "**/*.tsx"]
+    },
+    {
+      "description": "Block live aws / gcloud / terraform apply calls; require dry-run + operator confirmation first.",
+      "paths": ["infrastructure/**/*.tf", "infrastructure/**/*.yaml", "scripts/deploy-*.sh"]
+    },
+    {
+      "description": "Never use named individuals on client proposals; generic role titles only.",
+      "provenance": "promoted-from-memory",
+      "source_memory": "feedback_client_proposal_no_names",
+      "promoted_at": "2026-05-25"
+    }
+  ]
+}

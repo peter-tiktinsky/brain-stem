@@ -1,0 +1,123 @@
+{
+  "version": 2,
+  "description": "Documentation dependency registry. Hand-editable source of truth. Read by pre-write-guard.sh and librarian session-close. Mirrored into Logs/librarian-manifest.json -> doc_dependencies on each /librarian full run. Cascade registry consumed by pre-write-guard.sh + librarian session-close. The entities{} block is a declarative entity-mirror registry; per-type parity is enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
+  "_path_placeholders": {
+    "_description": "Path placeholders are substituted at install time. Foundation-repo ships paths in this parameterized form; install.sh resolves each placeholder against the adopter's environment.",
+    "{hooks_root}": "Adopter's hooks directory (typical: $CLAUDE_HOME/hooks)",
+    "{schemas_root}": "Adopter's schemas directory (typical: $CLAUDE_HOME/schemas)",
+    "{vault_root}": "Adopter's vault root (per onboarding wizard archetype)",
+    "{skills_root}": "Adopter's skills directory (typical: $CLAUDE_HOME/skills)",
+    "{plans_root}": "Adopter's plans directory (typical: $HOME/.claude-plans)",
+    "{memory_root}": "Adopter's memory directory (typical: $CLAUDE_HOME/projects/<project-slug>/memory)"
+  },
+  "schema_notes": {
+    "rename_history": "Append-only audit trail of renames that have touched an entry's primary / mirrors[]. Each row: {\"from\": \"<old-path>\", \"to\": \"<new-path>\", \"at\": \"<ISO8601>\", \"commit\": \"<sha>\"}. Populated by rename-detect.sh at librarian session-close. Forward-only: no historical backfill. Empty array means no known renames since instrumentation landed."
+  },
+  "_rules": [
+    {
+      "id": "R-48",
+      "home": "doc-dependencies",
+      "category": "C1",
+      "surface": "wikilink-integrity",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "hook"
+      ],
+      "status": "active",
+      "source": "governance/doc-dependencies.json :: _rules (D7 SoT). R-48 is the broken-wikilink Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
+      "rule_text": "A file written with wikilink reference(s) [[target]] / [[target|alias]] to a non-existent target SHOULD surface a write-time advisory naming the broken target(s). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability. R-48 is the broken-wikilink write-time advisory (Tier 1).",
+      "failure_mode": "A wikilink to a non-existent target lands silently; the vault navigation graph carries a dangling edge that the reader only discovers on click. Advisory: write proceeds; operator told the broken target(s) + pointed at wikilink-repair or to create the target file if intended."
+    },
+    {
+      "id": "R-54",
+      "home": "doc-dependencies",
+      "category": "C1",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh (doc-dep cascade advisory)"
+      ],
+      "status": "active",
+      "source": "governance/doc-dependencies.json :: _rules (D7 SoT — canonical doc-dep cascade ID)",
+      "rule_text": "When an upstream document declared in this registry's entries[]/entities[] is edited, its declared downstream consumers/mirrors should be cascaded. ADVISORY — surfaced at write-time and at librarian session-close; never a write-time DENY. R-54 is the canonical doc-dep cascade ID; the hook header label is R-54 (renamed from R-07).",
+      "failure_mode": "An upstream doc changes but its declared downstream mirrors drift. Advisory only — vault-writer fan-out is the forward path; R-54 is the thin/legacy cascade rail kept for the registry-declared edges.",
+      "_framing": "thin/legacy — the vault-writer fan-out (R-58 / writer-reference contract) is the FORWARD path; R-54 covers the registry-declared cascade edges only."
+    }
+  ],
+  "entries": [
+    {
+      "id": "meetings-fan-in-reference",
+      "kind": "writer-fan-in",
+      "consumer": "Meetings/<meeting-note>.md",
+      "upstream_writers": [
+        "meeting-processor",
+        "teams-scrape",
+        "gchat-scrape"
+      ],
+      "amendment_strategy": "prompt-guided-amend",
+      "rationale": "Reference entry — declares that meeting notes are a fan-in destination of 3 writers; doc-amender uses prompt-guided-amend strategy. Adopter MAY override with overlay row or remove if not applicable.",
+      "rename_history": []
+    }
+  ],
+  "entities": {
+    "_comment": "Entity parity registry. Each entity declares a canonical source path template with {name} placeholder, an instance-enumerator (glob/file-list/directory-index), the canonical field to compare, and mirrors with strict/presence-only flags. Declarative entity-mirror registry; per-type parity enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
+    "skill": {
+      "canonical": "{skills_root}/{name}/SKILL.md",
+      "canonical_field": "description",
+      "instance_enumerator": "glob:{skills_root}/*/SKILL.md",
+      "mirrors": [
+        {
+          "path": "Skills/{name}.md",
+          "fields": [
+            "description"
+          ],
+          "strict": true,
+          "notes": "Vault design spec for the skill. Present for most runtime skills; absent for a minority of backend-only skills.",
+          "match_kind": "frontmatter"
+        },
+        {
+          "path": "Skills/_index.md#row[{name}]",
+          "fields": [],
+          "strict": false,
+          "presence_only": true,
+          "notes": "Master catalog row. Description column is paraphrased-by-design (summary, not mirror). Presence-only check.",
+          "row_kind": "wikilink-row"
+        }
+      ]
+    },
+    "plan": {
+      "canonical": "{plans_root}/{slug}/spec.md",
+      "canonical_field": "status",
+      "instance_enumerator": "glob:{plans_root}/*/spec.md",
+      "mirrors": [
+        {
+          "path": "{plans_root}/{slug}/manifest.json",
+          "match_kind": "json-field",
+          "fields": [
+            "status"
+          ],
+          "strict": true,
+          "optional": true,
+          "notes": "Plan manifest. Optional because pre-manifest plans may not carry one; when present, top-level status must match spec frontmatter."
+        }
+      ]
+    },
+    "memory-file": {
+      "canonical": "{memory_root}/{filename}",
+      "canonical_field": "description",
+      "instance_enumerator": "glob:{memory_root}/*.md",
+      "exclude_basenames": [
+        "MEMORY.md"
+      ],
+      "mirrors": [
+        {
+          "path": "{memory_root}/MEMORY.md#row[{filename}]",
+          "row_kind": "memory-index-line",
+          "fields": [],
+          "strict": false,
+          "presence_only": true,
+          "notes": "MEMORY.md index entry. Summary after em-dash is paraphrased for scan-readability. Presence-only check."
+        }
+      ]
+    }
+  }
+}

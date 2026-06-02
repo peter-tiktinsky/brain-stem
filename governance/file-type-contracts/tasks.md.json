@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/tasks.md.json",
+  "title": "tasks.md (plan/sub-plan) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for plan-tree tasks.md files. Ledger-at-top + per-task-at-bottom shape; R-37 lockstep with manifest.tasks[].",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "plan_folder_quartet.required",
+  "_design_notes": {
+    "consumer": "hooks/tasks-md-autosync.sh + librarian plan-index + manifest auto-sync sentinels (<!-- task-done: NN/T-M -->)",
+    "lockstep_pair": "manifest.tasks[] in same plan-tree (R-37 coupled_surfaces)",
+    "evolution_protocol": "R-37 atomic lockstep with manifest.json"
+  },
+
+  "type": "tasks",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/tasks.md"
+  },
+
+  "structure": "ledger-at-top + per-task-at-bottom",
+  "structure_rationale": "Cache at top (current ledger / status table) for quick scan; recency at bottom (current task expanded) for context-load — file shapes optimized for LLM consumption.",
+
+  "per_task_token_range": {
+    "min": 200,
+    "max": 800
+  },
+
+  "lockstep_with": "manifest.tasks[]",
+  "lockstep_rule": "R-37 — adding/removing a task ID requires same-commit update to manifest.tasks[]; status flip syncs via <!-- task-done: NN/T-M --> sentinels.",
+
+  "task_id_immutable_once_published": true,
+  "task_id_format": "T-N where N is monotonically increasing integer within the plan/sub-plan",
+
+  "size_limits": {
+    "max_lines": 1000
+  },
+  "write_shape": "replace"
+}

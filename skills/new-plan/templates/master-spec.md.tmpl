@@ -1,0 +1,76 @@
+---
+title: {{title}} — Spec
+type: spec
+status: planned
+created: {{date}}
+updated: {{date}}
+---
+
+# {{title}} — Spec (master)
+
+**Status:** planned
+**Created:** {{date}}
+**Parent:** —
+**Goal:** {{GOAL — one sentence. When this initiative ships, what is true that wasn't true before?}}
+
+<!--
+SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
+Goal / Problem Statement / Constraints; mutable tail: Solution Approach / Files Modified /
+Success Metrics / Risk). Cap ~500 lines.
+MASTER spec: this is the orchestrator-worker ROOT for a multi-sub-plan initiative.
+It frames the initiative-wide Goal / Problem / Constraints; each sub-plan carries its OWN
+spec (sub-spec.md.tmpl) and reports status UPWARD into this master's manifest sub_plans[]
+aggregate. The master spec is the binding_spec pointer target the sub-plans cite. Sub-plans
+do NOT communicate peer-to-peer — they route through this master (metadata_flow).
+The **Status:** marker is a SINGLE canonical 8-state token (researching | planned |
+in-progress | paused | completed | verified | closed | archived; superseded terminal) per
+governance/plans-rules.json — never a prose paragraph. Decisions/rationale belong in
+decisions/ADR-NN-<slug>.md, not the status line.
+-->
+
+## Problem Statement
+
+{{PROBLEM — 2-4 sentences. What's broken, missing, or suboptimal today across the whole initiative? Frozen at scaffold time; only edited if the initiative is fundamentally re-scoped.}}
+
+## Constraints
+
+- {{Hard constraint}}
+- {{Budget constraint}}
+- {{Scope constraint — e.g., single-team scope; no cross-org rollout}}
+- {{Anti-scope lock — what is explicitly OUT of scope}}
+
+## Sub-plan map
+
+The master coordinates these sub-plans (status aggregated into `manifest.json :: sub_plans[]`; the librarian reconciler fills the aggregate via metadata_flow). Each sub-plan lives at `{{plan_dir}}/NN-<sub-slug>/` (NN = execution order).
+
+| Sub-plan | Slug | Scope | Depends on |
+|----------|------|-------|------------|
+| 01 | `01-{{first_sub_slug}}` | {{one-line scope}} | — |
+
+## Solution Approach
+
+{{SOLUTION — 3-8 sentences. High-level cross-sub-plan strategy. Not a task list — sub-plan tasks live in each sub's tasks.md / manifest.tasks[]. Post-Session-1 amendment blocks land here.}}
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| {{decision}} | {{choice}} | {{why this over alternatives — cross-ref ADR-NN}} |
+
+## Files Modified/Created
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `{{path}}` | New / Modify | {{one-line purpose}} |
+
+## Success Metrics
+
+| Metric | Target | How to Measure |
+|--------|--------|---------------|
+| {{metric}} | {{target}} | {{how}} |
+
+## Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| {{risk}} | Low/Med/High | Low/Med/High | {{mitigation}} |

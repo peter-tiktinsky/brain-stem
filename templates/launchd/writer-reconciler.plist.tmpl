@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  writer-reconciler.plist.tmpl
+
+  The reconciler is the sole R-34 mechanical destination writer. Trigger =
+  WatchPaths primary + relaxed hourly StartInterval backstop. launchd permits
+  BOTH keys in one plist:
+    - WatchPaths fires the reconciler within seconds of a packet landing in
+      the staging root (the primary, low-latency lane).
+    - StartInterval is the relaxed backstop (default hourly) covering missed
+      WatchPaths events (kqueue coalescing, sleep/wake). The empty-tick is a
+      cheap early-exit no-op in process.sh (no vault scan, no claude -p).
+  Concurrency is contained by the in-process lockf single-instance guard in
+  process.sh — concurrent fires coalesce or skip.
+
+  Rendered by installer/render-launchd.sh. The ${LABEL_PREFIX} substitution
+  expands to com.brain-stem.*.
+-->
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>${USER_HOME}</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:${USER_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>CLAUDE_HOME</key>
+		<string>${CLAUDE_HOME}</string>
+		<key>CLAUDE_LOG_DIR</key>
+		<string>${CLAUDE_LOG_DIR}</string>
+		<key>TZ</key>
+		<string>${TIMEZONE}</string>
+	</dict>
+	<key>Label</key>
+	<string>${LABEL_PREFIX}.writer-reconciler</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>${CLAUDE_HOME}/installer/cron-wrappers/writer-reconciler-cron.sh</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>${CLAUDE_LOG_DIR}/writer-reconciler-stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>${CLAUDE_LOG_DIR}/writer-reconciler-stdout.log</string>
+	<key>WatchPaths</key>
+	<array>
+		<string>${WRITER_STAGING_ROOT}</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>${WRITER_RECONCILER_BACKSTOP_SEC}</integer>
+	<key>WorkingDirectory</key>
+	<string>${USER_HOME}</string>
+</dict>
+</plist>

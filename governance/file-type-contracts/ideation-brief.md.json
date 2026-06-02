@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/ideation-brief.md.json",
+  "title": "00-ideation-brief.md (plan) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for plan-tree 00-ideation-brief.md files. Frozen-post-Session-1 body with amendment-pointer-block prepend pattern. Conditional plan-folder quartet member (gates at planned → in-progress for manifest.research_driven: true).",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "plan_folder_quartet.conditional[0]",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (body-immutability enforcement post first amendment-pointer-block) + librarian plan-index",
+    "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet",
+    "evolution_protocol": "Body frozen post-Session-1; amendments via prepended amendment-pointer-block referencing the canonical reference. Body preserved as the Session 0 research record. R-37 atomic lockstep — documentary-by-design (the frozen-body + amendment-pointer-block protocol is the lockstep record, NOT a write-time DENY)."
+  },
+
+  "type": "ideation-brief",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/00-ideation-brief.md"
+  },
+
+  "frozen_post_session_1": true,
+  "frozen_rationale": "Body preserved as Session 0 research record; subsequent decision shifts captured via amendment-pointer-blocks rather than in-place edits.",
+
+  "amendment_pattern": "amendment-pointer-block at top of body referencing canonical reference; body preserved as Session 0 research record",
+
+  "recommendation_enum": ["PROCEED", "DEFER", "MERGE", "KILL"],
+
+  "size_limits": {
+    "max_lines": 300
+  },
+
+  "conditional_required": {
+    "condition": "manifest.research_driven == true",
+    "gate_fires_at": "planned → in-progress transition",
+    "enforcement_mvp": "advisory"
+  },
+  "write_shape": "create-only"
+}

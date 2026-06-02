@@ -1,0 +1,230 @@
+{
+  "schema_version": "2.0.0",
+  "pillar": "plans",
+  "_description": "Pillar 8 — Plans-tree governance (D7 rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 8-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; Branch 4 librarian-only writes; manifest-substance branch), skills/librarian/capabilities/{plan-index,plan-archive,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
+    "lockstep_pair": "System Governance - Plans.md (narrative spoke) + schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh",
+    "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its narrative spoke + schema + contracts + hook move in one commit."
+  },
+  "_rules": [
+    {
+      "id": "R-29",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "skill",
+      "enforcement_layer": ["skill:backlog-hygiene"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT)",
+      "rule_text": "Backlog row size is bounded — a row in the unified _backlog.md carries only a current-state pointer; session history lives in the satellite, not the row. backlog-hygiene flags over-long rows.",
+      "failure_mode": "Unbounded backlog rows accrete session narrative inline; the index becomes a log; scan-readability collapses. Skill-enforced (backlog-hygiene), never write-time."
+    },
+    {
+      "id": "R-30",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "skill",
+      "enforcement_layer": ["skill:backlog-hygiene"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT)",
+      "rule_text": "Backlog sentinel pattern — the row carries the current-state pointer; the satellite at the plan dir / handoff.md is the single source of session history. backlog-hygiene validates the pattern.",
+      "failure_mode": "Drift between row and satellite; history scattered. Skill-enforced (backlog-hygiene), never write-time."
+    },
+    {
+      "id": "R-31",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "skill",
+      "enforcement_layer": ["skill:backlog-hygiene"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT)",
+      "rule_text": "Backlog sentinel pattern (companion to R-30) — sentinel-bounded row regions are librarian-regenerated; operator narrative is preserved outside the sentinels. backlog-hygiene validates parity.",
+      "failure_mode": "Hand-edits inside sentinel regions are clobbered on regen, or stale regions diverge. Skill-enforced (backlog-hygiene), never write-time."
+    },
+    {
+      "id": "R-56",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "skill",
+      "enforcement_layer": ["skill:backlog-hygiene"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT)",
+      "rule_text": "Every backlog row (idea note or {researching,planned} manifest) carries a disposition signal (FIX NOW / ABSORB / STANDALONE / DEFERRED). backlog-hygiene escalates severity Warning -> Alert by stale_for_days against backlog_row.stale_advisory_days when a disposition is missing.",
+      "failure_mode": "Undisposed backlog rows float indefinitely; the GTD review loop has nothing to act on. Skill-enforced (backlog-hygiene), never write-time."
+    },
+    {
+      "id": "R-61",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "reconciler",
+      "enforcement_layer": ["librarian"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT; master/sub aggregation)",
+      "rule_text": "Master sub_plans[] aggregation-integrity: the master manifest's sub_plans[].status read-replica MUST agree with each sub-plan's real published status. Cross-file invariant enforced by the librarian reconciler (NOT write-time) — extends trinity-drift-detect.sh / drift-sweep.sh with the master<->sub aggregation axis; detects (and optionally --fix) drift.",
+      "failure_mode": "A master's sub_plans[] read-replica goes stale against the subs' real status; the master shows a sub as in-progress that has actually verified (or vice-versa); orchestration decisions read a phantom aggregate. Cross-file -> reconciler at session-close, never a blocking write-time path."
+    },
+    {
+      "id": "R-62",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "reconciler",
+      "enforcement_layer": ["librarian"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT; sub-publishes-upward)",
+      "rule_text": "Sub-publishes-upward: a sub-plan publishes its status + graduation_timestamp upward to the master (the master reads them into sub_plans[]); a sub MUST NOT mutate the master aggregate directly. Cross-file invariant enforced by the librarian reconciler (NOT write-time).",
+      "failure_mode": "A sub-plan fails to publish a status transition, or attempts to write the master aggregate directly, breaking the pull-based read-replica model. Cross-file -> reconciler at session-close."
+    },
+    {
+      "id": "R-63",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "advisory",
+      "enforcement_layer": ["librarian"],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (D7 SoT; sub-peer-isolation)",
+      "rule_text": "Sub-peer-isolation: a sub-plan manifest MUST NOT carry a dependencies edge to a sibling sub-plan — route through the master manifest (the orchestrator-worker invariant: workers report only to the orchestrator, never to each other). Surfaced as a librarian reconciler drift finding (advisory).",
+      "failure_mode": "A sub declares a direct dependency on a sibling sub, recreating the agent-teams peer model the orchestrator-worker model deliberately rejects (MAST coordination-failure class). Advisory drift finding at session-close."
+    }
+  ],
+  "_rules_membership_note": "Final plans-pillar _rules[] = [R-29, R-30, R-31, R-56, R-61, R-62, R-63]. The D7 home != category model is preserved: R-27/R-28 are homed in the NAMING pillar (categorized C3), NOT here; R-40 is homed in frontmatter. R-15 is a status: retired tombstone (see _retired_tombstones) — declared for provenance, never fires, never in the live _rules[] array.",
+  "_retired_tombstones": [
+    {
+      "id": "R-15",
+      "home": "plans",
+      "category": "C3",
+      "tier": "audit",
+      "enforcement_layer": [],
+      "status": "retired",
+      "retired_at": "2026-05-22",
+      "retired_reason": "PLAN->BACKLOG. Superseded by the librarian-emitted ~/.claude-plans/_backlog.md + _archive.md (writers_allowed=[librarian]; generated_by=librarian:backlog-index|plan-archive).",
+      "source": "governance/plans-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
+      "rule_text": "[RETIRED] Vault-root System Backlog satellite mandate. Tombstone — declared for provenance, never fires, renders only in the rules-index retired section.",
+      "failure_mode": "n/a (retired tombstone)"
+    }
+  ],
+  "root_files": {
+    "_index.md":   {"mandatory": true, "generated_by": "librarian:plan-index",   "writers_allowed": ["librarian"]},
+    "_backlog.md": {"mandatory": true, "generated_by": "librarian:backlog-index", "writers_allowed": ["librarian"]},
+    "_archive.md": {"mandatory": true, "generated_by": "librarian:plan-archive", "writers_allowed": ["librarian"]}
+  },
+  "plan_folder_quartet": {
+    "required": ["spec.md", "tasks.md", "handoff.md", "manifest.json"]
+  },
+  "slug_rules": {
+    "pattern": "^[0-9]{2}-[a-z][a-z0-9-]+$",
+    "plan_root_numbering": "next-available-prefix-creation-order",
+    "sub_plan_numbering": "execution-order-not-creation-order"
+  },
+  "subplan_rules": {
+    "naming": "NN-{slug}/ in execution order",
+    "parent_plan_required_at_depth": 3,
+    "metadata_flow": {
+      "_description": "Orchestrator-worker contract for first-class master/sub-plan structure. Maps onto Claude Code's subagent orchestrator-worker invariant: workers run in isolated contexts, report only to the orchestrator, and NEVER communicate with each other — the deliberate OPPOSITE of the agent-teams peer model. Master/sub aggregation is pull-based and DERIVED: the master sub_plans[] is a librarian-generated read-replica (same trust class as _index.md), NEVER hand-edited.",
+      "master_owns": ["sub_plans[].status (aggregate)", "cross-plan dependencies"],
+      "sub_publishes_upward": ["status", "graduation_timestamp"],
+      "sub_peer_communication": "FORBIDDEN — route through master manifest",
+      "aggregation_model": "pull-based-derived-read-replica (librarian reconciler reads each sub's published status into the master's sub_plans[]; never hand-edited; same class as _index.md)",
+      "required_artifacts": {
+        "_description": "Per-transition required artifacts a status flip MUST present. Consumed by the PreToolUse manifest-substance branch (closed-requires-verified) and the librarian reconciler.",
+        "in-progress->completed": ["spec.md", "tasks.md", "manifest.json"],
+        "completed->verified": ["harness_validated[] fresh verdict-pass entry (machine-stamped by the dogfood-harness)"],
+        "verified->closed": ["status == verified (the load-bearing closed-requires-verified guard)"]
+      },
+      "validation": {
+        "promotion_eligible": "A status promotion to `verified` is eligible only through an actual validation pass (the R-46-cousin verdict gate; plan-manifest-schema.json). `verified` is machine-stamped, never human-set."
+      },
+      "advisory_rules": ["R-63 (sub-peer-isolation; advisory reconciler drift finding)"],
+      "parent_plan_exempt_files": [
+        "Plan-root files at depth 2 (spec.md, tasks.md, handoff.md, 00-ideation-brief.md, README.md, manifest.json) — they ARE the parent",
+        "handoff.md at any depth (append-only session record)",
+        "Files under tests/",
+        "Files under _orchestrator/"
+      ]
+    }
+  },
+  "decision_records": {
+    "_description": "Per-plan ADR (Architecture Decision Record) ledger. Short, immutable, individually-addressable, supersession-tracked decision records. Optional: a plan with no recorded decisions has no decisions/ dir. Body-structure contract at governance/file-type-contracts/adr.md.json; manifest pointer array at schemas/plan-manifest-schema.json :: decision_records[].",
+    "dir": "decisions/",
+    "filename_pattern": "^ADR-[0-9]{2,}-[a-z][a-z0-9-]+\\.md$",
+    "numbering": "monotonic-two-digit-creation-order-within-plan",
+    "contract": "governance/file-type-contracts/adr.md.json",
+    "writers_allowed": ["any"],
+    "status_enum": ["proposed", "accepted", "rejected", "deprecated", "superseded"],
+    "required_sections": ["Context", "Decision", "Consequences"],
+    "optional_sections": ["Considered Options"],
+    "placement_rule": "repo-tier (docs/decisions/, 4-digit) IFF the decision changes adopter-inherited foundation behavior; else plan-tier (<plan>/decisions/ADR-NN-<slug>.md, 2-digit).",
+    "agent_reload_contract": "On plan resume, load non-superseded ADRs via manifest.decision_records[] as the decision context — NOT spec-prose archaeology.",
+    "tooling": "NONE (no adr-tools / log4brains). Markdown-in-git + librarian enumeration covers it; bundling violates minimum-viable.",
+    "immutability": "An accepted ADR is immutable. A decision change creates a NEW ADR that supersedes the prior one (prior Status -> superseded-by-ADR-NN); never an in-place edit. Distinct from the spec.md append-amendment pattern.",
+    "manifest_pointer": "manifest.decision_records[]"
+  },
+  "backlog_row": {
+    "required_fields": ["Project Dir", "Initiative", "Status", "Disposition", "Updated", "Notes"],
+    "status_enum":      ["new", "triaged", "briefed", "planned", "in-progress", "closed"],
+    "disposition_enum": ["FIX NOW", "ABSORB", "STANDALONE", "DEFERRED"],
+    "stale_advisory_days": [14, 21],
+    "_stale_advisory_days_note": "[advisory_threshold, escalation_threshold] in days for a backlog row missing a disposition. backlog-index emits backlog-row-missing-disposition once per run; backlog-hygiene escalates severity Warning->Alert by stale_for_days against these thresholds (R-56)."
+  },
+  "inbox": {
+    "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
+    "dir": "_inbox/",
+    "note_glob": "_inbox/*.md",
+    "writers_allowed": ["any"],
+    "slug_pattern": "^[a-z][a-z0-9-]+$",
+    "_slug_pattern_note": "Inbox notes have NO NN- numeric prefix (distinct from plan slugs). The prefix is assigned at graduation, not at capture — avoids prefix burn on discarded ideas.",
+    "note_frontmatter": {
+      "type_value": "idea",
+      "required": ["title", "type", "status", "created"],
+      "optional": ["updated", "disposition", "tags", "related"]
+    },
+    "funnel_status_enum": ["new", "triaged", "briefed"],
+    "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation"
+  },
+  "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 8-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 8-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
+  "lifecycle": {
+    "_description": "ONE canonical 8-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the pre-write-guard manifest-substance branch + the librarian reconciler enforce.",
+    "status_enum": ["researching", "planned", "in-progress", "paused", "completed", "verified", "closed", "archived"],
+    "terminal_from_any_non_archived": ["superseded"],
+    "transitions": {
+      "researching->planned": {"setter": "human"},
+      "planned->in-progress": {"setter": "human"},
+      "in-progress<->paused": {"setter": "human", "paused_carries": "structured reason (schemas/plan-manifest-schema.json :: paused_reason)"},
+      "in-progress->completed": {"setter": "human", "_note": "completed = human's claim that work is done"},
+      "completed->verified": {"setter": "machine", "_note": "verified = machine-stamped, reachable ONLY through an actual validation pass (the R-46-cousin verdict gate, the dogfood-harness verdict-pass). The stamper's home is the dogfood-harness seam."},
+      "verified->closed": {"setter": "human", "guard": "closed-requires-verified"},
+      "closed->archived": {"gate": "volume-cooldown", "setter": "librarian"}
+    },
+    "guards": {
+      "closed_requires_verified": {
+        "_description": "LOAD-BEARING write-time guard. A status flip to `closed` is FORBIDDEN unless status == verified. 'Done' is unforgeable, spec-gaming-proof. Enforced by the hooks/pre-write-guard.sh manifest-substance branch (matcher Edit|Write on **/manifest.json), rollout ask->deny.",
+        "forbids": "status -> closed when status != verified",
+        "enforcement_layer": ["hooks/pre-write-guard.sh manifest-substance branch"],
+        "rollout": "ask -> deny on low false-positive rate"
+      },
+      "closed_to_archived": {
+        "_description": "closed -> archived is VOLUME/COOLDOWN-gated, NOT calendar. A calendar (cooldown_days) gate is deliberately NOT used — archival is driven by librarian-cycle volume, not elapsed days.",
+        "gate_type": "volume-cooldown",
+        "parameter": {"unit": "librarian-cycle ticks since closed", "threshold": 3},
+        "_parameter_note": "Default N=3 librarian-cycle ticks since closed. NOT a calendar gate."
+      }
+    },
+    "_retired_enums_note": "Two predecessor enums were retired in favor of the single canonical `status` above: (1) a 7-state lifecycle.status_enum [researching, planned, in-progress, on-hold, closed, superseded, archived] — `on-hold` replaced by `paused` (carries a structured reason); (2) a 5-state top_level_status [aligned, in_progress, complete, closed, superseded]. Consumers re-point top_level_status -> status."
+  },
+  "validation": {
+    "five_validation_classes": [
+      {"id": "filename_to_type",             "tier": "structural"},
+      {"id": "plan_root_status_and_prefix",  "tier": "structural"},
+      {"id": "subtask_parent_plan",          "tier": "structural"},
+      {"id": "trinity_status_agreement",     "tier": "semantic"},
+      {"id": "handoff_section_schema",       "tier": "semantic"}
+    ],
+    "firing_surfaces": ["PreToolUse", "PostToolUse", "SessionStart", "Stop", "librarian-sweeps"]
+  }
+}

@@ -1,0 +1,519 @@
+{
+  "schema_version": "2.0.0",
+  "_description": "8-pillar registry + cross-cutting meta-rules + dissolved-schema registry. Hook-loaded. The registry spans 8 pillars (frontmatter, tagging, naming, mandatory-files, doc-dependencies, file-type-contracts, vault-writers, plans); the retired governance/enforcement-map.schema.json has canonical successor governance/foundation-master.json.",
+  "_design_notes": {
+    "consumer": "pre-write-guard.sh, post-write-verify.sh, librarian governance-parity-audit",
+    "lockstep_pair": "System Governance/ folder narrative spokes (one per pillar)",
+    "evolution_protocol": "R-37 atomic lockstep"
+  },
+  "_spoke_prefix": "System Governance - ",
+  "pillars": [
+    {
+      "id": "frontmatter",
+      "path": "frontmatter-rules.json",
+      "rule_id_range": [
+        "R-32",
+        "R-33",
+        "R-37",
+        "R-39",
+        "R-40"
+      ],
+      "size_bytes": "20-30K",
+      "loaded_by": [
+        "pre-write-guard.sh",
+        "post-write-verify.sh"
+      ],
+      "spoke": "Frontmatter.md",
+      "absorbs": "types{} registry + tier_compliance + packet_only_fields + excluded_fields + retired_types + path_routing (absorbed from dissolved schemas/vault-schema.json)",
+      "r37_coupled_surfaces": [
+        "governance/frontmatter-rules.json",
+        "onboarding/scaffold/vault-architecture/System Governance - Frontmatter.md",
+        "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
+        "hooks/post-write-verify.sh (type_map)",
+        "hooks/config/gate-config.json (interim)",
+        "governance/foundation-master.json (forward — composed from this pillar via tools/build-foundation-master.sh)"
+      ]
+    },
+    {
+      "id": "tagging",
+      "path": "tagging-rules.json",
+      "rule_id_range": [
+        "R-05",
+        "R-60",
+        "R-47",
+        "R-50"
+      ],
+      "size_bytes": "10-15K",
+      "loaded_by": [
+        "pre-write-guard.sh"
+      ],
+      "spoke": "Tagging.md",
+      "absorbs": "canonical tag-prefix taxonomy (absorbed from dissolved schemas/vault-schema._tag_prefixes + _tag_prefixes_meta)",
+      "r37_coupled_surfaces": [
+        "governance/tagging-rules.json",
+        "onboarding/scaffold/vault-architecture/System Governance - Tagging.md",
+        "hooks/pre-write-guard.sh (tag-validation branch)",
+        "governance/log-subtype-registry.json (system-utility canonicality discipline)",
+        "hooks/config/gate-config.json (interim)",
+        "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
+      ],
+      "_rule_id_range_note": "R-32-taxonomy was renumbered to R-60 (it collided with the frontmatter R-32, a different rule); the R-60 _rules[] object is homed in governance/naming-rules.json. Mechanical rename."
+    },
+    {
+      "id": "naming",
+      "path": "naming-rules.json",
+      "rule_id_range": [
+        "R-04",
+        "R-10",
+        "R-20",
+        "R-27",
+        "R-28",
+        "R-60"
+      ],
+      "size_bytes": "3-5K",
+      "loaded_by": [
+        "pre-write-guard.sh"
+      ],
+      "spoke": "Naming.md"
+    },
+    {
+      "id": "mandatory-files",
+      "path": "mandatory-files-rules.json",
+      "rule_id_range": [
+        "R-09",
+        "R-44",
+        "R-58",
+        "R-59"
+      ],
+      "_rule_id_range_note": "rule_id_range matches the _rules[] membership = [R-09, R-44, R-58, R-59]. R-09 is a DECLARED C1 rule (tier autogovern). R-58 (surface vault-writers) + R-59 (memory cap) are mandatory-files _rules[] members.",
+      "size_bytes": "8-10K",
+      "loaded_by": [
+        "pre-write-guard.sh",
+        "post-write-verify.sh"
+      ],
+      "spoke": "Mandatory-Files.md",
+      "file_type_contracts_subfolder": "file-type-contracts/",
+      "file_type_contracts_pattern": "governance/file-type-contracts/<file>.json carries the per-file-type body-structure contract (k8s ValidatingAdmissionPolicy paramKind pattern); the pillar's `mandates.<file_type>` block declares the matcher + exemption list.",
+      "r37_coupled_surfaces": [
+        "governance/mandatory-files-rules.json",
+        "governance/file-type-contracts/*.json (registry pattern)",
+        "onboarding/scaffold/vault-architecture/System Governance - Mandatory-Files.md",
+        "hooks/post-write-verify.sh (auto-bootstrap)",
+        "skills/librarian/capabilities/index-maintain.sh",
+        "governance/foundation-master.json (forward)"
+      ]
+    },
+    {
+      "id": "doc-dependencies",
+      "path": "doc-dependencies.json",
+      "rule_id_range": [
+        "R-48",
+        "R-54"
+      ],
+      "_rule_id_range_note": "rule_id_range matches the doc-dependencies _rules[] membership = [R-48, R-54]. R-48 is the broken-wikilink advisory; R-54 is the doc-dep cascade rule.",
+      "size_bytes": "8-12K",
+      "loaded_by": [
+        "pre-write-guard.sh",
+        "post-write-verify.sh"
+      ],
+      "spoke": "Doc-Dependencies.md",
+      "_first_class_note": "First-class authoring pillar — the canonical authoring home for both hub-spoke cascades AND upstream→downstream write-time propagation edges. The interim hooks/config/doc-dependencies.json retires in favor of this pillar. The validator schemas/doc-dependencies-schema.json is preserved.",
+      "r37_coupled_surfaces": [
+        "governance/doc-dependencies.json",
+        "schemas/doc-dependencies-schema.json (validator)",
+        "hooks/pre-write-guard.sh (cascade propagation)",
+        "hooks/config/doc-dependencies.json (interim — retires)",
+        "governance/foundation-master.json (forward)"
+      ]
+    },
+    {
+      "id": "file-type-contracts",
+      "path": "file-type-contracts/",
+      "kind": "subfolder-registry",
+      "pattern": "governance/file-type-contracts/<file>.json",
+      "size_bytes": "5-15K per contract",
+      "loaded_by": [
+        "pre-write-guard.sh",
+        "post-write-verify.sh"
+      ],
+      "spoke": "File-Type-Contracts.md",
+      "_first_class_note": "file-type-contracts is a first-class pillar. Per-file-type body-structure contracts following k8s ValidatingAdmissionPolicy paramKind pattern. CLAUDE.md.json + System Governance.md.json body-shape designs may evolve (sections, max line counts, sentinel patterns). The vault-root System Backlog is not a foundation-shipped file-type — backlog lifecycle is librarian-owned at ~/.claude-plans/_backlog.md.",
+      "r37_coupled_surfaces": [
+        "governance/file-type-contracts/*.json",
+        "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
+        "onboarding/scaffold/vault-architecture/System Governance - File-Type-Contracts.md (forward)",
+        "hooks/pre-write-guard.sh (body-structure validation lookup)",
+        "hooks/post-write-verify.sh (body-structure validation)",
+        "templates/{spec,tasks,handoff,ideation-brief}-template.md (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
+        "governance/file-type-contracts/adr.md.json (ADR record body-structure contract; enumerated by the *.json glob above, so live without per-name registration — this is the reciprocal-pointer peer to the plans pillar, where the decision_records convention + manifest decision_records[] are the lockstep pair)",
+        "governance/foundation-master.json (forward — composed file_type_contracts slot)"
+      ]
+    },
+    {
+      "id": "vault-writers",
+      "path": "vault-writers-rules.json",
+      "rule_id_range": [
+        "R-58"
+      ],
+      "size_bytes": "1-2K",
+      "loaded_by": [
+        "hooks/pre-write-guard.sh",
+        "skills/writer-reconciler"
+      ],
+      "spoke": "Vault-Writers.md",
+      "_first_class_note": "vault-writers is a first-class pillar, slimmed to operational-config-only (the writer-reference SHAPE lives at file-type-contracts/vault-writer.md.json). Carries operational defaults + staging-area + reconciler identity + foundation Mustache variable namespace + branch #2 historical_data_warning_default.",
+      "r37_coupled_surfaces": [
+        "governance/vault-writers-rules.json",
+        "schemas/vault-writers-rules-schema.json",
+        "governance/file-type-contracts/vault-writer.md.json (writer-reference SHAPE)",
+        "schemas/processing-rules-schema.json (folder-level overrides)",
+        "hooks/pre-write-guard.sh (branch #3 vault-writers-writer-reference-only + branch #2 historical-data-warning fallback)",
+        "skills/writer-reconciler (consumes processing_defaults + staging_area)",
+        "governance/foundation-master.json (forward — composed vault_writers slot)"
+      ]
+    },
+    {
+      "id": "plans",
+      "path": "plans-rules.json",
+      "rule_id_range": [
+        "R-27",
+        "R-28",
+        "R-29",
+        "R-30",
+        "R-31",
+        "R-56",
+        "R-61",
+        "R-62",
+        "R-63"
+      ],
+      "size_bytes": "3-5K",
+      "loaded_by": [
+        "hooks/pre-write-guard.sh",
+        "skills/librarian/capabilities/plan-index.sh",
+        "skills/librarian/capabilities/plan-archive.sh",
+        "skills/librarian/capabilities/backlog-index.sh"
+      ],
+      "spoke": "Plans.md",
+      "_first_class_note": "plans-tree is a first-class pillar. Plan-tree governance (slugs / quartet / sub-plan execution-order numbering / backlog row shape / lifecycle status enum / validation classes / firing surfaces) lives here.",
+      "_backlog_substrate_note": "The backlog substrate runtime ships under this pillar: backlog-index.sh + plan-archive.sh runtimes + the _inbox/ pre-plan idea substrate + the idea→plan promote helper + the repointed consumer skills are lockstep peers. Cross-pillar coupling: the 4 plan-quartet templates (templates/{spec,tasks,handoff,ideation-brief}-template.md) are authored-to-contract against the file-type-contracts pillar's {spec,tasks,handoff,ideation-brief}.md.json — a template-edit and its body-structure contract must move in lockstep.",
+      "_plan_hardening_note": "Plan-system-hardening refinements as lockstep peers under this pillar: the decision_records convention in plans-rules.json + optional decision_records[] in plan-manifest-schema.json, backed by governance/file-type-contracts/adr.md.json; skills/librarian/capabilities/tasks-render.sh makes tasks.md a manifest.tasks[]-derived read-replica (mirrors backlog-index.sh) with capability contract governance/librarian-capabilities/tasks-render.md; pre-write-guard.sh R-40 block gained the spec.md **Status:** single-enum advisory against lifecycle.status_enum (advisory-first; never DENY).",
+      "r37_coupled_surfaces": [
+        "governance/plans-rules.json (carries the inbox block + _status_model_note; backlog_row.stale_advisory_days; the decision_records convention)",
+        "schemas/plans-rules-schema.json",
+        "schemas/plan-manifest-schema.json (manifest.json validator with conditional fields; optional decision_records[])",
+        "hooks/pre-write-guard.sh (R-27 status header + R-28 parent_plan + branch #4 librarian-only writes; the R-40-block spec.md status-line single-enum advisory)",
+        "governance/file-type-contracts/adr.md.json (ADR decision-record body-structure contract; matcher convention = plans-rules.json :: decision_records, manifest pointer = plan-manifest-schema.json :: decision_records[]; reciprocal pointer in the file-type-contracts pillar)",
+        "skills/librarian/capabilities/tasks-render.sh (renders manifest.tasks[] → tasks.md read-replica; mirrors backlog-index.sh, sentinel-bounded survivorship + --check parity)",
+        "governance/librarian-capabilities/tasks-render.md (capability contract)",
+        "lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
+        "skills/librarian/capabilities/plan-index.sh (consumes lifecycle.status_enum + root_files)",
+        "skills/librarian/capabilities/plan-archive.sh (consumes lifecycle.status_transitions.closed_to_archived)",
+        "skills/librarian/capabilities/backlog-index.sh (renders {researching,planned} manifests + _inbox/*.md idea notes into the unified _backlog.md)",
+        "skills/backlog-research/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
+        "templates/idea-note-template.md (inbox capture template)",
+        "templates/{spec,tasks,handoff,ideation-brief}-template.md (plan-quartet templates; authored-to-contract — see file-type-contracts pillar coupling)",
+        "skills/backlog-triage/SKILL.md (captures/classifies _inbox/<slug>.md idea notes; consumes inbox.funnel_status_enum + backlog_row.disposition_enum)",
+        "skills/backlog-research/SKILL.md (reads triaged inbox notes + {researching} manifests; --promote graduation; never hand-writes _backlog.md)",
+        "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index + archival → plan-archive; consumes backlog_row.stale_advisory_days)",
+        "governance/librarian-capabilities/backlog-index.md (capability contract)",
+        "governance/librarian-capabilities/plan-archive.md (capability contract)",
+        "governance/foundation-master.json (forward — composed plans slot)"
+      ],
+      "_rule_id_range_note": "R-15 is excluded from the live rows (it is a status:retired tombstone, preserved in governance/plans-rules.json :: _retired_tombstones). The final plans _rules[] = [R-29,R-30,R-31,R-56,R-61,R-62,R-63] (note R-27/R-28 are homed in the naming pillar, categorized C3, NOT here)."
+    }
+  ],
+  "cross_cutting_meta_rules": [
+    {
+      "id": "R-37",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Atomic lockstep (documentary)",
+      "tier": "2",
+      "enforcement_layer": [
+        "git",
+        "librarian governance-parity-audit"
+      ],
+      "status": "active",
+      "rule_text": "R-37 (atomic lockstep) is DOCUMENTARY across the entire governance surface — there is NO write-time DENY, by design. A PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set. Enforcement = git's commit-boundary atomicity + the librarian governance-parity-audit capability at session-close. The lockstep set = pillar JSON + narrative spoke + CLAUDE.md.",
+      "failure_mode": "Drift from partial landings of a multi-surface change. Caught at git commit-boundary + audit-time, never write-time.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-35",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Stage-gated promotion framework",
+      "tier": "framework",
+      "enforcement_layer": [
+        "doc",
+        "librarian"
+      ],
+      "status": "active",
+      "rule_text": "Tier 1 advisory + promotion_criterion. Clean data -> promote to a blocking tier; no data -> retire. Stage-gated promotion, never ossify, never promote without data.",
+      "failure_mode": "Ossify (advisory forever) or promote without data.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-34",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Self-healing boundary",
+      "tier": "framework",
+      "enforcement_layer": [
+        "doc",
+        "librarian"
+      ],
+      "status": "active",
+      "rule_text": "Mechanical drift auto-fixes (librarian regenerates mechanically-derivable values); semantic drift self-flags for review, never auto-overwritten.",
+      "failure_mode": "Over-reach (auto-overwriting semantic content) or under-reach (failing to auto-fix mechanical drift).",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-52",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Layer-3 Overlay Collision Tiebreaker",
+      "tier": "2",
+      "enforcement_layer": [
+        "pre-write-guard.sh write-time DENY on shadowing writes missing `_override_reason`",
+        "`--force-override` per-write escape hatch (no persistent disable)",
+        "librarian governance-parity-audit `foundation-upgrade-touches-shadowed-entry` finding",
+        "version-control merge-conflict surfacing on foundation upgrades touching shadowed entries"
+      ],
+      "status": "active",
+      "rule_text": "When adopter Layer-3 overlay and foundation canonical both declare the same rule ID or extensible entry kind: adopter Layer-3 SHADOWS foundation (adopter wins). Foundation declaration is preserved but does not fire. Adopter MUST carry `_override_reason` (free-text, mandatory) on every shadowing entry. Write-time DENY on shadowing writes without `_override_reason`; per-write `--force-override` bypass; no persistent disable.",
+      "failure_mode": "Silent collisions between adopter customization and foundation canonical produce unpredictable runtime behavior — rules with the same ID compete; overlay edits silently disable foundation rules.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT; personalization-seams audit)"
+    },
+    {
+      "id": "R-01",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Dead-path tripwire",
+      "tier": "deny",
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh (ships with empty tripwire_paths[])"
+      ],
+      "status": "active",
+      "rule_text": "Writes to a declared dead path are DENIED. Ships with an EMPTY tripwire_paths[] (no dead paths declared at v1.0.0); the mechanism is present for adopters/future use.",
+      "failure_mode": "A write to a known-retired path lands silently. Empty tripwire_paths at ship means no-op by default.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-02",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Skill-change protocol",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh (skill-file edit advisory checklist)"
+      ],
+      "status": "active",
+      "rule_text": "Editing a skill (SKILL.md / process.sh) surfaces the change-protocol checklist (save memory, update docs, grep downstream). Advisory.",
+      "failure_mode": "A skill changes without the cross-surface propagation protocol.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-43",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "librarian-manifest staleness audit",
+      "tier": "audit",
+      "enforcement_layer": [
+        "librarian"
+      ],
+      "status": "active",
+      "rule_text": "The librarian-manifest read-replica is audited for staleness against the foundation surface. Audit-tier (librarian), not write-time.",
+      "failure_mode": "librarian-manifest.json drifts stale against the real foundation surface.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-46",
+      "home": "meta-block",
+      "category": "S1",
+      "name": "Bypass/override abuse audit",
+      "tier": "audit",
+      "enforcement_layer": [
+        "librarian"
+      ],
+      "status": "active",
+      "rule_text": "Bypass/override usage (governance escape hatches, --force flags, bypass env vars) is audited for abuse patterns. Audit-tier (librarian).",
+      "failure_mode": "Escape hatches used routinely rather than exceptionally; governance silently eroded.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-24",
+      "home": "meta-block",
+      "category": "C2",
+      "name": "Protected SessionEnd hooks",
+      "tier": "deny",
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh (claude-mem SessionEnd protection)"
+      ],
+      "status": "active",
+      "rule_text": "Edits that would disable the claude-mem SessionEnd hook are DENIED (CLAUDE_MEM_DISABLE_OK=1 escape hatch). Load-bearing for auto-memory.",
+      "failure_mode": "claude-mem SessionEnd hook disabled; auto-memory silently stops persisting.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-26",
+      "home": "meta-block",
+      "category": "C2",
+      "name": "Checkpoint freshness gate",
+      "tier": "gate",
+      "enforcement_layer": [
+        "hooks/stop-checkpoint-check.sh (Stop gate)",
+        "hooks/prompt-context.sh (re-firing mandate band)"
+      ],
+      "status": "active",
+      "rule_text": "At context pressure thresholds, a fresh per-session checkpoint is required; the Stop hook gates until the checkpoint is fresh (< 10 min). Safety valve preserved above the high-pressure ceiling.",
+      "failure_mode": "A long session compacts without a fresh checkpoint; session continuity state is lost.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-36",
+      "home": "meta-block",
+      "category": "C2",
+      "name": "Touched-file drift scan",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "hooks/stop-drift-scan.sh (Stop advisory)"
+      ],
+      "status": "active",
+      "rule_text": "On Stop, touched files are scanned for drift and surfaced advisorily.",
+      "failure_mode": "Files touched in a session drift from their governed shape without surfacing.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-42",
+      "home": "meta-block",
+      "category": "C2",
+      "name": "Default session-register hook loop",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "hooks/session-register.sh -> track-vault-write -> prompt-context.sh (default 3-hook loop)"
+      ],
+      "status": "active",
+      "rule_text": "The default SessionStart hook loop (session-register -> track-vault-write -> prompt-context) wires the multi-session coordination + context-injection band. Advisory framing.",
+      "failure_mode": "The default session-wiring loop is broken or mis-ordered; coordination + context-injection degrade.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-45",
+      "home": "meta-block",
+      "category": "C5",
+      "name": "Memory-file frontmatter",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "librarian / hooks (memory-file frontmatter advisory)"
+      ],
+      "status": "active",
+      "rule_text": "Memory files (memory/<topic>.md) carry the required frontmatter shape (description/tags). Advisory.",
+      "failure_mode": "Memory files without frontmatter are mis-indexed in MEMORY.md / mis-resolved by retrieval.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-41",
+      "home": "meta-block",
+      "category": "C3",
+      "name": "plan-index staleness audit",
+      "tier": "audit",
+      "enforcement_layer": [
+        "librarian plan-index staleness tripwire"
+      ],
+      "status": "active",
+      "rule_text": "The librarian plan-index read-replica is audited for staleness against the plans-tree. Audit-tier.",
+      "failure_mode": "_index.md plan-index drifts stale against the real plans-tree.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-23",
+      "home": "meta-block",
+      "category": "S2",
+      "name": "cron-wrapper bash-3.2",
+      "tier": "deny",
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh (cron-wrapper bash-3.2 compatibility DENY)"
+      ],
+      "status": "active",
+      "rule_text": "cron wrappers + shipped hook bodies must be bash-3.2 clean (no associative arrays, no bash-4 builtins, no param-expansion case-conversion). DENY on violation.",
+      "failure_mode": "A bash-4 construct ships in a wrapper/hook and fails on the macOS default bash 3.2.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    },
+    {
+      "id": "R-49",
+      "home": "meta-block",
+      "category": "S2",
+      "name": "auto-commit silent-failure",
+      "tier": "advisory",
+      "enforcement_layer": [
+        "librarian / git-hooks (auto-commit silent-failure detection; default-on)"
+      ],
+      "status": "active",
+      "rule_text": "Auto-commit silent-failure is detected + surfaced (now default-on). Advisory.",
+      "failure_mode": "An auto-commit silently fails; expected state never lands in git.",
+      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+    }
+  ],
+  "dissolved_schemas": {
+    "_description": "Registry of schemas that have been semantically dissolved into pillars or the foundation-master bundle. Files remain physically present in foundation-repo until the last consumer migrates. 'Dissolved' = no new authoring; canonical authority has moved to the named successors. Each entry carries `frozen_at`, `successors`, `consumer_migration_status`, `final_deletion_gating_task`.",
+    "schemas/vault-schema.json": {
+      "frozen_at": "2026-05-14",
+      "successors": {
+        "types": "governance/frontmatter-rules.json#types",
+        "tiers": "governance/frontmatter-rules.json#tier_compliance",
+        "packet_only_fields": "governance/frontmatter-rules.json#packet_only_fields",
+        "excluded_fields": "governance/frontmatter-rules.json#excluded_fields",
+        "retired_types": "governance/frontmatter-rules.json#retired_types",
+        "_path_rules": "governance/frontmatter-rules.json#path_routing (renamed for clarity)",
+        "_tag_prefixes": "governance/tagging-rules.json#taxonomy.dimension_prefixes",
+        "_tag_prefixes_meta": "governance/tagging-rules.json#taxonomy (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to fields)"
+      },
+      "consumer_migration_status": {
+        "governance_authoring": "MIGRATED — governance pillars are the canonical authoring home",
+        "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
+        "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
+        "hooks_config_gate_config": "DISSOLVED — gate-config frozen with marker; physical deletion pending",
+        "install_sh": "PENDING — install.sh schema-copy list update pending",
+        "onboarding_bootstrap_schemas_sh": "PENDING — bootstrap-schemas.sh update pending",
+        "tests": "PENDING — fixtures update pending",
+        "docs": "PENDING — research/* + target-state/* + docs/* updates pending"
+      },
+      "final_deletion_gating_task": "the physical file deletion happens atomically with the last consumer migration (migrate-then-drop in the same commit)",
+      "drop_then_fail_loudly_disallowed": true,
+      "frozen_artifact_policy": "File at schemas/vault-schema.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_canonical_successors` pointer block. No new authoring against this file — all updates go to the named successors. install.sh continues to ship the file until the ship list is updated."
+    },
+    "governance/enforcement-map.schema.json": {
+      "frozen_at": "2026-05-16",
+      "retired_at": "2026-05-18",
+      "retirement_artifact": "governance/enforcement-map.schema.json.retired",
+      "reason": "Operator decision to retire entirely; rule-shape validation migrates. Validator pointer redirected to governance/foundation-master.json — the populated 8-pillar bundle already conforms to the rule shapes the retired schema defined, so it serves as the rule-shape attestation surface post-retirement.",
+      "canonical_successor": "governance/foundation-master.json (validator pointer)",
+      "consumer_redirect_target": "governance/foundation-master.json",
+      "documentary_citations_preserved": "References in scope_note + source fields of governance/foundation-master.json, governance/frontmatter-rules.json, governance/tagging-rules.json, governance/mandatory-files-rules.json, governance/_index.json are historical attribution to the original design doc, not active validator reads — preserved as-is."
+    },
+    "schemas/gate-config.json": {
+      "frozen_at": "2026-05-14",
+      "successors": {
+        "r32.accepted_types": "governance/foundation-master.json#types | keys (canonical 21) + foundation-master.json#r32_type_aliases | keys (5 aliases) — derived at runtime",
+        "r32.type_aliases": "governance/foundation-master.json#r32_type_aliases (interim — final resting pending; type-registry inversion option locates these under frontmatter-rules.json#types.<canonical>.aliases[])",
+        "r32.exempt_paths": "governance/foundation-master.json#r32_exempt_paths (interim — final resting pending; frontmatter-rules.json is leading candidate)",
+        "r32.schema_path": "obsoleted by bundle-at-load (hooks no longer need schema-path indirection)",
+        "r47.tag_dimensions": "governance/foundation-master.json#tagging.taxonomy.dimension_prefixes (canonical)",
+        "r47.exempt_paths": "governance/foundation-master.json#r47_exempt_paths_composed (canonical)",
+        "r47.tag_cap": "governance/foundation-master.json#r47_tag_cap (interim — relocates to tagging-rules.json#taxonomy)",
+        "r37.coupled_surfaces": "governance/_index.json#pillars[].r37_coupled_surfaces (declared per-pillar)"
+      },
+      "consumer_migration_status": {
+        "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
+        "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
+        "tools_build_foundation_master_sh": "READS THIS FILE — interim contributor for r32/r47 slot composition; dependency drops when the file is physically deleted",
+        "install_sh": "PENDING — install.sh schema-copy list update pending physical deletion",
+        "tests": "PENDING — fixtures update pending; any fixture asserting gate-config presence flips to foundation-master.json equivalents"
+      },
+      "final_deletion_gating_task": "gate-config physical retirement; deletion of schemas/gate-config.json + schemas/gate-config-schema.json + the tools/build-foundation-master.sh GATE_CONFIG dependency. Atomic with same-commit consumer-migration verification.",
+      "drop_then_fail_loudly_disallowed": true,
+      "frozen_artifact_policy": "File at schemas/gate-config.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_dissolved_marker` pointer block. No new authoring against this file — all updates go to the named successors. tools/build-foundation-master.sh continues to read it as interim contributor until physical deletion."
+    }
+  }
+}

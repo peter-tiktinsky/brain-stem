@@ -1,0 +1,154 @@
+{
+  "schema_version": "2.0.0",
+  "pillar": "naming",
+  "_description": "Pillar 3 — Naming (D7 rule model). Loaded by pre-write-guard.sh at runtime. Homes R-04, R-10, R-20, R-27, R-28, R-60 (R-27/R-28 categorized C3 — the canonical home != category divergence). _rules[] is the D7 two-axis SoT (each object carries home/category/surface?/status).",
+  "_design_notes": {
+    "consumer": "pre-write-guard.sh — naming-rule evaluation branch",
+    "lockstep_pair": "System Governance - Naming.md (narrative spoke) + hooks/pre-write-guard.sh (enforcement)",
+    "evolution_protocol": "R-37 documentary lockstep — naming-rules.json + System Governance - Naming.md + pre-write-guard.sh move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit)."
+  },
+  "_rules": [
+    {
+      "id": "R-04",
+      "home": "naming",
+      "category": "C1",
+      "tier": "advisory",
+      "enforcement_layer": ["pre-write-guard.sh known-root allowlist", "pre-write-guard.sh single-file exemption block", "librarian placement-validation"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT)",
+      "failure_mode": "File written to an undocumented vault-root drifts structure; System Governance.md falls out of sync; navigation guides stale. Advisory: write proceeds; operator told to move file or update System Governance.md.",
+      "rule_text": "Files written to a vault-root directory must reside in a documented root. Known roots are a hardcoded allowlist in pre-write-guard.sh covering foundation-shipped system folders only; user-created top-level folders register via overlay-master path_routing extensions. A small set of top-level files is exempt from the root-must-be-a-directory rule. Adding a new foundation-shipped root requires R-10's checklist + R-37 lockstep.",
+      "known_roots": [
+        "Archive",
+        "Daily",
+        "Logs",
+        "Meetings",
+        "Plans",
+        "Skills",
+        "System Governance",
+        "Vault Writers"
+      ],
+      "vault_root_file_exemptions": [
+        "CLAUDE.md"
+      ]
+    },
+    {
+      "id": "R-10",
+      "home": "naming",
+      "category": "C1",
+      "tier": "advisory",
+      "enforcement_layer": ["vault CLAUDE.md documentary", "pre-write-guard.sh (R-04 surface)", "librarian manifest schema-completeness"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT)",
+      "failure_mode": "New top-level directories created mid-session without schema/hook/librarian/governance entries. Produces orphan roots invisible to walkers.",
+      "rule_text": "Adding a new vault-root directory requires walking the New Structure Checklist deliberately. The checklist binds CLAUDE.md, governance pillars (frontmatter-rules.json + file-type-contracts), hooks, and librarian into R-37 documentary lockstep so a new root cannot land in isolation.",
+      "checklist_items": [
+        "Declare purpose — what archetype/content the directory holds",
+        "Declare consumer — which skill, hook, capability, or query parses this path",
+        "Update the relevant System Governance/ narrative spoke",
+        "Add governance/frontmatter-rules.json#types entry + governance/file-type-contracts/<file>.json body-structure contract (the latter only if the new root carries a foundation-shipped mandatory file)",
+        "Extend pre-write-guard.sh known-root list (R-04 allowlist update)",
+        "Add librarian-capability entry (placement-validation / plan-index / walker)",
+        "Commit R-37 documentary lockstep — all surfaces move in one commit"
+      ]
+    },
+    {
+      "id": "R-20",
+      "home": "naming",
+      "category": "C1",
+      "tier": "advisory",
+      "enforcement_layer": [".gitignore file-level comments (documentary)", "promotion-pending: pre-commit hook if drift recurs"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT; production gitignore incident)",
+      "failure_mode": "Silent gitignore bypass — bare-name patterns match only at repo root; deeper instances slip through.",
+      "rule_text": "Gitignore patterns matching directory names at any depth must use the `**/` prefix. Bare-name patterns match only at repo root; `**/<name>/` matches anywhere in the tree. Documentary-only; promote to pre-commit hook if drift recurs.",
+      "pattern_grammar": "**/ prefix required for at-any-depth matching",
+      "foundation_repo_defaults": [
+        ".DS_Store",
+        "**/Tags/",
+        ".env",
+        ".env.local",
+        "node_modules/",
+        "**/.obsidian/workspace*.json"
+      ]
+    },
+    {
+      "id": "R-27",
+      "home": "naming",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "deny",
+      "enforcement_layer": ["pre-write-guard.sh plan-creation block (write-time DENY)", "/new-plan skill creation-gate shame-slug regex", "librarian stale-detect", "librarian plan-index status grouping"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT; home naming, category C3 — the canonical home != category divergence)",
+      "failure_mode": "Plans without numeric prefix or status break librarian plan-index regeneration. Shame slugs degrade plan-index, backlog routing, and search-by-name.",
+      "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) a status marker (`**Status:**` header bullet, YAML `status:` frontmatter, or `manifest.json` top-level `status` field with a value in the canonical 8-state lifecycle.status_enum). The spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
+      "slug_requirements": {
+        "case": "lowercase only",
+        "separator": "kebab-case",
+        "character_set": "[a-z0-9-]",
+        "descriptive_required": true,
+        "shame_slug_rejected": true,
+        "numeric_prefix_required": true,
+        "prefix_format": "NN- (creation order; never backfilled)"
+      },
+      "status_acceptance": [
+        "**Status:** header bullet",
+        "YAML status: frontmatter",
+        "manifest.json top-level status field"
+      ],
+      "sanctioned_creation_paths": ["/new-plan", "/backlog-research"],
+      "enforcement_scope": [
+        "{plans_root}/*.md",
+        "{plans_root}/*/spec.md",
+        "{plans_root}/*/00-ideation-brief.md",
+        "{plans_root}/*/README.md",
+        "{plans_root}/*/manifest.json",
+        "{plans_root}/*/*/spec.md",
+        "{plans_root}/*/*/manifest.json"
+      ],
+      "_enforcement_scope_depth3_note": "The last two globs ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json) extend R-27's enforcement to depth-3 sub-plan roots — depth-3 sub-plan spec.md/manifest.json are governed peers carrying their OWN canonical status, NOT status-derived shadows of the master. A sub-plan can be paused independently of its master; the master sub_plans[] aggregate reflects each sub's published status. The hook substance asserts: (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/; (b) target is spec.md or manifest.json; (c) manifest.json carries status: present + value in the lifecycle.status_enum.",
+      "whitelist": ["_index.md", "_backlog.md", "_archive.md"],
+      "escape_hatch": {"env_var": "PLAN_STATUS_OK=1", "audit_log": "{logdir}/hook-audit.log"}
+    },
+    {
+      "id": "R-28",
+      "home": "naming",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "informational",
+      "enforcement_layer": ["librarian plan-parent-resolve capability (read-time / reconciler drift finding)", "librarian plan-index --parent <slug> flag", "librarian frontmatter shared helper"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT; home naming, category C3)",
+      "failure_mode": "Sub-plan files at depth >= 3 without `parent_plan:` frontmatter are invisible to plan-tree walkers — librarian cannot resolve ancestry. Advisory: drift surfaced as a librarian reconciler finding, NOT a write-time block.",
+      "rule_text": "Sub-task files at depth >= 3 under `{plans_root}/` must carry `parent_plan: <top-level-slug>` frontmatter. Value is the top-level plan slug (no path, no extension). Plan-root files at depth 2, handoff.md at any depth, files under tests/, and files under _orchestrator/ are EXEMPT. R-28 is the COMPLEMENT to R-27: R-27 governs the sub-plan's OWN status; R-28 governs the sub-plan's POINTER TO ITS MASTER. Both fire on depth-3 sub-plan roots, independently. ADVISORY at v1.0.0 — librarian-audit only; pre-write-guard does NOT DENY on missing parent_plan: at depth >= 3.",
+      "applies_to_depth": ">= 3 under {plans_root}/",
+      "field_value_format": "top-level plan slug (no path, no extension)",
+      "exemptions": [
+        "Plan-root files at depth 2 (spec.md, tasks.md, handoff.md, 00-ideation-brief.md, README.md, manifest.json) — they ARE the parent",
+        "handoff.md at any depth (append-only session record)",
+        "Files under tests/ (synthetic fixtures, not plan state)",
+        "Files under _orchestrator/ (orchestrator runtime, not plan state)"
+      ],
+      "rollout": {
+        "_description": "Keep advisory at v1.0.0; promote post-v1.0.0 after 30+ days of advisory-fire data.",
+        "v1_0_0": "ADVISORY at write-time (surfaces drift via librarian reconciler drift finding; no write-block).",
+        "observation_window": ">= 30 days post-v1.0.0; librarian reconciler logs every R-28 advisory fire as a drift finding.",
+        "promotion_trigger": "When advisory-fire data shows empirically low FP-rate (the scaffolder-emitted parent_plan correct-by-construction property), R-28 promotes to write-time DENY.",
+        "promotion_mechanism": "A substance change to pre-write-guard.sh or to this rule's enforcement_layer field; does NOT require a superseding ADR (the advisory-then-promote rollout idiom is part of the rule itself)."
+      }
+    },
+    {
+      "id": "R-60",
+      "home": "naming",
+      "category": "C1",
+      "tier": "deny",
+      "enforcement_layer": ["pre-write-guard.sh tag-grammar validation branch"],
+      "status": "active",
+      "source": "governance/naming-rules.json :: _rules (D7 SoT — renumbered from R-32-taxonomy)",
+      "failure_mode": "Tags not conforming to the canonical tag grammar drift the taxonomy; tag-based navigation and graph view degrade.",
+      "rule_text": "Tags must conform to the canonical tag grammar (kebab-case dimension prefixes per the tagging taxonomy). DENY at write-time on grammar violation. The substance lives at runtime against the tagging pillar's taxonomy; this is the renumbered identity of the former R-32-taxonomy.",
+      "_renumber_note": "R-32-taxonomy was renumbered to R-60 because it collided with the frontmatter R-32 (a different rule — type: allowlist). Mechanical rename. The tagging pillar's rule_id_range R-32-taxonomy entry is renamed to R-60 in lockstep (governance/_index.json)."
+    }
+  ]
+}

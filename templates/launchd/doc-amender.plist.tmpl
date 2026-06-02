@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  doc-amender.plist.tmpl
+
+  The LLM lane of the writer pipeline. doc-amender fires on a WatchPaths event
+  when a doc-amend packet lands in the staging root; it composes the amendment
+  via an LLM call, then the writer-reconciler (the mechanical R-34 lane)
+  performs the actual destination write. WatchPaths-only (no StartInterval):
+  the LLM lane is event-driven, not polled. Concurrency is contained by
+  doc-amender's in-process lockf single-instance guard.
+
+  Rendered by installer/render-launchd.sh. ${LABEL_PREFIX} expands to
+  com.brain-stem.*.
+-->
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>${USER_HOME}</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:${USER_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>CLAUDE_HOME</key>
+		<string>${CLAUDE_HOME}</string>
+		<key>CLAUDE_LOG_DIR</key>
+		<string>${CLAUDE_LOG_DIR}</string>
+		<key>TZ</key>
+		<string>${TIMEZONE}</string>
+	</dict>
+	<key>Label</key>
+	<string>${LABEL_PREFIX}.doc-amender</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>${CLAUDE_HOME}/installer/cron-wrappers/doc-amender-cron.sh</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>${CLAUDE_LOG_DIR}/doc-amender-stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>${CLAUDE_LOG_DIR}/doc-amender-stdout.log</string>
+	<key>WatchPaths</key>
+	<array>
+		<string>${WRITER_STAGING_ROOT}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>${USER_HOME}</string>
+</dict>
+</plist>

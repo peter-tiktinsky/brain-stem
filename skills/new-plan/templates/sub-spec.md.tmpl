@@ -1,0 +1,76 @@
+---
+title: {{title}} — Spec
+type: spec
+status: planned
+parent_plan: {{parent_plan}}
+created: {{date}}
+updated: {{date}}
+---
+
+# {{title}} — Spec (sub-plan {{sub_plan_id}})
+
+**Status:** planned
+**Created:** {{date}}
+**Parent:** `plan: {{parent_plan}}`
+**Goal:** {{GOAL — one sentence. When this sub-plan ships, what is true that wasn't true before?}}
+
+<!--
+SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
+Goal / Problem Statement / Constraints; mutable tail). Cap ~500 lines.
+SUB-PLAN spec: this is an orchestrator-worker CHILD of the master `{{parent_plan}}`.
+It carries its own immutable head + its own canonical status, and reports status + a
+graduation_timestamp UPWARD into the master manifest's sub_plans[] aggregate (the librarian
+reconciler pulls it). It does NOT communicate peer-to-peer with sibling sub-plans — route any
+cross-sub ordering through the master (metadata_flow / R-63). The binding_spec pointer above
+cites the master spec as the initiative authority.
+The **Status:** marker is a SINGLE canonical 8-state token (researching | planned |
+in-progress | paused | completed | verified | closed | archived; superseded terminal) per
+governance/plans-rules.json — never a prose paragraph.
+parent_plan is REQUIRED in frontmatter at depth >= 3 (R-28).
+-->
+
+## Problem Statement
+
+{{PROBLEM — 2-4 sentences. What this sub-plan addresses within the initiative. Frozen at scaffold time.}}
+
+## Constraints
+
+- {{Hard constraint}}
+- {{Scope constraint}}
+- {{Anti-scope lock — what is explicitly OUT of this sub-plan's scope}}
+
+## Current State
+
+{{How the system works today for the surface this sub-plan touches. Specific file paths, skill names, infrastructure components.}}
+
+| File / Component | Role | What Changes |
+|-----------------|------|-------------|
+| `{{path}}` | {{current role}} | {{what this sub-plan does to it}} |
+
+## Solution Approach
+
+{{SOLUTION — 3-8 sentences. High-level strategy for this sub-plan. Not a task list — tasks live in tasks.md / manifest.tasks[]. Post-Session-1 amendment blocks land here.}}
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| {{decision}} | {{choice}} | {{why this over alternatives — cross-ref ADR-NN}} |
+
+## Files Modified/Created
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `{{path}}` | New / Modify | {{one-line purpose}} |
+
+## Success Metrics
+
+| Metric | Target | How to Measure |
+|--------|--------|---------------|
+| {{metric}} | {{target}} | {{how}} |
+
+## Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| {{risk}} | Low/Med/High | Low/Med/High | {{mitigation}} |

@@ -1,0 +1,11 @@
+{
+  "_comment": "Conditional fragment merged when manifest.hooks.memory_consolidation.enabled is true. Adds the FIRST-PARTY memory-consolidation SessionEnd hook (memory-consolidation-check.sh — brain-stem's own non-LLM hygiene consolidation, NOT claude-mem; claude-mem is an optional adopter-installed plugin). The installer deep-merges this fragment into the SessionEnd hooks array of the user's settings.json.",
+  "_merge_target": "hooks.SessionEnd[0].hooks",
+  "_manifest_flag": "hooks.memory_consolidation.enabled",
+  "entries": [
+    {
+      "type": "command",
+      "command": "~/.claude/hooks/memory-consolidation-check.sh"
+    }
+  ]
+}

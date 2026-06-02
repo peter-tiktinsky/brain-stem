@@ -1,0 +1,57 @@
+# Memory Index
+
+<!--
+  Anthropic load contract: the harness loads only the first 200 lines OR the
+  first 25KB of this file (whichever comes first). Entries past either cap are
+  silently dropped from the model's context at session start. The byte cap is
+  the governing trigger (bites at ~110 entries). Keep each line ≤200 characters;
+  cap total entries at ≤200; move detail into the topic file this index points
+  to. The R-59 load guard (governance/mandatory-files-rules.json) counts both
+  the raw line count AND the comment-stripped count and gates on the LARGER —
+  these <!-- --> comment blocks do not buy unlimited headroom.
+
+  Two-axis taxonomy (see the memory-architecture docs spoke):
+  - Filename prefix carries provenance: user_*, feedback_*, project_*,
+    reference_*, episode_*. Use the prefix that matches origin.
+  - `type:` frontmatter carries retrieval axis (semantic / procedural /
+    episodic). The three sections below group by retrieval axis, most-loaded-
+    first; `reflective` was dropped (reflection rides the feedback_ provenance
+    prefix, not a separate retrieval type).
+
+  When a fact spans axes, file under the dominant retrieval type (`type:`
+  frontmatter wins) and link from other sections via [[wikilinks]].
+
+  Entry shape (≤200 chars/line):
+  - [filename](memory/filename.md) — one-line retrieval hook starting with the
+    rule, fact, or trigger (NOT a topic name).
+
+  Memory files MUST carry frontmatter conforming to schemas/memory-schema.json
+  (required: name, description, type, tags, created, updated, last_validated).
+  New writes auto-stamp updated + last_validated via hooks/pre-write-guard.sh +
+  hooks/memory-auto-stamp.sh.
+-->
+
+## Semantic
+
+<!-- Facts, preferences, conventions, identity. Stable knowledge.
+     Re-validation signal: single 180-day interval (propose-only, never deletes). -->
+
+
+## Procedural
+
+<!-- Workflow rules with explicit steps + their rationale. Imperative knowledge;
+     absorbs lessons-from-incident (the feedback_ corpus).
+     Re-validation signal: single 180-day interval (propose-only, never deletes). -->
+
+
+## Episodic
+
+<!-- Session/event records. Time-anchored. Authored by hooks/session-episode-
+     write.sh on non-trivial session close. Never decays (provenance preserved).
+     SAMPLED section: newest ~10 entries inline + the glob pointer below; the
+     only unbounded producer is the only windowed section, keeping the index
+     bounded.
+     Pointer: glob memory/episode_*.md
+     Example shape (uncomment when populated):
+     - [episode_2026-05-24_mvp-spec](memory/episode_2026-05-24_mvp-spec.md) — MVP spec authored after the path-selection fork.
+-->

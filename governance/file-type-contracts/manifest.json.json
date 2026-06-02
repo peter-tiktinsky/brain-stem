@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/manifest.json.json",
+  "title": "manifest.json (plan/sub-plan) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact / type-allowlist marker for plan-tree manifest.json files. Delegates full validation to schemas/plan-manifest-schema.json (JSON Schema 2020-12 conditional-on-status). Prose-prohibited.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "plan_folder_quartet.required",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (R-27 + prose-prohibited check) + librarian plan-index + plan-archive + backlog-index",
+    "lockstep_pair": "tasks.md (R-37 coupled via manifest.tasks[]) + spec.md (R-37 coupled via spec_path) + schemas/plan-manifest-schema.json",
+    "evolution_protocol": "R-37 atomic lockstep with tasks.md + plan-manifest-schema.json"
+  },
+
+  "type": "manifest",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/manifest.json"
+  },
+
+  "prose_prohibited": true,
+  "prose_prohibited_rule": "NO narrative prose values; multi-sentence values DENY. Manifest is structured machine-consumable data — narrative belongs in spec.md / handoff.md / 00-ideation-brief.md.",
+
+  "validation_strategy": "JSON Schema 2020-12 conditional if/then on `status` field",
+
+  "references_schema": "schemas/plan-manifest-schema.json",
+  "references_schema_rationale": "Delegate full validation to the referenced schema; this file-type-contract is the type-allowlist marker + prose-prohibition declaration.",
+  "write_shape": "replace"
+}

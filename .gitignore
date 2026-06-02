@@ -1,0 +1,34 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+
+# Runtime / dev artifacts — never source, never shipped
+/state/
+# orchestrator runtime state is created by consumers at runtime; it is
+# absent-by-construction in the shipped tree and is never tracked, so install
+# and uninstall stay residue-clean.
+orchestrator/state/*
+/results/
+/dogfood-history/
+/.self-verify/
+/.e2e/
+/.image-digest
+
+# Operator-private Claude Code settings — not for distribution
+/.claude/settings.json
+
+# Obsidian local UI state (created when repo is opened as a vault for review)
+/.obsidian/
+
+# SECURITY — credential ledgers must never enter history
+burner-keys.registry
+*.registry
+*.key
+*.pem
+sk-ant-*
+
+# Excluded build clutter (belt-and-suspenders)
+/_doc-overhaul/
+/target-state/
+/dispatch-needs-operator-*.md

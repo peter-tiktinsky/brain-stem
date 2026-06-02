@@ -1,0 +1,424 @@
+#!/bin/bash
+# tasks-render — Regenerate a plan's tasks.md from its manifest.tasks[].
+#
+# Librarian body.
+#
+# tasks.md is a manifest-derived read-replica: manifest.tasks[] is the
+# sole task-state SoT; this capability renders the canonical ledger-at-top +
+# per-task-blocks shape (governance/file-type-contracts/tasks.md.json) inside
+# the <!-- tasks:start -->/<!-- tasks:end --> sentinel block and preserves
+# operator narrative outside the markers. Closes the manifest <-> tasks.md
+# drift class structurally. tasks-render is registered in
+# skills/librarian/capability-registry.json.
+#
+# tasks-render is the RENDER-side consumer of the canonical
+# `<!-- task-done: NN/T-M -->` completion marker (relocated into handoff.md):
+# a task whose marker is present in the plan's handoff.md, OR whose manifest
+# status is already done/cut (the SoT), renders as ~~strike-through~~ in the
+# sentinel-bounded ledger + per-task blocks. The autosync hook
+# (hooks/tasks-md-autosync.sh) is the WRITE-side consumer — on the same marker it
+# flips manifest.tasks[].status='done' (the SoT) then invokes this body. This
+# render NEVER mutates the manifest and NEVER edits tasks.md outside the sentinels.
+#
+# Output Contract
+#   Files written: <plan-dir>/tasks.md (sentinel-bounded region regenerated;
+#     operator narrative + per-row Notes preserved); findings to stdout (NDJSON
+#     via hooks/lib/findings.sh shape) or $FINDINGS_OUTPUT.
+#   Schema gate: the plan manifest validates against
+#     schemas/plan-manifest-schema.json BEFORE render (jsonschema when
+#     available; structural fallback otherwise — block-and-log on failure).
+#   Pre-write validation: resolve <plan-dir>; assert manifest.json present +
+#     required fields; refuse to write if the assembled content lacks the
+#     sentinel pair (block-and-log; tempfile deleted).
+#   Failure mode: block-and-log; never write-and-hope. Manifest read-only.
+#     Atomic temp+rename. Idempotent.
+#
+# Finding categories (2):
+#   tasks-md-drift       (warning, --check only) on-disk tasks.md != would-be render
+#   tasks-md-regenerated (info-event) tasks.md regenerated (write) or evaluated (--check)
+#
+# CLI:
+#   tasks-render.sh <plan-dir>            # regenerate <plan-dir>/tasks.md
+#   tasks-render.sh --check <plan-dir>    # parity report + findings; no write
+#   tasks-render.sh --help
+# <plan-dir> may be absolute or relative to PLANS_ROOT.
+#
+# Env overrides:
+#   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
+#   TASKS_FILE               output file (default: <plan-dir>/tasks.md)
+#   PLANS_RULES_PATH         plans-rules.json (default: foundation -> live)
+#   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
+#   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
+#   FOUNDATION_TEST_MODE     bypass the non-interactive guard
+#
+# Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
+
+set -euo pipefail
+
+CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
+_REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
+if [[ -z "${PLANS_DIR:-}" ]]; then
+  # shellcheck source=/dev/null
+  { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
+    || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; } || true
+fi
+# Source the canonical finding contract (shape parity; the python heredoc emits
+# the same {"finding":...} NDJSON line shape emit_finding produces).
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
+  || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+
+CHECK_ONLY="false"
+TARGET=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check) CHECK_ONLY="true"; shift ;;
+    -h|--help) sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --*) echo "tasks-render: unknown flag '$1'" >&2; exit 2 ;;
+    *) TARGET="$1"; shift ;;
+  esac
+done
+
+# Judgment-tier non-interactive guard. Bypassed by FOUNDATION_TEST_MODE so
+# synthetic harnesses can fire the capability without a controlling TTY.
+if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+  echo "tasks-render: skipped (non-interactive)" >&2
+  exit 0
+fi
+
+if [[ -z "$TARGET" ]]; then
+  echo "tasks-render: missing <plan-dir> argument (see --help)" >&2
+  exit 2
+fi
+
+PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+case "$PLANS_ROOT" in
+  */) PLANS_ROOT="${PLANS_ROOT%/}" ;;
+esac
+
+case "$TARGET" in
+  /*) PLAN_DIR="$TARGET" ;;
+  *)  PLAN_DIR="$PLANS_ROOT/$TARGET" ;;
+esac
+case "$PLAN_DIR" in
+  */) PLAN_DIR="${PLAN_DIR%/}" ;;
+esac
+if [[ ! -d "$PLAN_DIR" ]]; then
+  echo "tasks-render: plan dir does not exist: $PLAN_DIR" >&2
+  exit 1
+fi
+
+MANIFEST_PATH="$PLAN_DIR/manifest.json"
+if [[ ! -f "$MANIFEST_PATH" ]]; then
+  echo "tasks-render: no manifest.json in $PLAN_DIR" >&2
+  exit 1
+fi
+
+TASKS_FILE="${TASKS_FILE:-$PLAN_DIR/tasks.md}"
+
+RULES_PATH="${PLANS_RULES_PATH:-}"
+if [[ -z "$RULES_PATH" ]]; then
+  for candidate in \
+    "$CLAUDE_HOME_RES/governance/plans-rules.json"; do
+    if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
+  done
+fi
+
+SCHEMA_PATH="${PLAN_MANIFEST_SCHEMA:-}"
+if [[ -z "$SCHEMA_PATH" ]]; then
+  for candidate in \
+    "$CLAUDE_HOME_RES/schemas/plan-manifest-schema.json"; do
+    if [[ -f "$candidate" ]]; then SCHEMA_PATH="$candidate"; break; fi
+  done
+fi
+
+python3 - "$PLAN_DIR" "$CHECK_ONLY" "$RULES_PATH" "$SCHEMA_PATH" "$TASKS_FILE" "$MANIFEST_PATH" <<'PY'
+import json
+import os
+import re
+import sys
+import tempfile
+from datetime import date
+
+plan_dir = sys.argv[1]
+check_only = sys.argv[2] == "true"
+rules_path = sys.argv[3]
+schema_path = sys.argv[4]
+tasks_file = sys.argv[5]
+manifest_path = sys.argv[6]
+
+today = date.today().isoformat()
+plan_slug = os.path.basename(plan_dir.rstrip("/"))
+
+SENTINEL_START = "<!-- tasks:start -->"
+SENTINEL_END = "<!-- tasks:end -->"
+LEDGER_HEADING = "## Task ledger"
+
+with open(manifest_path, encoding="utf-8") as fh:
+    manifest = json.load(fh)
+
+if schema_path and os.path.isfile(schema_path):
+    try:
+        import jsonschema  # type: ignore
+        with open(schema_path, encoding="utf-8") as fh:
+            _schema = json.load(fh)
+        jsonschema.Draft202012Validator(_schema).validate(manifest)
+    except ImportError:
+        pass
+    except Exception as exc:
+        print("tasks-render: manifest fails schema; refusing to render: %s" % exc,
+              file=sys.stderr)
+        sys.exit(1)
+
+for req in ("schema_version", "project", "spec_path"):
+    if req not in manifest:
+        print("tasks-render: manifest missing required field '%s'" % req, file=sys.stderr)
+        sys.exit(1)
+
+tasks = manifest.get("tasks") or []
+title = manifest.get("title") or manifest.get("project") or plan_slug
+spec_path = manifest.get("spec_path") or ""
+mstatus = manifest.get("status", "planned")
+
+
+def emit(d):
+    out = os.environ.get("FINDINGS_OUTPUT", "")
+    line = json.dumps(d, separators=(", ", ": "), sort_keys=False)
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    else:
+        print(line)
+
+
+def cell(value):
+    s = "" if value is None else str(value)
+    s = s.replace("\r", " ").replace("\n", " ")
+    s = s.replace("|", "\\|")
+    return s.strip()
+
+
+_TID_RE = re.compile(r"^T-[0-9]+(\.[0-9]+)?$")
+
+
+def parse_ledger_notes(region):
+    notes = {}
+    for line in region.split("\n"):
+        if not line.strip().startswith("|"):
+            continue
+        cols = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cols) < 5:
+            continue
+        tid = cols[0]
+        if not _TID_RE.match(tid):
+            continue
+        notes[tid] = cols[4]
+    return notes
+
+
+# Task-done marker handling. The canonical
+# completion signal is the `<!-- task-done: NN/T-M -->` marker relocated into the
+# plan's handoff.md (sub-plan form `NN/T-M`; plan-root form `T-M`). The autosync
+# hook flips manifest.tasks[].status='done' (the SoT) on that signal; tasks-render
+# is the render-side consumer: a task whose marker is present in handoff.md (OR
+# whose manifest status is already done/cut — the SoT) renders as strike-through.
+# This NEVER edits tasks.md directly and NEVER mutates the manifest here — it only
+# READS the marker + the manifest status to decide the strike-through render.
+_MARKER_RE = re.compile(r"<!--\s*task-done:\s*(?:[^/\s]+/)?(T-[0-9]+(?:\.[0-9]+)?)\s*-->")
+
+
+def scan_handoff_done_markers(pdir):
+    done = set()
+    hpath = os.path.join(pdir, "handoff.md")
+    if not os.path.isfile(hpath):
+        return done
+    try:
+        with open(hpath, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        return done
+    for m in _MARKER_RE.finditer(text):
+        done.add(m.group(1))
+    return done
+
+
+def is_done(task, marker_done):
+    return (task.get("status", "") in ("done", "cut")) or (task.get("id", "") in marker_done)
+
+
+def strike(text, struck):
+    s = cell(text)
+    if struck and s:
+        return "~~%s~~" % s
+    return s
+
+
+marker_done = scan_handoff_done_markers(plan_dir)
+
+preface, footer = "", ""
+prior_notes = {}
+sentinel_existed = False
+ledger_rows_ondisk = 0
+
+if os.path.isfile(tasks_file):
+    with open(tasks_file, encoding="utf-8") as fh:
+        existing = fh.read()
+    s_idx = existing.find(SENTINEL_START)
+    e_idx = existing.find(SENTINEL_END)
+    if s_idx >= 0 and e_idx > s_idx:
+        sentinel_existed = True
+        preface = existing[:s_idx]
+        footer = existing[e_idx + len(SENTINEL_END):]
+        region = existing[s_idx + len(SENTINEL_START):e_idx]
+        prior_notes = parse_ledger_notes(region)
+        ledger_rows_ondisk = len(prior_notes)
+    else:
+        m = re.search(r"(?m)^## Task ledger[ \t]*$", existing)
+        if m:
+            preface = existing[:m.start()]
+            prior_notes = parse_ledger_notes(existing[m.start():])
+            ledger_rows_ondisk = len(prior_notes)
+        else:
+            preface = existing
+
+if not preface.strip():
+    preface = (
+        "---\n"
+        "title: %s — Tasks\n"
+        "type: tasks\n"
+        "status: %s\n"
+        "created: %s\n"
+        "updated: %s\n"
+        "---\n\n"
+        "# %s — Tasks\n\n"
+        "**Spec:** `%s`\n"
+        "**Last Updated:** %s\n\n"
+        "## Status Key\n\n"
+        "`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
+    ) % (title, mstatus, today, today, title, spec_path, today)
+
+lines = [
+    LEDGER_HEADING,
+    "",
+    "| ID | Title | Status | Depends on | Notes |",
+    "|----|-------|--------|-----------|-------|",
+]
+for t in tasks:
+    tid = t.get("id", "")
+    deps = t.get("depends_on") or []
+    deps_cell = ", ".join(deps) if deps else "—"
+    struck = is_done(t, marker_done)
+    lines.append("| %s | %s | %s | %s | %s |" % (
+        strike(tid, struck),
+        strike(t.get("title", ""), struck),
+        cell(t.get("status", "")),
+        cell(deps_cell),
+        cell(prior_notes.get(tid, "")),
+    ))
+
+lines.append("")
+lines.append("---")
+lines.append("")
+lines.append("## Tasks")
+lines.append("")
+
+for t in tasks:
+    tid = t.get("id", "")
+    deps = t.get("depends_on") or []
+    deps_str = ", ".join(deps) if deps else "none"
+    struck = is_done(t, marker_done)
+    lines.append("### %s: %s" % (strike(tid, struck), strike(t.get("title", ""), struck)))
+    lines.append("")
+    lines.append("**Status:** %s" % t.get("status", ""))
+    lines.append("**Dependencies:** %s" % deps_str)
+    lines.append("**Description:** %s" % (t.get("description", "") or ""))
+    lines.append("")
+    lines.append("**File References:**")
+    frefs = t.get("file_references") or []
+    if frefs:
+        for f in frefs:
+            lines.append("- `%s`" % f)
+    else:
+        lines.append("- —")
+    lines.append("")
+    lines.append("**Acceptance Criteria:**")
+    acs = t.get("acceptance_criteria") or []
+    if acs:
+        for a in acs:
+            lines.append("- [ ] %s" % a)
+    else:
+        lines.append("- [ ] —")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+region_inner = "\n".join(lines).rstrip() + "\n"
+generated_block = SENTINEL_START + "\n" + region_inner + SENTINEL_END
+
+if preface and not preface.endswith("\n"):
+    preface += "\n"
+if footer and not footer.startswith("\n"):
+    footer = "\n" + footer
+
+new_content = preface + generated_block + footer
+if not new_content.endswith("\n"):
+    new_content += "\n"
+
+existing_content = None
+if os.path.isfile(tasks_file):
+    with open(tasks_file, encoding="utf-8") as fh:
+        existing_content = fh.read()
+
+drift = (existing_content != new_content)
+
+if check_only:
+    if drift:
+        emit({
+            "finding": "tasks-md-drift",
+            "file": os.path.basename(tasks_file),
+            "plan_slug": plan_slug,
+            "ledger_rows_ondisk": ledger_rows_ondisk,
+            "ledger_rows_manifest": len(tasks),
+            "sentinel_present_bool": sentinel_existed,
+            "detected_at": today,
+            "first_seen": today,
+        })
+    emit({
+        "finding": "tasks-md-regenerated",
+        "file": os.path.basename(tasks_file),
+        "plan_slug": plan_slug,
+        "tasks_rendered_count": len(tasks),
+        "sentinel_recreated_bool": (not sentinel_existed),
+        "dry_run": True,
+        "drift_detected_bool": drift,
+        "detected_at": today,
+    })
+    print("tasks-render: --check (plan=%s) tasks=%d drift=%s" % (
+        plan_slug, len(tasks), str(drift).lower()), file=sys.stderr)
+    sys.exit(0)
+
+if SENTINEL_START not in new_content or SENTINEL_END not in new_content:
+    print("tasks-render: refusing to write — sentinel markers missing", file=sys.stderr)
+    sys.exit(1)
+
+d = os.path.dirname(tasks_file) or "."
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".tasks.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(new_content)
+    os.replace(tmp, tasks_file)
+except Exception:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+
+emit({
+    "finding": "tasks-md-regenerated",
+    "file": os.path.basename(tasks_file),
+    "plan_slug": plan_slug,
+    "tasks_rendered_count": len(tasks),
+    "sentinel_recreated_bool": (not sentinel_existed),
+    "dry_run": False,
+    "detected_at": today,
+})
+PY

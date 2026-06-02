@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/vault-writer.md.json",
+  "title": "vault-writer.md (writer-reference file) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for Vault Writers/<writer>.md writer-reference files. Per-writer definitions describing systems writing into the vault (connectors, agentic flows, auto-research, scheduled skills, custom). The writer-reference SHAPE is homed in this file-type-contracts pillar; the vault-writers pillar carries operational config.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/mandatory-files-rules.json",
+  "matcher_entry": "mandates.vault_writer_reference",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh branch #3 (vault-writers-writer-reference-only — frontmatter conformance DENY on schema violation) + librarian writers-index-refresh / writers-overlap-refresh / writers-health-audit",
+    "lockstep_pair": "governance/vault-writers-rules.json (operational defaults + enums). The templates/vault-writers/ body templates are DROPPED: /govern register --kind writer composes frontmatter + body inline from contract-field knowledge; the foundation accepts contract-only file-types — there is no body_template to keep in lockstep.",
+    "evolution_protocol": "R-37 atomic lockstep with vault-writers-rules.json"
+  },
+
+  "type": "vault-writer",
+  "applies_to": {
+    "path_glob": "$VAULT_ROOT/Vault Writers/*.md"
+  },
+  "excluded_paths": [
+    "$VAULT_ROOT/Vault Writers/_index.md",
+    "$VAULT_ROOT/Vault Writers/_overlap-matrix.md"
+  ],
+  "excluded_paths_rationale": "Librarian-managed derived artifacts; writers_allowed: [librarian] enforced by branch #3 / branch #4 parallel pattern.",
+
+  "frontmatter_required": [
+    "type",
+    "writer_name",
+    "writer_kind",
+    "writer_skill",
+    "destinations",
+    "status",
+    "created",
+    "updated",
+    "tags"
+  ],
+
+  "frontmatter_optional": [
+    "failure_mode",
+    "last_run",
+    "last_success",
+    "last_failure",
+    "last_updated_by"
+  ],
+
+  "frontmatter_conditional_by_writer_kind": {
+    "connector": {
+      "required": ["writer_subtype", "source", "authentication", "schedule"]
+    },
+    "agentic-flow": {
+      "required": ["source"]
+    },
+    "auto-research": {
+      "required": ["source", "schedule"]
+    },
+    "scheduled-skill": {
+      "required": ["schedule"]
+    },
+    "custom": {
+      "required": []
+    }
+  },
+
+  "frontmatter_enums": {
+    "type": ["vault-writer"],
+    "writer_kind": ["connector", "agentic-flow", "auto-research", "scheduled-skill", "custom"],
+    "writer_subtype": ["gmail", "calendar", "granola", "teams", "gchat", "custom"],
+    "status": ["active", "paused", "retired"],
+    "failure_mode": ["block-and-log", "skip-and-log", "retry-N"]
+  },
+
+  "destinations_entry_shape": {
+    "required": ["path", "output_type"],
+    "optional": ["posture", "processing_rules_ref"],
+    "path_format": "Mustache-substituted path; foundation-shipped variable namespace = {{date}}, {{title}}, {{slug}}, {{source_id}}. Paths MAY be outside vault root for raw-data staging cases (e.g., a chat scrape writing structured records to ~/.claude/state/raw-data/<source>/messages.sqlite); the in-vault default applies to human-readable processed outputs like Meeting Notes (default raw landing = outside-vault structured; in-vault markdown reserved for direct-read artifacts).",
+    "enums": {
+      "output_type": ["markdown", "json", "sqlite", "db", "opaque"],
+      "posture": ["direct", "staged"]
+    },
+    "posture_default": "direct"
+  },
+
+  "raw_retention": {
+    "description": "Per-writer raw retention policy. Additive optional. Mandatory-default for writer_kind in {agentic-flow, auto-research}; opt-in for direct-fetch connectors. Raw retention preserves pre-distillation transcripts/sources for replayability of LLM-driven writers, and serves as the precaution substitute for the retired _landing/ folder convention.",
+    "applies_to_writer_kinds": {
+      "mandatory_default": ["agentic-flow", "auto-research"],
+      "opt_in": ["connector", "scheduled-skill", "custom"]
+    },
+    "partition_strategies": {
+      "daily_jsonl": "High-volume scrapers (gchat-scrape, teams-scrape pattern); one JSONL file per UTC date under $VAULT_WRITER_STATE_ROOT/raw/<writer-id>/<YYYY-MM-DD>.jsonl",
+      "per_record_json": "LLM-driven writers (meeting-processor, agentic-flow); one JSON file per source record under $VAULT_WRITER_STATE_ROOT/raw/<writer-id>/<source-id>.json"
+    },
+    "worm_immutability": "Raw retention files are append-only or write-once-and-immutable; reconciler + doc-amender MUST NOT mutate raw files post-write. Daily integrity check via librarian writers-health-audit.",
+    "manifest_link": "Each write to a destination records raw_path in manifest.sqlite writes table (writer-manifest-schema.json :: raw_path column). The reconciler populates this field from packet metadata.",
+    "backup_locality": "Storage root $VAULT_WRITER_STATE_ROOT defaults to ~/.local/share/brain-stem/vault-writers/ (XDG-compliant; Time Machine / restic backup-included)."
+  },
+
+  "body_section_allowlist": [
+    "Description",
+    "Source",
+    "Destinations",
+    "Processing Rules",
+    "Notes",
+    "Configuration",
+    "Edge cases",
+    "Operational notes"
+  ],
+  "body_section_allowlist_enforcement": "suggested",
+  "body_free_form": true,
+  "write_shape": "create-only"
+}

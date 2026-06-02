@@ -1,0 +1,43 @@
+---
+title: {{title}} — Tasks
+type: tasks
+status: planned
+created: {{date}}
+updated: {{date}}
+---
+
+# {{title}} — Tasks (master)
+
+**Spec:** `{{plan_dir}}/spec.md`
+**Last Updated:** {{date}}
+
+## Status Key
+
+`not-started` | `in-progress` | `done` | `blocked` | `cut`
+
+<!--
+SHAPE CONTRACT — governance/file-type-contracts/tasks.md.json. Structure = ledger-at-top +
+per-task-at-bottom; <!-- tasks:start --> / <!-- tasks:end --> sentinel pair bounds the
+librarian:tasks-render generated region (NEVER hand-edit inside the sentinels; task-state SoT
+is manifest.tasks[]).
+MASTER tasks: a master AGGREGATES sub-plan STATUS, not sub-plan TASKS.
+The ledger below is intentionally a sub-plan ROLLUP, and the master manifest.tasks[]
+MAY be empty. Real task breakdown lives in each sub-plan's tasks.md / manifest.tasks[].
+R-37 LOCKSTEP: any task ID added here requires the same-commit manifest.tasks[] update.
+-->
+
+<!-- tasks:start -->
+
+## Sub-plan status rollup
+
+| Sub-plan | Slug | Status |
+|----------|------|--------|
+| 01 | `01-{{first_sub_slug}}` | planned |
+
+<!-- tasks:end -->
+
+---
+
+## Tasks
+
+_A master aggregates sub-plan status; it carries no tasks of its own by default. Per-sub-plan task breakdown lives in `{{plan_dir}}/NN-<sub-slug>/tasks.md`. If the master needs coordinating tasks, add them here AND to `manifest.tasks[]` in the same commit (R-37)._

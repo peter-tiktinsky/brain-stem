@@ -1,0 +1,16 @@
+site_name: brain-stem
+site_description: A personalization layer for Claude Code — governance reference and documentation for the brain-stem foundation.
+site_url: https://peter-tiktinsky.github.io/brain-stem/
+repo_url: https://github.com/peter-tiktinsky/brain-stem
+repo_name: peter-tiktinsky/brain-stem
+
+docs_dir: docs
+site_dir: _site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy

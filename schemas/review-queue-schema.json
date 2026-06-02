@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://brain-stem.local/schemas/review-queue-schema.json",
+  "schema_version": "1.0.0",
+  "title": "Memory review-queue contract (.review-queue.json)",
+  "description": "Validates the .review-queue.json state file that lives beside .consolidation-state.json under the memory state tier. The guaranteed-surfacing substrate: holds every unaddressed memory-review item with severity, state, defer/dismiss counts, and class. Repo-only (inline-validated like memory-schema/rules-schema, not adopter-shipped). Producers append via hooks/lib/review-queue.sh::enqueue_item (block-and-log). The SessionStart banner + UserPromptSubmit re-firing mandate + Stop-block read it.",
+
+  "_design_notes": {
+    "item_classes": {
+      "revalidation": "STALE memory (≥180d) due for re-validation. Low severity; surfaces as a SINGLE aggregated banner line ('N memories due for revalidation'). EXEMPT from the 3-strike auto-suppress. At ≥360d (EXPIRED) escalates to medium-severity itemized {revalidate|supersede|archive}.",
+      "hygiene": "Mechanical consolidation finding (orphan/dead-ref/temporal/index-budget). Low/medium severity. Auto-suppresses after 3 ignores and logs a tuning signal.",
+      "conflict": "Semantic contradiction surfaced by mem-promote (candidate asserts ¬P where a memory asserts P) OR a supersession adjudication. HIGH severity → the only class that may reach the Stop-block (which yields to R-26). NEVER auto-resolved.",
+      "promotion": "A mem-promote proposal (ADD/MERGE-INTO/NARROW/SUPERSEDE) awaiting propose-then-confirm review."
+    },
+    "clear_condition": "An item leaves the queue (state → confirmed | rejected) ONLY on explicit confirm OR reject-with-reason — never on silent dismiss, session-exit, or bare defer.",
+    "anti_fatigue": "defer requires a reason and caps at defer_count=2 then force-escalates; low-severity hygiene findings auto-suppress after dismiss_count=3 (revalidation is exempt)."
+  },
+
+  "type": "object",
+  "required": ["version", "items"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Queue file schema version."
+    },
+    "items": {
+      "type": "array",
+      "description": "The unaddressed review items.",
+      "items": { "$ref": "#/definitions/item" }
+    }
+  },
+
+  "definitions": {
+    "item": {
+      "type": "object",
+      "required": ["id", "severity", "state", "class", "defer_count", "dismiss_count"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable item id (dedupe key; enqueue_item is idempotent on it)."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Severity tier. Gates escalation: low never reaches the Stop-block; high CONFLICT may (yielding to R-26)."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["open", "deferred", "confirmed", "rejected", "suppressed"],
+          "description": "Lifecycle state. open = unaddressed; deferred = bare defer (counts toward force-escalate); confirmed/rejected = cleared (the only clear-conditions); suppressed = auto-suppressed after 3 dismisses (hygiene only, not revalidation)."
+        },
+        "class": {
+          "type": "string",
+          "enum": ["revalidation", "hygiene", "conflict", "promotion"],
+          "description": "Item class (see _design_notes.item_classes)."
+        },
+        "defer_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of times deferred. Caps at 2 then force-escalates (re-firing mandate trigger)."
+        },
+        "dismiss_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of times ignored. Low-severity hygiene auto-suppresses at 3 + logs a tuning signal; revalidation is exempt."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Plain-language one-line impact for the diff-style review."
+        },
+        "enqueued_at": {
+          "type": "string",
+          "description": "ISO-8601 UTC timestamp the item entered the queue. Drives the aged>Nd escalation."
+        },
+        "memory_ref": {
+          "type": "string",
+          "description": "Slug or path of the memory file the item concerns (when applicable)."
+        },
+        "defer_reason": {
+          "type": "string",
+          "description": "Required when state=deferred (defer requires a reason; anti-fatigue)."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Class-specific detail (e.g., a mem-promote proposal artifact or a CONFLICT artifact surfaced side-by-side).",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "schema_version": "2.0.0",
+  "pillar": "mandatory-files",
+  "_description": "Pillar 4 — Mandatory-files (D7 rule model). Loaded by pre-write-guard.sh + post-write-verify.sh at runtime. Carries the per-file-type mandate registry (k8s ValidatingAdmissionPolicy pattern: matcher in pillar; paramKind body-structure contract in governance/file-type-contracts/<file>.json). Homes R-44 (_index.md mandate), R-59 (MEMORY.md load-contract cap, categorized C5), and R-58 (vault-writer reference — Branch 3). _rules[] is the D7 two-axis SoT.",
+  "_design_notes": {
+    "consumer": "pre-write-guard.sh (mandate-presence DENY + Branch 3 vault-writer-reference); post-write-verify.sh (Tier 1 auto-bootstrap + live-sync); librarian index-maintain capability",
+    "lockstep_pair": "System Governance - Mandatory-Files.md (narrative spoke) + governance/file-type-contracts/{_index.md,vault-writer.md}.json + hooks/post-write-verify.sh",
+    "evolution_protocol": "R-37 documentary lockstep — this pillar + System Governance - Mandatory-Files.md + governance/file-type-contracts/<file>.json + hooks move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit)."
+  },
+  "mandates": {
+    "_description": "Per-file-type mandate registry. Each entry is a `matcher` (file type + path/scope conditions) bound to its `body_structure_contract` (the paramKind resource). Hooks consume mandates[<file_type>] to determine WHETHER a mandate fires; consume body_structure_contract to determine WHAT the file's contract is. The two-resource separation follows the k8s ValidatingAdmissionPolicy pattern.",
+    "vault_writer_reference": {
+      "rule_id": "R-58",
+      "scope": "every Vault Writers/<writer>.md writer-reference file MUST conform to the writer-reference shape (the single authority for writer-reference shape is governance/file-type-contracts/vault-writer.md.json, R-58 matcher contract).",
+      "file_pattern": "$VAULT_ROOT/Vault Writers/*.md",
+      "body_structure_contract": "governance/file-type-contracts/vault-writer.md.json",
+      "enforcement_mechanism": "pre-write-guard.sh Branch 3 (vault-writers-writer-reference-only) — frontmatter conformance DENY on schema violation against the vault-writer.md.json contract.",
+      "consumers": [
+        "hooks/pre-write-guard.sh (Branch 3 vault-writer-reference)",
+        "skills/librarian writers-index-refresh / writers-overlap-refresh / writers-health-audit"
+      ]
+    },
+    "_index_md": {
+      "rule_id": "R-44",
+      "scope": "every non-exempt user-facing folder MUST carry a sibling _index.md",
+      "file_pattern": "**/_index.md",
+      "body_structure_contract": "governance/file-type-contracts/_index.md.json",
+      "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
+      "exemption_paths": [
+        "Logs/**",
+        "Meetings/**"
+      ],
+      "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
+      "exemption_categories": [
+        "date-prefixed sequence folders (Meetings/)",
+        "scratch-space emissions (Logs/)"
+      ],
+      "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
+      "consumers": [
+        "hooks/post-write-verify.sh (Tier 1 auto-bootstrap + live-sync)",
+        "skills/librarian/capabilities/index-maintain.sh (Tier 2 audit sweep + Tier 3 --deep semantic validation)"
+      ]
+    },
+    "_memory_md_cap": {
+      "rule_id": "R-59",
+      "scope": "MEMORY.md under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented load contract: first 200 lines OR first 25KB (whichever first) loaded at session start; entries past the cap silently drop. Per-line <= 200 chars (drift signal).",
+      "file_pattern": "**/.claude/projects/*/memory/MEMORY.md",
+      "thresholds": {
+        "max_lines": 200,
+        "max_bytes": 25600,
+        "max_chars_per_line": 200,
+        "governing_trigger": "bytes",
+        "_governing_trigger_note": "The BYTE cap is the governing trigger — it bites first (at ~110 entries) before the line cap. R-59 consumers gate on the byte ratio primarily; the line + char-line caps are secondary drift signals."
+      },
+      "line_count_method": {
+        "count_both_raw_and_stripped": true,
+        "gate_on": "larger",
+        "_note": "Count BOTH the raw line count AND the comment-stripped line count, and gate on the LARGER of the two until MEMORY.md comment-stripping is empirically verified — HTML-comment blocks (<!-- -->) must not buy unlimited headroom. memory-consolidation-run.sh Check 8 implements this."
+      },
+      "overflow_routing": {
+        "_description": "Cold-spill seam — DOCUMENTED ONLY (pre-built, cheap). At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill is v-next, volume-gated, no calendar gate). The fixed section order below makes the cold boundary always knowable.",
+        "fixed_section_order": ["Semantic", "Procedural", "Episodic"],
+        "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is the SAMPLED windowed section (newest ~10 + a glob memory/episode_*.md pointer) and is not cold-spilled.",
+        "archive_target": "MEMORY-archive.md",
+        "archive_created": false,
+        "auto_spill": "v-next (volume-gated; NOT a calendar gate)"
+      },
+      "enforcement_mechanism": "advisory — hooks/pre-write-guard.sh emits additionalContext warning at write-time when any threshold exceeded; never blocks the write. The byte cap is the governing trigger.",
+      "consumers": [
+        "hooks/pre-write-guard.sh (PreToolUse Edit|Write advisory at write-time)",
+        "hooks/memory-consolidation-run.sh (Check 8 budget monitor: byte-first, both-raw-and-stripped-gate-on-larger)"
+      ],
+      "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md referenced via [[wikilinks]]. The byte cap is the governing trigger (bites at ~110 entries before the line cap)."
+    }
+  },
+  "_rules": [
+    {
+      "id": "R-58",
+      "home": "mandatory-files",
+      "category": "C1",
+      "surface": "vault-writers",
+      "tier": "mandate",
+      "enforcement_layer": ["pre-write-guard.sh Branch 3 (vault-writer-reference)"],
+      "status": "active",
+      "source": "governance/mandatory-files-rules.json :: mandates.vault_writer_reference (D7 SoT)",
+      "rule_text": "Vault Writers/<writer>.md writer-reference files MUST conform to the writer-reference shape defined by governance/file-type-contracts/vault-writer.md.json (the single authority for writer-reference shape; R-58 matcher contract). Branch 3 DENIES a frontmatter-schema violation at write-time. R-58 is the mandate (vault-writer reference — Branch 3), home mandatory-files, category C1.",
+      "failure_mode": "A writer-reference file landing without the required writer-reference frontmatter shape leaves the writer un-cataloged / mis-resolved by the librarian writers-* capabilities and the doc-amender fan-out.",
+      "matcher_path": "mandates.vault_writer_reference",
+      "body_structure_contract": "governance/file-type-contracts/vault-writer.md.json"
+    },
+    {
+      "id": "R-59",
+      "home": "mandatory-files",
+      "category": "C5",
+      "tier": "mandate",
+      "enforcement_layer": ["hooks/pre-write-guard.sh PreToolUse Edit|Write advisory (additionalContext warning when any threshold exceeded; never blocks write)"],
+      "status": "active",
+      "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap (D7 SoT; codifies the Anthropic-documented load contract from code.claude.com/docs/en/memory)",
+      "failure_mode": "Adopter writes MEMORY.md entries past the documented 200-line/25KB cap; harness silently truncates at load-time; bottom entries never reach the model. Without the advisory, the adopter has no write-time signal that part of their index will be invisible.",
+      "rule_text": "MEMORY.md files under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented harness load contract: first 200 lines OR first 25KB (whichever first) loaded at session start. Per-line maximum 200 characters (drift signal). When any threshold is exceeded, hooks/pre-write-guard.sh MUST emit an additionalContext advisory at write-time naming the breached threshold(s) + actual value(s) + a remediation pointer. ADVISORY — the write always proceeds.",
+      "matcher_path": "mandates._memory_md_cap",
+      "thresholds_source": "mandates._memory_md_cap.thresholds"
+    },
+    {
+      "id": "R-44",
+      "home": "mandatory-files",
+      "category": "C1",
+      "tier": "mandate",
+      "enforcement_layer": [
+        "hooks/post-write-verify.sh Tier 1 auto-bootstrap (creates _index.md at first-write to non-exempt folder)",
+        "hooks/post-write-verify.sh Tier 1 live-sync (reconciles contents-enum entry for written sibling files)",
+        "hooks/post-write-verify.sh self-exempt loop guard (one-line filename check at hook entry)",
+        "skills/librarian/capabilities/index-maintain.sh Tier 2 audit sweep",
+        "skills/librarian/capabilities/index-maintain.sh Tier 3 --deep semantic validation",
+        "governance/frontmatter-rules.json #types.index frontmatter contract",
+        "governance/file-type-contracts/_index.md.json body-structure contract"
+      ],
+      "status": "active",
+      "source": "governance/mandatory-files-rules.json :: mandates._index_md (D7 SoT)",
+      "failure_mode": "Folders without an _index.md appear as leaves in graph view; LLMs reading the folder have no orientation document; human readers fall back to filename-by-filename scanning. The mandate is structural: post-write-verify auto-bootstrap creates _index.md at first-write to a non-exempt folder.",
+      "rule_text": "Every non-exempt user-facing folder in the vault MUST carry a sibling _index.md at folder root. The _index.md file MUST conform to the frontmatter contract at governance/frontmatter-rules.json #types.index AND the body-structure contract at governance/file-type-contracts/_index.md.json. Exempt paths are enumerated in mandates._index_md.exemption_paths (positive-list). Enforced structurally via the three-tier maintenance architecture: Tier 1 post-write-verify auto-bootstrap + live-sync; Tier 2 librarian index-maintain audit sweep; Tier 3 librarian index-maintain --deep opt-in semantic validation.",
+      "matcher_path": "mandates._index_md",
+      "body_structure_contract": "governance/file-type-contracts/_index.md.json",
+      "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
+      "exemption_paths_source": "mandates._index_md.exemption_paths",
+      "self_healing_capability": "skills/librarian/capabilities/index-maintain.sh (R-34 self-healing boundary — mutations bounded to mechanically-derivable values; semantic content flagged for review, never auto-overwritten)"
+    },
+    {
+      "id": "R-09",
+      "home": "mandatory-files",
+      "category": "C1",
+      "surface": "Logs",
+      "tier": "autogovern",
+      "enforcement_layer": [
+        "hook (post-write-verify.sh Logs/ auto-govern branch)",
+        "librarian (frontmatter-enforce, audit-time)"
+      ],
+      "status": "active",
+      "source": "governance/mandatory-files-rules.json :: _rules (D7 SoT). R-09 is the live Logs/ auto-govern rule; the deny→auto-govern reframe mints the autogovern tier.",
+      "rule_text": "Logs/ is a free-write scratch sink; write-time governance is AUTO-APPLIED (never denied, never propose-and-confirm). A file landing under Logs/ is not blocked and is not surfaced for confirmation — the post-write-verify.sh Logs/ auto-govern branch applies the required frontmatter/tagging governance automatically, and the librarian frontmatter-enforce capability reconciles at audit-time. R-09 is the Logs/ auto-govern rule (tier autogovern), home mandatory-files, category C1.",
+      "failure_mode": "Without the auto-govern branch, a Logs/ scratch write either lands ungoverned (orphan in graph view, missing tags) or — under the retired deny framing — gets wrongly blocked, defeating the free-write-scratch-sink contract. Auto-govern: the write always proceeds and the governance is applied for the author.",
+      "_lockstep": "R-37 documentary lockstep: pillar _rules[] + pre-write-guard.sh header + the post-write-verify.sh Logs/ auto-govern branch (the enforcement_layer body this declaration names) + bundle mirror."
+    }
+  ]
+}

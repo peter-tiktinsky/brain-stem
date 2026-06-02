@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/doc-amender-prompt.md.json",
+  "title": "doc-amender-prompt.md runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for doc-amender-prompt.md files — operator-authored prompt assets consumed by the doc-amender skill when round-tripping amendments through staging-emit. Prompts ship outside-vault as state-tier assets under $VAULT_WRITER_STATE_ROOT/prompts/*.md. Declares the foundation-shipped variable namespace the prompt body may reference; declares the 3-signal survivorship policy (operator-edit-wins + amender-conflict-sidecar + amender-paused-frontmatter). Carries persistence_mode (deterministic|llm-mediated|hybrid) — the det/LLM split the runtime dispatches on: deterministic → compose-deterministic.sh, llm-mediated → the claude -p lane, hybrid → append-section+llm_control. Companion contract to skills/doc-amender.",
+  "version": "1.1.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/mandatory-files-rules.json",
+  "matcher_entry": "mandates.doc_amender_prompt",
+  "_design_notes": {
+    "consumer": "skills/doc-amender",
+    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in",
+    "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries"
+  },
+
+  "type": "doc-amender-prompt",
+  "applies_to": {
+    "path_glob": "$VAULT_WRITER_STATE_ROOT/prompts/*.md"
+  },
+
+  "frontmatter_required": [
+    "type",
+    "prompt_id",
+    "amendment_strategy",
+    "destination_glob",
+    "survivorship_policy",
+    "created",
+    "updated"
+  ],
+
+  "frontmatter_optional": [
+    "persistence_mode",
+    "amender_paused",
+    "model",
+    "max_tokens",
+    "tags",
+    "notes"
+  ],
+
+  "frontmatter_enums": {
+    "type": ["doc-amender-prompt"],
+    "amendment_strategy": ["append-section", "template-fill", "prompt-guided-amend"],
+    "persistence_mode": ["deterministic", "llm-mediated", "hybrid"],
+    "survivorship_policy": ["operator-edit-wins", "amender-conflict-sidecar", "amender-paused-frontmatter"]
+  },
+
+  "persistence_mode_detail": {
+    "_description": "The det/LLM split. persistence_mode selects the composition lane the doc-amender runtime dispatches to (skills/doc-amender/process.sh :: resolve_persistence_mode). When a prompt omits persistence_mode, the runtime DERIVES it from amendment_strategy via persistence_mode_default below (the mapping is the CONTRACT's, not hand-coded in the composer).",
+    "modes": {
+      "deterministic": "No claude -p. skills/doc-amender/compose-deterministic.sh composes via table-fill (upsert a row by key; replace-on-key) + capped-append; emits an amender-replacement packet back to staging (NEVER writes the destination — R-34).",
+      "llm-mediated": "The claude -p lane (skills/doc-amender/process.sh). The operator-authored prompt body is run through the model with the 6-variable context block; output is round-tripped as an amender-replacement packet.",
+      "hybrid": "append-section + llm_control — appends a section with LLM-mediated section composition."
+    },
+    "persistence_mode_default": {
+      "_note": "amendment_strategy ↔ persistence_mode mapping (the contract's, consumed by resolve_persistence_mode + compose-deterministic.sh). A prompt MAY override with an explicit persistence_mode frontmatter value.",
+      "template-fill": "deterministic",
+      "append-section": "hybrid",
+      "prompt-guided-amend": "llm-mediated"
+    },
+    "pattern_menu": {
+      "action-items-table": "amendment_strategy=template-fill → persistence_mode=deterministic (replace-on-key table upsert)",
+      "decision-log": "amendment_strategy=append-section → persistence_mode=hybrid (append-section + llm_control; create-if-absent / error-sidecar-if-multiple section_key)",
+      "agentic-wiki": "amendment_strategy=prompt-guided-amend → persistence_mode=llm-mediated (the claude -p lane)"
+    }
+  },
+
+  "variable_namespace": [
+    "packet_body",
+    "destination_current_content",
+    "destination_path",
+    "upstream_writers",
+    "writer_metadata",
+    "amendment_history"
+  ],
+
+  "body_section_allowlist": [
+    "Goal",
+    "Variables",
+    "Prompt",
+    "Output Format",
+    "Edge cases",
+    "Notes"
+  ],
+  "body_section_allowlist_enforcement": "suggested",
+  "body_free_form": true,
+
+  "survivorship_policy_detail": {
+    "signals": [
+      {"name": "operator-edit-wins", "trigger": "Existing operator-edit-wins two-signal detection (last_user_edit timestamp + content-diff against writer's last-known-hash)", "action": "Amender SKIPS LLM call; emits _amender-conflict.json sidecar"},
+      {"name": "amender-conflict-sidecar", "trigger": "Conflict detected via signal 1", "action": "Sidecar file at <destination>.amender-conflict.json; operator triages via /amend-accept <sidecar> skill"},
+      {"name": "amender-paused-frontmatter", "trigger": "Destination file frontmatter declares amender_paused: true", "action": "Amender permanently skips this destination until operator removes the flag"}
+    ],
+    "boundary": "doc-amender NEVER writes destination directly; round-trips through staging via staging-emit"
+  },
+  "write_shape": "create-only"
+}

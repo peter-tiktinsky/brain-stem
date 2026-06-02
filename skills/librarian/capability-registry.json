@@ -1,0 +1,1122 @@
+{
+  "schema_version": 1,
+  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written · schema · validation · failure-mode + the capability↔schema/path dependency map. REGENERATE — never hand-edit. Home: skills/librarian/capability-registry.json. The disk↔registry↔SKILL.md bijection (capability-registry-parity) is the integrity invariant.",
+  "capabilities": {
+    "governance-parity-audit": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "weekly",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/frontmatter-rules.json",
+        "governance/tagging-rules.json",
+        "governance/naming-rules.json",
+        "governance/mandatory-files-rules.json",
+        "governance/doc-dependencies.json",
+        "governance/vault-writers-rules.json",
+        "governance/_index.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.governance_parity",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "each pillar JSON parses; pillar-schema-malformed on failure",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/governance-parity-audit.sh"
+    },
+    "index-maintain": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/mandatory-files-rules.json",
+        "governance/file-type-contracts/_index.md.json",
+        "governance/frontmatter-rules.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.index_maintain",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{VAULT_ROOT}/**/_index.md (R-34 bounded: contents-enum sentinel region + updated:)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "governance/file-type-contracts/_index.md.json",
+        "validation": "mandatory-files-rules.json parses (block-and-log); _index.md sentinel-presence checked before write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/index-maintain.sh"
+    },
+    "log-subtype-canonical": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "weekly",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/log-subtype-registry.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.log_subtype_canonical",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "log-subtype-registry.json parses (block-and-log + abort on registry-schema-malformed)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/log-subtype-canonical.sh"
+    },
+    "writers-index-refresh": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/file-type-contracts/vault-writer.md.json",
+        "governance/vault-writers-rules.json",
+        "governance/frontmatter-rules.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.writers_index_refresh",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{VAULT_ROOT}/Vault Writers/_index.md (writers-index sentinel region)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "governance/file-type-contracts/vault-writer.md.json",
+        "validation": "per-writer frontmatter validated before row composition; sentinel-presence checked before write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/writers-index-refresh.sh"
+    },
+    "writers-overlap-refresh": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/file-type-contracts/vault-writer.md.json",
+        "governance/vault-writers-rules.json",
+        "governance/doc-dependencies.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.writers_overlap_refresh",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{VAULT_ROOT}/Vault Writers/_overlap-matrix.md (overlap-matrix sentinel region)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "governance/file-type-contracts/vault-writer.md.json",
+        "validation": "destinations entry shape; deterministic glob derivation; sentinel-presence checked before write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/writers-overlap-refresh.sh"
+    },
+    "writers-health-audit": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/file-type-contracts/vault-writer.md.json",
+        "governance/vault-writers-rules.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.writers_health_audit",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON/JSONL to stdout (or $FINDINGS_OUTPUT); NO vault write"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "source contracts parse (block-and-log + abort)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/writers-health-audit.sh"
+    },
+    "rules-index": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "weekly",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "governance/frontmatter-rules.json",
+        "governance/tagging-rules.json",
+        "governance/naming-rules.json",
+        "governance/mandatory-files-rules.json",
+        "governance/doc-dependencies.json",
+        "governance/vault-writers-rules.json",
+        "governance/plans-rules.json",
+        "governance/_index.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "governance/_generated/rules-index.md (regenerated read-replica; UNVALIDATED — no rules-index-schema.json)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": null,
+        "validation": "source pillars parse (block-and-log); the index itself ships UNVALIDATED",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rules-index.sh"
+    },
+    "tasks-render": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "governance/plans-rules.json",
+        "governance/file-type-contracts/tasks.md.json",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/<slug>/tasks.md (tasks sentinel region; manifest read-only)"
+        ],
+        "schema": "governance/file-type-contracts/tasks.md.json",
+        "validation": "manifest validated against schemas/plan-manifest-schema.json before render; --check parity mode",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/tasks-render.sh"
+    },
+    "subplan-aggregate": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "session-close"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/<master>/manifest.json :: sub_plans[] (pull-based read-replica; graduation_timestamp WRITER)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field)",
+        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/subplan-aggregate.sh"
+    },
+    "trinity-drift-detect": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2d"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.trinity",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT); read-only"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "master<->sub axis enforces R-61 (aggregation-integrity, reconciler) + R-62 (sub-publishes-upward, reconciler) + R-63 (sub-peer-isolation, advisory); reconciler-only, never write-time",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/trinity-drift-detect.sh"
+    },
+    "drift-sweep": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "governance/foundation-master.json",
+        "capabilities/trinity-drift-detect.sh",
+        "capabilities/subplan-aggregate.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.sweep",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or --output sink)",
+          "{PLANS_ROOT}/<master>/manifest.json :: sub_plans[] (only via --fix, delegated to subplan-aggregate.sh)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "master<->sub axis (R-61/62/63); --fix repairs via the canonical aggregator (single-writer invariant)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/drift-sweep.sh"
+    },
+    "plan-index": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "inventory.plan_index",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/_index.md (status-grouped navigation index)"
+        ],
+        "schema": "plan-index.md contract (governed by THIS registry output_contract; no governance/librarian-capabilities/plan-index.md, no _index.json pillar-8 entry)",
+        "validation": "reader cap — READS the master sub_plans[] aggregate (coarse-bucket rollup); >0-plan-root + group-count assertions before write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-index.sh"
+    },
+    "backlog-index": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "cron"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "governance/plans-rules.json",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/_backlog.md (backlog sentinel region)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json",
+        "validation": "reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/backlog-index.sh"
+    },
+    "plan-archive": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "cron"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "governance/plans-rules.json",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/_archive.md (quarterly retrospective rows)",
+          "{PLANS_ROOT}/<slug>/manifest.json (status flip closed -> archived)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json",
+        "validation": "reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-archive.sh"
+    },
+    "capability-registry-parity": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "monday",
+      "dependencies": [
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "5 drift classes: (a) SKILL.md<->registry bijection, (b) script-missing, (c) schema_version, (d) emits->writes_manifest_subtree, (e) disk->registry orphan",
+        "failure_mode": "report-only (exit 0; findings as JSON; non-zero finding count does not change exit)"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/capability-registry-parity.sh"
+    },
+    "frontmatter-enforce": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
+        "hooks/lib/user-manifest-read.sh",
+        "governance/foundation-master.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.{provides_canonicality,size_monitoring,schema_type_coverage}",
+      "default_flags": [
+        "--recent",
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-manifest drift_findings.{provides_canonicality,size_monitoring,schema_type_coverage} (manifest_set, atomic)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "schemas/librarian-manifest-schema.json (drift_findings.* subtree)",
+        "validation": "per-file required-field check vs the 26-row type table; persistent-ID matching (DC/SM/ST); manifest write is atomic temp+rename",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/frontmatter-enforce.sh"
+    },
+    "placement-validate": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/user-manifest-read.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.placement",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "vault placement rules walked; logs_whitelist_subdirs read from user-manifest (umr_get_array)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/placement-validate.sh"
+    },
+    "xref-check": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "xref_graph",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-manifest xref_graph (manifest_set, atomic)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "schemas/librarian-manifest-schema.json (xref_graph subtree)",
+        "validation": "cross-reference graph computed; manifest write is atomic temp+rename",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/xref-check.sh"
+    },
+    "stale-detect": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/plan-path.sh",
+        "hooks/lib/user-manifest-read.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.stale",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "plan-root walk via hooks/lib/plan-path.sh; staleness thresholds; logs_whitelist_subdirs from user-manifest",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/stale-detect.sh"
+    },
+    "tag-coverage-audit": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/plan-path.sh",
+        "hooks/lib/frontmatter.sh",
+        "hooks/lib/user-manifest-read.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.tag_coverage",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "tag taxonomy coverage walked; tag_audit_exemptions read from user-manifest (umr_get_array)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/tag-coverage-audit.sh"
+    },
+    "sanctioned-schema-drift-detect": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "drift finding lines to stdout (PASS/FAIL summary; --json structured)"
+        ],
+        "schema": null,
+        "validation": "byte-diff of the 2 sanctioned schemas (plans-schema, plan-manifest-schema) between the foundation-repo source and the live install schemas (CLAUDE_HOME/schemas)",
+        "failure_mode": "block-and-log (exit 1 on drift)"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/sanctioned-schema-drift-detect.sh"
+    },
+    "handoff-disposition-check": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "handoff disposition (FIX NOW / ABSORB / STANDALONE) presence checked per close-out follow-up",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/handoff-disposition-check.sh"
+    },
+    "plan-parent-resolve": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/frontmatter.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "R-28 parent_plan: frontmatter resolution via hooks/lib/frontmatter.sh; plan-slug existence check",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-parent-resolve.sh"
+    },
+    "librarian-manifest-validate": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "monday",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
+        "schemas/librarian-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)",
+          "$CLAUDE_HOME/logs/librarian-errors/<date>-manifest-validate.md on DENY"
+        ],
+        "schema": "schemas/librarian-manifest-schema.json",
+        "validation": "staged librarian-manifest.json validated vs schemas/librarian-manifest-schema.json (tier-1 ajv / tier-2 python-jsonschema / tier-3 minimal); DENY exit 1",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/librarian-manifest-validate.sh"
+    },
+    "skill-parity": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "skill registry <-> on-disk skill bodies parity walked",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/skill-parity.sh"
+    },
+    "waiver-audit": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "governance waiver registry audited (read-only; canonical writer is hooks/lib/cascade-waiver.sh, SP-owned elsewhere)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/waiver-audit.sh"
+    },
+    "rules-hygiene": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/rules-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#rules-hygiene",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON candidates to stdout (or $FINDINGS_OUTPUT); synthesis-rubric judgment cap, requires confirmation"
+        ],
+        "schema": "schemas/rules-schema.json",
+        "validation": ".claude/rules audited vs schemas/rules-schema.json (resolved CLAUDE_HOME-first); DISTINCT from the rules-index regenerator",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rules-hygiene.sh"
+    },
+    "log-archive": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/dates.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{VAULT_LOGS} archived log files moved to retention subdirs",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "retention thresholds (dashboard 3d / general 7d) via hooks/lib/dates.sh (days_since, week_of_year)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/log-archive.sh"
+    },
+    "backup": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-5"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/user-manifest-read.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": "scan_state.backup",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{system.backup_targets[]} filesystem snapshots (read from user-manifest via umr_get_array)"
+        ],
+        "schema": null,
+        "validation": "backup_targets[] resolved from user-manifest; snapshot integrity",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/backup.sh"
+    },
+    "wikilink-repair": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--dry-run"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{vault.root}/**/*.md wikilink fixups (after --dry-run review)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "rename-aware wikilink resolution; dry-run-by-default; atomic per-file rewrite",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/wikilink-repair.sh"
+    },
+    "rename-detect": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2b"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-manifest drift_findings.rename_detected (manifest_append_finding, only with --register)",
+          "rename NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "schemas/librarian-manifest-schema.json (drift_findings.rename_detected subtree, --register only)",
+        "validation": "git log --diff-filter=R across vault+plans roots; --register late-sources hooks/lib/manifest.sh",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rename-detect.sh"
+    },
+    "rename-cascade": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2b"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/user-manifest-read.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--dry-run"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{vault.root}/**/*.md wikilink updates (after --dry-run review)"
+        ],
+        "schema": "governance/foundation-master.json",
+        "validation": "consumes rename-detect NDJSON; dry-run-by-default; cascades wikilink updates downstream",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rename-cascade.sh"
+    },
+    "rename-history-sync": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2b"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "rename_history",
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-manifest rename_history[] (manifest writer)"
+        ],
+        "schema": "schemas/librarian-manifest-schema.json (rename_history[] subtree)",
+        "validation": "rename history appended to the librarian-manifest rename_history[] (atomic)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rename-history-sync.sh"
+    },
+    "memory-globalize": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/rules-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#memory-globalize",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{system.rules_dir}/<name>.md (only with --apply)",
+          "<source-memory>.md frontmatter promoted_to: (only with --apply)",
+          "librarian-finding NDJSON candidates to stdout"
+        ],
+        "schema": "schemas/rules-schema.json",
+        "validation": "candidate rule validated vs schemas/rules-schema.json (resolved CLAUDE_HOME-first); name-collision guard; requires confirmation",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/memory-globalize.sh"
+    },
+    "memory-hygiene": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
+        "hooks/lib/dates.sh"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#memory-hygiene",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{system.memory_dir}/*.md (with confirmation; judgment cap)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "memory-dir resolved via hooks/lib/paths.sh::resolve_memory_dir; index-health + staleness via hooks/lib/dates.sh; requires confirmation",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/memory-hygiene.sh"
+    },
+    "memory-staleness": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/memory-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#memory-staleness",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON candidates to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "schemas/memory-schema.json",
+        "validation": "memory entries checked vs schemas/memory-schema.json (resolved CLAUDE_HOME-first); staleness thresholds",
+        "failure_mode": "skip-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/memory-staleness.sh"
+    },
+    "session-close": {
+      "tier": "orchestrator",
+      "invocation_modes": [
+        "ad-hoc",
+        "session-close"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/reconcile-sessions.sh",
+        "capabilities/frontmatter-enforce.sh",
+        "capabilities/xref-check.sh",
+        "capabilities/placement-validate.sh",
+        "capabilities/stale-detect.sh",
+        "capabilities/handoff-disposition-check.sh",
+        "capabilities/plan-index.sh",
+        "capabilities/plan-parent-resolve.sh",
+        "capabilities/rename-detect.sh",
+        "capabilities/rename-history-sync.sh",
+        "capabilities/rename-cascade.sh",
+        "capabilities/trinity-drift-detect.sh",
+        "capabilities/backup.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{VAULT_LOGS}/session-close-YYYYMMDD-HHMMSS.md"
+        ],
+        "schema": "governance/foundation-master.json#frontmatter.types.log",
+        "validation": "orchestrates the core capability chain over the installed caps; cut caps (0 disk bodies) are absent from the dependency map so the registry↔disk bijection holds; the matching run_capability chain calls are likewise absent from session-close.sh",
+        "failure_mode": "advisory-log-and-continue"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/session-close.sh"
+    },
+    "review": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/review-queue.sh",
+        "hooks/lib/paths.sh",
+        "schemas/review-queue-schema.json",
+        "schemas/memory-schema.json"
+      ],
+      "emits_findings": false,
+      "emits_ndjson_candidates": false,
+      "synthesis_rubric_section": "SKILL.md#review",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{system.memory_dir}/*.md (CONFIRM of a promotion item; Gate 1, with confirmation)",
+          ".review-queue.json (each disposition via hooks/lib/review-queue.sh confirm_item/reject_item/defer_item/suppress_item)"
+        ],
+        "schema": "schemas/review-queue-schema.json (item state enum) + schemas/memory-schema.json (promotion write); findings contract via hooks/lib/findings.sh",
+        "validation": "queue resolved via hooks/lib/review-queue.sh; memory-dir via hooks/lib/paths.sh; requires confirmation on every write; high-sev+oldest-first sort, ~20/pass cap; low-sev hygiene auto-suppress at dismiss_count 3, revalidation EXEMPT",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "spec-only",
+      "_note": "/librarian review is a judgment-tier rubric (SKILL.md#review), NOT a capabilities/review.sh disk body — review is an LLM diff+impact judgment loop; the four hooks/lib/review-queue.sh queue-drain primitives carry the mechanical state writes. A spec-only registry entry without a disk body is bijection-legal (capability-registry-parity class (b) excludes implementation_status==spec-only, class (e) orphan check is the converse)."
+    }
+  }
+}

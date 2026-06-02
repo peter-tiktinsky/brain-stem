@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brain-stem.example/schemas/drift-allowlist/v1.json",
+  "title": "Librarian provides:overlap drift allowlist",
+  "description": "Validates ${CLAUDE_HOME}/hooks/config/drift-allowlist.json — the source-of-truth for librarian provides:overlap exemptions. Edited directly by adopters; mirrored into librarian-manifest.json at /librarian run time. Hand-editing the manifest is forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "_comment": {
+      "type": "string",
+      "description": "Inline documentation. Ignored by consumers."
+    },
+    "_schema_version": {
+      "type": "integer",
+      "description": "Optional schema version pin. Foundation skeleton omits; future migrations may add."
+    },
+    "provides_overlap": {
+      "type": "array",
+      "description": "Exemption entries. Each entry declares an overlap that should NOT be flagged as drift by /librarian. Foundation skeleton ships an empty array.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "Skill or capability name claiming the provides label."
+          },
+          "label": {
+            "type": "string",
+            "description": "The provides label whose overlap is exempted."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable rationale. Surfaced in librarian audit reports."
+          }
+        }
+      }
+    }
+  }
+}

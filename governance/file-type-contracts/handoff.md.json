@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/handoff.md.json",
+  "title": "handoff.md (plan/sub-plan) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for plan-tree handoff.md files. Strict append-only newest-first per the session-continuity protocol.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "plan_folder_quartet.required",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (append-only enforcement) + skill session-close-and-handoff + librarian plan-index",
+    "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet + the session-continuity protocol",
+    "evolution_protocol": "Append-only; historical session entries never edited in place. R-37 atomic lockstep — documentary-by-design (the append-only invariant is the lockstep record, NOT a write-time DENY)."
+  },
+
+  "type": "handoff",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/handoff.md"
+  },
+
+  "append_only": true,
+  "append_only_rationale": "No in-place edits to historical session entries. New session entries prepend at top (newest-first). Historical entries are immutable record of plan execution arc.",
+
+  "newest_first": true,
+  "newest_first_rationale": "Repository convention — readers scroll top to find latest session; pre-existing entries shift downward without modification.",
+
+  "section_schema": "## (Alignment )?Session N — <session-title>(\\n### .*)*",
+  "section_schema_format": "regex",
+
+  "section_subsections": [
+    "Scope",
+    "Decision-Quality Protocol passes",
+    "Locks captured",
+    "Spec deltas",
+    "Files modified",
+    "Follow-up dispositions",
+    "Memories saved"
+  ],
+  "section_subsections_enforcement": "suggested",
+
+  "size_limits": {
+    "max_kb": 50,
+    "split_strategy": "split to handoff-archive.md at threshold"
+  },
+  "write_shape": "append-template"
+}

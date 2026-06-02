@@ -1,0 +1,12 @@
+{
+  "_comment": "Opt-in fragment merged when manifest.hooks.multi_session.enabled is true. The multi-session registry baseline (session-register.sh on SessionStart + session-deregister.sh on SessionEnd, with the stale-session reaper session-auto-close.sh launchd-spawned by session-deregister.sh) is already wired in the default templates/settings.json. This fragment is the redundant belt-and-suspenders multi-session config: it wires the unwired diagnostic session-start-canary.sh into SessionStart for adopters who want the SessionStart plans-dir tripwire + active-plans.txt detection signal active by default (the canary ships runtime/internal and is NOT default-wired). The installer deep-merges this fragment's entries into the SessionStart hooks array of the user's settings.json. NOT merged into the default settings.json — opt-in only.",
+  "_merge_target": "hooks.SessionStart[0].hooks",
+  "_manifest_flag": "hooks.multi_session.enabled",
+  "entries": [
+    {
+      "type": "command",
+      "command": "~/.claude/hooks/session-start-canary.sh",
+      "timeout": 5
+    }
+  ]
+}

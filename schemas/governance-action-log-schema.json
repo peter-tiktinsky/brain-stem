@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brain-stem.example/schemas/governance-action-log/v1.json",
+  "title": "Governance Action Log Row",
+  "description": "Append-only JSONL row format for $VAULT_WRITER_STATE_ROOT/governance-action-log.jsonl. Each line is an independent JSON object representing one governance mutation event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["timestamp", "kind", "proposed_by", "session_id"],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the mutation event."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["folder", "file-type", "tag-extension", "writer"],
+      "description": "Governance pillar slot being registered. Bare nouns. Frictionless-skip outcome captured separately by `unregistered: true` boolean field; do NOT collapse the two axes."
+    },
+    "proposed_by": {
+      "type": "string",
+      "enum": [
+        "claude-inline",
+        "claude-skill-invocation",
+        "user-direct",
+        "hook-class-a",
+        "hook-class-b",
+        "hook-class-c",
+        "hook-class-d",
+        "skipped"
+      ],
+      "description": "Entry path that proposed the mutation. claude-inline = mutation made directly by Claude without a skill or hook in the chain. claude-skill-invocation = skill body invoked the mutation pathway. user-direct = explicit `/govern register` invocation by the operator. hook-class-a/b/c/d = pre-write-guard branch #1 detection class (A=new top-level folder, B=new vault-root file, C=new file-type in existing folder, D=capability-with-vault-write skill declares unregistered destinations). skipped = soft-mandate proposal declined by operator; pair with `unregistered: true` for drift detection by librarian writers-health-audit."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Claude session ID at time of mutation. Cross-references session checkpoints."
+    },
+    "validated_fields": {
+      "type": "object",
+      "description": "Map of pillar.field-path → accepted-value pairs."
+    },
+    "rejected_fields": {
+      "type": "object",
+      "description": "Map of pillar.field-path → {value, reason} pairs for user-rejected propositions."
+    },
+    "override_reasons": {
+      "type": "object",
+      "description": "Map of pillar.field-path → free-text override reason (R-52 collision tiebreaker for shadowing entries)."
+    },
+    "unregistered": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when user invoked frictionless skip; write proceeded without governance registration. Librarian governance-parity-audit surfaces as drift finding."
+    },
+    "target": {
+      "type": "string",
+      "description": "Path or identifier of the registered surface (folder path, file-type slug, tag dimension, writer name)."
+    },
+    "claude_version": {
+      "type": "string",
+      "description": "Claude model + harness version string."
+    }
+  }
+}

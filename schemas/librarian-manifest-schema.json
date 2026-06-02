@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Librarian Manifest",
+  "description": "Librarian runtime state: inventory, cross-reference graph, tag inventory, scan state, drift findings, architect recommendations, rename history. Runtime writes owned by the librarian capabilities. drift_findings.required[] is trimmed to the subtrees a clean-room capability actually writes (frontmatter-enforce) — see drift_findings.description.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "inventory",
+    "xref_graph",
+    "tags",
+    "scan_state",
+    "drift_findings",
+    "architect_recommendations",
+    "rename_history"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "inventory": {
+      "type": "object",
+      "required": ["by_type", "by_path"],
+      "properties": {
+        "by_type": {
+          "type": "object",
+          "description": "Map: canonical file type -> inventory records or counts",
+          "additionalProperties": true
+        },
+        "by_path": {
+          "type": "object",
+          "description": "Map: absolute path -> inventory record",
+          "additionalProperties": true
+        }
+      }
+    },
+    "xref_graph": {
+      "type": "object",
+      "description": "Cross-reference graph (wikilinks, canonical-file links, explicit references). Inner shape owned by the runtime writer.",
+      "additionalProperties": true
+    },
+    "tags": {
+      "type": "object",
+      "description": "Tag inventory (tag -> occurrences). Inner shape owned by the runtime writer.",
+      "additionalProperties": true
+    },
+    "scan_state": {
+      "type": "object",
+      "required": ["last_scanned_at", "findings_by_capability"],
+      "properties": {
+        "last_scanned_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 timestamp of the most recent full-scan cycle"
+        },
+        "findings_by_capability": {
+          "type": "object",
+          "description": "Map: capability id -> scan findings record",
+          "additionalProperties": true
+        }
+      }
+    },
+    "drift_findings": {
+      "type": "object",
+      "description": "Per-capability drift-finding subtrees written by the librarian capabilities via writes_manifest_subtree. The three frontmatter-enforce subtrees are required (frontmatter-enforce always writes them). additionalProperties:true admits the other capability subtrees (placement, stale, tag_coverage, sweep, trinity, governance_parity, index_maintain, writers_*, log_subtype_canonical, rename_detected).",
+      "required": [
+        "provides_canonicality",
+        "size_monitoring",
+        "schema_type_coverage"
+      ],
+      "properties": {
+        "provides_canonicality": { "type": "object", "additionalProperties": true },
+        "size_monitoring":       { "type": "object", "additionalProperties": true },
+        "schema_type_coverage":  { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "architect_recommendations": {
+      "type": "object",
+      "required": ["last_scanned_log", "items"],
+      "properties": {
+        "last_scanned_log": {
+          "type": ["string", "null"],
+          "description": "Path to the most recent architect log file consumed"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "title",
+              "category",
+              "confidence",
+              "status",
+              "source_report",
+              "first_seen",
+              "last_seen"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^AR-[0-9]{3}$",
+                "description": "Architect recommendation ID. Pattern AR-NNN avoids collision with R-NNN governance rules."
+              },
+              "title": { "type": "string" },
+              "category": { "type": "string" },
+              "confidence": { "type": ["string", "number"] },
+              "status": {
+                "enum": ["open", "deferred", "rejected", "completed", "tracked"],
+                "description": "Lifecycle status. Tracked = under active monitoring; completed = recommendation acted on; deferred = revisit next cadence; rejected = decided against; open = newly emitted, awaiting triage."
+              },
+              "source_report": {
+                "type": "string",
+                "description": "Path to the architect-{date}.md report that emitted this recommendation."
+              },
+              "first_seen": {
+                "type": "string",
+                "description": "ISO-8601 date the recommendation was first emitted."
+              },
+              "last_seen": {
+                "type": "string",
+                "description": "ISO-8601 date the recommendation was most recently re-emitted (for convergence tracking)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "rename_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

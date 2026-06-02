@@ -1,0 +1,894 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brain-stem.example/schemas/plan-manifest/v2.json",
+  "title": "Plan Manifest (orchestrator + plan-tree superset; canonical 8-state status)",
+  "description": "Plan manifest with the canonical 8-state `status` (retiring top_level_status), `sub_plans[]` aggregate + `graduation_timestamp` + `dependencies.{parallel_ok, blocks}` + `paused_reason`, `rejected` in decision_records[].status, and the if/then type-binding. additionalProperties:true permits forward-compatible field additions.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project",
+    "spec_path"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "oneOf": [
+        {
+          "const": "1.0.0"
+        },
+        {
+          "const": 1
+        }
+      ],
+      "description": "Schema version. v1 accepts both `\"1.0.0\"` (legacy orchestrator manifests) and `1` (plan-tree manifests)."
+    },
+    "project": {
+      "type": "string",
+      "description": "Initiative name (matches plan title)"
+    },
+    "spec_path": {
+      "type": "string",
+      "description": "Absolute path to the spec.md file for this project"
+    },
+    "architecture_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Absolute path to architecture.md, if one exists"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "researching",
+        "planned",
+        "in-progress",
+        "paused",
+        "completed",
+        "verified",
+        "closed",
+        "archived",
+        "superseded"
+      ],
+      "description": "The ONE canonical 8-state plan status. Vocabulary: researching -> planned -> in-progress <-> paused -> completed -> verified -> closed -> archived, with superseded terminal from any non-archived state. completed = user's claim; verified = MACHINE-stamped, reachable only through an actual validation pass (the verdict gate). A write-time guard FORBIDS closed unless status==verified (the closed-requires-verified guard, enforced in hooks/pre-write-guard.sh). closed -> archived is volume/cooldown-gated, NOT calendar. Required on both type:plan and type:sub-plan manifests per the if/then binding below."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "sub-plan",
+        "master"
+      ],
+      "description": "Manifest scope. plan = top-level plan; sub-plan = component under a plan; master = top-level coordinating manifest for multi-sub-plan initiatives. Sub-plan manifests carry sub-plan."
+    },
+    "parent_plan": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Top-level plan slug (no path, no extension). Required at depth ≥ 3 per CLAUDE.md plan-tree convention rule #5 (R-28). Plan-root files (depth 2) exempt; handoff.md exempt at any depth."
+    },
+    "sub_plan_id": {
+      "type": "string",
+      "description": "Two-digit ordinal of this sub-plan within its parent (01, 02, ...). Execution order, not creation order."
+    },
+    "source_packet": {
+      "type": "string",
+      "description": "Absolute path to the canonical alignment packet that locked this plan's scope."
+    },
+    "phase_2_scaffolded_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Date when /new-plan or /backlog-research scaffolded this plan tree."
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "acceptance_criteria"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^T-[0-9]+(\\.[0-9]+)?$",
+            "description": "Task identifier (T-1, T-2, ..., T-3.5 for inserts)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "parallel_group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "allowed_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "max_budget_usd": {
+            "type": "number",
+            "minimum": 0,
+            "default": 5
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "Plan-level dependency declarations: parallel_ok and blocks define the master/sub DAG alongside predecessor/prereq fields.",
+      "additionalProperties": true,
+      "properties": {
+        "predecessor_closed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hard_prereq_other_plans": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "internal_prereqs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "external_capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supersedes_hardcoded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parallel_ok": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Sub-plan slugs that may run in parallel with this plan (no ordering constraint). Walked by the plan-runner DAG-walker."
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Sub-plan slugs this plan blocks (they cannot start until this one reaches its gate). Walked by the plan-runner DAG-walker. NOTE R-63: a sub-plan must not declare a dependencies edge to a sibling sub — route cross-sub ordering through the master (sub-peer-isolation)."
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "git_tag_published": {
+      "type": "object",
+      "description": "Per-tag publication record for foundation-repo distribution. Helper reads this object to evaluate R-55 sunset trigger conditions WITHOUT shelling to `git tag --list` (deterministic + fast).",
+      "patternProperties": {
+        "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.-]+)?$": {
+          "type": "object",
+          "required": [
+            "published_at",
+            "sha"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "published_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp of tag publication."
+            },
+            "sha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,40}$",
+              "description": "Commit SHA the tag points to."
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "live_mutation_scope": {
+      "type": "object",
+      "description": "Declares plan-scoped live-mutation gate. Plan-lifetime; retires when plan closes via three-phase sequence (Phase A parallel-run → Phase B helper retires → Phase C manifest entry retires).",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Gate active for this plan."
+        },
+        "schema_version": {
+          "type": "integer",
+          "const": 1,
+          "description": "Required from day one (Terraform/dbt pattern)."
+        },
+        "inherits_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Master plan slug for sub-plan manifests; null for top-level plans. Sub-plan declares ADDITIVE-ONLY scope: scope_paths/exempt_paths/launchd_labels/g2_commit_denylist UNION with master."
+        },
+        "scope_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns under which mutations gate. e.g., [\"$HOME/.claude/**\"]"
+        },
+        "exempt_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Post-detection carve-outs. Sub-plan can extend, NOT subtract. Generalizes the hardcoded ~/.claude/projects/** carve-out."
+        },
+        "detection_signals": {
+          "type": "object",
+          "description": "OR semantics — ANY one tier triggers DETECTED=1.",
+          "additionalProperties": false,
+          "properties": {
+            "cwd_pattern": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plan_id_pattern": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plan_mode_env_var": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transcript_regex": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Tier-3 fallback. OPT-IN ONLY. Locked to $CLAUDE_SESSION_ID at runtime (NOT find-mtime) to avoid stochastic detection."
+            },
+            "deterministic_only": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, transcript_regex is disabled regardless of declaration."
+            }
+          }
+        },
+        "override": {
+          "type": "object",
+          "description": "Out-of-band override mechanisms. NO in-band fields permitted (e.g., bypass: true is schema-rejected per A8 anti-success criterion).",
+          "additionalProperties": false,
+          "properties": {
+            "nonce_dir": {
+              "type": "string"
+            },
+            "nonce_sha_anchor": {
+              "type": "string",
+              "description": "Git ref (tag or branch) whose SHA must equal the third tab-separated field of the nonce content."
+            },
+            "nonce_min_reason_length": {
+              "type": "integer",
+              "default": 12,
+              "minimum": 12
+            },
+            "nonce_consume_strategy": {
+              "type": "string",
+              "const": "basename_match_env",
+              "description": "LOCKED to (c) both = basename-match-env primary + scope carve-out. first_match_glob is DEPRECATED; A5 anti-success criterion."
+            },
+            "nonce_affinity_env": {
+              "type": "string",
+              "description": "Env var name caller sets to indicate which nonce basename to match (e.g., PLAN_71_NONCE_TASK)."
+            },
+            "sentinel_override_path": {
+              "type": "string"
+            },
+            "bypass_env_var": {
+              "type": "string",
+              "description": "Shell-rc-only escape hatch. Per-call env scoping in Claude Code prevents agent self-issuance."
+            }
+          }
+        },
+        "layer_3": {
+          "type": "object",
+          "description": "L3 writer-pause declarations consumed by l3-pause-helper.sh. Lint at manifest-author time validates against l3-writer-registry.json.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "expected_quiescence_period_seconds": {
+              "type": "integer",
+              "default": 30,
+              "minimum": 0,
+              "description": "k8s drain pattern; helper sleeps this duration after pause-broadcast. Default 30s."
+            },
+            "launchd_labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "session_end_hooks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "pause_via"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "pause_via": {
+                    "type": "string",
+                    "enum": [
+                      "sentinel",
+                      "env",
+                      "launchctl",
+                      "carve_out_in_g1"
+                    ]
+                  },
+                  "sentinel_path": {
+                    "type": "string"
+                  },
+                  "env_var": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "user_prompt_submit_writers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "path_pattern",
+                  "pause_via"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path_pattern": {
+                    "type": "string"
+                  },
+                  "pause_via": {
+                    "type": "string",
+                    "const": "carve_out_in_g1",
+                    "description": "v1 mechanism for UserPromptSubmit writers (no native pause API)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "g2_commit_denylist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Path globs added to ~/.claude/.git/hooks/pre-commit denylist for the duration of this plan's gate."
+        },
+        "enforcement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "match_action": {
+              "type": "string",
+              "enum": [
+                "deny",
+                "warn",
+                "dryrun"
+              ],
+              "default": "deny",
+              "description": "deny=block+log; warn=log+advisory+ALLOW (new-plan onboarding soak); dryrun=log only, no user-visible message, ALLOW (pre-deploy validation)."
+            },
+            "error_action": {
+              "type": "string",
+              "enum": [
+                "deny",
+                "ignore"
+              ],
+              "default": "deny",
+              "description": "deny=fail-closed on helper crash (default; security-gate posture); ignore=fail-open (Phase A bootstrap exception ONLY)."
+            }
+          }
+        },
+        "sunset": {
+          "type": "object",
+          "description": "Plan retirement state machine. Three explicit phases A→B→C.",
+          "additionalProperties": true,
+          "properties": {
+            "trigger_conditions": {
+              "type": "object",
+              "description": "ALL must hold for retirement eligibility.",
+              "additionalProperties": true,
+              "properties": {
+                "master_status_in": {
+                  "description": "Master-plan canonical `status` must be in this set for retirement eligibility (uses the canonical status vocabulary).",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "closed"
+                    ]
+                  }
+                },
+                "git_tag_published": {
+                  "type": "string",
+                  "description": "Required tag (e.g., \"v2.0.0\")."
+                },
+                "parallel_run_validated": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "deferral_until": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date",
+              "description": "Explicit calendar gate. e.g., \"2026-05-17\" for R-55."
+            },
+            "deferral_rationale": {
+              "type": "string"
+            },
+            "early_retire_override": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "authorized_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "authorized_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "phase": {
+              "type": "string",
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "retired"
+              ],
+              "description": "Current phase. A=parallel-run; B=helper retired, manifest entry active; C=manifest entry retired."
+            },
+            "parallel_run_started_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "parallel_run_decisions_logged": {
+              "type": "integer",
+              "default": 0
+            },
+            "parallel_run_divergences": {
+              "type": "integer",
+              "default": 0
+            },
+            "parallel_run_validated_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "divergence_log": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "ts": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "decision_old": {
+                    "type": "string"
+                  },
+                  "decision_new": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "signal": {
+                    "type": "string"
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "enum": [
+                      "expected",
+                      "bug-old",
+                      "bug-new",
+                      "unresolved"
+                    ]
+                  }
+                }
+              }
+            },
+            "retired_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "teardown_status": {
+              "type": "string",
+              "enum": [
+                "DEFERRED",
+                "ELIGIBLE",
+                "RETIRED-HELPER",
+                "RETIRED-FULL"
+              ],
+              "description": "Coarse retirement marker for human-readable status. Inherits r55_sunset.teardown_status semantics."
+            }
+          }
+        }
+      }
+    },
+    "harness_validated": {
+      "type": "array",
+      "description": "Verdict-pass entries (validation evidence). Canonical gate (foundation-repo .git/hooks/pre-commit) refuses sub-plan status flip from in-progress → completed unless a matching verdict-pass entry exists at current foundation-repo HEAD within last 7 days. Cross-sub-plan invalidation via post-commit hook when sister sub-plan modifies files in validated sub-plan's live_mutation_scope.scope_paths.",
+      "items": {
+        "type": "object",
+        "required": [
+          "harness_id",
+          "sub_plan_id",
+          "run_id",
+          "sha",
+          "timestamp",
+          "verdict",
+          "tier",
+          "evidence_path",
+          "harness_freshness",
+          "schema_version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "harness_id": {
+            "type": "string",
+            "description": "Harness fixture identifier (e.g., manifest_mechanism_extensibility, live_guard_root_resolution_determinism)."
+          },
+          "sub_plan_id": {
+            "type": "string",
+            "description": "Sub-plan being validated (e.g., 01-manifest-generalization)."
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,40}$",
+            "description": "Foundation-repo HEAD SHA at run time."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "judges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "LLM judges if verdict ensemble used."
+          },
+          "kappa": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Cohen's kappa for inter-judge agreement."
+          },
+          "kappa_ci": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "number"
+            },
+            "description": "[lower, upper] 95% confidence interval for kappa."
+          },
+          "pinned_reference_v": {
+            "type": "string",
+            "description": "Pinned reference version against which the harness ran."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "partial",
+              "skip"
+            ]
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "tier-1",
+              "tier-2",
+              "tier-3"
+            ],
+            "description": "Tier-1 = structural assertion (pass/fail deterministic); tier-2 = behavioral assertion (judge-mediated); tier-3 = soft observability (advisory)."
+          },
+          "evidence_path": {
+            "type": "string",
+            "description": "Path to harness output artifacts (logs, diffs, screenshots)."
+          },
+          "harness_freshness": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "stale-7d",
+              "stale-30d",
+              "invalidated"
+            ],
+            "description": "Freshness band relative to current foundation-repo HEAD. Canonical gate accepts only `fresh` for the status flip."
+          },
+          "schema_version": {
+            "type": "integer",
+            "const": 1
+          }
+        }
+      }
+    },
+    "decision_records": {
+      "type": "array",
+      "description": "Pointer array to the plan's ADR ledger at <plan>/decisions/ADR-NN-<slug>.md. Optional — absent on plans with no recorded decisions; existing manifests remain valid (not required; additionalProperties:true). Body-structure contract: governance/file-type-contracts/adr.md.json. Convention: governance/plans-rules.json :: decision_records. Status enum follows MADR-canonical convention (including `rejected`), paired with the plans-rules.json :: decision_records convention + governance/file-type-contracts/adr.md.json under R-37 documentary lockstep. Agent-reload contract: on plan resume, load non-superseded ADRs via this manifest.decision_records[] pointer.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "path"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ADR-[0-9]{2,}$",
+            "description": "ADR ordinal (e.g., ADR-01, ADR-02). Immutable once published."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "accepted",
+              "rejected",
+              "deprecated",
+              "superseded"
+            ],
+            "description": "Bare lifecycle token (MADR-canonical {proposed, accepted, rejected, deprecated} + superseded). The ADR file's **Status:** line carries the concrete superseded-by-ADR-NN form; the pointer's superseded_by field carries the target."
+          },
+          "path": {
+            "type": "string",
+            "description": "Plan-relative or absolute path to the ADR file (e.g., decisions/ADR-NN-<slug>.md)."
+          },
+          "superseded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^ADR-[0-9]{2,}$",
+            "description": "ADR ordinal that supersedes this record, when status == superseded; else null/absent."
+          },
+          "created": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "_top_level_status_retired": {
+      "_note": "The 5-state top_level_status field [aligned, in_progress, complete, closed, superseded] is RETIRED and replaced by the single canonical `status` field above. Consumers re-point top_level_status -> status. harness_validated[] descriptions referencing top_level_status flips are read as `status` flips post-retirement."
+    },
+    "paused_reason": {
+      "type": "string",
+      "enum": [
+        "blocked-on-dependency",
+        "blocked-on-decision",
+        "deprioritized",
+        "awaiting-external",
+        "resource-unavailable"
+      ],
+      "description": "The structured reason a `paused` plan carries (paused replaces on-hold). Top-level enum, 5 values from observed usage patterns. Set when status==paused; advisory when status != paused."
+    },
+    "graduation_timestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "The timestamp stamped when this plan transitions to `closed`; the librarian reconciler READS it into the master sub_plans[] aggregate (sub-publishes-upward, R-62). Written by the status:closed transition; null until then."
+    },
+    "sub_plans": {
+      "type": "array",
+      "description": "The master's pull-based DERIVED read-replica of its sub-plans' status (same trust class as _index.md; NEVER hand-edited — written by the librarian reconciler reading each sub's published status, R-61). Present on type:master manifests; a master aggregates sub STATUS not sub TASKS (a master may carry an empty tasks[]).",
+      "items": {
+        "type": "object",
+        "required": [
+          "sub_plan_id",
+          "slug",
+          "status"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "sub_plan_id": {
+            "type": "string",
+            "description": "Two-digit ordinal of the sub-plan (01, 02, ...; execution order)."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Sub-plan slug (no path, no extension)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "researching",
+              "planned",
+              "in-progress",
+              "paused",
+              "completed",
+              "verified",
+              "closed",
+              "archived",
+              "superseded"
+            ],
+            "description": "The sub-plan's published canonical 8-state status (by-copy; keyed on coarse buckets active/done/verified/closed by the master display). The master NEVER overwrites a sub's status; only the librarian aggregator reads it."
+          },
+          "graduation_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Copied from the sub's graduation_timestamp when published upward."
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "plan"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "status"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "sub-plan"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "status",
+          "parent_plan",
+          "sub_plan_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "master"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "status"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0.0",
+  "_comment": "Canonical frontmatter schema for plan-artifact files under ${PLANS_DIR}. Enforced via R-40 in pre-write-guard.sh.",
+  "_filename_map": {
+    "spec.md": "spec",
+    "tasks.md": "tasks",
+    "handoff.md": "handoff",
+    "00-ideation-brief.md": "ideation-brief",
+    "manifest.json": "manifest"
+  },
+  "spec": {
+    "required": [
+      "type",
+      "title",
+      "status",
+      "created",
+      "updated"
+    ],
+    "optional": [
+      "parent_plan"
+    ]
+  },
+  "tasks": {
+    "required": [
+      "type",
+      "title",
+      "status",
+      "created",
+      "updated"
+    ],
+    "optional": [
+      "parent_plan"
+    ]
+  },
+  "handoff": {
+    "required": [
+      "type",
+      "title",
+      "status",
+      "created",
+      "updated"
+    ],
+    "optional": [
+      "parent_plan"
+    ]
+  },
+  "ideation-brief": {
+    "required": [
+      "type",
+      "title",
+      "status",
+      "created",
+      "updated"
+    ],
+    "optional": [
+      "parent_plan"
+    ]
+  },
+  "manifest": {
+    "_note": "manifest.json is JSON, not Markdown. Validated structurally at the top-level JSON keys rather than as YAML frontmatter. The R-40 advisory skips manifest.json files; existing validate-manifest.sh and /librarian plan-index Read-side parsing cover the JSON-structural checks.",
+    "required": [
+      "project",
+      "spec_path",
+      "status",
+      "tasks"
+    ],
+    "optional": [
+      "architecture_path"
+    ]
+  }
+}

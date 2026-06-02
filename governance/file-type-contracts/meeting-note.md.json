@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/meeting-note.md.json",
+  "title": "meeting-note.md runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for Meetings/<date - title>.md meeting notes. Carries the historical_data_warning_pattern per-type override (hook branch #2 opt-in).",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/mandatory-files-rules.json",
+  "matcher_entry": "mandates.meeting_note",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh branch #2 (historical-data-warning — reads historical_data_warning_pattern for per-type override; falls back to pillar 7 universal default)",
+    "lockstep_pair": "governance/vault-writers-rules.json :: historical_data_warning_default (fallback) + skills/meeting-note-ingestor (ingestor flow producing meeting-note writes)",
+    "evolution_protocol": "R-37 atomic lockstep with branch #2 hook body"
+  },
+
+  "type": "meeting-note",
+  "applies_to": {
+    "path_glob": "$VAULT_ROOT/Meetings/*.md"
+  },
+
+  "naming_pattern": "^\\d{4}-\\d{2}-\\d{2} - .*\\.md$",
+  "naming_pattern_format": "regex",
+  "naming_pattern_example": "2026-05-18 - Standup.md",
+
+  "historical_data_warning_pattern": "^\\d{4}-\\d{2}-\\d{2} - .*",
+  "historical_data_warning_pattern_rationale": "Per-type override matching Meetings/ naming pattern; branch #2 fires WARN on edits to date-prefixed files where parsed_date < today.",
+
+  "frontmatter_required": [
+    "type",
+    "title",
+    "date",
+    "attendees"
+  ],
+
+  "frontmatter_enums": {
+    "type": ["meeting-note"]
+  },
+  "write_shape": "create-only"
+}

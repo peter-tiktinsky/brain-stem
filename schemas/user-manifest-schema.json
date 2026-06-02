@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "User Manifest (Tier-2 slim)",
+  "description": "Identity/config manifest for a brain-stem Tier-2 GA install. Instance file: user-manifest.json. Carries the fields the onboarding interview captures (the substitution inputs for the two CLAUDE.md templates plus runtime path/identity fields) plus the runtime hook-threshold extensions. Read-side consumers (hooks/session-start.sh, hooks/prompt-context.sh, lib/paths.sh, skills/librarian/lib/user-manifest-read.sh, install.sh identity substitution) all read with jq '<path> // default' — fields dropped from this slim contract degrade to the consumer's own default; no Tier-2-live consumer validates an instance against this schema. The only write-side validator is onboarding/bootstrap-user-manifest.sh. The `hooks` block carries hooks.memory_review and hooks.context_pressure thresholds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "identity",
+    "paths",
+    "vault",
+    "system"
+  ],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Fills {{IDENTITY_NAME}} in both CLAUDE.md templates. Confirmed from `git config --global user.name` in Section A."
+        },
+        "email": {
+          "type": ["string", "null"],
+          "description": "Runtime/identity field. Confirmed from `git config --global user.email` in Section A. Not a template placeholder."
+        },
+        "role": {
+          "type": ["string", "null"],
+          "description": "Fills {{IDENTITY_ROLE}} in the claude-home template. Consolidated from the Section B transcript by the slim extraction pass."
+        },
+        "organization": {
+          "type": ["string", "null"],
+          "description": "Fills {{IDENTITY_ORGANIZATION}} in the claude-home template. Consolidated from Section B; null when the user is independent or leaves it unstated."
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Filesystem pointers. paths.vault_root is canonical; vault.root mirrors it.",
+      "properties": {
+        "vault_root": {
+          "type": ["string", "null"],
+          "description": "Fills {{VAULT_ROOT}} in the vault template. Null = no-vault stub (the brain vault is built inline when vault.is_fresh)."
+        },
+        "plans_root": {
+          "type": ["string", "null"],
+          "description": "Fills {{PLANS_HOME}} in the vault template. Install resolves to ~/.claude-plans when null."
+        }
+      }
+    },
+    "vault": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tier-2 builds a FRESH 'brain' vault inline at install — so there is no is_fresh branch. User cluster folders and vault-specific rules are NOT captured in the interview: clusters are created organically via the runtime propose-and-validate folder flow, and rules are hand-edited into the vault CLAUDE.md's <USER> section.",
+      "properties": {
+        "root": {
+          "type": ["string", "null"],
+          "description": "Mirror of paths.vault_root (kept for read-API parity)."
+        },
+        "top_level_folder": {
+          "type": ["string", "null"],
+          "description": "Fills {{VAULT_TOP_LEVEL_FOLDER}} in the vault template. NOT interview-captured in Tier-2 (clusters are deferred to the runtime folder flow). Set to the brain vault's starter cluster at build time, or substitutes a default; null until then."
+        }
+      }
+    },
+    "behavioral": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Personal-prose fields, each distilled by the slim extraction pass from the Section B transcript into <=4 tight lines sized for the claude-home template's 60-line cap. Optional; a field is null when the user skipped that prose prompt.",
+      "properties": {
+        "communication_style": {
+          "type": ["string", "null"],
+          "description": "Fills the claude-home template '## Communication Style' USER section."
+        },
+        "working_patterns": {
+          "type": ["string", "null"],
+          "description": "Fills the claude-home template '## Working Patterns' USER section."
+        },
+        "tooling_domain": {
+          "type": ["string", "null"],
+          "description": "Fills the claude-home template '## Tooling & Domain' USER section."
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Runtime hook-threshold overrides. All fields optional; consumers read with jq '<path> // default' and fall back to the documented defaults when absent.",
+      "properties": {
+        "memory_review": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Memory-review surfacing thresholds + opt-out. Consumed by memory-review-banner.sh (SessionStart), prompt-context.sh (re-firing band), stop-checkpoint-check.sh (high-severity CONFLICT Stop-block yielding to R-26).",
+          "properties": {
+            "enabled": {
+              "type": ["boolean", "null"],
+              "description": "Opt-out toggle. Default = true (memory-review surfaces). Set false to silence the banner + mandate + Stop-block. Default behavior is opt-out, not opt-in."
+            },
+            "high_severity_pending_days": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Days a high-severity item may be pending before the re-firing mandate escalates. Default 3."
+            },
+            "defer_count_cap": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "defer_count at which an item force-escalates to the re-firing mandate. Default 2."
+            },
+            "batch_cap": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "Maximum items surfaced per review pass (anti-fatigue). Default ~20."
+            },
+            "auto_suppress_after": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "Number of ignores after which a LOW-severity hygiene finding auto-suppresses + logs a tuning signal. Default 3. Revalidation items are EXEMPT from this 3-strike auto-suppress."
+            }
+          }
+        },
+        "context_pressure": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "R-26 context-pressure loop thresholds. Consumed by prompt-context.sh (warn/mandate bands) + stop-checkpoint-check.sh (48-80% freshness gate / 80-90% existence gate).",
+          "properties": {
+            "warn_pct": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 100,
+              "description": "At-next-boundary warn threshold. Default 45."
+            },
+            "mandate_pct": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Immediate-action mandate threshold. Default 48."
+            },
+            "hard_pct": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Stop-block existence-gate threshold (80-90% band; >90% is the always-allow safety valve). Default 80."
+            }
+          }
+        }
+      }
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version"],
+      "properties": {
+        "timezone": {
+          "type": ["string", "null"],
+          "description": "IANA timezone (e.g. America/New_York), needed for TZ-aware hooks. Confirmed from `readlink /etc/localtime` in Section A."
+        },
+        "schema_version": {
+          "const": "2.0.0",
+          "description": "Tier-2 slim contract."
+        },
+        "created_date": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp the manifest was written by bootstrap-user-manifest.sh."
+        },
+        "onboarding_complete": {
+          "type": ["boolean", "null"],
+          "description": "true once the slim interview has produced this manifest. hooks/session-start.sh reads this flag for the onboarding-resume detect."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brain-stem.example/schemas/writer-manifest/v1.json",
+  "title": "Writer Manifest (SQLite writes table)",
+  "description": "Logical contract for the writer-manifest SQLite substrate (manifest.sqlite :: writes table) consumed by lib/manifest-record.sh and the writer-reconciler (step 8.6). Basis is LangChain SQLRecordManager (denormalized append-only row insertion + logical supersession via row UPDATE rather than physical row delete + WAL journal mode for concurrent reader/writer safety + targeted indexes for the dominant audit query shapes). This schema validates the in-memory / on-the-wire object form (a top-level object with a writes[] array of row objects); the actual SQLite migration + CREATE TABLE DDL lives in lib/manifest-record.sh. The 12-field row contract is the public boundary that consumers validate against.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["writes"],
+  "properties": {
+    "writes": {
+      "type": "array",
+      "description": "Array of writes-table row objects. Each row is an append-only insertion; supersession is logical (UPDATE of status + superseded_by on the predecessor row) rather than physical deletion.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "writer_id",
+          "destination_path",
+          "ingestion_date",
+          "content_sha256",
+          "status",
+          "write_bucket"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID v4 or content-hash-based identifier; PRIMARY KEY surrogate for the writes table row."
+          },
+          "writer_id": {
+            "type": "string",
+            "description": "Writer identity — the writer-reference filename minus .md (e.g., meeting-processor, teams-scrape). Indexed for per-writer audit queries."
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "Absolute path of the vault destination file written. Indexed for per-destination history queries (and the dominant 'who wrote this file?' audit query)."
+          },
+          "ingestion_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 UTC timestamp of row insertion. Indexed for time-window audit queries and reconciler step 8.6 windowing."
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Opaque writer-specific source identifier (e.g., Granola meeting ID, Teams message thread ID, Gmail thread ID). Optional — null for writers without an upstream source identity. Indexed for cross-source dedup + fan-in joins."
+          },
+          "content_sha256": {
+            "type": "string",
+            "description": "sha256 hex digest of the written body bytes. Used for idempotency check at reconciler step 8.6 (skip re-insertion if (writer_id, destination_path, content_sha256) tuple already present and active)."
+          },
+          "raw_path": {
+            "type": "string",
+            "description": "Absolute path to the raw-retention file under $VAULT_WRITER_STATE_ROOT/raw/<writer-id>/ (per the raw_retention block on vault-writer.md.json). Optional — null for writers that opt out of raw retention (e.g., direct-fetch connectors with durable upstream source)."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "superseded"],
+            "description": "Row lifecycle status. active = current row representing the live state of (writer_id, destination_path); superseded = predecessor row whose superseded_by points at the successor. Logical supersession — no physical delete."
+          },
+          "superseded_by": {
+            "type": "string",
+            "description": "id of the writes-table row that superseded this row. Optional — null when status: active. Populated by UPDATE statement at amend time."
+          },
+          "write_bucket": {
+            "type": "string",
+            "enum": ["create", "modify-append", "modify-amend"],
+            "description": "Partition discriminator for audit queries. create = first write to the destination; modify-append = pure append (no LLM); modify-amend = LLM-driven amend round-trip through doc-amender + staging."
+          },
+          "packet_kind": {
+            "type": "string",
+            "enum": ["writer-emit", "amender-replacement", "amender-conflict"],
+            "description": "Source packet kind from staging-emit (packet_version 1.1+ admits all three; v1.0 packets are recorded as null and treated as writer-emit by reconciler). Optional — null for v1.0-era rows."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form operator annotation. Optional — populated by /amend-accept or manual operator intervention. Not consumed by runtime."
+          }
+        }
+      }
+    },
+    "_implementation_notes": {
+      "type": "string",
+      "description": "SQLite implementation guidance (informational; not enforced by this schema). Journal mode: WAL (PRAGMA journal_mode=WAL) for concurrent reader/writer safety. Indexes (CREATE INDEX): one each on ingestion_date, destination_path, source_id, writer_id — covers the dominant audit query shapes (time-window scans, per-destination history, cross-source dedup, per-writer rollups). Insertion: append-only (INSERT). Supersession protocol: when a new row is inserted that supersedes a predecessor on the same (writer_id, destination_path), the predecessor row receives an UPDATE setting status='superseded' and superseded_by=<new row id>. No physical row deletion. Migration DDL + helper API surface live in lib/manifest-record.sh."
+    }
+  }
+}

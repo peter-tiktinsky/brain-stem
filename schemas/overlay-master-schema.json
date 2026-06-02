@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brain-stem.example/schemas/overlay-master/v1.json",
+  "title": "Overlay-Master (adopter-local 8-pillar overlay)",
+  "description": "Adopter-local 8-pillar overlay that pairs with foundation-master.json. Parallel structure to foundation-master — same pillar slots; adopter writes shadow foundation entries per R-52 collision tiebreaker (`_override_reason` required). Includes the system.timezone slot for adopter-local config. Per-pillar $defs shapes are minimum-viable stubs ({type: object}); refinement happens once first overlay-master mutations land via `/govern register`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "frontmatter": {"$ref": "#/$defs/frontmatter_pillar"},
+    "tagging": {"$ref": "#/$defs/tagging_pillar"},
+    "naming": {"$ref": "#/$defs/naming_pillar"},
+    "mandatory_files": {"$ref": "#/$defs/mandatory_files_pillar"},
+    "doc_dependencies": {"$ref": "#/$defs/doc_dependencies_pillar"},
+    "file_type_contracts": {"$ref": "#/$defs/file_type_contracts_pillar"},
+    "vault_writers": {"$ref": "#/$defs/vault_writers_pillar"},
+    "plans": {"$ref": "#/$defs/plans_pillar"},
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Adopter-machine-local system config. Foundation-master ships NO system slot — system config is procedural-local. Branch #2 hook reads .system.timezone for TZ-aware today resolution; falls back to America/New_York if absent.",
+      "properties": {
+        "timezone": {
+          "type": "string",
+          "default": "America/New_York",
+          "description": "IANA tz name; consumed by hook branch #2 TZ-aware today resolution"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "frontmatter_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for frontmatter-rules.json — parallel structure to foundation pillar. Stub min-viable; refines on first /govern register --kind file-type mutation."
+    },
+    "tagging_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for tagging-rules.json — parallel structure. Stub min-viable; refines on first /govern register --kind tag-extension mutation."
+    },
+    "naming_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for naming-rules.json — parallel structure. Stub min-viable; refines as adopter naming conventions accrete."
+    },
+    "mandatory_files_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for mandatory-files-rules.json — parallel structure. Stub min-viable; refines as adopter mandatory-file declarations accrete."
+    },
+    "doc_dependencies_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for doc-dependencies.json — parallel structure. Stub min-viable; the live vault-overlay shape (entries[]/entities{}) is preserved by overlay-master mutation library since the same cascade registry shape carries forward."
+    },
+    "file_type_contracts_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for file-type-contracts/ — parallel structure (map keyed by file-type slug). Stub min-viable; refines on first /govern register --kind file-type mutation."
+    },
+    "vault_writers_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for vault-writers-rules.json — parallel structure (operational-config + optional processing_defaults overrides). Stub min-viable; refines on first /govern register --kind writer mutation."
+    },
+    "plans_pillar": {
+      "type": "object",
+      "description": "Adopter shadow for plans-rules.json — parallel structure. Stub min-viable; plans-tree is global infrastructure so adopter shadowing is rare."
+    }
+  }
+}

@@ -1,0 +1,258 @@
+#!/bin/bash
+# tag-coverage-audit — Vault-wide tag coverage + taxonomy compliance audit.
+#
+# Walks non-exempt vault .md files, measures presence of `tags:` frontmatter
+# field, classifies tags against the canonical allowlist from
+# `governance/foundation-master.json#tagging.taxonomy.dimension_prefixes`.
+#
+# Foundation philosophy: bundle is source-of-truth for the taxonomy, manifest
+# is source-of-truth for path-pattern exemptions. When dimension_prefixes is
+# empty, prefix-validation is skipped and only the
+# `missing_tags_field` / `empty_tags_field` findings fire. Foundation ships
+# system-utility dimensions (status, log); user-facing dimensions land via
+# overlay-master union-resolve.
+#
+# Structural exemptions (always exempt; not user-configurable):
+#   - Archive/**                       (frozen history)
+#   - _test*                           (sandbox)
+#   - Symlinks resolving to $PLANS_DIR (e.g., `Plans/`)
+#   - is_plan_root_file OR depth >=2 under $PLANS_DIR
+#
+# User-extension exemptions (read from manifest.vault.tag_audit_exemptions[]):
+#   case-pattern globs matched against $REL (vault-relative path).
+#
+# Findings emitted via lib/findings.sh:
+#   - missing_tags_field            (no `tags:` field at all)
+#   - empty_tags_field              (`tags: []`)
+#   - unrecognized_tag_prefix       (tag prefix not in `_tag_prefixes`;
+#                                    skipped when `_tag_prefixes` is empty)
+#
+# Lifecycle events via emit_event: start / batch progress / end summary.
+#
+# Usage:
+#   tag-coverage-audit.sh [--scope SECTION] [--batch-size N] [--output FILE] [--verbose]
+#
+# Bash 3.2 clean per R-23.
+set -euo pipefail
+
+CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
+_REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
+
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
+  || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; }
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/plan-path.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/plan-path.sh"; } \
+  || source "$_REPO_LIB/plan-path.sh"
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
+  || source "$_REPO_LIB/findings.sh"
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/frontmatter.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/frontmatter.sh"; } \
+  || source "$_REPO_LIB/frontmatter.sh"
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
+  || source "$_REPO_LIB/user-manifest-read.sh"
+
+SCOPE=""
+BATCH_SIZE=100
+OUTPUT=""
+VERBOSE=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scope)      SCOPE="$2"; shift 2 ;;
+    --batch-size) BATCH_SIZE="$2"; shift 2 ;;
+    --output)     OUTPUT="$2"; shift 2 ;;
+    --verbose)    VERBOSE=true; shift ;;
+    *)            echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+export FINDINGS_OUTPUT="$OUTPUT"
+
+# Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
+# Foundation ships system-utility dimensions (status, log); user-facing dimensions
+# (engagement, project, scope, etc.) pending overlay-master union-resolve.
+# When allowlist is empty, prefix validation is skipped and only missing/empty-tags findings fire.
+FOUNDATION_MASTER="${FOUNDATION_MASTER:-${GOVERNANCE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/governance}/foundation-master.json}"
+ALLOWLIST_PREFIXES=""
+if [[ -r "$FOUNDATION_MASTER" ]] && command -v jq >/dev/null 2>&1; then
+  ALLOWLIST_PREFIXES=$(jq -r '.tagging.taxonomy.dimension_prefixes // [] | .[]' "$FOUNDATION_MASTER" 2>/dev/null | tr '\n' ' ')
+fi
+
+# Manifest-extension exempt patterns (path globs).
+EXEMPT_PATTERNS=$(umr_get_array '.vault.tag_audit_exemptions')
+
+# Resolve scope root.
+if [[ -n "$SCOPE" ]]; then
+  SCAN_ROOT="$VAULT_ROOT/$SCOPE"
+  if [[ ! -d "$SCAN_ROOT" ]]; then
+    echo "ERROR: scope directory not found: $SCAN_ROOT" >&2
+    exit 1
+  fi
+else
+  SCAN_ROOT="$VAULT_ROOT"
+fi
+
+SCAN_COUNT=0
+FINDING_COUNT=0
+MISSING_COUNT=0
+EMPTY_COUNT=0
+UNRECOGNIZED_COUNT=0
+BATCH_COUNT=0
+
+emit_event "{ \"tag_coverage_audit_start\": \"$(date -Iseconds)\", \"scope\": \"${SCOPE:-full-vault}\" }"
+
+# Relax strict error handling inside the scan loop — per-file parse errors are
+# soft findings, not audit-fatal (same pattern as drift-sweep.sh).
+set +e
+set +o pipefail
+
+# Pre-compute plans-folder real path for symlink resolution check.
+PLANS_REAL=""
+if [[ -n "${PLANS_DIR:-}" && -d "$PLANS_DIR" ]]; then
+  PLANS_REAL=$(cd "$PLANS_DIR" 2>/dev/null && pwd -P)
+fi
+
+is_exempt_path() {
+  local rel="$1"
+  local abs="$2"
+
+  # Structural defaults (always exempt).
+  case "$rel" in
+    Archive/*|Archive) return 0 ;;
+    _test*)            return 0 ;;
+  esac
+
+  # User-extension exemptions from manifest.
+  if [[ -n "$EXEMPT_PATTERNS" ]]; then
+    while IFS= read -r pattern; do
+      [[ -z "$pattern" ]] && continue
+      # shellcheck disable=SC2254
+      case "$rel" in
+        $pattern) return 0 ;;
+      esac
+    done <<< "$EXEMPT_PATTERNS"
+  fi
+
+  # Resolve real path — if it escapes into $PLANS_DIR via symlink, exempt.
+  local real
+  real=$(cd "$(dirname "$abs")" 2>/dev/null && pwd -P)/$(basename "$abs")
+  if [[ -n "$PLANS_REAL" ]] && [[ "$real" == "$PLANS_REAL"/* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+while IFS= read -r -d '' file; do
+  SCAN_COUNT=$((SCAN_COUNT + 1))
+  REL="${file#$VAULT_ROOT/}"
+
+  if is_exempt_path "$REL" "$file"; then
+    continue
+  fi
+
+  # Extract frontmatter once (awk between first two --- lines, like drift-sweep).
+  FM=$(awk '/^---$/{c++;next} c==1{print} c>=2{exit}' "$file" 2>/dev/null)
+
+  if [[ -z "$FM" ]]; then
+    # No frontmatter at all — treat as missing tags field.
+    FINDING_COUNT=$((FINDING_COUNT + 1))
+    MISSING_COUNT=$((MISSING_COUNT + 1))
+    emit_finding "missing_tags_field" "$REL"
+  else
+    # Inspect tags field: missing / empty / populated + per-tag prefix check.
+    TAG_STATE=$(python3 - <<'PYEOF' "$FM"
+import sys, re, yaml
+fm_text = sys.argv[1]
+try:
+    fm = yaml.safe_load(fm_text)
+except Exception:
+    # Unparseable FM — treat as missing to surface for cleanup.
+    print("MISSING")
+    sys.exit(0)
+if not isinstance(fm, dict):
+    print("MISSING")
+    sys.exit(0)
+if 'tags' not in fm:
+    print("MISSING")
+    sys.exit(0)
+val = fm.get('tags')
+if val is None:
+    print("EMPTY")
+    sys.exit(0)
+if isinstance(val, list):
+    if len(val) == 0:
+        print("EMPTY")
+        sys.exit(0)
+        # Populated — print each tag on its own line for bash consumption.
+    prefix = "POPULATED"
+    lines = [prefix]
+    for t in val:
+        lines.append(str(t))
+    print("\n".join(lines))
+    sys.exit(0)
+if isinstance(val, str):
+    # String value — either single-tag or YAML-quirk; treat as populated singleton.
+    print("POPULATED")
+    print(val)
+    sys.exit(0)
+print("MISSING")
+PYEOF
+)
+
+    STATE_HEAD=$(echo "$TAG_STATE" | head -1)
+    case "$STATE_HEAD" in
+      MISSING)
+        FINDING_COUNT=$((FINDING_COUNT + 1))
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+        emit_finding "missing_tags_field" "$REL"
+        ;;
+      EMPTY)
+        FINDING_COUNT=$((FINDING_COUNT + 1))
+        EMPTY_COUNT=$((EMPTY_COUNT + 1))
+        emit_finding "empty_tags_field" "$REL"
+        ;;
+      POPULATED)
+        # Skip prefix validation when allowlist is empty (foundation default).
+        if [[ -z "$ALLOWLIST_PREFIXES" ]]; then
+          continue
+        fi
+        # Validate each tag prefix against allowlist.
+        TAG_LINES=$(echo "$TAG_STATE" | tail -n +2)
+        while IFS= read -r TAG; do
+          [[ -z "$TAG" ]] && continue
+          # Strip leading `#` if present; strip surrounding quotes.
+          CLEAN=$(echo "$TAG" | sed -e 's/^#//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+          PREFIX="${CLEAN%%/*}"
+          [[ -z "$PREFIX" ]] && continue
+
+          # Check allowlist membership.
+          IS_ALLOWED=false
+          for ALLOWED in $ALLOWLIST_PREFIXES; do
+            if [[ "$PREFIX" == "$ALLOWED" ]]; then
+              IS_ALLOWED=true
+              break
+            fi
+          done
+
+          if [[ "$IS_ALLOWED" = false ]]; then
+            FINDING_COUNT=$((FINDING_COUNT + 1))
+            UNRECOGNIZED_COUNT=$((UNRECOGNIZED_COUNT + 1))
+            # Escape quotes in the value for JSON safety.
+            SAFE_VAL=$(echo "$CLEAN" | sed 's/"/\\"/g')
+            emit_finding "unrecognized_tag_prefix" "$REL" "value" "$SAFE_VAL"
+          fi
+        done <<< "$TAG_LINES"
+        ;;
+    esac
+  fi
+
+  BATCH_COUNT=$((BATCH_COUNT + 1))
+  if [[ $BATCH_COUNT -ge $BATCH_SIZE ]]; then
+    emit_event "{ \"progress\": $SCAN_COUNT, \"findings_so_far\": $FINDING_COUNT }"
+    BATCH_COUNT=0
+  fi
+done < <(find "$SCAN_ROOT" -type f -name "*.md" -print0 2>/dev/null)
+
+set -e
+set -o pipefail
+
+emit_event "{ \"tag_coverage_audit_end\": \"$(date -Iseconds)\", \"files_scanned\": $SCAN_COUNT, \"findings\": $FINDING_COUNT, \"missing_tags_count\": $MISSING_COUNT, \"empty_tags_count\": $EMPTY_COUNT, \"unrecognized_tag_count\": $UNRECOGNIZED_COUNT }"

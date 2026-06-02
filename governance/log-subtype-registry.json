@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0.0",
+  "_description": "Canonical enumeration of `#log/*` and `#status/*` system-utility tag subtype values. Source of truth for the pre-write-guard hook's near-match DENY discipline (R-05) and the librarian log-subtype-canonical audit. Foundation seeds the operational subtypes that ship with foundation skills + crons; adopters extend via Layer 3 overlay at `log_subtype_registry_overlay.json` (sibling location post-install).",
+  "_design_notes": {
+    "consumer": "pre-write-guard.sh tag-validation branch (R-05 near-match DENY); librarian log-subtype-canonical capability (audit-time drift detection); skill-side `log_subtype:` SKILL.md declaration contract",
+    "lockstep_pair": "governance/tagging-rules.json R-05 (tag-validation branch) + System Governance - Tagging.md (narrative spoke) + hooks/pre-write-guard.sh (enforcement) + governance/tagging-rules.json#taxonomy.system_utility_governance",
+    "evolution_protocol": "R-37 documentary lockstep — registry additions move with tagging-rules.json R-05 + System Governance - Tagging.md narrative spoke + pre-write-guard.sh tag-validation branch + tagging-rules.json#taxonomy.system_utility_governance in one commit. NO write-time DENY for R-37, by design (git commit-boundary atomicity + librarian governance-parity-audit). Adopter-side additions land at the sibling overlay (log_subtype_registry_overlay.json); no foundation-repo commit required for adopter operational subtypes."
+  },
+  "dimensions": {
+    "log": {
+      "prefix": "#log/",
+      "cap_exempt": true,
+      "near_match_threshold": {
+        "algorithm": "levenshtein_or_substring",
+        "max_levenshtein_distance": 2,
+        "substring_containment": true
+      }
+    },
+    "status": {
+      "prefix": "#status/",
+      "cap_exempt": true,
+      "near_match_threshold": {
+        "algorithm": "levenshtein_or_substring",
+        "max_levenshtein_distance": 2,
+        "substring_containment": true
+      }
+    }
+  },
+  "log_subtypes": [
+    {
+      "subtype": "session-close",
+      "owner_skill": "session-close-and-handoff",
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "End-of-session reconciliation artifacts emitted by the session-close skill or its manual invocation. One file per session."
+    },
+    {
+      "subtype": "session-auto-close",
+      "owner_skill": "session-close-and-handoff",
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Auto-emitted session-close artifacts produced by lifecycle hooks when an interactive session ends without an explicit close invocation."
+    },
+    {
+      "subtype": "cron-error",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Error artifacts emitted by ANY cron wrapper on non-zero exit. owner_cron is null because the subtype is shared across all cron wrappers (each cron emits cron-error on its own failure); no single cron owns the registry entry. One file per failure; preserves stderr + invocation context."
+    },
+    {
+      "subtype": "audit-report",
+      "owner_skill": "librarian",
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Librarian audit-capability output (governance-parity-audit, packet-staleness-audit, etc.)."
+    },
+    {
+      "subtype": "log-archive",
+      "owner_skill": "librarian",
+      "owner_cron": "com.logs-audit",
+      "first_registered_at": "2026-05-12",
+      "description": "Output emitted by the log-archive librarian capability. Documents which files were rotated to Archive/Logs/."
+    },
+    {
+      "subtype": "build",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Build-progress logs emitted during plan execution (foundation-repo install, scaffold rendering, capability deploy)."
+    },
+    {
+      "subtype": "documentation",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Documentation-emission logs (capability docs rendered, narrative spokes generated, ADRs authored)."
+    },
+    {
+      "subtype": "backlog-hygiene",
+      "owner_skill": "backlog-hygiene",
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Backlog-hygiene capability output. Surfaces stale items, lifecycle timeouts, auto-archive candidates."
+    },
+    {
+      "subtype": "digest-run",
+      "owner_skill": "digest-run",
+      "owner_cron": "com.digest-run",
+      "first_registered_at": "2026-05-12",
+      "description": "Digest pipeline run output (calendar + chat + meeting synthesis). Daily cadence typical."
+    },
+    {
+      "subtype": "inventory",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Inventory-walk outputs (vault filesystem inventory, manifest regeneration runs, packet-coverage scans)."
+    }
+  ],
+  "status_subtypes": [
+    {
+      "subtype": "processed",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Marks a file as processed by the appropriate pipeline (meeting-processor, inbox-archive, etc.). The frontmatter `processed:` boolean is canonical; the tag mirrors it for graph-view filterability."
+    },
+    {
+      "subtype": "pending",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Awaiting downstream consumption or processing."
+    },
+    {
+      "subtype": "needs-review",
+      "owner_skill": null,
+      "owner_cron": null,
+      "first_registered_at": "2026-05-12",
+      "description": "Flagged for operator review. Used on auto-emitted content that needs a triage gate."
+    }
+  ],
+  "_status_subtypes_design_notes": {
+    "scope": "Processing-state values only — `#status/*` tag dimension governs whether a file has been processed by its appropriate pipeline (meeting-processor, inbox-archive, reconcile-day, etc.). Three canonical values: processed, pending, needs-review.",
+    "out_of_scope": "Lifecycle-state values (e.g., `active`, `paused`, `complete`, etc. — exact enum varies per archetype) are NOT in this registry. They live at frontmatter `status:` field per archetype-conditional-fields. The schema enforces the per-archetype enum at write-time; the tag dimension stays focused on processing-state. Tagging files with lifecycle-state values via `#status/*` is NOT the supported pattern.",
+    "rationale": "Blending processing-state and lifecycle-state under the same `#status/*` tag dimension seeds adopter confusion. The two semantic classes are kept separate: tagging covers operational processing; frontmatter `status:` covers archetype lifecycle."
+  }
+}

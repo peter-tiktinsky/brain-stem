@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/spec.md.json",
+  "title": "spec.md (plan/sub-plan) runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for plan-tree spec.md files. The k8s ValidatingAdmissionPolicy paramKind for plan spec.md, with file shapes optimized for LLM consumption.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/plans-rules.json",
+  "matcher_entry": "plan_folder_quartet.required",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (head-immutable enforcement post Session 1) + librarian capabilities (plan-index / plan-archive)",
+    "lockstep_pair": "governance/plans-rules.json",
+    "evolution_protocol": "R-37 atomic lockstep with plans-rules.json"
+  },
+
+  "type": "spec",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/**/spec.md"
+  },
+
+  "head_immutable_post_session_1": true,
+  "head_immutable_sections": [
+    "Goal",
+    "Problem Statement",
+    "Constraints"
+  ],
+
+  "tail_mutable": [
+    "Solution Approach",
+    "Files Modified",
+    "Success Metrics",
+    "Risk"
+  ],
+
+  "size_limits": {
+    "max_lines": 500
+  },
+
+  "amendment_pattern": "post-Session-1 amendments append as §Session N amendments blocks; body preserved as historical record",
+
+  "frontmatter_required_hints": [
+    "title",
+    "type",
+    "parent_plan (depth >= 3)",
+    "created"
+  ],
+  "write_shape": "append-template"
+}

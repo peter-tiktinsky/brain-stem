@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/System Governance.md.json",
+  "title": "System Governance/System Governance - *.md spoke runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for System Governance/ spoke files (one per pillar). Home for the SG_MAX_LINES size cap consumed by the pre-write-guard.sh size-cap guard.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/mandatory-files-rules.json",
+  "matcher_entry": "mandates.system_governance_spoke",
+  "_design_notes": {
+    "consumer": "hooks/pre-write-guard.sh (size-cap guard — reads .file_type_contracts.\"System Governance.md.json\".size_limits.max_lines from foundation-master bundle; fallback to 400)",
+    "lockstep_pair": "hooks/pre-write-guard.sh size-guard block (R-37 atomic lockstep) + governance/_index.json file-type-contracts pillar registry",
+    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + hook consumer + foundation-master bundle composition updated in one commit"
+  },
+
+  "type": "system-governance-spoke",
+  "applies_to": {
+    "path_glob": "$VAULT_ROOT/System Governance/System Governance - *.md"
+  },
+
+  "size_limits": {
+    "max_lines": 400,
+    "rationale": "Navigational-index threshold. Spokes are the hub navigation; long content extracts to deeper spokes or sub-files."
+  },
+
+  "frontmatter_required": [
+    "type",
+    "title",
+    "mirrors_pillar"
+  ],
+
+  "frontmatter_enums": {
+    "type": ["system-governance-spoke"],
+    "mirrors_pillar": [
+      "frontmatter",
+      "tagging",
+      "naming",
+      "mandatory-files",
+      "doc-dependencies",
+      "file-type-contracts",
+      "vault-writers",
+      "plans"
+    ]
+  },
+
+  "mirrors_pillar_rationale": "Each spoke mirrors exactly one of the 8 foundation governance pillars; R-37 lockstep couples spoke <-> pillar JSON <-> _index.json registry.",
+  "write_shape": "create-only"
+}

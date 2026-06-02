@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/_index.md.json",
+  "title": "_index.md runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for the _index.md body-structure contract. Loaded by hooks/post-write-verify.sh (Tier 1 auto-bootstrap + live-sync) and skills/librarian/capabilities/index-maintain.sh (Tier 2 sweep + Tier 3 --deep audit). The k8s ValidatingAdmissionPolicy paramKind for the matcher declared at governance/mandatory-files-rules.json `mandates._index_md`. R-37 atomic-lockstep peer with the source files; this runtime artifact is RESOLVED (no PLACEHOLDER markers) and HOOK-OPTIMIZED for jq + bash 3.2 consumption.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "matcher_pillar": "governance/mandatory-files-rules.json",
+  "matcher_entry": "mandates._index_md",
+  "frontmatter_contract_source": "governance/frontmatter-rules.json#types.index",
+  "_design_notes": {
+    "consumer": "hooks/post-write-verify.sh — Tier 1 auto-bootstrap + live-sync on every Edit/Write tool call to a vault folder; skills/librarian/capabilities/index-maintain.sh — Tier 2 audit sweep + Tier 3 --deep semantic validation",
+    "lockstep_pair": "governance/frontmatter-rules.json#types.index (frontmatter contract; dissolved from schemas/vault-schema.json) + governance/mandatory-files-rules.json `mandates._index_md` (matcher + exemption list) + System Governance - Mandatory-Files.md (narrative spoke)",
+    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + frontmatter-rules.json#types.index + mandatory-files-rules.json mandates entry + Mandatory-Files spoke updated in one commit",
+    "shape_optimization_for_hooks": "Single-document JSON loadable in one `jq` pass; flat keys for sentinel patterns, regexes, columns ordered by `position` (1-indexed); enums resolved to concrete arrays (no PLACEHOLDER strings). Adopter Layer-3 overlays at $CLAUDE_HOME/governance/file-type-contracts/_index.md.adopter.json shadow this file per R-52 with `_override_reason` discipline."
+  },
+
+  "frontmatter": {
+    "required": ["type", "tags", "updated"],
+    "conditional_required": {
+      "parent_folder": {
+        "condition": "path_depth >= 2",
+        "condition_semantics": "path_depth = number of segments between vault root and the _index.md file; depth 1 = `<cluster>/_index.md` (parent_folder omitted); depth >= 2 = `<cluster>/<instance>/_index.md` or deeper (parent_folder mandatory).",
+        "auto_populate_source": "post-write-verify.sh bootstrap step 2 — derived from $FILE_PATH dirname relative to $VAULT_ROOT"
+      }
+    },
+    "optional": ["provides", "description"],
+    "property_constraints": {
+      "type": {
+        "const": "index"
+      },
+      "parent_folder": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9 /._-]+$",
+        "rationale": "Vault-relative path naming the parent folder of this _index.md"
+      },
+      "tags": {
+        "type": "array",
+        "minItems": 1,
+        "item_pattern": "^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
+        "rationale": "Folder-mirrors-tag invariant; tag matches the folder's structural-dimension lineage"
+      },
+      "updated": {
+        "type": "string",
+        "format": "date",
+        "rationale": "ISO-8601 date; bumped by every maintenance pass"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "provides": {
+        "type": "array",
+        "item_type": "string",
+        "rationale": "Cross-folder grep handle (R-39); NOT surfaced in contents-enum table"
+      }
+    }
+  },
+
+  "body_structure": {
+    "h1": {
+      "required": true,
+      "level": 1,
+      "match_rule": "must equal the folder name or a close variant (case-insensitive substring match against the parent folder's basename)",
+      "rationale": "Matches folder name; reinforces folder-mirrors-tag invariant — heading reads like a tag value"
+    },
+    "folder_context_paragraph": {
+      "required": true,
+      "placement": "between H1 and contents-enum table",
+      "min_sentences": 2,
+      "max_sentences": 4,
+      "auto_generation_policy": "bootstrap emits a placeholder string `*[Folder context paragraph: 2-4 sentences describing what lives here, what doesn't, why the folder exists. Pedagogical.]*` for adopter fill-in; subsequent maintenance passes preserve hand-authored content via survivorship pattern",
+      "rationale": "Load-bearing pedagogy content; without it the file is regeneratable boilerplate"
+    },
+    "contents_enum_table": {
+      "required": true,
+      "sentinel_markers": {
+        "start": "<!-- contents-enum:start -->",
+        "end": "<!-- contents-enum:end -->",
+        "rationale": "Tier 1 + Tier 2 maintenance touches only content between markers; preserves hand-authored prose outside the block"
+      },
+      "header_row": "| File | Lines | Type | Description |",
+      "separator_row": "|---|---|---|---|",
+      "columns": [
+        {
+          "position": 1,
+          "name": "File",
+          "value_type": "wikilink",
+          "value_pattern": "^\\[\\[[^\\[\\]]+\\.md\\]\\]$",
+          "derivation": "filename of the child .md file rendered as Obsidian wikilink"
+        },
+        {
+          "position": 2,
+          "name": "Lines",
+          "value_type": "approximate_integer",
+          "value_pattern": "^~?[0-9]+$",
+          "derivation": "wc -l on the referenced file at maintenance time; rendered with leading ~ when approximated"
+        },
+        {
+          "position": 3,
+          "name": "Type",
+          "value_type": "enum",
+          "enum_source": "governance/frontmatter-rules.json#types (entry keys excluding underscore-prefixed metadata blocks; dissolved from schemas/vault-schema.json)",
+          "derivation": "extracted from the referenced file's frontmatter `type:` field"
+        },
+        {
+          "position": 4,
+          "name": "Description",
+          "value_type": "prose_oneliner",
+          "max_chars": 200,
+          "derivation_fallback_order": [
+            "referenced file's frontmatter `description:` field",
+            "referenced file's H1 heading text",
+            "first non-frontmatter paragraph of referenced file"
+          ]
+        }
+      ],
+      "ordering_convention": {
+        "enforced_at_tier": "3",
+        "enforced_behavior": "advisory_only",
+        "key_role_types_first": ["overview", "context", "updates", "prd", "navigation"],
+        "supporting_role_types_after": ["reference", "people"],
+        "rationale": "Key-role types listed before supporting types makes load-priority signal explicit; convention not enforced as DENY — Tier 3 --deep audit flags drift for hand-tune review"
+      },
+      "light_content_fallback": {
+        "condition": "folder carries fewer than 3 child .md files of distinct types",
+        "alternative": "prose 'Current Contents' section replaces the table",
+        "rationale": "Table enumeration is premature when folder has very few children; prose is more readable"
+      }
+    }
+  },
+
+  "exemption_list_pointer": {
+    "canonical_source": "governance/mandatory-files-rules.json",
+    "canonical_jq_path": ".mandates._index_md.exemption_paths",
+    "rationale": "Single source of truth for which folders are exempt from _index.md mandate. The post-write hook + librarian index-maintain consume from there at runtime — when a write hits an exempt folder, the hook does not auto-create _index.md and the librarian does not flag missing-index as drift. Exemption changes require R-37 lockstep updating mandatory-files-rules.json + this file's `last_synced_exemption_count` + Mandatory-Files spoke."
+  },
+
+  "consumers": [
+    {
+      "name": "post-write-verify.sh",
+      "type": "hook",
+      "status": "existing-hook-extension",
+      "role": "Tier 1 live-sync + auto-bootstrap on Edit/Write tool calls",
+      "loop_guard": "if [[ \"$FILE_PATH\" == */_index.md ]]; then exit 0; fi  (one-line check at hook entry)",
+      "implementation_target": "hooks/post-write-verify.sh"
+    },
+    {
+      "name": "index-maintain.sh",
+      "type": "librarian-capability",
+      "status": "new-capability",
+      "contract_path": "governance/librarian-capabilities/index-maintain.md",
+      "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)",
+      "implementation_target": "skills/librarian/capabilities/index-maintain.sh"
+    }
+  ],
+
+  "validation_tiers": {
+    "tier_1_live_sync": {
+      "trigger": "PostToolUse hook fires on Edit/Write tool calls",
+      "scope": "single folder of the written file",
+      "writes": [
+        "auto-bootstrap (if _index.md missing AND folder non-exempt): create with frontmatter stub + H1 + placeholder folder-context paragraph + empty contents-enum table wrapped in sentinel markers",
+        "reconcile entry for written file (append/update/refresh row by wikilink)",
+        "bump _index.md frontmatter `updated:` to today"
+      ],
+      "blast_radius": "the sibling _index.md only",
+      "loop_guard_required": true
+    },
+    "tier_2_audit_sweep": {
+      "trigger": "/librarian full + scheduled daily (cron)",
+      "scope": "every non-exempt folder in the vault",
+      "writes": [
+        "add missing rows (new files since last sweep)",
+        "remove orphan rows (deleted/renamed files)",
+        "correct drifted Lines values (wc -l mismatch)",
+        "correct drifted Type values (frontmatter type: mismatch)",
+        "bump _index.md frontmatter `updated:` if any change"
+      ],
+      "blast_radius": "every _index.md in the vault with drift",
+      "self_healing_boundary": "R-34 — mutations bounded to mechanically-derivable values; descriptions / ordering / exemption decisions NEVER auto-overwritten"
+    },
+    "tier_3_deep_audit": {
+      "trigger": "/librarian index-maintain --deep (opt-in)",
+      "scope": "same as Tier 2",
+      "writes": [
+        "auto-corrects mechanical drift (Lines, Type)",
+        "FLAGS semantic drift via librarian-finding NDJSON: description-vs-H1 mismatch; ordering incoherence (key-role types not first)"
+      ],
+      "blast_radius": "same as Tier 2 + advisory findings emitted via librarian-finding output stream",
+      "auto_overwrite_policy": "NEVER auto-overwrites hand-tuned descriptions or hand-ordered rows; flags for operator review"
+    }
+  },
+  "write_shape": "replace"
+}
