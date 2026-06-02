@@ -88,9 +88,12 @@ fi
 # Resolve plan-tree root (test override -> paths.sh -> default).
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
-if [[ ! -d "$PLANS_ROOT" ]]; then
-  echo "new-plan: PLANS_ROOT does not exist: $PLANS_ROOT" >&2
-  exit 1
+# Self-heal the plan-tree root if absent. install.sh creates the default
+# ~/.claude-plans at apply-time, but a hand-edited custom plans_root may not exist
+# yet; mkdir -p is idempotent and only a genuine create failure is fatal. Skipped
+# under --dry-run so a preview writes nothing.
+if [[ "${DRY_RUN:-}" != "true" ]]; then
+  mkdir -p "$PLANS_ROOT" || { echo "new-plan: cannot create PLANS_ROOT: $PLANS_ROOT" >&2; exit 1; }
 fi
 
 # Resolve template dir (test override -> this skill's templates/).
@@ -142,7 +145,7 @@ def check_slug(s, label):
 
 def next_prefix(root):
     max_p, width = 0, 2
-    for entry in os.listdir(root):
+    for entry in (os.listdir(root) if os.path.isdir(root) else []):
         m = re.match(r"^([0-9]+)", entry)
         if m:
             n = int(m.group(1))
@@ -153,7 +156,7 @@ def next_prefix(root):
 
 
 def base_slug_collision(root, s):
-    for entry in os.listdir(root):
+    for entry in (os.listdir(root) if os.path.isdir(root) else []):
         if entry.startswith(".") or entry.startswith("_"):
             continue
         base = re.sub(r"^[0-9]+-", "", entry)

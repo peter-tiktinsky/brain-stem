@@ -87,10 +87,8 @@ fi
 # Resolve plan-tree root (test override -> paths.sh -> default).
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
-if [[ ! -d "$PLANS_ROOT" ]]; then
-  echo "promote-from-inbox: PLANS_ROOT does not exist: $PLANS_ROOT" >&2
-  exit 1
-fi
+# Self-heal the plan-tree root if absent (see new-plan.sh).
+mkdir -p "$PLANS_ROOT" || { echo "promote-from-inbox: cannot create PLANS_ROOT: $PLANS_ROOT" >&2; exit 1; }
 
 # Resolve template dir (test override -> this skill's templates/).
 TMPL_DIR="${TEMPLATES_DIR:-$SKILL_DIR/templates}"

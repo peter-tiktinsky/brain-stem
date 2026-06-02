@@ -601,6 +601,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 1.5, "op": "mkdir", "target": "$VAULT_WRITER_STATE_ROOT/{,daily-processing,raw,staging} + $CLAUDE_STATE_ROOT/{,vault-staging,vault-staging/_archive,.coordination,sessions}", "rationale": "two-root state-tier scaffold: durable second-brain root + ephemeral Claude-runtime root incl .coordination/ + sessions/. NO ~/.claude/state back-compat symlink (fresh lineage)"},
     {"step": 1.6, "op": "sqlite-bootstrap+touch", "target": "$VAULT_WRITER_STATE_ROOT/manifest.sqlite + $CLAUDE_HOME/governance/governance-action-log.jsonl", "source": "$SOURCE_REPO/hooks/lib/manifest-record.sh init (graceful-degrade if absent)", "rationale": "manifest.sqlite re-rooted to the state-tier path. governance-action-log.jsonl bootstrap-CREATED under $CLAUDE_HOME/governance/ (bootstrap-not-copy)"},
     {"step": 1.7, "op": "DROPPED", "rationale": "meeting-processor-state migration struck (hardcoded live author-vault path; fresh-install no-op; brain-stem ships no meeting-processor)"},
+    {"step": 1.8, "op": "mkdir", "target": "$PLANS_HOME", "rationale": "create the plan-tree home (default ~/.claude-plans, OUTSIDE ~/.claude/ to clear the sensitive-file gate). plans_root is never interview-customized, so install creates it ahead of /onboard — /new-plan then works pre-onboard; onboarding only adds the vault Plans/ symlink into it"},
     {"step": 2, "op": "cp", "target": "$CLAUDE_HOME/hooks/", "source": "$SOURCE_REPO/hooks/{*.sh,*.md,MANIFEST.txt}", "rationale": "ship hook entry-points + MANIFEST"},
     {"step": 3, "op": "cp", "target": "$CLAUDE_HOME/hooks/lib/", "source": "$SOURCE_REPO/hooks/lib/{*.sh,*.json,*.sql}", "rationale": "ship hook libs (hooks/lib/ is the SOLE lib surface; no lib/→hooks/lib/ translation)"},
     {"step": 4, "op": "cp", "target": "$CLAUDE_HOME/hooks/config/", "source": "$SOURCE_REPO/hooks/config/", "rationale": "ship hook config JSON (graceful-skip if absent)"},
@@ -643,6 +644,13 @@ target_dirs="hooks hooks/lib hooks/state hooks/config skills schemas orchestrato
 for d in $target_dirs; do
   mkdir -p "$CLAUDE_HOME/$d" || { diag "mkdir failed: $CLAUDE_HOME/$d"; exit 11; }
 done
+
+# Step 1.8: the plan-tree home (~/.claude-plans by default), OUTSIDE $CLAUDE_HOME so
+# the plan tree stays clear of the /.claude/ sensitive-file gate. Created here at
+# apply-time (plans_root is never interview-customized; G5 already inspected this
+# path) so /new-plan works before /onboard; onboarding's build-brain-vault.sh later
+# adds the vault Plans/ symlink into it (its own mkdir -p is then idempotent).
+mkdir -p "$PLANS_HOME" || { diag "plans-home mkdir failed: $PLANS_HOME"; exit 11; }
 
 # Step 1.5: state-tier scaffold (two-root topology)
 # Creates the two state roots + subdirectory scaffolds OUTSIDE $CLAUDE_HOME.

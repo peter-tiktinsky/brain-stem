@@ -879,14 +879,14 @@
     {
       "mode": "0755",
       "path": "skills/new-plan/lib/promote-from-inbox.sh",
-      "sha256": "318e03a62609c9321d4a123d3222828d1810d9924cdd7bb782f66c3c93926dc3",
-      "size": 18037
+      "sha256": "9608ab519bece95d09a77efccce81884fe44a935506d86f25f5c441db9d685f0",
+      "size": 18087
     },
     {
       "mode": "0755",
       "path": "skills/new-plan/new-plan.sh",
-      "sha256": "4616b9f13636664784b6cb88c921c58c9d15fdc86b0395d7de1a0a89e0d1f8f5",
-      "size": 20757
+      "sha256": "ce083a4328b2f93526d7c4050ad20dfffc1f6157585819e934a705665f5e1eee",
+      "size": 21143
     },
     {
       "mode": "0644",
@@ -1195,7 +1195,7 @@
       "size": 1241
     }
   ],
-  "generated_at": "2026-06-02T15:33:13Z",
+  "generated_at": "2026-06-02T17:31:00Z",
   "generator_sha256": "6948c7c2bb55ebf08948150a55b7cc7057c0a6d3ef19b2d82675197dc1f1ef43",
-  "version": "v1.0.1"
+  "version": "v1.0.2"
 }

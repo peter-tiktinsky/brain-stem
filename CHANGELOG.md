@@ -4,6 +4,18 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.0.2]
+
+The plan tree's home directory is now created at install time, so plan commands work immediately after install — before onboarding.
+
+### Changed
+
+- `install.sh` now creates the plan-tree home (`~/.claude-plans` by default) during `--apply`, instead of deferring it to first-run onboarding. The directory is created outside `~/.claude/` (clear of the sensitive-file gate) and is declared in the install preview.
+
+### Fixed
+
+- `/new-plan` and the inbox-promotion helper now create the plan-tree root if it is missing — and `/new-plan --dry-run` previews without writing — instead of erroring when the root does not yet exist.
+
 ## [v1.0.1]
 
 Patch release. Fixes a critical fresh-install regression in the default-on hook set that made v1.0.0 unusable for new adopters.
