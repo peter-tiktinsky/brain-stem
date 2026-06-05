@@ -9,8 +9,8 @@
 #   watchdog_idle "$pid" "$call_log" 180
 #   rc=$?
 #
-# Extracted from librarian-cron.sh L179-207 (pinned source SHA d087b4b in
-# orchestrator/MANIFEST.txt). Watches the ndjson artifact a backgrounded
+# Extracted from an earlier cron pipeline. Watches the ndjson artifact a
+# backgrounded
 # `claude -p` is writing to. Every $WATCHDOG_SAMPLE_INTERVAL seconds (10s
 # default), samples file size; if the file has not grown for `timeout`
 # accumulated seconds, escalates SIGTERM → 2s grace → SIGKILL if still

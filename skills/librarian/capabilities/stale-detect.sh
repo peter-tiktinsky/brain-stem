@@ -49,6 +49,9 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
   || source "$_REPO_LIB/user-manifest-read.sh"
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh"; } \
+  || source "$_REPO_LIB/manifest.sh"
 
 SCOPE=""
 RECENT="false"
@@ -73,6 +76,12 @@ PLANS_SCOPE="${PLANS_DIR:-$HOME/.claude-plans}"
 LOGS_WHITELIST_SUBDIRS=$(umr_get_array '.vault.logs_whitelist_subdirs' | tr '\n' '|')
 export LOGS_WHITELIST_SUBDIRS
 
+# Capture a machine-readable summary subtree the bash layer persists to the
+# manifest (drift_findings.stale) via manifest_set — see MANIFEST_SUBTREE_OUT
+# below. Kept off stdout so the NDJSON findings stream is never polluted.
+MANIFEST_SUBTREE_OUT="$(mktemp -t stale-subtree-XXXXXX)"
+export MANIFEST_SUBTREE_OUT
+
 python3 - "$VAULT_SCOPE" "$PLANS_SCOPE" "$RECENT" "$DRY_RUN" <<'PY'
 import json, os, re, sys, time
 from datetime import datetime, timezone
@@ -81,6 +90,7 @@ vault_scope, plans_scope, recent_s, dry_run_s = sys.argv[1:5]
 recent = (recent_s == "true")
 dry_run = (dry_run_s == "true")
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
+subtree_out = os.environ.get("MANIFEST_SUBTREE_OUT", "")
 now = time.time()
 
 def emit(payload):
@@ -376,4 +386,29 @@ if dry_run:
     total = sum(counts.values())
     print("stale-detect: scanned=%d total=%d counts=%s" % (scanned, total, dict(counts)))
 
+# Write the manifest summary subtree (drift_findings.stale). The bash layer reads
+# $MANIFEST_SUBTREE_OUT and calls manifest_set — mirrors xref-check's
+# captured-summary / manifest_set '.xref_graph' pattern. Kept off stdout.
+if subtree_out:
+    subtree = {
+        "last_scan": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "scanned": scanned,
+        "total": sum(counts.values()),
+        "counts": dict(counts),
+    }
+    with open(subtree_out, "w") as f:
+        f.write(json.dumps(subtree))
 PY
+
+# Persist the stale summary subtree to the librarian-manifest. This makes the
+# registry's declared writes_manifest_subtree: "drift_findings.stale" real
+# (fix), mirroring xref-check.sh's manifest_set.
+# Review-hardening (empty-VAULT_LOGS contract): with empty VAULT_LOGS the
+# manifest_set lockfile resolves to '/.coordination/manifest.lock' (uncreatable)
+# and raises under set -e, which a no-vault fresh adopter's session-close logs as
+# a spurious capability error. Gate the persist on a non-empty VAULT_LOGS (the
+# parity AC sets it, so the genuine-writer contract still holds).
+if [[ -n "${VAULT_LOGS:-}" && -s "$MANIFEST_SUBTREE_OUT" ]]; then
+  manifest_set '.drift_findings.stale' "$(cat "$MANIFEST_SUBTREE_OUT")"
+fi
+rm -f "$MANIFEST_SUBTREE_OUT"

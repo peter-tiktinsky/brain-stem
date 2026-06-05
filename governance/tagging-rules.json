@@ -52,7 +52,12 @@
         ".claude/hooks/lib/**",
         "Logs/build-*"
       ],
-      "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + the narrative spoke (System Governance - Tagging.md) + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited)."
+      "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + the narrative spoke (System Governance - Tagging.md) + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited).",
+      "seed_taxonomy_exempt_paths": [
+        "System Governance/**",
+        "Vault Writers/_index.md"
+      ],
+      "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation ships its vault-init seed surface tagged with adopter-tier dimensions (#scope/reference on the six System Governance/*.md spokes, #system-governance on System Governance/_index.md, #vault-writers on Vault Writers/_index.md) that model good tagging for adopters; the foundation taxonomy itself ships user_facing_dimensions:[] BY DESIGN (taxonomy.user_facing_dimensions), so those seed tags are NOT members of the foundation allowlist and the tag-taxonomy membership arm flags them as 9 day-one violations. These two glob surfaces exempt EXACTLY those seeds from the tag-not-in-taxonomy membership check ONLY — seeds stay byte-unchanged, still obey the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle). Forward note: _load_tag_prefixes() reads only FM_FOUNDATION_MASTER and does not yet union the adopter overlay-master taxonomy — until that union-read lands, exemption (not adopter-dimension-registration) is the correct minimum-viable closure."
     },
     {
       "id": "R-50",

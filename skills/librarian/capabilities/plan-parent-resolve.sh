@@ -19,7 +19,7 @@
 #   - tests/**, _orchestrator/**, baselines/**, corpus/**,
 #     regression-baseline/**, _research/** (ephemeral diagnostic artifacts)
 #
-# Findings emitted (per SKILL.md L567-575):
+# Findings emitted (per SKILL.md):
 #   parent-plan-inferred     — info  — missing field, parent from path
 #   parent-plan-unresolvable — warn  — missing field, path yields nothing
 #   parent-plan-broken-pointer — warn — parent slug does not exist

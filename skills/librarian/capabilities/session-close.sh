@@ -41,8 +41,16 @@
 # Design constraints:
 #   - Bash 3.2 clean per R-23. No declare -A, readarray, step brace expansion,
 #     ${var,,}, &>>. No bashisms introduced here.
-#   - Advisory-only: individual capability failures are logged and flow
-#     continues. Exit 0 always.
+#   - Advisory-only failure semantics: individual capability failures are logged
+#     and flow continues. Exit 0 always. NOTE: "advisory" means failures do not
+#     halt the chain — it does NOT mean read-only. Step-2 auto-fires reconcilers
+#     (writers-index-refresh, writers-overlap-refresh, drift-sweep --plans --fix)
+#     that MAY WRITE to the vault / plan-tree when drift is detected. The writers
+#     refreshers are drift-gated (no write when rendered content already matches
+#     on disk), so a virgin-vault close is a write-no-op once the shipped seeds
+#     render identically to the refreshers' output (guaranteed by the corrected
+#     Vault Writers/_index.md seed). drift-sweep --plans --fix finds no master
+#     plans on a virgin vault, so it writes nothing there either.
 #   - Single aggregated write per run at Logs/session-close-YYYYMMDD-HHMMSS.md.
 #     Individual capabilities may write their own sub-logs per their contracts.
 #
@@ -62,14 +70,18 @@ set -uo pipefail
 
 # ---- paths ------------------------------------------------------------------
 
-if [[ -z "${VAULT_LOGS:-}" ]]; then
+if [[ -z "${VAULT_LOGS:-}" || -z "${COORD_DIR:-}" ]]; then
+  # Source paths.sh when EITHER var is unset: a caller that pre-exports VAULT_LOGS
+  # alone (without COORD_DIR) would otherwise reach the SESSION_REGISTRY="$COORD_DIR/…"
+  # line below with COORD_DIR unbound and abort under `set -u`. paths.sh preserves
+  # an already-set VAULT_LOGS, so this only fills in the missing COORD_DIR.
   # shellcheck source=/dev/null
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 fi
 
 CAPS_DIR="${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities"
 RECONCILE_SESSIONS_SH="${CLAUDE_HOME:-$HOME/.claude}/hooks/reconcile-sessions.sh"
-SESSION_REGISTRY="$VAULT_LOGS/.coordination/session-registry.json"
+SESSION_REGISTRY="$COORD_DIR/session-registry.json"
 
 LOG_DIR="${SESSION_CLOSE_LOG_DIR:-$VAULT_LOGS}"
 
@@ -208,6 +220,20 @@ FINDINGS_COUNT=0
 ERRORS_COUNT=0
 CAPABILITY_LOG=""
 
+# Per-run findings sink.
+# Every chained capability honors the FINDINGS_OUTPUT env contract
+# (hooks/lib/findings.sh: append one NDJSON finding line per finding, falling
+# back to stdout when unset). Before this fix the orchestrator never set
+# FINDINGS_OUTPUT and discarded capability stdout to /dev/null, so every finding
+# was thrown away and FINDINGS_COUNT stayed hardwired at its 0 init — the
+# findings-total emit (write_log) always reported 0. We route every capability's
+# findings to this single NDJSON sink (FINDINGS_OUTPUT for honoring caps + a
+# stdout copy for stdout-fallback caps like plan-parent-resolve) and, after the
+# chain, count it (wc -l) so findings-total reflects the REAL finding count:
+# clean is 0, dirty is non-zero.
+RUN_FINDINGS_NDJSON="${TMPDIR:-/tmp}/session-close-findings-$$.ndjson"
+: > "$RUN_FINDINGS_NDJSON"
+
 record_capability() {
   local name="$1" status="$2" detail="$3"
   CAPABILITY_LOG="$CAPABILITY_LOG
@@ -219,6 +245,20 @@ record_capability() {
 
 # Stub-aware runner. In test mode, emit a deterministic token and skip the
 # real invocation. In normal mode, invoke the capability and record status.
+#
+# Output handling: the capability's combined output is captured
+# to a temp file instead of /dev/null so a non-zero exit can fold a one-line
+# digest of the real fail/skip lines into record_capability's detail (instead of
+# the content-free "exit N"). On SUCCESS the behavior is IDENTICAL for every
+# capability — the output is discarded and `ok` recorded (low blast radius).
+#
+# backup is special-cased on its tri-state exit codes: exit 3
+# (partial-degraded — a default target is a non-repo and was NOT backed up) maps
+# to `warn` with the remediation digest, and warn must NOT inflate
+# ERRORS_COUNT; exit 1 (hard failure — a commit or post-commit push failed) maps
+# to `error` carrying the real git fatal:/PUSH FAILED digest. This makes the
+# false-green and the swallowed push fatal: / non-repo skip
+# finally surface at the session-close layer instead of reading `ok`.
 run_capability() {
   local name="$1"
   shift
@@ -235,11 +275,65 @@ run_capability() {
     record_capability "$name" "dry-run" "would invoke: $cap_path $*"
     return 0
   fi
-  if "$cap_path" "$@" >/dev/null 2>&1; then
+  local out_file cap_stdout rc
+  out_file="${TMPDIR:-/tmp}/session-close-cap-$name-$$.out"
+  cap_stdout="${TMPDIR:-/tmp}/session-close-cap-$name-$$.stdout"
+ # wire the per-run findings sink. Export FINDINGS_OUTPUT so
+  # caps that honor it append findings NDJSON directly to the shared sink; for
+  # the stdout-fallback class (a findings cap that prints findings to stdout when
+  # FINDINGS_OUTPUT is unset), this cap's stdout is also appended to the SAME
+  # sink so a single sink covers both classes. stderr is captured to out_file
+  # for the error-detail digest, so record_capability error-detection
+  # (ERRORS_COUNT) is unchanged. out_file carries THIS cap's combined
+ # stdout+stderr (not the accumulated sink) so the fail/skip digest
+  # still resolves to this capability's own lines on a non-zero exit.
+ #
+  # The stdout copy is FILTERED to NDJSON finding lines (those beginning with
+  # `{` — the emit_finding/emit_event shape from hooks/lib/findings.sh). Findings
+  # caps that honor FINDINGS_OUTPUT write findings to the sink directly and print
+  # only summary/info noise to stdout (e.g. placement-validate:251
+  # `placement-validate: scanned=N findings=N`); backup prints a `## Backup`
+  # human report. Copying that non-finding noise verbatim would inflate
+  # findings-total on a clean run (breaking the clean-vault==0 contract), so only
+  # `{`-prefixed JSON-finding lines from stdout are folded into the sink — this
+  # captures the stdout-fallback findings class while excluding summary/report
+ # noise. out_file still gets the FULL stdout (+ stderr) for the digest.
+  FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$cap_path" "$@" \
+    >"$cap_stdout" 2>"$out_file"
+  rc=$?
+  grep -a '^{' "$cap_stdout" >>"$RUN_FINDINGS_NDJSON" 2>/dev/null
+  cat "$cap_stdout" >>"$out_file"
+  rm -f "$cap_stdout"
+  if [[ "$rc" -eq 0 ]]; then
     record_capability "$name" "ok" ""
-  else
-    record_capability "$name" "error" "exit $?"
+    rm -f "$out_file"
+    return 0
   fi
+  # Non-zero: fold a one-line digest of the fail/skip lines into the detail.
+  local digest
+  if [[ "$name" == "backup" && "$rc" -eq 3 ]]; then
+    # backup partial-degraded (non-repo): a default target was NOT backed up.
+    # warn (NOT error — must not inflate ERRORS_COUNT). Surface the remediation.
+    digest=$(grep -aE 'WARNING — not a git repo|^[[:space:]]*remediate:' "$out_file" \
+      | head -1 | sed 's/^[[:space:]]*//')
+    [[ -z "$digest" ]] && digest="exit 3 — a default backup target is a non-repo and was NOT backed up"
+    record_capability "$name" "warn" "$digest"
+  elif [[ "$name" == "backup" && "$rc" -eq 1 ]]; then
+    # backup hard failure (push fatal: / commit fail). error with the digest.
+    digest=$(grep -aE 'PUSH FAILED|^(fatal|error):|commit failed' "$out_file" \
+      | head -1 | sed 's/^[[:space:]]*//')
+    [[ -z "$digest" ]] && digest="exit 1"
+    record_capability "$name" "error" "$digest"
+  else
+    digest=$(grep -aE '^(fatal|error):|FAILED|WARNING|ERROR' "$out_file" \
+      | head -1 | sed 's/^[[:space:]]*//')
+    if [[ -n "$digest" ]]; then
+      record_capability "$name" "error" "exit $rc — $digest"
+    else
+      record_capability "$name" "error" "exit $rc"
+    fi
+  fi
+  rm -f "$out_file"
 }
 
 # ---- Step 2c gate: reconciliation sweep ------------------------------------
@@ -261,7 +355,12 @@ run_reconcile_sweep() {
     record_capability "reconcile-sessions" "dry-run" "would invoke: $RECONCILE_SESSIONS_SH"
     return 0
   fi
-  if "$RECONCILE_SESSIONS_SH" >/dev/null 2>&1; then
+ # set FINDINGS_OUTPUT in the capability environment and route
+  # any findings stdout to the shared per-run sink (uniform with run_capability)
+  # instead of discarding it to /dev/null; stderr still discarded (sweep emits
+  # its own sub-logs, not findings NDJSON).
+  if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$RECONCILE_SESSIONS_SH" \
+      >>"$RUN_FINDINGS_NDJSON" 2>/dev/null; then
     record_capability "reconcile-sessions" "ok" ""
   else
     record_capability "reconcile-sessions" "error" "exit $?"
@@ -338,8 +437,15 @@ step2b_rename_cascade() {
     return 0
   fi
   # Capture NDJSON once, feed both downstream consumers.
+ # set FINDINGS_OUTPUT in the capability environment so any
+  # findings these caps emit land in the shared per-run sink. rename-detect's
+  # STDOUT is its rename-record data pipeline (captured to $tmp_nd, fed to the
+  # downstream consumers) — NOT findings — so it must stay on stdout; setting
+  # FINDINGS_OUTPUT routes its findings (if any) to the sink and keeps the data
+  # channel clean. rename-history-sync / rename-cascade have no data stdout, so
+  # their findings go to the sink while their info stdout stays discarded.
   local tmp_nd="${TMPDIR:-/tmp}/session-close-rename-$$.ndjson"
-  if "$rd" --since "24 hours ago" > "$tmp_nd" 2>/dev/null; then
+  if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rd" --since "24 hours ago" > "$tmp_nd" 2>/dev/null; then
     record_capability "rename-detect" "ok" "$(wc -l < "$tmp_nd" | tr -d ' ') record(s)"
   else
     record_capability "rename-detect" "error" "exit $?"
@@ -347,12 +453,12 @@ step2b_rename_cascade() {
     return 0
   fi
   if [[ -s "$tmp_nd" ]]; then
-    if "$rhs" append < "$tmp_nd" >/dev/null 2>&1; then
+    if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rhs" append < "$tmp_nd" >/dev/null 2>&1; then
       record_capability "rename-history-sync" "ok" ""
     else
       record_capability "rename-history-sync" "error" "exit $?"
     fi
-    if "$rc" < "$tmp_nd" >/dev/null 2>&1; then
+    if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rc" < "$tmp_nd" >/dev/null 2>&1; then
       record_capability "rename-cascade" "ok" "dry-run"
     else
       record_capability "rename-cascade" "error" "exit $?"
@@ -463,6 +569,17 @@ step2b_rename_cascade
 run_reconcile_sweep
 step2d_trinity_drift
 step5_backup
+
+# Count the per-run findings
+# sink AFTER the capability chain and BEFORE write_log emits `findings-total:`.
+# FINDINGS_COUNT is no longer left at its 0 init — it reflects the real count of
+# findings every chained capability routed to RUN_FINDINGS_NDJSON. Clean vault
+# is 0 (empty sink); a vault with drift is the non-zero line count.
+if [[ -f "$RUN_FINDINGS_NDJSON" ]]; then
+  FINDINGS_COUNT=$(wc -l < "$RUN_FINDINGS_NDJSON" | tr -d ' ')
+fi
+
 write_log
 
+rm -f "$RUN_FINDINGS_NDJSON"
 exit 0

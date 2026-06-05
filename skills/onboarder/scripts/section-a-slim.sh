@@ -17,7 +17,7 @@
 #   - Bash 3.2 + R-23 compatible (no declare -A, no mapfile, no ${var,,}).
 #   - JSONL audit emits structural metadata only — no user strings in fields.
 #   - Probes are READ-ONLY against the live host.
-#   - Timezone probe uses readlink /etc/localtime (CFF-S56-5; privilege-free).
+#   - Timezone probe uses readlink /etc/localtime (privilege-free).
 #
 # Env knobs (override defaults; tests + dogfood):
 #   AUTO_ACCEPT=1          Non-interactive Enter-accept-all.
@@ -69,13 +69,35 @@ mkdir -p "$INPUTS_DIR" "$(dirname "$AUDIT_LOG")" 2>/dev/null || {
   diag "cannot create output directories"; exit 3; }
 
 # --- discovery probes (read-only; test overrides win) ---
+# gh_user_field <name|email>: read-only `gh api user --jq .<field>`; emits nothing
+# when gh is absent or the field is unset (gh prints the literal "null" string for
+# an unset field — filter it so it never leaks into the fragment as a name/email).
+gh_user_field() {
+  command -v gh >/dev/null 2>&1 || return 0
+  local v
+  v="$(gh api user --jq ".$1" 2>/dev/null)"
+  [ "$v" = "null" ] && v=""
+  [ -n "$v" ] && printf '%s\n' "$v"
+}
+# First-non-empty fallback chain. Precedence: SLIM_A_* override-wins, then global
+# git, then repo git, then $GIT_AUTHOR_*, then gh api user, then OS (`id -F`, name only).
+# Every rung is READ-ONLY against the host; empty still degrades to (none detected).
 probe_name() {
   [ -n "${SLIM_A_NAME:-}" ] && { printf '%s\n' "$SLIM_A_NAME"; return 0; }
-  git config --global user.name 2>/dev/null
+  local v
+  v="$(git config --global user.name 2>/dev/null)"; [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+  v="$(git config user.name 2>/dev/null)";          [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+  [ -n "${GIT_AUTHOR_NAME:-}" ] && { printf '%s\n' "$GIT_AUTHOR_NAME"; return 0; }
+  v="$(gh_user_field name)";                        [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+  v="$(id -F 2>/dev/null)";                         [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
 }
 probe_email() {
   [ -n "${SLIM_A_EMAIL:-}" ] && { printf '%s\n' "$SLIM_A_EMAIL"; return 0; }
-  git config --global user.email 2>/dev/null
+  local v
+  v="$(git config --global user.email 2>/dev/null)"; [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+  v="$(git config user.email 2>/dev/null)";          [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+  [ -n "${GIT_AUTHOR_EMAIL:-}" ] && { printf '%s\n' "$GIT_AUTHOR_EMAIL"; return 0; }
+  v="$(gh_user_field email)";                        [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
 }
 probe_timezone() {
   [ -n "${SLIM_A_TZ:-}" ] && { printf '%s\n' "$SLIM_A_TZ"; return 0; }
@@ -177,6 +199,11 @@ commit_and_exit() {
   info "Section A complete. user-fragment-A.json staged at $FRAGMENT_OUT."
   exit 0
 }
+
+if [ "$AUTO_ACCEPT" != "1" ] && [ ! -t 0 ]; then
+  info "non-TTY stdin detected; auto-accepting discovery (use SLIM_A_* / --auto-accept to set fields)"
+  AUTO_ACCEPT=1
+fi
 
 if [ "$AUTO_ACCEPT" = "1" ]; then
   commit_and_exit

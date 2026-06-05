@@ -22,6 +22,17 @@
 #       -> registry-parity-disk-orphan
 #       (spec-only registry entries are NOT required to have a disk body; the
 #       orphan check is the converse: disk bodies must be registered.)
+# (f) NET-NEW: every
+#       capability with a NON-NULL writes_manifest_subtree must have a body that
+#       actually calls manifest_set — converts "the registry can't claim a
+#       manifest write the code doesn't do" from fiction-passes-parity into a
+#       caught defect (feedback_structural_over_bandaid).
+#       -> registry-parity-manifest-write-fiction
+#       GATED: the registry's ._parity_pending_manifest_writes[] allowlist names
+#       the known-pending fictions; those are emitted ADVISORY (warn) and do NOT
+#       count toward TOTAL drift (parity stays non-RED) until each is remediated.
+#       A NON-allowlisted non-null-subtree capability missing manifest_set fires
+#       HARD (error; counts in TOTAL; turns parity RED).
 #
 # The disk-orphan class reports zero orphans when registered-with-disk == on-disk.
 # This is the load-bearing substance the generator<->install ship-list
@@ -96,6 +107,8 @@ DRIFT_SCRIPT=0
 DRIFT_SCHEMA_VERSION=0
 DRIFT_SUBTREE_FIELD=0
 DRIFT_DISK_ORPHAN=0
+DRIFT_MANIFEST_FICTION=0
+ADVISORY_MANIFEST_FICTION=0
 REPORT_LINES=""
 
 # Class (c): schema_version drift
@@ -154,6 +167,50 @@ if [[ -d "$CAPABILITIES_DIR" ]]; then
 fi
 rm -f "$REG_SCRIPTS_FILE"
 
+# Class (f) NET-NEW: manifest-write fiction. Every capability with
+# a non-null writes_manifest_subtree must have a body that calls manifest_set.
+# The registry's ._parity_pending_manifest_writes[] allowlist downgrades the
+# known-pending fictions to ADVISORY (warn; not counted in TOTAL) so parity stays
+# non-RED until each lands its real write; a NON-allowlisted offender fires HARD.
+ALLOWLIST_FILE=$(mktemp -t parity-allowlist-XXXXXX)
+jq -r '._parity_pending_manifest_writes // [] | .[]' "$REGISTRY" 2>/dev/null | sort -u > "$ALLOWLIST_FILE"
+while IFS=$'\t' read -r name script; do
+  [[ -z "$name" ]] && continue
+  body="$LIBRARIAN_ROOT/$script"
+  # A missing body is already reported by class (b); skip it here.
+  [[ -f "$body" ]] || continue
+  # Match a real manifest_set INVOCATION, not a mention inside a comment: strip
+  # full-line AND inline comments (everything from the first unquoted #-ish marker
+  # is coarse but safe here — capability bodies put manifest_set calls on their
+  # own command lines), then require `manifest_set` in command position followed
+  # by an argument (a quote / dot-path). A documentation mention must NOT satisfy
+  # the contract.
+  if sed 's/#.*$//' "$body" \
+       | grep -qE '(^|[[:space:]]|;|&&|\|\||\|)manifest_set[[:space:]]+['"'"'".$]'; then
+    continue
+  fi
+  if grep -qxF "$name" "$ALLOWLIST_FILE"; then
+    # Known-pending fiction — advisory only; does NOT turn parity RED.
+    ADVISORY_MANIFEST_FICTION=$((ADVISORY_MANIFEST_FICTION + 1))
+    if [[ "$MODE" != "dry-run" ]]; then
+      emit_finding "registry-parity-manifest-write-fiction" "$name" \
+        "level" "warn" "advisory" "true" \
+        "detail" "non-null writes_manifest_subtree but body lacks a manifest_set call (allowlisted pending)"
+    fi
+    REPORT_LINES="${REPORT_LINES}- registry-parity-manifest-write-fiction (ADVISORY, allowlisted): $name → $script"$'\n'
+  else
+    # Not allowlisted — hard drift; turns parity RED.
+    DRIFT_MANIFEST_FICTION=$((DRIFT_MANIFEST_FICTION + 1))
+    if [[ "$MODE" != "dry-run" ]]; then
+      emit_finding "registry-parity-manifest-write-fiction" "$name" \
+        "level" "error" \
+        "detail" "non-null writes_manifest_subtree but body lacks a manifest_set call"
+    fi
+    REPORT_LINES="${REPORT_LINES}- registry-parity-manifest-write-fiction: $name → $script (declared subtree, body has no manifest_set)"$'\n'
+  fi
+done < <(jq -r '.capabilities | to_entries[] | select(.value.implementation_status != "spec-only") | select(.value.writes_manifest_subtree != null) | [.key, .value.script] | @tsv' "$REGISTRY")
+rm -f "$ALLOWLIST_FILE"
+
 # Class (a): SKILL.md <-> registry strict bijection
 if [[ ! -f "$SKILL_MD" ]]; then
   DRIFT_BIJECTION=$((DRIFT_BIJECTION + 1))
@@ -187,9 +244,9 @@ else
   rm -f "$REG_KEYS_FILE" "$SKILL_KEYS_FILE"
 fi
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN"
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d; advisory manifest-write-fiction=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$ADVISORY_MANIFEST_FICTION"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else

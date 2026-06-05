@@ -93,14 +93,35 @@ for f in "$FRONTMATTER" "$TAGGING" "$NAMING" "$MANDATORY" "$DOC_DEPS" "$INDEX" "
   fi
 done
 
-# --- 3. Source mtimes (ISO8601 UTC) ------------------------------------------
-mtime_iso() {
-  # macOS BSD stat; GNU stat differs but date -r is portable
-  local f="$1"
-  date -u -r "$f" "+%Y-%m-%dT%H:%M:%SZ"
+# --- 3. Reproducible timestamps (SOURCE_DATE_EPOCH / git commit time) ---------
+# Wall-clock `date -u` (built_at) and filesystem mtimes (source_file_mtimes) are
+# both non-reproducible, so they are REPLACED by content-deterministic git commit
+# times: two builds of identical pillars now produce an identical master sha AND a
+# byte-identical file. SOURCE_DATE_EPOCH (reproducible-builds standard) overrides.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+  BUILD_EPOCH="$SOURCE_DATE_EPOCH"
+else
+  BUILD_EPOCH="$(git -C "$SOURCE_REPO" log -1 --format=%ct 2>/dev/null || true)"
+fi
+
+iso_utc() {
+  # epoch-seconds -> ISO8601 UTC; deterministic sentinel when no epoch is available
+  # (e.g. a non-git source tree) so the output stays reproducible regardless.
+  if [ -n "${1:-}" ]; then date -u -r "$1" "+%Y-%m-%dT%H:%M:%SZ"; else printf '1970-01-01T00:00:00Z'; fi
 }
 
-BUILD_AT=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+mtime_iso() {
+  # last git commit time of the pillar (its content version) — reproducible. Falls
+  # back to the build epoch (NOT the filesystem mtime) so determinism holds even
+  # for an untracked pillar.
+  local f="$1" rel ct
+  rel="${f#$SOURCE_REPO/}"
+  ct="$(git -C "$SOURCE_REPO" log -1 --format=%ct -- "$rel" 2>/dev/null || true)"
+  [ -z "$ct" ] && ct="$BUILD_EPOCH"
+  iso_utc "$ct"
+}
+
+BUILD_AT="$(iso_utc "$BUILD_EPOCH")"
 
 # --- 4. Compose r47_exempt_paths_composed (deduped sorted union) ------------
 # Canonical declaration: tagging-rules.json#_rules[id=R-47].r47_exempt_paths
@@ -114,6 +135,15 @@ else
   GATE_R47=""
 fi
 R47_COMPOSED_JSON=$(printf '%s\n%s\n' "$TAGGING_R47" "$GATE_R47" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
+
+# --- 4a. Compose seed_taxonomy_exempt_paths_composed (deduped sorted) -------
+# DEDICATED tag-TAXONOMY exempt-list, SEPARATE from
+# r47_exempt_paths (the tag-PRESENCE list). Composed from the register
+# tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths so the
+# 9 day-one shipped-seed tag-not-in-taxonomy violations are exempted without
+# touching seed bytes. Consumed by frontmatter-enforce.sh tag-taxonomy arm.
+TAGGING_SEED_TAX=$(jq -r '._rules[]? | select(.id=="R-47") | .seed_taxonomy_exempt_paths[]?' "$TAGGING")
+SEED_TAX_COMPOSED_JSON=$(printf '%s\n' "$TAGGING_SEED_TAX" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
 
 # --- 4b. Absorb gate-config r32/r47 residual slices --------------------------
 # gate-config.json is dropped, so these default to {}/[]/25.
@@ -193,6 +223,7 @@ BUNDLE_BODY=$(jq -n -S \
   --argjson vw "$VAULT_WRITERS_JSON" \
   --argjson pl "$PLANS_JSON" \
   --argjson r47 "$R47_COMPOSED_JSON" \
+  --argjson seedtax "$SEED_TAX_COMPOSED_JSON" \
   --argjson r32ep "$R32_EXEMPT_PATHS_JSON" \
   --argjson r47cap "$R47_TAG_CAP_JSON" \
   '{
@@ -208,6 +239,7 @@ BUNDLE_BODY=$(jq -n -S \
     "plans": $pl,
     "_index": $ix,
     "r47_exempt_paths_composed": $r47,
+    "seed_taxonomy_exempt_paths_composed": $seedtax,
     "r32_exempt_paths": $r32ep,
     "r47_tag_cap": $r47cap
   }')
@@ -228,7 +260,7 @@ META_JSON=$(jq -n -S \
     "build_tool": "tools/build-foundation-master.sh",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_files_count": $src_count,
-    "_provenance": "Same source files (by content) -> same bundle_version. _meta.built_at + _meta.source_file_mtimes intentionally excluded from bundle_version hash so identical content rebuilt at different times produces stable version."
+    "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash."
   }')
 
 FINAL_BUNDLE=$(jq -S --argjson meta "$META_JSON" '. + {"_meta": $meta}' <<<"$BUNDLE_BODY")
@@ -276,6 +308,7 @@ echo "  bundle_version: $BUNDLE_VERSION"
 echo "  built_at:       $BUILD_AT"
 echo "  pillars:        8"
 echo "  r47_exempt_paths_composed:        $(echo "$R47_COMPOSED_JSON" | jq 'length') entries"
+echo "  seed_taxonomy_exempt_paths_composed: $(echo "$SEED_TAX_COMPOSED_JSON" | jq 'length') entries"
 echo "  frontmatter.r32_type_aliases:     $(echo "$R32_TYPE_ALIASES_JSON" | jq 'length') entries"
 echo "  r32_exempt_paths:                 $(echo "$R32_EXEMPT_PATHS_JSON" | jq 'length') entries"
 echo "  r47_tag_cap:                      $(echo "$R47_TAG_CAP_JSON")"

@@ -67,7 +67,7 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-# Section E-2 toggle: short-circuit when user opted out via /onboard.
+# Opt-out toggle: short-circuit when user opted out via /onboard.
 # Default-enabled; opt-out is explicit `false`. Audit log entry written to
 # $LOG_FILE before exit so absence-of-runs is observable.
 hook_enabled="$(_manifest_get .behavioral.hook_preferences.memory_consolidation_enabled 2>/dev/null || true)"

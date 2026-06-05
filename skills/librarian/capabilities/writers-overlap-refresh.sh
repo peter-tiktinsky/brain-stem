@@ -294,6 +294,17 @@ if START not in new_content or END not in new_content:
     print("writers-overlap-refresh: refusing to write — sentinels missing", file=sys.stderr)
     sys.exit(1)
 
+# Idempotence-gate: when the rendered content already
+# matches what is on disk, skip the os.replace so a virgin/clean close is a true
+# no-op write. Emit only the info-event (write_skipped_bool).
+if not drift:
+    emit({"finding": "overlap-matrix-regenerated", "file": matrix_path,
+          "clusters_rendered_count": len(clusters), "total_writers_scanned": total_writers,
+          "sentinel_recreated_bool": (not sentinel_existed),
+          "drift_detected_bool": False, "write_skipped_bool": True,
+          "detected_at": today})
+    sys.exit(0)
+
 d = os.path.dirname(matrix_path) or "."
 fd, tmp = tempfile.mkstemp(dir=d, prefix="._overlap.", suffix=".tmp")
 try:
@@ -307,5 +318,7 @@ except Exception:
 
 emit({"finding": "overlap-matrix-regenerated", "file": matrix_path,
       "clusters_rendered_count": len(clusters), "total_writers_scanned": total_writers,
-      "sentinel_recreated_bool": (not sentinel_existed), "detected_at": today})
+      "sentinel_recreated_bool": (not sentinel_existed),
+      "drift_detected_bool": True, "write_skipped_bool": False,
+      "detected_at": today})
 PY

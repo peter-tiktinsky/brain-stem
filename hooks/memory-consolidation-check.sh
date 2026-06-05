@@ -10,7 +10,7 @@
 #     FRESH (<180d → none) / STALE (180-360d → propose revalidate) / EXPIRED
 #     (≥360d → propose {revalidate|supersede|archive}); ALL propose-only —
 #     nothing is auto-deleted/auto-archived.
-#   - The consolidation lock uses lockf (sourced from hooks/lib/lockf.sh)
+#   - The consolidation lock uses lockf (sourced from hooks/lib/lockf.sh,
 #     to guard the single-instance runner spawn, replacing the
 #     hand-rolled PID-lock TOCTOU window. The kernel
 #     releases the advisory lock on process death — no stale-lock class.
@@ -36,7 +36,7 @@ EXPIRED_DAYS=360
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
-# Section E-2 toggle: short-circuit when user opted out via /onboard.
+# Opt-out toggle: short-circuit when user opted out via /onboard.
 # Audit log entry so absence-of-runs is observable.
 hook_enabled="$(_manifest_get .behavioral.hook_preferences.memory_consolidation_enabled 2>/dev/null || true)"
 if [ "$hook_enabled" = "false" ]; then
@@ -82,7 +82,7 @@ printf '%s\n' "$STATE" > "$STATE_FILE"
 
 # --- Evaluate gates (≥24h AND ≥5 sessions) ---
 NOW_EPOCH=$(date +%s)
-LAST_EPOCH=$(date -jf "%Y-%m-%dT%H:%M:%S" "${LAST_CONSOLIDATION%[Z+-]*}" +%s 2>/dev/null || echo 0)
+LAST_EPOCH=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$LAST_CONSOLIDATION" +%s 2>/dev/null || echo 0)
 HOURS_ELAPSED=$(( (NOW_EPOCH - LAST_EPOCH) / 3600 ))
 
 GATE_A=false

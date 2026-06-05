@@ -1,0 +1,124 @@
+{
+  "_comment": "Data-driven foundation hook reconciler declaration. Flat array of {event, matcher, command, timeout?} tuples for EVERY foundation-required hook registration. install.sh Step 12.5 (the generic reconciler loop) iterates this file after the Step 12 settings.json merge and, per tuple, detect-absence-by-command-substring and append into the matching .matcher bucket (creating the bucket only when none matches), so a foundation hook that lost the array-win merge (template * user) is re-landed. Adds-only / per-COMMAND idempotent; never removes or reorders the adopter's own hooks; runs AFTER the G7-gated atomic mv so its additive mutations cannot trip G7. Tuples are enumerated VERBATIM from templates/settings.json (event/matcher/command/timeout); a future foundation hook is a one-line entry here, NOT a new Step 12.N. matcher is null for event buckets with no matcher key (UserPromptSubmit/SessionStart/Stop/SessionEnd/InstructionsLoaded). This file is in foundation-manifest.json::files[] (a FOUNDATION-REPLACE managed artifact).",
+  "required_hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/pre-write-guard.sh"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "AskUserQuestion",
+      "command": "~/.claude/hooks/pre-asq-guard.sh"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/track-vault-write.sh"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/post-write-verify.sh"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/memory-auto-stamp.sh",
+      "timeout": 3
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/memory-globalize-auto.sh",
+      "timeout": 5
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/tasks-md-autosync.sh",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "matcher": null,
+      "command": "~/.claude/hooks/prompt-context.sh",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "matcher": null,
+      "command": "~/.claude/hooks/spec-context-inject.sh",
+      "timeout": 5
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-register.sh"
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/cron-health-banner.sh",
+      "timeout": 10
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/memory-review-banner.sh",
+      "timeout": 5
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/spec-context-inject.sh"
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-start.sh",
+      "timeout": 5
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/memory-seed.sh",
+      "timeout": 5
+    },
+    {
+      "event": "Stop",
+      "matcher": null,
+      "command": "~/.claude/hooks/stop-checkpoint-check.sh",
+      "timeout": 3
+    },
+    {
+      "event": "Stop",
+      "matcher": null,
+      "command": "~/.claude/hooks/stop-drift-scan.sh",
+      "timeout": 10
+    },
+    {
+      "event": "PreCompact",
+      "matcher": "auto|manual",
+      "command": "~/.claude/hooks/pre-compact-checkpoint.sh",
+      "timeout": 5
+    },
+    {
+      "event": "SessionEnd",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-deregister.sh"
+    },
+    {
+      "event": "SessionEnd",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-episode-write.sh",
+      "timeout": 5
+    },
+    {
+      "event": "InstructionsLoaded",
+      "matcher": null,
+      "command": "~/.claude/hooks/instructions-loaded-log.sh",
+      "timeout": 3
+    }
+  ]
+}

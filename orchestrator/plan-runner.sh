@@ -69,7 +69,7 @@ fi
 
 PLAN_DIR="$(dirname "$MASTER_MANIFEST")"
 
-# --- HITL/HOTL gate (C-04) -------------------------------------------------
+# --- HITL/HOTL gate -------------------------------------------------
 # Classifies a (sub-plan manifest, task) pair and gates before dispatch.
 # Returns 0 to proceed, non-zero to halt. live_mutation_scope.enabled==true
 # OR a truthy task .irreversible field => HITL (approve-before-act).
@@ -104,7 +104,7 @@ gate_task() {
   return 0
 }
 
-# --- Dispatch one sub-plan's tasks[] via dispatch.sh --job (C-01 + C-03) ----
+# --- Dispatch one sub-plan's tasks[] via dispatch.sh --job ----
 dispatch_sub() {
   local slug="$1"
   local sub_manifest="$PLAN_DIR/$slug/manifest.json"
@@ -132,7 +132,7 @@ dispatch_sub() {
     i=$((i + 1))
     [ -z "$task_id" ] && continue
 
-    # C-03: resolve the worker brief by convention $JOBS_DIR/<task-id>.md.
+    # resolve the worker brief by convention $JOBS_DIR/<task-id>.md.
     # We validate the brief HERE, then hand the task-id (a NAME, not a path)
     # to `dispatch.sh --job <task-id>`. The brief is consumed downstream by
     # dispatch.sh resolve_job(), which resolves slug-first then falls back to
@@ -150,7 +150,7 @@ dispatch_sub() {
       continue
     fi
 
-    # C-04: gate before dispatch.
+    # gate before dispatch.
     if ! gate_task "$sub_manifest" "$task_id"; then
       echo "  HALT at $task_id (gate not cleared)." >&2
       return 1

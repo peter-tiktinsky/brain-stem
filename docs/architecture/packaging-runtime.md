@@ -82,14 +82,47 @@ Before the installer creates anything, it runs a sequence of quick safety checks
 |---|---|
 | Are you running this as the all-powerful **root/administrator** account? | Refused — too much blast radius for a personal install. |
 | Does the **target folder already hold someone else's unrelated Claude setup**? | Refused, unless you explicitly force it with a confirmation flag. |
-| Have the foundation's **own files in an existing target been secretly edited** (their fingerprints no longer match the receipt)? | Refused — the installer detects this "drift" and stops rather than overwrite changes you may have made on purpose, unless you force it and type a confirmation phrase by hand. |
+| Have the foundation's **own files in an existing target drifted** from the shipped version (their fingerprints no longer match the receipt)? | It depends on *why* they drifted — see **["Two reasons a file can differ"](#two-reasons-a-file-can-differ-an-old-version-vs-your-edits)** below. If the on-disk file is simply an **older shipped version** (exactly what an upgrade is meant to replace), a preview reports it and proceeds with a write-free plan. If it is content that matches **no** known release — i.e. genuinely edited — a real `--apply` refuses to overwrite it without an explicit, hand-typed confirmation. |
 | Does the target path **secretly tunnel into your synced notes vault** via a shortcut (symlink)? | Refused outright — that path is protected, with no override. |
 | Does the **plan folder already contain an existing plan tree**? | Refused unless you pass an acknowledgement flag, so the installer never silently overlays existing plan-tracking files. |
 | Would merging the new settings **silently delete keys** from your existing configuration? | Refused — your existing settings are never quietly discarded. |
-| If the install needs to overwrite something, can it **first prove a backup will actually work**? | Refused — when a destructive step is pending, the installer demands a writable backup location and verifies it round-trips before proceeding; no provable backup means no install. |
+| If the install needs to overwrite something, can it **first prove a backup will actually work** — and actually take one? | Refused — when a destructive step is pending, the installer demands a writable backup location, verifies it round-trips, and then copies your existing settings into it (a timestamped `settings.json.pre-install-<timestamp>`) *before* the overwrite, so the backup is a real restorable artifact; no provable, taken backup means no install. |
 | Do you have the small set of **helper programs** the install needs (for example `jq`, a tool for reading the JSON data files)? | Refused if any are missing. |
 
 A symlink, used above, is just a directory shortcut: a file that points at another location so that opening one path actually opens another. The vault-protection gate exists because such a shortcut could otherwise let an install reach into your personal notes — so that path is fenced off entirely.
+
+---
+
+## Upgrading in place — and two reasons a file can differ
+
+The drift gate above raises an important question: if the installer refuses when a foundation file's fingerprint does not match the receipt, how does it ever **upgrade** an existing install — where, by definition, your installed files differ from the new ones being shipped?
+
+The answer is that "differs from the shipped version" has **two completely different causes**, and the installer must tell them apart. Conflating them is exactly the bug this section exists to prevent.
+
+### Two reasons a file can differ: an old version vs. your edits
+
+A managed file whose on-disk fingerprint does not match the new shipped fingerprint is in one of two states:
+
+| State | What it means | What the installer does |
+|---|---|---|
+| **Version-delta** — the on-disk bytes match a **known previous release** (its fingerprint is one this foundation actually shipped in an earlier version) | This is simply an **older version of a foundation file**, sitting where the upgrade is *supposed* to replace it. It is not something you changed — it is the very thing an upgrade exists to update. | **Take the new version** cleanly. This is a normal upgrade, not a conflict. No confirmation needed. |
+| **Foreign / edited content** — the on-disk bytes match **no** known release | You (or some tool) changed this file. The foundation has no record of these exact bytes, so it must assume they are intentional and yours. | **Preserve your version.** The new version is laid down, but your copy is saved alongside as `<file>.foundation-local` so nothing you wrote is lost. A real apply will not silently overwrite an edited file without an explicit, typed confirmation. |
+
+The mechanism that makes this distinction possible is the **per-release manifest archive**: a stored fingerprint list for each version the foundation ever shipped (kept under `governance/baselines/`). To classify a differing file, the installer checks its current fingerprint against every archived release. A match means "this is just an old shipped version" (replace it); no match means "this is your edit" (preserve it). Without those historical fingerprints the installer could not distinguish a stale-but-pristine file from a hand-edited one — and would wrongly file an untouched old file away as if you had customized it.
+
+### How a legacy install actually receives its updates
+
+An install made before the foundation gained its version stamp is a **legacy install**. Re-running the installer over one is meant to bring every managed file current — and the way it does that is by walking the **shipped ship-list (the manifest's `files[]`)** one file at a time. For each file the foundation ships, it reads the new version's fingerprint, compares it to what is on disk, classifies the result using the two states above, and delivers accordingly. This per-file walk is what guarantees that *every* managed file is examined and updated — not just the ones in some subset of directories.
+
+> **Why this is called out explicitly.** The ship-list spans several whole directories — the skills, the orchestrator, the installer support files, the migrations, the file-type contracts, and the vault seed. An earlier release copied those directories with a mode that skipped any file already present, so on a legacy install those files never updated. The fix routes every one of those directories through the same per-file walk described here, so a legacy install receives all of them. Two of those directories (the **migrations** and **file-type contracts**) happen to have had no changed files in recent releases, so the issue lay dormant there — but they ride the **same** per-file delivery path, so the next release that does change a file under them will deliver it correctly too.
+
+### The delivery gate: the upgrade will not claim success if it fell short
+
+Delivering file by file raises a fair worry: what if a file is silently missed? The installer guards against exactly that. **Before it writes the completion stamp that records the upgrade as finished**, it verifies that every managed file it shipped actually reached the new version.
+
+This check is **disposition-aware** — it does not naively demand that every file match the shipped fingerprint, because some files are *supposed* to differ afterward: a file you edited was deliberately preserved as your version (with a `.foundation-local` copy of the new one), and a small number of files (such as your governance overlay) are merged rather than replaced. The gate accounts for those expected outcomes and checks only that the files meant to take the new version actually did.
+
+If any file that should have updated is still stale, the installer **fails closed**: it stops with a non-zero exit code (**56**, "delivery shortfall"), writes **no** completion stamp, and does **not** advance its baseline records. A half-delivered home is therefore never recorded as a finished upgrade. Because nothing was stamped, simply re-running `bash install.sh --apply` picks up the unfinished work and converges — there is no stuck state and nothing to repair by hand. A short, recoverable failure is by design always preferred over a silent, incomplete "success."
 
 ---
 
@@ -207,8 +240,9 @@ Every safety property above exists because a simpler design fails in a concrete,
 |---|---|
 | **Dry-run by default** | An installer that writes immediately gives you no chance to inspect what lands where. The preview exits before the first folder is even created — provably write-free — so inspecting the plan can never mutate anything. |
 | **Apply refuses an unset target** | Real files never land in a folder you did not consciously choose. |
-| **Drift detection on an existing install** | A reinstall blindly overwriting foundation files you (or something else) had since edited; the fingerprint check stops and demands an explicit, typed override first. |
-| **Backup-proof-of-life before any destructive step** | A destructive overwrite running with no working backup; the install verifies a writable backup round-trips before it proceeds, so "no provable backup" means "no install." |
+| **Drift detection on an existing install** | A reinstall blindly overwriting foundation files you had genuinely edited. The fingerprint check distinguishes an *older shipped version* (the normal upgrade case — replaced cleanly) from content that matches *no* known release (a real edit — preserved, and on a real apply demanding an explicit, typed override first). See ["Two reasons a file can differ"](#two-reasons-a-file-can-differ-an-old-version-vs-your-edits). |
+| **Disposition-aware delivery gate before the completion stamp** | An upgrade recording itself as finished while some files silently stayed out of date. Before writing its completion stamp, the installer verifies every managed file it shipped actually reached the new version; a shortfall stops the run (exit code `56`) and advances nothing, so a half-delivered home is never mistaken for a finished one. |
+| **Backup-proof-of-life before any destructive step** | A destructive overwrite running with no working backup; the install verifies a writable backup round-trips *and copies your existing settings into a timestamped `settings.json.pre-install-<timestamp>`* before it proceeds, so "no provable, taken backup" means "no install." |
 | **Generated (not hand-edited) manifest** | A hand-kept file list drifts; a release-gate parity check fails the build on any mismatch, so the receipt cannot quietly diverge from reality. |
 | **Fingerprint walk on uninstall** | Blunt deletion would take your own edits with it; the fingerprint comparison preserves anything you changed and removes only untouched originals. |
 | **Mandatory backup before uninstall** | An irreversible mistake — the whole target is copied to a timestamped backup first, so even a surprise is recoverable. |

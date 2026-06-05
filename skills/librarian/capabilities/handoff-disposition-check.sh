@@ -79,7 +79,7 @@ while IFS= read -r file; do
   RESULT=$(python3 - "$file" <<'PY'
 import re, sys
 path = sys.argv[1]
-# Word-boundary-guarded unresolved-language regex per SKILL.md L686-688.
+# Word-boundary-guarded unresolved-language regex per SKILL.md.
 hit_re = re.compile(
     r"(^|[^a-zA-Z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)([^a-zA-Z]|$)",
     re.IGNORECASE,

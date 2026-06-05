@@ -40,7 +40,7 @@
 #     - FM_PROJECTS_SUBDIRNAME  / vault.projects_subdirname  (default: "Projects")
 #     - FM_STRATEGIC_DIRNAME    / vault.strategic_dirname    (default: "Strategic")
 #     - FM_PLANNING_DIRNAME     / vault.planning_dirname     (default: "Planning")
-#   Defaults preserve the install-convention for users who never declared
+# Defaults preserve the install-convention for users who never declared
 #   the fields. Path-pattern detection in detect_type() consumes the escaped
 #   env values; no hardcoded substrings remain.
 #
@@ -121,12 +121,29 @@ export FM_PLANNING_DIRNAME="${FM_PLANNING_DIRNAME_RAW:-Planning}"
 export FM_VAULT_ROOT="$VAULT_ROOT"
 export FM_VAULT_LOGS="$VAULT_LOGS"
 
+# --- Missing-vault guard ---
+# paths.sh leaves VAULT_ROOT empty on a fresh manifest-less adopter (paths.sh:17-19
+# documented contract — no install-convention default; missing-vault is
+# graceful-degrade, every hook exits 0 on missing manifest). Honor that contract
+# here before spawning the python block: an empty/absent VAULT_ROOT would reach
+# os.listdir('') in canonical_scope_files() and raise FileNotFoundError under
+# set -euo pipefail, aborting session-close. Exit 0 = capability records ok/skipped,
+# never error.
+# READ the single-SoT VAULT_CONFIGURED boolean materialized at the
+# producer (paths.sh) rather than re-derive `[ -z … ] || [ ! -d … ]` inline. The
+# `:-0` fallback keeps the guard safe under set -u if paths.sh sourcing was
+# skipped (line 55 source is conditional) — fail closed (skip) on no vault.
+if [ "${VAULT_CONFIGURED:-0}" != "1" ]; then
+  echo "frontmatter-enforce: no vault configured (VAULT_ROOT empty) — skipping" >&2
+  exit 0
+fi
+
 # Tmp file for merged drift_findings JSON emitted by the python block below.
 DRIFT_OUT="$(mktemp -t fm-enforce-drift.XXXXXX)"
 trap 'rm -f "$DRIFT_OUT"' EXIT
 
 python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$LOGS_ONLY" "$DRIFT_OUT" <<'PY'
-import json, os, re, sys, time
+import json, os, re, sys, time, fnmatch
 from datetime import datetime, timezone
 
 vault_scope, walk, mode, dry_run_s, logs_only_s, drift_out_path = sys.argv[1:7]
@@ -311,6 +328,32 @@ def _load_tag_prefixes():
 
 TAG_PREFIXES = _load_tag_prefixes()
 
+# DEDICATED tag-TAXONOMY exempt-list, loaded explicitly
+# from foundation-master.json#seed_taxonomy_exempt_paths_composed (composed from
+# tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths via
+# tools/build-foundation-master.sh). SEPARATE from the R-47 tag-PRESENCE exempt
+# list (r47_exempt_paths) — this gates ONLY the tag-not-in-taxonomy membership
+# arm so the foundation-shipped vault-init seed surface (System Governance/**,
+# Vault Writers/_index.md) does not flag the 9 day-one violations, while seeds
+# stay byte-unchanged and still obey the tag-presence rule. NOT pre-loaded by
+# is_exempt(); read here.
+def _load_seed_taxonomy_exempt_paths():
+    bundle_path = os.environ.get("FM_FOUNDATION_MASTER", "")
+    try:
+        with open(bundle_path) as fh:
+            bundle = json.load(fh)
+    except Exception:
+        return ()
+    raw = bundle.get("seed_taxonomy_exempt_paths_composed", None)
+    if not isinstance(raw, list):
+        return ()
+    return tuple(p for p in raw if isinstance(p, str))
+
+SEED_TAXONOMY_EXEMPT_PATHS = _load_seed_taxonomy_exempt_paths()
+
+def is_seed_taxonomy_exempt(rel):
+    return any(fnmatch.fnmatch(rel, g) for g in SEED_TAXONOMY_EXEMPT_PATHS)
+
 # ---------- walk exemptions ----------
 EXEMPT_DIRS = ("/.git/", "/.obsidian/", "/.claude/", "/.claude/projects/", "/_test")
 def is_exempt(full_path, rel):
@@ -366,6 +409,10 @@ def build_scope():
     root = vault_scope if walk != "scope" else vault_scope
     if logs_only:
         root = vault_logs
+ # (belt-and-suspenders): os.walk('') silently returns []
+    # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
+    if not root or not os.path.isdir(root):
+        return files
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("node_modules", "_test")]
         for fn in filenames:
@@ -390,7 +437,7 @@ def empty_str_optional(fm, required_set):
             bad.append(k)
     return bad
 
-def tag_violations(fm):
+def tag_violations(fm, rel=None):
     tags = fm.get("tags")
     if tags is None:
         return []
@@ -398,6 +445,12 @@ def tag_violations(fm):
         return [("tags-not-list", tags)]
     if not TAG_PREFIXES:
         # No allowlist configured (foundation default) — skip taxonomy check.
+        return []
+ # skip the tag-not-in-taxonomy MEMBERSHIP arm for the
+    # foundation-shipped vault-init seed surface — those seeds legitimately carry
+    # adopter-tier dimensions the foundation taxonomy ships empty (by design).
+    # Gates ONLY this membership arm; tags-not-list above still applies.
+    if rel is not None and is_seed_taxonomy_exempt(rel):
         return []
     bad = []
     for t in tags:
@@ -415,7 +468,7 @@ def run_per_file(files):
         fm, body, fm_end_line = parse_frontmatter(full)
         file_type = detect_type(rel, fm)
 
-        # navigation (engagement CLAUDE.md) is exempt per SKILL.md L79
+        # navigation (engagement CLAUDE.md) is exempt per SKILL.md
         if file_type == "navigation" and rel.endswith("/CLAUDE.md"):
             # still require type, engagement, updated minimally if frontmatter exists
             if not fm:
@@ -435,8 +488,8 @@ def run_per_file(files):
         missing = [k for k in required if k not in fm or (isinstance(fm[k], str) and fm[k].strip() == "")]
         # --- empty optional
         empties = empty_str_optional(fm, set(required))
-        # --- tag taxonomy
-        tag_issues = tag_violations(fm)
+ # --- tag taxonomy (: pass rel for seed-taxonomy exemption)
+        tag_issues = tag_violations(fm, rel)
 
         if not (missing or empties or tag_issues):
             continue
@@ -556,6 +609,11 @@ def load_drift_allowlist():
 def canonical_scope_files():
     """Vault root depth-1 + System Governance/** + Skills/**"""
     out = []
+ # (LOAD-BEARING guard): os.listdir('') raises
+    # FileNotFoundError on an empty vault_root, aborting session-close under
+    # set -euo pipefail. Guard before the walk so a missing vault degrades to [].
+    if not vault_root or not os.path.isdir(vault_root):
+        return out
     # vault root depth-1
     for fn in os.listdir(vault_root):
         full = os.path.join(vault_root, fn)
@@ -720,7 +778,14 @@ def drift_size_monitoring():
 
 # ---------- schema-type-hook-coverage-gap ----------
 def drift_schema_type_coverage():
-    schema = load_json(os.environ["FM_VAULT_SCHEMA"])
+ # the dead FM_VAULT_SCHEMA read re-points at the
+    # post-dissolution SoT — foundation-master.json#frontmatter.types (vault-schema
+ # dissolved in; frontmatter-rules.json:7 absorbed_from_vault_schema).
+    # `or {}` is LOAD-BEARING: load_json returns None (not {}) on failure, so without
+    # it bundle.get("frontmatter") would raise AttributeError on the graceful-degrade
+    # path — re-introducing the AttributeError crash before the isinstance guard below.
+    bundle = load_json(os.environ.get("FM_FOUNDATION_MASTER", "")) or {}
+    schema = (bundle.get("frontmatter") or {}).get("types") or {}
     if not isinstance(schema, dict):
         return []
     schema_keys = [k for k in schema.keys() if not k.startswith("_")]
@@ -736,6 +801,12 @@ def drift_schema_type_coverage():
         pv = ""
     pg_types = set(m.group(1) for m in re.finditer(r"^\s+([a-z][a-z-]*)\)\s+SCHEMA_KEY=", pg, re.MULTILINE))
     pv_types = set(m.group(1) for m in re.finditer(r"^\s+'([a-z][a-z-]*)'\s*:\s*'", pv, re.MULTILINE))
+ # (static-arm gate): post-dissolution neither hook carries
+    # static type arms (the regexes above match zero lines), so the coverage audit
+    # is inapplicable — return empty rather than flood 6 false-positive
+    # "missing in both hooks" findings (one per frontmatter.types key).
+    if not pg_types and not pv_types:
+        return []
     findings = []
     for k in sorted(schema_keys):
         missing_in = []

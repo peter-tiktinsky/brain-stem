@@ -38,8 +38,10 @@
 #   5  rendered Label extraction failed or Label format invalid
 #   6  launchctl bootstrap returned non-zero (production mode only)
 #
-# Dependencies: jq, envsubst (GNU gettext; `brew install gettext`), plutil,
-# launchctl (production mode only).
+# Dependencies: jq, plutil, launchctl (production mode only). Template
+# substitution is a portable sed render over the fixed, format-validated var set
+# (: the hard envsubst/GNU-gettext dependency was dropped — gettext is
+# not on stock macOS, so the launchd jobs hard-failed on a clean Mac).
 #
 # R-23: bash 3.2 compat. R-37 single-deliverable.
 
@@ -126,11 +128,29 @@ for tool in jq plutil; do
     exit 2
   fi
 done
-if ! command -v envsubst >/dev/null 2>&1; then
-  diag "envsubst required but not found on PATH (install via: brew install gettext)"
-  exit 2
-fi
 # launchctl is only required in production mode; defer that check.
+
+# Portable template render: substitute each ${VAR} in the fixed, format-validated
+# allowlist with its resolved value. Replaces the dropped envsubst dependency
+#. Reads the same ${VAR} tokens envsubst does, so the templates are
+# unchanged. The replacement string is escaped for sed (\, the | delimiter, and &)
+# so values containing spaces, &, |, or \ render correctly; output is plutil-lint
+# gated regardless, so a malformed render is caught before any write.
+render_template() {
+  # $1 = source template path; $2 = space-separated allowlist of $VAR tokens.
+  # Resolved values are read from the (already exported) render-time env vars.
+  local _src="$1" _allow="$2" _tok _name _val _sed=""
+  for _tok in $_allow; do
+    _name="${_tok#\$}"
+    _val="${!_name}"
+    # Escape \ first, then the | delimiter, then & (sed replacement specials).
+    _val="${_val//\\/\\\\}"
+    _val="${_val//|/\\|}"
+    _val="${_val//&/\\&}"
+    _sed="${_sed}s|\${${_name}}|${_val}|g;"
+  done
+  sed "$_sed" "$_src"
+}
 
 # --- compose render-time env vars ---
 USER_HOME="$HOME"
@@ -200,8 +220,8 @@ tmp_dir="${TMPDIR:-/tmp}"
 ephemeral_tmp="$tmp_dir/render-launchd.$job.$$.plist"
 trap 'rm -f "$ephemeral_tmp"' EXIT
 
-if ! envsubst "$allowlist" < "$TEMPLATE" > "$ephemeral_tmp" 2>/dev/null; then
-  diag "envsubst failed on $TEMPLATE"
+if ! render_template "$TEMPLATE" "$allowlist" > "$ephemeral_tmp" 2>/dev/null; then
+  diag "template render failed on $TEMPLATE"
   exit 4
 fi
 

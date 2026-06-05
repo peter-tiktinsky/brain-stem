@@ -92,7 +92,6 @@ ORPHAN_EXCLUDE_DIRS_DEFAULT = {"Archive", "Logs", "Meetings", "Daily", "Inbox"} 
 # broken-link emission for these sources (structural false-positive fix).
 # Still participates in inbound-link graph for orphan detection.
 BROKEN_LINK_SOURCE_EXEMPT_PREFIXES = (
-    "Logs/session-auto-close-",
     "Logs/session-close-",
     "Logs/broken-wikilinks-",
     "Logs/wikilink-manual-triage-",

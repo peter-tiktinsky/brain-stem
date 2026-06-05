@@ -247,8 +247,9 @@ Runtime: `capabilities/log-archive.sh`.
 
 ## Capability: backup
 
-Snapshots the `system.backup_targets[]` filesystem paths (read from the
-user-manifest via `umr_get_array`); records `scan_state.backup`.
+Git add/commit/push wrapper across `system.backup_targets[]`; excludes
+secret-bearing files (`settings.local.json`, `projects/`, `.pre-uninstall-*`)
+and scans staged content for provider tokens before commit.
 Runtime: `capabilities/backup.sh`.
 
 ## Capability: wikilink-repair

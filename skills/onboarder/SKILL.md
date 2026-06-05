@@ -51,13 +51,50 @@ idempotent, so a re-onboard re-runs from the top rather than jumping to a sectio
 
 ## Two-pass Step B′ (extraction handoff)
 
-Step B′ is the only LLM-in-the-loop step. Pass 1 captures the transcript
-(voice → typed fallback) and renders the extraction prompt to
-`$CLAUDE_HOME/onboarding/extraction-prompt-B-slim.txt`, then exits 5. The
+Step B′ is the only LLM-in-the-loop step. Pass 1 captures the transcript via the
+shipped typed rung (`scripts/fallback/typed-textarea.sh`; voice is a future
+add-on) **or** the driver stages the transcript directly (see the driver-staging
+contract below) — the script does **not** capture when both capture bins are
+absent. It then renders the extraction prompt to
+`$CLAUDE_HOME/onboarding/extraction-prompt-B-slim.txt` and exits 5. The
 caller runs the extraction model on that prompt, writes the model's nested-JSON
 output to a file, and re-invokes with `--resume --extraction-stub <that-file>`.
 Pass 2 validates the extraction (top-level keys ∈ `{identity, behavioral,
 notes}`), wraps it into `user-fragment-B.json`, and the chain continues.
+
+### Driver-staging contract (no interactive capture available)
+
+When no capture bin is executable (the GA clean-install state) and no transcript
+is staged, Pass 1's `capture_transcript` returns **5** with an actionable
+handoff rather than failing cryptically. To complete Step B′ a driver:
+
+1. Stages the user's free-form Section-B answer as plain text at
+   `$CLAUDE_HOME/onboarding/transcripts/section-b-slim.txt` (`$TRANSCRIPT_PATH`).
+2. Either re-invokes `--resume` (the script renders the extraction prompt from
+   the staged transcript, then exits 5 again for the model to extract), **or**
+   runs the extraction model out-of-band and re-invokes one-shot with
+   `--extraction-stub <model-output.json>` (capture and render are skipped; the
+   stub alone drives Pass 2).
+
+The driver-staging channel may also be fed in-process via the
+`STDIN_TRANSCRIPT_OVERRIDE` env knob (its contents are written to
+`$TRANSCRIPT_PATH` when no transcript is staged yet) — load-bearing only on the
+non-stub path.
+
+## Section-A identity injection (non-TTY driver seam)
+
+Section A discovers identity by reading the host (global git → repo git →
+`$GIT_AUTHOR_*` → `gh api user` → `id -F`, all read-only). Under a non-TTY
+driver it auto-accepts discovery rather than consuming piped bytes as menu/field
+input. A driver injects or overrides identity via the sanctioned **`SLIM_A_*`**
+env seam — these win over every host probe:
+
+| Env var | Sets |
+|---|---|
+| `SLIM_A_NAME` | identity name |
+| `SLIM_A_EMAIL` | identity email |
+| `SLIM_A_TZ` | timezone |
+| `SLIM_A_VAULT` | brain-vault root (`none` defers the location to the build step) |
 
 ## Output Contract
 

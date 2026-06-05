@@ -16,7 +16,7 @@
 #     user-edited foundation files; emits review summary)
 #
 # Schema (uninstall G2 + install G2 both consume):
-#   {
+# {
 #     "version": "v2.0.0-rc1",
 #     "generated_at": "<ISO8601 UTC>",
 #     "generator_sha256": "<sha256 of this script>",
@@ -25,9 +25,9 @@
 #        "sha256": "<64 hex>",
 #        "mode": "<4-digit octal>",
 #        "size": <bytes>}
-#       , …
-#     ]
-#   }
+#, …
+# ]
+# }
 #
 # Determinism: output is byte-identical across runs modulo `generated_at`.
 # `find` output is LC_ALL=C-sorted; `files` array is `jq sort_by(.path)`;
@@ -35,7 +35,7 @@
 #
 # Path translation (mirrors install.sh):
 #   identity throughout. hooks/lib/*.{sh,json,sql} is the SOLE lib surface
-#   (no top-level lib/ → hooks/lib/ translation); claude-mem is an
+#   (— no top-level lib/ → hooks/lib/ translation); claude-mem is an
 #   optional adopter-installed marketplace plugin (no plugins/ ship
 #   surface). Every walked directory uses identity (source path == installed path).
 #
@@ -49,9 +49,10 @@
 #   installer/**                          (recursive)
 #   governance/ SELECTIVE                 (Step 8.5 ship surface: foundation-master.json
 #                                          + overlay-master.json + log-subtype-registry.json
-#                                          + file-type-contracts/ ONLY; the 7 pillar *-rules.json
+#                                          + file-type-contracts/ + baselines/foundation-manifest-v*.json
+#                                          + baselines/README.md ONLY; the 7 pillar *-rules.json
 #                                          + doc-dependencies.json + _index.json stay repo-only)
-#   vault-init/**                         (recursive; install.sh Step 8.7)
+#   vault-init/**                         (recursive; install.sh Step 8.7;
 #   templates/* (top-level glob)          (install.sh Step 10)
 #   templates/launchd/*.tmpl
 #   templates/settings-fragments/*.json
@@ -61,20 +62,21 @@
 #   tests/**                (test harness, not shipped)
 #   tools/**                (release-time tools: build-foundation-master.sh +
 #                            generate-foundation-manifest.sh siblings; not installed)
-#   onboarding/ + plugins/  (DROPPED; onboarding dissolved into skills/onboarder/;
+#   onboarding/ + plugins/  (DROPPED; onboarding dissolved into skills/onboarder/
 #                            claude-mem unbundled)
 #   walk-hygiene cruft       (.DS_Store, __pycache__/, *.pyc — pruned by find_shipped)
 #   orchestrator/state/**    (runtime state; absent-by-construction, pruned by find_shipped)
 #   .git/**, .github/**, docs/**, lima/**, docker/**, research/**, _doc-overhaul/**
 #   .gitignore, .image-digest, .self-verify/**
 #   install.sh, uninstall.sh, generate-foundation-manifest.sh
-#   governance/foundation-manifest.json (chicken-and-egg: this file is the output)
+#   governance/foundation-manifest.json (chicken-and-egg: this file is the output;
 #
 # Usage:
 #   generate-foundation-manifest.sh [-o <output_path>] [--version <ver>]
 #
 # Default output: stdout
-# Default version: v2.0.0-rc1
+# Default version: derived from the committed governance/foundation-manifest.json
+# version when --version is absent (v0.0.0 on true bootstrap);.
 # Default SOURCE_REPO: directory containing this script
 
 set -u
@@ -82,7 +84,12 @@ set -u
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SOURCE_REPO="${SOURCE_REPO:-$SCRIPT_DIR}"
-VERSION="v1.0.0"
+# VERSION default DERIVES from the committed manifest when --version is ABSENT (:
+# version-derive-from-SoT). The pre-existing literal default (v1.0.0) under-counted the v1.0.2
+# release, reddening vp-1 + vp-5 on every no-arg regen. We resolve the default LATER (after argv
+# parsing) so an explicit --version still wins (the release-ceremony bump path is unchanged). The
+# empty sentinel here distinguishes "caller passed --version" from "use the committed manifest".
+VERSION=""
 OUTPUT=""
 EMIT_PAIRS=0   # --emit-pairs: print raw src_rel<TAB>installed_rel pairs + exit (parity test)
 
@@ -97,7 +104,8 @@ Environment:
 
 Options:
   -o <path>     write JSON to <path> (default: stdout)
-  --version <ver>  pin top-level version field (default: v1.0.0)
+  --version <ver>  pin top-level version field
+                   (default: derived from committed governance/foundation-manifest.json)
   -h | --help   this help
 EOF
 }
@@ -111,6 +119,23 @@ while [ "$#" -gt 0 ]; do
     *) printf 'unknown arg: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# --- VERSION derive -----------------------------------------
+# When --version is ABSENT, derive VERSION from the committed manifest's .version
+# (the release SoT) instead of a stale literal, so a no-arg regen PRESERVES the
+# current version and never silently downgrades (e.g. v1.0.2 -> v1.0.0). The
+# explicit --version path above still wins, so the release-ceremony bump is
+# unchanged. Falls back to v0.0.0 only when no committed manifest exists yet
+# (true bootstrap). jq is a hard prereq (asserted below).
+COMMITTED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json"
+if [ -z "$VERSION" ]; then
+  if [ -f "$COMMITTED_MANIFEST" ] && command -v jq >/dev/null 2>&1; then
+    VERSION="$(jq -r '.version // "v0.0.0"' "$COMMITTED_MANIFEST" 2>/dev/null)"
+    [ -n "$VERSION" ] && [ "$VERSION" != "null" ] || VERSION="v0.0.0"
+  else
+    VERSION="v0.0.0"
+  fi
+fi
 
 if [ ! -d "$SOURCE_REPO/hooks" ] || [ ! -d "$SOURCE_REPO/skills" ] || [ ! -d "$SOURCE_REPO/schemas" ]; then
   printf 'generate-foundation-manifest FAIL: SOURCE_REPO does not look like foundation-repo: %s\n' "$SOURCE_REPO" >&2
@@ -152,14 +177,14 @@ emit_pairs() {
     printf 'hooks/%s\thooks/%s\n' "$base" "$base"
   done
 
-  # hooks/config/*.json
+#   hooks/config/*.json
   for f in "$SOURCE_REPO/hooks/config"/*.json; do
     [ -f "$f" ] || continue
     base="${f##*/}"
     printf 'hooks/config/%s\thooks/config/%s\n' "$base" "$base"
   done
 
-  # hooks/lib/*.{sh,json,sql} (identity; hooks/lib/ is the SOLE lib surface —
+  # hooks/lib/*.{sh,json,sql} (identity;: hooks/lib/ is the SOLE lib surface —
   # NO top-level lib/ translation. install.sh Step 3 ships hooks/lib/*.{sh,json,sql}
   # directly). The *.sql wildcard captures manifest-migrate.sql when the
   # writer-manifest substrate is present.
@@ -206,7 +231,7 @@ emit_pairs() {
   # skills/ walk above (skill=onboarder). There is no top-level onboarding/ ship
   # surface to walk.
 
-  # orchestrator/** (recursive)
+#   orchestrator/**                       (recursive)
   d="$SOURCE_REPO/orchestrator"
   if [ -d "$d" ]; then
     find_shipped "$d" | LC_ALL=C sort | while IFS= read -r f; do
@@ -215,7 +240,7 @@ emit_pairs() {
     done
   fi
 
-  # installer/** (recursive)
+#   installer/**                          (recursive)
   d="$SOURCE_REPO/installer"
   if [ -d "$d" ]; then
     find_shipped "$d" | LC_ALL=C sort | while IFS= read -r f; do
@@ -248,9 +273,39 @@ emit_pairs() {
         done
       fi
     done
+ # governance/baselines/ — the shipped historical-manifest archive (Option A).
+ # Ships into the home so uninstall.sh (which has NO $SOURCE_REPO)
+    # can resolve the reachable historical-sha set from $CLAUDE_HOME/governance/baselines/
+ # for stale-pristine-vs-edited disambiguation. Members: every frozen
+    # per-release manifest archive (foundation-manifest-v*.json) + README.md (self-
+    # describing archive, shipped for symmetry with the other governance/ README ships;
+    # the historical-sha glob in install.sh/uninstall.sh matches only foundation-manifest-v*.json,
+    # so the README is never mistaken for a baseline). Append-only across releases: an
+    # already-archived manifest is byte-identical (its sha never changes) so the per-file
+    # ship is a clean no-op / take-new. NOT a find_shipped recursion (the dir is flat).
+    if [ -d "$d/baselines" ]; then
+      for f in "$d/baselines"/foundation-manifest-v*.json; do
+        [ -f "$f" ] || continue
+ # SELF-REFERENCE EXCLUSION: skip the archive that matches the
+        # version being generated. The v<VERSION> archive is a byte-identical frozen copy
+        # of THIS manifest, minted by the release-cut `cp -f` step AFTER this regen. If it
+        # were listed here it would have to contain its own sha256 (circular — a file cannot
+        # fingerprint itself), and a parity re-gen would never stabilize (208->209->...). The
+        # archive ships starting the NEXT release. At v1.1.1 the baseline floor on disk is
+        # v1.0.2 only (v1.1.0 unpublished) and NOT v1.1.1 — clean append-only.
+        if [ "${f##*/}" = "foundation-manifest-${VERSION}.json" ]; then
+          continue
+        fi
+        rel="${f#$SOURCE_REPO/}"
+        printf '%s\t%s\n' "$rel" "$rel"
+      done
+      if [ -f "$d/baselines/README.md" ]; then
+        printf 'governance/baselines/README.md\tgovernance/baselines/README.md\n'
+      fi
+    fi
   fi
 
-  # vault-init/** (recursive; install.sh Step 8.7)
+#   vault-init/**                         (recursive; install.sh Step 8.7;
   # Foundation-canonical adopter-vault seed tree mirroring the target adopter
   # vault tree exactly. Includes System Governance/ + Vault Writers/
   # + Logs/Archive/ + Meetings/ subdir scaffolds. The per-plan backlog satellite
@@ -273,20 +328,32 @@ emit_pairs() {
   # residue). Subdirs (launchd/, settings-fragments/) handled by loops below;
   # `[ -f ]` skips them. A generator↔install parity test will
   # catch any future divergence in either direction.
+ # PATH-TRANSLATION (validation correction
+  # generator-gitignore-exclude): claude-home.gitignore is the ONE template
+  # whose installed path differs from its source path. install.sh Step 11.8
+  # DIRECT-SEEDS it to $CLAUDE_HOME/.gitignore (never $CLAUDE_HOME/templates/),
+  # so the manifest must baseline the TRANSLATED installed path `.gitignore`.
+  # The SOURCE repo-root .gitignore remains EXCLUDED (header): the templates
+  # glob is scoped to $SOURCE_REPO/templates/ and never walks the repo-root
+  # .gitignore, so this translation does NOT widen/defeat that exclude.
   for f in "$SOURCE_REPO/templates"/*; do
     [ -f "$f" ] || continue
     base="${f##*/}"
-    printf 'templates/%s\ttemplates/%s\n' "$base" "$base"
+    if [ "$base" = "claude-home.gitignore" ]; then
+      printf 'templates/%s\t.gitignore\n' "$base"
+    else
+      printf 'templates/%s\ttemplates/%s\n' "$base" "$base"
+    fi
   done
 
-  # templates/launchd/*.tmpl
+#   templates/launchd/*.tmpl
   for f in "$SOURCE_REPO/templates/launchd"/*.tmpl; do
     [ -f "$f" ] || continue
     base="${f##*/}"
     printf 'templates/launchd/%s\ttemplates/launchd/%s\n' "$base" "$base"
   done
 
-  # templates/settings-fragments/*.json
+#   templates/settings-fragments/*.json
   for f in "$SOURCE_REPO/templates/settings-fragments"/*.json; do
     [ -f "$f" ] || continue
     base="${f##*/}"

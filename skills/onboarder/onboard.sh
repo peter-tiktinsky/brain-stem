@@ -52,9 +52,9 @@
 
 set -eu
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Resolve paths.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 : "${CLAUDE_HOME:=$HOME/.claude}"
 : "${INPUTS_DIR:=$CLAUDE_HOME/onboarding}"
 : "${USER_MANIFEST:=$CLAUDE_HOME/user-manifest.json}"
@@ -87,9 +87,9 @@ for required in "$SECTION_A" "$SECTION_B" "$BOOTSTRAP" "$AUTHOR_HOME" \
   fi
 done
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # argv parsing.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 RESUME=0
 EXTRACTION_STUB=""
 TYPED_ONLY=0
@@ -119,9 +119,9 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Helpers.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 log() { printf 'onboard.sh: %s\n' "$*" >&2; }
 
 emit_handoff() {
@@ -134,10 +134,22 @@ onboarding_complete() {
   jq -e '.system.onboarding_complete == true' "$USER_MANIFEST" >/dev/null 2>&1
 }
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Step runners.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 run_section_a() {
+ # --resume re-entry (+ the --resume half of):
+  # Section A is deterministic + idempotent pure discovery, and emit_fragment
+  # (section-a-slim.sh:150) atomically OVERWRITES user-fragment-A.json — so a
+  # naive re-run on --resume would re-probe the host and wipe any Pass-1 identity
+  # corrections. The point of --resume is to re-enter at the extraction handoff,
+ # not to re-discover identity (documented --resume re-entry contract).
+  # This is also the only read of RESUME (closing the dead-flag half of
+ # onboard.sh:107 sets it but it was never consumed).
+  if [ "$RESUME" -eq 1 ] && [ -f "$INPUTS_DIR/user-fragment-A.json" ]; then
+    log "Section A — resuming; keeping staged user-fragment-A.json"
+    return 0
+  fi
   log "Section A — discovery review"
   [ "$DRY_RUN" -eq 1 ] && { emit_handoff "would-run section-a-slim"; return 0; }
   bash "$SECTION_A" --inputs-dir "$INPUTS_DIR"
@@ -155,7 +167,15 @@ run_section_b() {
   local stub="$EXTRACTION_STUB"
   [ -z "$stub" ] && stub="${EXTRACTION_OUTPUT_OVERRIDE:-}"
   if [ -n "$stub" ]; then
+    # Propagate section-b's rc — do NOT swallow it with an unconditional return 0
+    # (mirrors the interactive branch's rc handling below). A swallowed exit 3
+    # here would let run_bootstrap proceed with no user-fragment-B.json and latch
+ #.system.onboarding_complete=true with B silently dropped.
+    set +e
     EXTRACTION_OUTPUT_OVERRIDE="$stub" bash "$SECTION_B" "$@"
+    local rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || { log "Section B (one-shot stub) failed rc=$rc"; exit "$rc"; }
     return 0
   fi
 
@@ -177,7 +197,17 @@ run_section_b() {
 run_bootstrap() {
   log "Finalize — bootstrap-user-manifest (merge A+B → user-manifest.json)"
   [ "$DRY_RUN" -eq 1 ] && { emit_handoff "would-run bootstrap-user-manifest"; return 0; }
-  # Do NOT force unconditionally — a careless re-onboard must not silently
+ # Producer-output gate (DURABLE class fix): bootstrap treats
+  # Section B as OPTIONAL (bootstrap-user-manifest.sh:169 merges B only when present)
+  # and latches .system.onboarding_complete=true once A alone validates (:196), so
+  # ANY path that loses B silently would latch onboarding complete with role/org/
+  # behavioral prose dropped. Assert B exists AND is non-empty before bootstrap runs,
+  # consistent with the six-producer existence-check pattern above.
+  if [ ! -s "$INPUTS_DIR/user-fragment-B.json" ]; then
+    log "Section B fragment missing or empty: $INPUTS_DIR/user-fragment-B.json — refusing to bootstrap (would drop behavioral prose)."
+    exit 3
+  fi
+ # do NOT force unconditionally — a careless re-onboard must not silently
   # clobber a differing manifest. Forward --force only when the user passed it.
   set -- --inputs-dir "$INPUTS_DIR" --schema "$SCHEMA" --out "$USER_MANIFEST"
   [ "$FORCE" -eq 1 ] && set -- "$@" --force
@@ -213,9 +243,9 @@ run_external_gate() {
   bash "$EXTERNAL_GATE"
 }
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Main control flow.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Single-use lifecycle: the onboarding_complete sentinel gates a BARE invoke
 # (not only --resume). A bare /onboard with .system.onboarding_complete == true no-ops;
 # a real re-onboard requires the explicit --force escape hatch.

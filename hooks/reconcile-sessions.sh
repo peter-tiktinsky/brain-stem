@@ -61,16 +61,27 @@ for sid in $sids; do
       drop=true
       ;;
     *)
-      # active (or unknown): drop if pid is dead OR heartbeat is stale.
+      # active (or unknown). The dead-pid check provisionally marks the row for
+ # drop, but a FRESH heartbeat is a HARD KEEP override: a live,
+      # actively-writing peer whose recorded pid we cannot kill -0 (e.g. the pid
+      # resolver missed, or the process re-exec'd) must NOT be reaped while it is
+      # still heartbeating. So the heartbeat check runs UNCONDITIONALLY (no longer
+      # gated behind drop=false) and is bidirectional: fresh -> drop=false (KEEP
+      # override), stale -> drop=true. Reap only when BOTH signals say gone.
       if [ -n "$pid" ] && [ "$pid" != "0" ] && [ "$pid" != "null" ]; then
         if ! kill -0 "$pid" 2>/dev/null; then
           drop=true
         fi
       fi
-      if [ "$drop" = "false" ] && [ -n "$hb" ] && [ "$hb" != "null" ]; then
-        hb_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)
-        if [ "$hb_epoch" -gt 0 ] && [ $(( now_epoch - hb_epoch )) -gt "${STALE_THRESHOLD_SECS:-1800}" ]; then
-          drop=true
+      if [ -n "$hb" ] && [ "$hb" != "null" ]; then
+        hb_epoch=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)
+        if [ "$hb_epoch" -gt 0 ]; then
+          if [ $(( now_epoch - hb_epoch )) -gt "${STALE_THRESHOLD_SECS:-1800}" ]; then
+            drop=true
+          else
+            # Fresh heartbeat: hard KEEP override even if the pid looked dead.
+            drop=false
+          fi
         fi
       fi
       ;;

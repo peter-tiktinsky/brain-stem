@@ -81,38 +81,6 @@ write_registry() {
   mv "$tmp" "$REGISTRY_FILE"
 }
 
-# Remove stale sessions. Reads JSON from stdin, writes cleaned JSON to stdout.
-clean_stale() {
-  local reg now sids sid pid hb hb_epoch is_stale
-  reg=$(cat)
-  now=$(date +%s)
-  sids=$(echo "$reg" | jq -r '.sessions | keys[]' 2>/dev/null) || true
-
-  for sid in $sids; do
-    pid=$(echo "$reg" | jq -r ".sessions[\"$sid\"].pid")
-    hb=$(echo "$reg" | jq -r ".sessions[\"$sid\"].last_heartbeat")
-    is_stale=false
-
-    if ! kill -0 "$pid" 2>/dev/null; then
-      is_stale=true
-    fi
-
-    if [[ -n "$hb" && "$hb" != "null" ]]; then
-      hb_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)
-      if (( now - hb_epoch > STALE_THRESHOLD_SECS )); then
-        is_stale=true
-      fi
-    fi
-
-    if $is_stale; then
-      reg=$(echo "$reg" | jq "del(.sessions[\"$sid\"])")
-      echo "[msc] Removed stale session $sid (pid=$pid)" >&2
-    fi
-  done
-
-  echo "$reg"
-}
-
 # Format hookSpecificOutput JSON. Args: event_name, context_text.
 # Returns 0 + emits payload to stdout on validator-pass.
 # Returns 1 + emits NOTHING on validator-reject (caller's emission suppressed).

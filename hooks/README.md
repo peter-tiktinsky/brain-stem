@@ -40,7 +40,7 @@ Always installed. Wired into `templates/settings.json`.
 | SessionEnd | `session-deregister.sh` | Multi-session coordination cleanup. |
 | statusLine | `worker-statusline.sh` | Statusline rendering. |
 
-Plus supporting scripts spawned conditionally: `memory-consolidation-check.sh` + `memory-consolidation-run.sh` (the first-party memory-consolidation hygiene pass), `auto-commit-surfaces.sh`, `reconcile-sessions.sh`, `session-auto-close.sh`, `tasks-md-autosync.sh`.
+Plus supporting scripts spawned conditionally: `memory-consolidation-check.sh` + `memory-consolidation-run.sh` (the first-party memory-consolidation hygiene pass), `auto-commit-surfaces.sh`, `reconcile-sessions.sh`, `tasks-md-autosync.sh`.
 
 ## Conditional fragments (4)
 

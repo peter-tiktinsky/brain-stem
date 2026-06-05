@@ -321,7 +321,7 @@
         },
         "override": {
           "type": "object",
-          "description": "Out-of-band override mechanisms. NO in-band fields permitted (e.g., bypass: true is schema-rejected per A8 anti-success criterion).",
+          "description": "Out-of-band override mechanisms. NO in-band fields permitted (e.g., bypass: true is schema-rejected).",
           "additionalProperties": false,
           "properties": {
             "nonce_dir": {
@@ -339,7 +339,7 @@
             "nonce_consume_strategy": {
               "type": "string",
               "const": "basename_match_env",
-              "description": "LOCKED to (c) both = basename-match-env primary + scope carve-out. first_match_glob is DEPRECATED; A5 anti-success criterion."
+              "description": "LOCKED to (c) both = basename-match-env primary + scope carve-out. first_match_glob is DEPRECATED."
             },
             "nonce_affinity_env": {
               "type": "string",

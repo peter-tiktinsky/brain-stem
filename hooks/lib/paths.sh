@@ -94,6 +94,16 @@ if [ -z "${VAULT_ROOT:-}" ]; then
 fi
 export VAULT_ROOT
 
+# companion VAULT_CONFIGURED sentinel — materialize the
+# missing-vault contract (paths.sh:17-19) ONCE at the SoT producer so every
+# vault-scoped consumer (frontmatter-enforce.sh, pre-write-guard.sh) READS it
+# rather than re-deriving `[ -n … ] && [ -d … ]` inline. This prevents the next
+# consumer from re-introducing the empty-VAULT_ROOT `/*`-collapse class
+# (feedback_structural_over_bandaid: guard declared once at the producer beats
+# N consumer guards). Additive — existing VAULT_ROOT semantics unchanged.
+if [ -n "${VAULT_ROOT:-}" ] && [ -d "$VAULT_ROOT" ]; then VAULT_CONFIGURED=1; else VAULT_CONFIGURED=0; fi
+export VAULT_CONFIGURED
+
 if [ -z "${VAULT_LOGS:-}" ]; then
   if [ -n "$VAULT_ROOT" ]; then VAULT_LOGS="$VAULT_ROOT/Logs"; else VAULT_LOGS=""; fi
 fi

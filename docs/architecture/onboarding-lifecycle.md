@@ -241,7 +241,7 @@ For each, the system first checks — read-only — whether you already have it.
 
 - A strong recommendation,
 - The honest reason,
-- The exact command to set it up (for example, `claude plugin install claude-mem@thedotmack` for claude-mem, or `gh auth login` for GitHub — the plugin-install command form is documented at `code.claude.com/docs`),
+- The exact command to set it up (for example, `npx claude-mem install` for claude-mem, or `gh auth login` followed by `gh auth setup-git` for GitHub — the latter wires git's HTTPS credential helper so backup pushes work),
 - And a frictionless "skip and do it later — the rest of your setup still works."
 
 It records your choice but never forces it. This is the **soft-mandate** pattern: a strong nudge with a real, complete path on either side. Set up both, neither, or one, and your setup still works coherently.

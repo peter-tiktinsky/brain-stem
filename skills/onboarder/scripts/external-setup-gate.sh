@@ -24,8 +24,13 @@
 #     "absent" (never crash the gate). The gate itself never blocks the flow.
 #
 # Probes (read-only):
-#   claude-mem: $CLAUDE_HOME/plugins/*claude-mem* OR a claude[-_]mem server in
-#               settings-paths-probe.sh --dedup OR `command -v claude-mem`.
+#   claude-mem: a claude-mem registry entry in
+#               $CLAUDE_HOME/plugins/installed_plugins.json (the file Claude Code
+#               itself reads to load plugins — the SDK-only `npm i -g` footgun never
+#               writes it). Shape-robust: .plugins may be an OBJECT keyed by
+#               <plugin>@<marketplace> (→ keys) or an ARRAY of strings (→ elements);
+#               a missing/unreadable file ⇒ non-present. Cross-checked against a
+#               claude[-_]mem server in settings-paths-probe.sh --dedup.
 #   github:     `gh` on PATH AND `gh auth status` rc=0.
 #
 # CONSTRAINTS (R-23): bash 3.2; jq required.
@@ -95,17 +100,41 @@ record() {
 # --- probes (read-only; SETUP_* override wins for hermetic tests) ---
 probe_claude_mem() {
   case "${SETUP_CLAUDE_MEM:-}" in present) return 0 ;; absent) return 1 ;; esac
-  ls -d "$CLAUDE_HOME"/plugins/*claude-mem* >/dev/null 2>&1 && return 0
+  # registry-truth check. The old `plugins/*claude-mem*` glob
+  # and bare `command -v claude-mem` rungs false-positived — `npm install -g
+  # claude-mem` leaves the SDK binary on PATH WITHOUT registering hooks (upstream's
+ # own footgun), and install.sh never creates plugins/. Read the registry
+  # Claude Code itself loads plugins from. Shape-robust: .plugins may be an OBJECT
+  # keyed by <plugin>@<marketplace> (→ keys) or an ARRAY of strings (→ elements);
+  # match startswith("claude-mem@") or =="claude-mem". Missing/unreadable file ⇒
+  # non-present (degrade to offering the recommendation; gate never blocks).
+  local reg="$CLAUDE_HOME/plugins/installed_plugins.json"
+  if [ -r "$reg" ]; then
+    jq -e '
+      (.plugins // empty)
+      | (if type == "object" then keys
+         elif type == "array" then .
+         else [] end)
+      | map(select(type == "string"
+              and (startswith("claude-mem@") or . == "claude-mem")))
+      | length > 0
+    ' "$reg" >/dev/null 2>&1 && return 0
+  fi
   if [ -r "$PROBE_LIB" ]; then
     bash "$PROBE_LIB" --dedup 2>/dev/null | grep -qiE 'claude[-_]?mem' && return 0
   fi
-  command -v claude-mem >/dev/null 2>&1 && return 0
   return 1
 }
 probe_github() {
   case "${SETUP_GH:-}" in present) return 0 ;; absent) return 1 ;; esac
   command -v gh >/dev/null 2>&1 || return 1
-  gh auth status >/dev/null 2>&1
+  gh auth status >/dev/null 2>&1 || return 1
+  # a user who ran `gh auth login` but never `gh auth setup-git` passes
+  # the checks above yet cannot push (git's HTTPS credential helper is unset).
+  # Require the HTTPS credential helper for github.com to resolve (any-scope —
+  # backup.sh resolves any-scope helpers). A missing helper degrades safely to
+  # offering the recommendation (the gate never blocks; exit 0 preserved).
+  git config --get-regexp '^credential\.https://github\.com\.helper$' >/dev/null 2>&1
 }
 
 # --- recommendation copy (honest cost framing) ---
@@ -118,6 +147,20 @@ recommend() {
   How:  $4
   (You can skip and set this up later — the rest of your setup still works.)
 EOF
+}
+
+# --- post-acceptance reconcile (kill sticky-pending) ---
+reconcile_accept() {
+  # $1=tool-key $2=probe-fn — re-probe after the user accepts so an accepted
+  # offer reconciles to a verified terminal state: a successful same-run install
+  # flips pending->present; a failed one stays honestly `pending` and self-heals
+  # on a later re-run via the :127 probe short-circuit + the :78-80 prior-state
+  # seed. In-enum value flip only (present|pending|skipped preserved).
+  if "$2"; then
+    record "$1" "present"; printf '    → recorded: present (verified)\n' >&2
+  else
+    record "$1" "pending"; printf '    → recorded: will set up\n' >&2
+  fi
 }
 
 # --- gate one tool ---
@@ -133,13 +176,13 @@ gate_tool() {
     record "$1" "skipped";  printf '    → recorded: skipped\n' >&2; return 0
   fi
   if [ "$AUTO_ACCEPT" = "1" ]; then
-    record "$1" "pending";  printf '    → recorded: will set up\n' >&2; return 0
+    reconcile_accept "$1" "$2"; return 0
   fi
   printf '    Set this up now? [Y]es / [s]kip > ' >&2
   if ! IFS= read -r ans; then ans="s"; fi
   case "$ans" in
     s|S|skip) record "$1" "skipped" ;;
-    *)        record "$1" "pending" ;;
+    *)        reconcile_accept "$1" "$2" ;;
   esac
 }
 
@@ -150,11 +193,15 @@ printf '\n=== External setup — recommended for the full experience ===\n' >&2
 # standalone-vs-augmented framing + the concrete marketplace-install command.
 gate_tool claude-mem probe_claude_mem "claude-mem (memory)" \
   "brain-stem's curated memory works standalone; claude-mem adds automatic wide-net recall on top. It's an optional, recommended marketplace plugin — your memory system is fully functional without it." \
-  "Run: claude plugin install claude-mem@thedotmack   (registers the thedotmack marketplace; optional — skip and your curated memory still works)."
+  "Run: npx claude-mem install   (optional — skip and your curated memory still works)."
 
 gate_tool github probe_github "GitHub (backup)" \
   "To back up your vault (full version history) and protect your Claude setup — recover from any mistake, sync across machines." \
-  "Run: gh auth login   (install the GitHub CLI first if needed)."
+  "Run these in order:
+          brew install gh                 (install the GitHub CLI first if needed)
+          gh auth login                   (authenticate the CLI)
+          gh auth setup-git               (wire git's HTTPS credential helper — required so backup pushes work)
+          gh repo create <name> --private --source \"\$VAULT_ROOT\" --remote origin --push   (optional — provision the backup remote)"
 
 # --- atomic flush of state ---
 TMP="${STATE}.tmp.$$"

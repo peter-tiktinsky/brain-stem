@@ -392,8 +392,8 @@ esac
 # ============================================================
 # Brief-quality lint wire-in (advisory)
 # Pre-dispatch Haiku call scores brief quality across 5 failure modes.
-# Advisory ONLY — never blocks dispatch (anti-success A1). Gated by
-# ORCHESTRATOR_BRIEF_LINT=1 env (default OFF first wave per OQ-5). Cost log
+# Advisory ONLY — never blocks dispatch. Gated by
+# ORCHESTRATOR_BRIEF_LINT=1 env (default OFF). Cost log
 # at $ORCHESTRATOR_STATE_DIR/governance/brief-lint-cost.jsonl. Scoped to
 # --job mode (plan/cron/batch don't read a single brief file). brief-lint.sh
 # exits 0 on all paths including API failure (graceful degradation).

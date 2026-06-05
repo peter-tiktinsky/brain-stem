@@ -152,6 +152,15 @@
       },
       "uniqueItems": true
     },
+    "seed_taxonomy_exempt_paths_composed": {
+      "type": "array",
+      "description": "Deterministic union of the DEDICATED tag-TAXONOMY exempt-paths composed from tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths. SEPARATE from r47_exempt_paths_composed (the tag-PRESENCE list). Deduped + sorted. Consumed by skills/librarian/capabilities/frontmatter-enforce.sh tag-taxonomy arm to exempt the foundation-shipped vault-init seed surface (System Governance/**, Vault Writers/_index.md) from the tag-not-in-taxonomy membership check without altering seed bytes.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
     "r32_exempt_paths": {
       "type": "array",
       "description": "R-32 type-check exempt globs. Composed from a gate-config source when present; empty in the clean-room (gate-config dropped). Consumer reads .r32_exempt_paths[]?.",

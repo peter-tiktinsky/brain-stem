@@ -41,6 +41,8 @@ Here is the important safety property: **`bash install.sh` on its own installs n
 bash install.sh | jq .
 ```
 
+The dry run is **always safe to run — even on a home that already has an older brain-stem in it.** If you previously installed an earlier version, your existing files differ from the new ones; the dry run does **not** treat that as an error. It still exits cleanly (`rc 0`), still writes zero files, and the action plan's `file_dispositions` field lists each managed file it would update and how — `replace` (take the new version), `new-ship` (a file that did not exist yet), or `sidecar` (take the new version but first save a copy of your edited one alongside it). So a single dry run shows you exactly what an upgrade would do to *your* home before you commit to it. (If you are upgrading an existing install rather than setting one up fresh, jump to **[Upgrading an existing install](#upgrading-an-existing-install)** below — the same `bash install.sh` command does both.)
+
 When you have read the plan and want to go ahead, re-run the **same** command with one word added:
 
 ```bash
@@ -50,6 +52,22 @@ bash install.sh --apply
 `--apply` is the explicit opt-in that turns the rehearsal into the real install. The design deliberately makes the safe thing (preview) the default and the consequential thing (writing files) something you have to ask for by name. As it copies, the installer also writes a **receipt** — a record of every file it laid down, with a tamper-evident fingerprint for each — to `~/.claude/governance/foundation-manifest.json`. That receipt is what later lets the system detect tampering and lets an uninstall remove only its own files.
 
 > If you ever want to remove brain-stem, run `bash ~/.claude/uninstall.sh`. It backs everything up first, then removes only the untouched files it originally installed — **any file you edited is preserved, never silently deleted.** The full story is in [Packaging & runtime](../architecture/packaging-runtime.md).
+
+### Installing into a folder that already has files
+
+If `~/.claude` already contains content that did not come from brain-stem, the installer **stops and refuses** rather than overwrite it. The dry run tells you *everything* it would need from you in one pass — it lists each required override under a `required_overrides` field in the action plan, instead of failing on the first one and making you re-run to discover the next. Read that list with:
+
+```bash
+bash install.sh | jq '.required_overrides'
+```
+
+To actually proceed past those guards on a real install, add the overrides it named. The most common one is the **overwrite-risk acknowledgement**, which you pass as a flag (no typing prompt required — this is what lets the install run unattended, e.g. in a script):
+
+```bash
+bash install.sh --apply --force-install --i-understand-overwrite-risk --backup-dir <path>
+```
+
+`--i-understand-overwrite-risk` is the confirmation that you accept the overwrite. (You can also type the literal token `I-UNDERSTAND-OVERWRITE-RISK` when the installer prompts for it interactively, or pass that same bare token as an argument — all three forms are equivalent.) `--backup-dir <path>` names a folder where the installer first copies anything it is about to overwrite, so nothing is lost. These overrides apply only to the real `--apply` install; the dry run never needs them — it just reports them.
 
 ---
 
@@ -83,6 +101,41 @@ When onboarding finishes building your vault, it does not just trail off silentl
 **Obsidian** is a free note-taking app that treats a folder of plain-text notes as a connected knowledge base; brain-stem uses it as the human-facing window into your vault. (You do not strictly need Obsidian — the vault is just plain files any editor can open — but it is the intended way to browse it.)
 
 Open the folder onboarding built, and you are set up. From here on, every Claude Code session starts already knowing who you are, the assistant's writes into your vault are checked as they happen, and what matters is remembered between conversations.
+
+---
+
+## Upgrading an existing install
+
+If brain-stem is already installed and a newer version has been released, you do **not** uninstall and start over. You upgrade in place — and you do it with the **same** entrypoint you used to install. There is no separate upgrade command to learn.
+
+**1 — Get the new version of the source.** Go to the folder you cloned earlier and pull the latest code:
+
+```bash
+cd brain-stem
+git pull
+```
+
+**2 — Preview the upgrade (writes nothing).** Run the installer with no extra words, exactly as a dry run:
+
+```bash
+bash install.sh | jq .
+```
+
+On an existing install this prints a write-free **upgrade plan**: the `file_dispositions` field lists every managed file the upgrade would touch and what it would do to each — `replace` (take the new version), `new-ship` (a file that did not exist yet), or `sidecar` (take the new version, but first save a copy of any file you had edited alongside it as `<file>.foundation-local`). The preview exits cleanly (`rc 0`) and changes nothing — even if your current files are an older version than the new ones. It is the honest "here is exactly what will change" view, and it is always safe to run.
+
+**3 — Apply the upgrade.** When the plan looks right, re-run the same command with `--apply`:
+
+```bash
+bash install.sh --apply
+```
+
+This delivers **every** changed managed file to the new version — including the whole shipped directories (the skills, the orchestrator, the installer support files, and the vault seed), which earlier versions could miss on an older install. Files you edited yourself are never lost: each is updated to the new version with your copy saved alongside as `<file>.foundation-local`, so your changes are preserved and clearly flagged.
+
+**If an upgrade is interrupted or falls short, it fails loudly — and re-running fixes it.** The installer verifies, before it records the upgrade as finished, that every managed file it shipped actually reached the new version. If any file is still stale, it stops with a non-zero exit code (**56** — "delivery shortfall"), writes no completion stamp, and leaves the upgrade marked unfinished. There is nothing to clean up: just run `bash install.sh --apply` again, and it picks up where it left off and converges. A short, recoverable failure is by design always preferred over a silent, incomplete "success."
+
+> **One thing the preview does *not* override on a real apply.** The *preview* is relaxed about your files differing from the shipped version — that difference is the whole point of an upgrade, so the dry run reports it and moves on. A real `--apply` is stricter: if it detects that brain-stem's own files have been edited in place, it still refuses to overwrite them silently and asks you to confirm, by passing `--force-install` and typing the `I-UNDERSTAND-OVERWRITE-RISK` phrase (exactly as on a first install into a folder that already has files — see [the section above](#installing-into-a-folder-that-already-has-files)). The relaxed behavior is **preview-only**; an apply never quietly writes over edited files.
+
+That is the whole upgrade: `git pull`, preview, `--apply`. The longer story — what changed in the latest release and why the in-place upgrade is built the way it is — lives in the [release notes](../release-notes-v1.1.1.md) and [Packaging & runtime](../architecture/packaging-runtime.md).
 
 ---
 

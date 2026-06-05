@@ -7,7 +7,7 @@
 #   1. Vault root allowlist: CLAUDE.md, System Governance.md (foundation
 #      ships only these two; System Backlog.md + System Backlog - Archive.md
 #      retired — backlog lifecycle is now
-#      librarian-owned at ~/.claude-plans/_backlog.md per
+# librarian-owned at ~/.claude-plans/_backlog.md per
 #      governance/plans-rules.json :: root_files).
 #   2. Project folders: only `{Project} - *.md` + `_index.md` + `File-Index.md`
 #   3. People files: must be in <cluster_folder>/*/People/ (read from manifest.vault.cluster_folder;
@@ -47,6 +47,9 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
   || source "$_REPO_LIB/user-manifest-read.sh"
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh"; } \
+  || source "$_REPO_LIB/manifest.sh"
 
 SCOPE=""
 DRY_RUN="false"
@@ -78,12 +81,19 @@ fi
 unset _USER_MANIFEST
 export CLUSTER_DIR
 
+# Capture a machine-readable summary subtree the bash layer persists to the
+# manifest (drift_findings.placement) via manifest_set — see MANIFEST_SUBTREE_OUT
+# below. Kept off stdout so the NDJSON findings stream is never polluted.
+MANIFEST_SUBTREE_OUT="$(mktemp -t placement-subtree-XXXXXX)"
+export MANIFEST_SUBTREE_OUT
+
 python3 - "$SCOPE_ROOT" "$DRY_RUN" <<'PY'
-import json, os, re, sys
+import json, os, re, sys, datetime
 
 scope_root, dry_run_s = sys.argv[1:3]
 dry_run = (dry_run_s == "true")
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
+subtree_out = os.environ.get("MANIFEST_SUBTREE_OUT", "")
 
 # Cluster folder — read from overlay-master via CLUSTER_DIR env (set by bash section).
 # When empty, cluster-specific placement rules (Rules 2, 3, 5) fall through without firing.
@@ -239,9 +249,35 @@ for dirpath, dirnames, filenames in os.walk(scope_root):
 
 if dry_run:
     print("placement-validate: scanned=%d findings=%d" % (scanned, findings_count))
+
+# Write the manifest summary subtree (drift_findings.placement). The bash layer
+# reads $MANIFEST_SUBTREE_OUT and calls manifest_set — mirrors xref-check's
+# captured-summary / manifest_set '.xref_graph' pattern. Kept off stdout.
+if subtree_out:
+    subtree = {
+        "last_scan": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "scanned": scanned,
+        "findings_count": findings_count,
+    }
+    with open(subtree_out, "w") as f:
+        f.write(json.dumps(subtree))
 PY
 
-# === R-15 promotion: RETIRED ===============================================
+# Persist the placement summary subtree to the librarian-manifest. This makes
+# the registry's declared writes_manifest_subtree: "drift_findings.placement"
+# real (fix), mirroring xref-check.sh's manifest_set.
+# Review-hardening (empty-VAULT_LOGS contract): a manifest write needs a
+# configured vault — with empty VAULT_LOGS the manifest_set lockfile resolves to
+# '/.coordination/manifest.lock' (uncreatable) and the helper raises under set -e,
+# which a no-vault fresh adopter's session-close logs as a spurious capability
+# error. Gate the persist on a non-empty VAULT_LOGS (the parity AC sets it, so the
+# genuine-writer contract still holds).
+if [[ -n "${VAULT_LOGS:-}" && -s "$MANIFEST_SUBTREE_OUT" ]]; then
+  manifest_set '.drift_findings.placement' "$(cat "$MANIFEST_SUBTREE_OUT")"
+fi
+rm -f "$MANIFEST_SUBTREE_OUT"
+
+# === R-15 promotion: RETIRED 2026-05-22 per Tier B ===============
 # The backlog-row-missing session-close finding was the librarian-side R-15
 # promotion (lockstep peer with hooks/pre-write-guard.sh R-15 PL_CONTEXT
 # injection retired in the same commit set). Backlog lifecycle now

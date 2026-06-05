@@ -12,7 +12,7 @@
 #   R-54  doc-dependency cascade                      — line ~495
 #   R-09  Logs/ governance — NOT a deny in this hook. Logs/ writes are
 #         free-write scratch; governance (frontmatter + findability) is
-#         auto-applied by the post-write-verify.sh autogovern branch,
+#         auto-applied by the post-write-verify.sh autogovern branch
 #         not enforced as a deny/soft-warn here.
 #   R-23  cron wrapper bash 3.2 compatibility         — line 39+
 #   R-24  claude-mem SessionEnd protection            — line 78+
@@ -31,6 +31,17 @@ set -euo pipefail
 
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/registry.sh"
+
+# paths.sh leaves VAULT_ROOT empty on a manifest-less fresh
+# adopter (paths.sh:17-19 missing-vault graceful-degrade contract). The
+# VAULT_CONFIGURED boolean is materialized ONCE at the producer (paths.sh,
+#) and READ here — so the vault-write detection gates below do
+# NOT collapse `"$VAULT_ROOT/"*` to `/*` (which matches every absolute path
+# → bogus "new top-level vault folder 'Users/'" advisory + spurious /govern
+# register on a first non-vault write). When VAULT_CONFIGURED=1 every gate
+# behaves byte-for-byte as before. Fallback default keeps this hook safe under
+# set -u if ever sourced against an older paths.sh that lacks the export.
+VAULT_CONFIGURED="${VAULT_CONFIGURED:-0}"
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
@@ -745,7 +756,7 @@ PYEOF
   # See block header comment for rationale. Only R-40 advisory remains here.
 
   if [[ -z "$R40_ADVISORY" ]]; then
-    # No advisory — pass through allow. format_output_allow with empty
+    # No advisory — pass through allow.: format_output_allow with empty
     # ctx (adds empty additionalContext; decision/permissionDecision unchanged).
     format_output_allow "PreToolUse" ""
   else
@@ -1108,7 +1119,11 @@ fi
 # =============================================================================
 DOC_DEP_CTX=""
 
-if [[ -n "$BUNDLE_JSON" ]]; then
+if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ -n "$BUNDLE_JSON" ]]; then
+ # VAULT_CONFIGURED gate — the DD_REL derivation below uses
+  # "${FILE_PATH#$VAULT_ROOT/}" whose partial self-guard at the next line does
+  # NOT fully protect an empty VAULT_ROOT; skip the doc-dependency match block
+  # entirely when no vault is configured.
   # Build candidate match keys: vault-relative path + ~-abbreviated absolute path.
   DD_REL="${FILE_PATH#$VAULT_ROOT/}"
   [[ "$DD_REL" == "$FILE_PATH" ]] && DD_REL=""  # non-vault → empty
@@ -1167,7 +1182,7 @@ fi
 B1_OVERLAY="${OVERLAY_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/overlay-master.json}"
 B1_FRAGMENT=""
 
-if [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
+if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B1_REL="${FILE_PATH#$VAULT_ROOT/}"
   B1_TOP=$(echo "$B1_REL" | cut -d'/' -f1)
   B1_DEPTH=$(echo "$B1_REL" | tr -cd '/' | wc -c | tr -d ' ')
@@ -1252,7 +1267,7 @@ fi
 #   - pillar 7: vault-writers-rules.json :: historical_data_warning_default
 # TZ-aware today: overlay-master.system.timezone (default America/New_York).
 # Future-dated files pass silently.
-if [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
+if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B2_BASENAME=$(basename "$FILE_PATH" .md)
   # TZ + pillar 7 universal read via union view (replaces direct overlay file
   # read and direct vault-writers-rules.json file read). Foundation pillar 7 is
@@ -1317,7 +1332,7 @@ fi
 # writers-rules.json (pillar 7 operational enums). DENY on schema violation.
 # Excludes librarian-managed derived artifacts (_index.md / _overlap-matrix.md).
 B3_VW_PREFIX="$VAULT_ROOT/Vault Writers/"
-if [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] && [[ "$FILE_PATH" == *.md ]]; then
+if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B3_BASE=$(basename "$FILE_PATH")
   case "$B3_BASE" in
     _index.md|_overlap-matrix.md)
@@ -1412,7 +1427,7 @@ fi
 # Bundle (foundation-master.json) is the SOLE governance read source.
 # =============================================================================
 
-if [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
+if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
 
   REL_PATH="${FILE_PATH#$VAULT_ROOT/}"
 
@@ -1499,13 +1514,13 @@ print(content, end='')
         # land via overlay-master.frontmatter.path_routing.rules[] at /adopt time,
         # not as hardcoded foundation defaults.
 
-        # =====================================================================
+ # =====================================================================
         # foundation+overlay union view for R-32 type-DENY. The helper
         # invocation is lifted to top-level (single-load per hook fire); this
         # block derives R-32-specific accepted-types from the already-loaded
         # $UNION_JSON. Fall-back to foundation-only allowlist if UNION_JSON
         # degenerated to BUNDLE_JSON (helper missing).
-        # =====================================================================
+ # =====================================================================
         R32_UNION_ACCEPTED_TYPES=""
         if [[ -n "$UNION_JSON" ]]; then
           # Alias keys read from pillar-nested
@@ -1522,7 +1537,7 @@ print(content, end='')
           R32_UNION_ACCEPTED_TYPES="$GATE_R32_ACCEPTED_TYPES"
         fi
 
-        # =====================================================================
+ # =====================================================================
         # foundation+overlay union view for R-32 TAXONOMY tag-prefix DENY
         # (Tier 2 at the tag-conformance check below). Mirrors the R-32
         # TYPE-allowlist single-load + variable-hold pattern. Derives
@@ -1530,7 +1545,7 @@ print(content, end='')
         # dimension_prefixes; composes regex + list mirroring the foundation-
         # only derivation. Fall-back to foundation-only regex if UNION_JSON
         # empty (preserves pre-retrofit behavior).
-        # =====================================================================
+ # =====================================================================
         R32_TAXONOMY_UNION_PREFIXES=""
         R32_TAXONOMY_UNION_LIST=""
         R32_TAXONOMY_UNION_REGEX=""
@@ -1547,7 +1562,7 @@ print(content, end='')
           R32_TAXONOMY_UNION_LIST="$GATE_R47_PREFIX_LIST"
         fi
 
-        # =====================================================================
+ # =====================================================================
         # foundation+overlay union view for R-47 advisory (Tier 1 tag-presence
         # soft-warn below). Mechanical mirror of the taxonomy-prefix pattern at
         # this same scope. Derives union-side variants of the
@@ -1556,7 +1571,7 @@ print(content, end='')
         # union REGEX already produced as R32_TAXONOMY_UNION_REGEX above and
         # is reused by R-47 advisory wording via R32_TAXONOMY_UNION_LIST).
         # Fall-back to foundation-only vars if UNION_JSON empty.
-        # =====================================================================
+ # =====================================================================
         R47_UNION_EXEMPT_PATHS=""
         if [[ -n "$UNION_JSON" ]]; then
           R47_UNION_EXEMPT_PATHS=$(jq -r '.r47_exempt_paths_composed[]?' <<<"$UNION_JSON" 2>/dev/null)
@@ -1565,8 +1580,8 @@ print(content, end='')
           R47_UNION_EXEMPT_PATHS="$GATE_R47_EXEMPT_PATHS"
         fi
 
-        # =====================================================================
-        # R-32 RETIRED TYPES — Tier 2 DENY with specific replacement guidance.
+ # =====================================================================
+        # R-32 RETIRED TYPES — Tier 2 DENY with specific replacement guidance
         # A legacy gate-config.json silently listed `engagement` + `project` in
         # r32.accepted_types — drift from governance/frontmatter-rules.json#retired_types
         # canonical state. Bundle correctly excludes retired types from R-32
@@ -1599,16 +1614,16 @@ print(content, end='')
         # Reads R32_UNION_ACCEPTED_TYPES (foundation+overlay union)
         # via lib/foundation-overlay-load.sh so /govern register-time type
         # extensions land in the allowlist.
-        # =====================================================================
+ # =====================================================================
         if [[ -n "$FM_TYPE" ]] && [[ -n "$R32_UNION_ACCEPTED_TYPES" ]] && [[ "$FM_TYPE_RETIRED" != "true" ]]; then
           if ! echo "$R32_UNION_ACCEPTED_TYPES" | grep -Fxq "$FM_TYPE"; then
             TIER2_MSGS="${TIER2_MSGS}[R-32 UNKNOWN TYPE] type: '${FM_TYPE}' is not in the canonical allowlist (21 canonical type keys + 5 aliases). To add a new type: (1) update governance/frontmatter-rules.json#types with required fields, (2) add case entry in pre-write-guard.sh, (3) add to post-write-verify.sh type_map, (4) document in vault CLAUDE.md, (5) rebuild bundle via tools/build-foundation-master.sh — bundle as R-37 lockstep commit.\n"
           fi
         fi
 
-        # =====================================================================
+ # =====================================================================
         # TIER 1 — Auto-fix guidance (additionalContext, always ALLOW)
-        # =====================================================================
+ # =====================================================================
 
         # Check for missing 'updated' field — gated on schema's required list
         # for the target type (source of truth). Types whose schema does not
@@ -1639,9 +1654,9 @@ print(content, end='')
         # (daily-note, people, log, weekly-summary, daily-archive,
         # inbox-archive, meeting-note). Adopters extend by declaring
         # additional types with expected_path via overlay-master.json.
-        #
+ #
         # SCHEMA_KEY gate intentionally dropped: SCHEMA_KEY is foundation-only
-        # (built from GATE_R32_ACCEPTED_TYPES at L785, BUNDLE_JSON-sourced),
+        # (built from GATE_R32_ACCEPTED_TYPES, BUNDLE_JSON-sourced),
         # so an overlay-only type would have empty SCHEMA_KEY and never fire
         # R-33 even when it carries expected_path via union. The union-side
         # presence of expected_path itself is the sufficient signal — types
@@ -1686,7 +1701,7 @@ print(content, end='')
         # Complement to R-32 tag-prefix DENY: soft-warn when non-exempt vault
         # write has missing or empty tags. Graph-view diagnostic — orphan files
         # surface as enforcement alerts.
-        #
+ #
         # POSITIVE-LIST SEMANTICS:
         # Exempt paths are enumerated explicitly below. Future top-level folder
         # additions MUST either (a) add a path pattern here or (b) rely on
@@ -1788,9 +1803,9 @@ PYEOF
           fi
         fi
 
-        # =====================================================================
+ # =====================================================================
         # TIER 2 — Block with explanation (DENY)
-        # =====================================================================
+ # =====================================================================
 
         # Check required fields from schema
         if [[ -n "$SCHEMA_KEY" ]]; then
@@ -1892,9 +1907,9 @@ PYEOF
           exit 0
         fi
 
-        # =====================================================================
+ # =====================================================================
         # TIER 3 — Allow with mandatory follow-up warning
-        # =====================================================================
+ # =====================================================================
 
         # Check if creating a file in a new vault-root directory
         ROOT_DIR=$(echo "$REL_PATH" | cut -d'/' -f1)
@@ -1948,13 +1963,21 @@ System Governance"
 fi
 
 # --- WARNING: Multi-session file overlap detection ---
-REGISTRY="$VAULT_ROOT/Logs/.coordination/session-registry.json"
+# the registry is the machine-local coordination registry
+# REGISTRY_FILE ($COORD_DIR/session-registry.json), exported by the lib/registry.sh
+# source at:33 — NOT the -retired in-vault $VAULT_ROOT/Logs/.coordination
+# path (written by no producer → the -f gate below was always false → this advisory
+# was dead). track-vault-write.sh stores tool_input.file_path ABSOLUTE into
+# touched_files (no relativization), so the query must compare the ABSOLUTE path
+# ($FILE_PATH), not the relative one — querying $REL_PATH against ABSOLUTE list
+# entries never matched even after the repoint.
+REGISTRY="$REGISTRY_FILE"
 
 if [[ -f "$REGISTRY" ]] && [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
   REL_PATH="${FILE_PATH#$VAULT_ROOT/}"
   # Only check vault files (if stripping didn't change the path, it's outside the vault)
   if [[ "$REL_PATH" != "$FILE_PATH" ]]; then
-    PEER=$(jq -r --arg sid "$CLAUDE_SESSION_ID" --arg fp "$REL_PATH" '
+    PEER=$(jq -r --arg sid "$CLAUDE_SESSION_ID" --arg fp "$FILE_PATH" '
       .sessions // {} | to_entries[]
       | select(.key != $sid)
       | select(.value.touched_files // [] | index($fp))

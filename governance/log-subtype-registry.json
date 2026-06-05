@@ -35,13 +35,6 @@
       "description": "End-of-session reconciliation artifacts emitted by the session-close skill or its manual invocation. One file per session."
     },
     {
-      "subtype": "session-auto-close",
-      "owner_skill": "session-close-and-handoff",
-      "owner_cron": null,
-      "first_registered_at": "2026-05-12",
-      "description": "Auto-emitted session-close artifacts produced by lifecycle hooks when an interactive session ends without an explicit close invocation."
-    },
-    {
       "subtype": "cron-error",
       "owner_skill": null,
       "owner_cron": null,

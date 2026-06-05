@@ -19,7 +19,7 @@
 #   brief-lint.sh <brief-path>
 #
 # Env vars:
-#   ORCHESTRATOR_BRIEF_LINT         — "1" to enable; unset/empty = OFF (default OFF per OQ-5 rollout)
+#   ORCHESTRATOR_BRIEF_LINT         — "1" to enable; unset/empty = OFF (default OFF)
 #   ORCHESTRATOR_BRIEF_LINT_MODEL   — model name (default: claude-haiku-4-5)
 #   ORCHESTRATOR_BRIEF_LINT_BUDGET  — claude -p --max-budget-usd ceiling (default: 0.25)
 #   ORCHESTRATOR_STATE_DIR          — state dir override (default: ${CLAUDE_HOME:-~/.claude}/orchestrator/state)
@@ -29,7 +29,7 @@
 # Cost log (append-only JSONL):
 #   $ORCHESTRATOR_STATE_DIR/governance/brief-lint-cost.jsonl
 #
-# 5-dispatch sample validation gate (OQ-5):
+# 5-dispatch sample validation gate:
 #   Sum of last 5 cost entries divided by 5 must be ≤ $0.005/dispatch.
 #   Query post-hoc:
 #     tail -n 5 .../brief-lint-cost.jsonl | jq -s 'map(.cost) | add / length'

@@ -520,20 +520,20 @@
     "schema_version": "2.0.0"
   },
   "_meta": {
-    "_provenance": "Same source files (by content) -> same bundle_version. _meta.built_at + _meta.source_file_mtimes intentionally excluded from bundle_version hash so identical content rebuilt at different times produces stable version.",
+    "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-02T07:08:58Z",
-    "bundle_version": "c98a35d3cd27724bccce6c16784664ccfe7d1548c1744a9bfd2739b5c01b0b54",
+    "built_at": "2026-06-02T17:32:50Z",
+    "bundle_version": "20edd64fb53a2bb9b763f73e132e928d9a2273bf213677aa3f22d5674cc55b0f",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-06-02T06:41:54Z",
-      "governance/doc-dependencies.json": "2026-06-02T06:30:47Z",
-      "governance/frontmatter-rules.json": "2026-06-02T06:29:56Z",
-      "governance/mandatory-files-rules.json": "2026-06-02T06:26:17Z",
-      "governance/naming-rules.json": "2026-06-02T06:24:15Z",
-      "governance/plans-rules.json": "2026-06-02T06:22:40Z",
-      "governance/tagging-rules.json": "2026-06-02T06:19:13Z",
-      "governance/vault-writers-rules.json": "2026-06-02T06:24:35Z"
+      "governance/_index.json": "2026-06-02T14:29:03Z",
+      "governance/doc-dependencies.json": "2026-06-02T14:29:03Z",
+      "governance/frontmatter-rules.json": "2026-06-02T14:29:03Z",
+      "governance/mandatory-files-rules.json": "2026-06-02T14:29:03Z",
+      "governance/naming-rules.json": "2026-06-02T14:29:03Z",
+      "governance/plans-rules.json": "2026-06-02T14:29:03Z",
+      "governance/tagging-rules.json": "2026-06-02T14:29:03Z",
+      "governance/vault-writers-rules.json": "2026-06-02T14:29:03Z"
     },
     "source_files_count": 8
   },
@@ -2654,6 +2654,10 @@
   ],
   "r47_tag_cap": 25,
   "schema_version": "1.2.0",
+  "seed_taxonomy_exempt_paths_composed": [
+    "System Governance/**",
+    "Vault Writers/_index.md"
+  ],
   "tagging": {
     "_description": "Pillar 2 — Tagging (D7 rule model). Loaded by pre-write-guard.sh at runtime. Homes R-05 (deny, tag-validation), R-47 (advisory, tag-presence), R-50 (advisory, 25-tag cap). The R-60 (deny, tag grammar) _rules[] OBJECT is homed in governance/naming-rules.json — it appears in the tagging rule_id_range (category=tagging) only, NOT duplicated here. _rules[] is the D7 two-axis SoT (each object carries home/category/surface?/status). Carries the canonical tag-prefix taxonomy. Tags are the user-side query surface (Obsidian graph view, filter pane, MOC patterns); frontmatter fields are the Claude-side substrate.",
     "_design_notes": {
@@ -2699,6 +2703,11 @@
           "Logs/build-*"
         ],
         "rule_text": "Every non-exempt vault write MUST carry a non-empty `tags:` array in its frontmatter. Pre-write-guard emits a Tier 1 advisory ([R-47 TAG PRESENCE]) when the field is missing or empty (tags: []). Distinguishes 'missing' (no tags: line) vs 'empty' (line present, no items). Exempt paths are enumerated in this rule's `r47_exempt_paths` array — they cover archive surfaces, ideation-brief symlinks, machine-emitted scratch/build zones, and system infrastructure paths whose tag-absence is structurally legitimate. The librarian tag-coverage-audit walks the vault at audit time and surfaces longer-running orphans + near-miss patterns (#scope/decisions vs #scope/decision — one is likely a typo) as advisory findings the operator triages.",
+        "seed_taxonomy_exempt_paths": [
+          "System Governance/**",
+          "Vault Writers/_index.md"
+        ],
+        "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation ships its vault-init seed surface tagged with adopter-tier dimensions (#scope/reference on the six System Governance/*.md spokes, #system-governance on System Governance/_index.md, #vault-writers on Vault Writers/_index.md) that model good tagging for adopters; the foundation taxonomy itself ships user_facing_dimensions:[] BY DESIGN (taxonomy.user_facing_dimensions), so those seed tags are NOT members of the foundation allowlist and the tag-taxonomy membership arm flags them as 9 day-one violations. These two glob surfaces exempt EXACTLY those seeds from the tag-not-in-taxonomy membership check ONLY — seeds stay byte-unchanged, still obey the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle). Forward note: _load_tag_prefixes() reads only FM_FOUNDATION_MASTER and does not yet union the adopter overlay-master taxonomy — until that union-read lands, exemption (not adopter-dimension-registration) is the correct minimum-viable closure.",
         "source": "governance/tagging-rules.json :: _rules (D7 SoT; tags-as-validity-diagnostic principle)",
         "status": "active",
         "tier": "advisory"

@@ -32,6 +32,15 @@
 #     promotes Steps 2-10 cp -n → cp -f (foundation-known files
 #     overwritten unconditionally; user-content under foundation dirs
 #     still preserved naturally by walking known-name set, not all files).
+#     DECOMMISSIONED for the upgrade path (refused → exit 23 when
+#.installed-state.json is present).
+#   - --upgrade / --migrate-major flags — upgrade entrypoint posture
+#. --upgrade is an OPTIONAL
+#     assertion that an installed version exists (fails fast on a fresh home);
+#     action stays gated by --apply (auto-detect, Option C). --migrate-major
+#     is the explicit ack required to cross a major boundary on the --apply
+#     lane, paired with the I-UNDERSTAND-OVERWRITE-RISK sentinel (sentinel reuse).
+#     Downgrade (target<installed) is refused (exit 23, no --force override).
 #   - --no-preserve-config flag — explicit claude-mem preservation
 #     waiver per the claude-mem preservation policy; requires
 #     --force-install (exit 11 if missing). Defaults OFF.
@@ -67,18 +76,34 @@
 #   21  state=user-only without --force-install ($CLAUDE_HOME contains
 #       only non-foundation content; refuses to risk overwriting an
 #       unrelated installation)
+# 23 upgrade-path refuse:
+#       (a) downgrade — target < installed (forward-only, no down-migrations,
+#           NO --force override); (b) --force-all supplied when
+#           .installed-state.json is present (--force-all is decommissioned for
+#           the upgrade path); (c) a major-version bump on the --apply lane
+#           WITHOUT --migrate-major + the I-UNDERSTAND-OVERWRITE-RISK sentinel.
 #   30  schema parse failure (post-install)
 #   40  settings.json merge conflict requires human resolution (jq error)
 #   51  G1-main fired ($HOME/.claude equality + non-foundation content,
-#       missing --force-install or I-UNDERSTAND-OVERWRITE-RISK sentinel)
+#       missing --force-install or I-UNDERSTAND-OVERWRITE-RISK sentinel).
 #   52  G2 fired (foreign-content sha256 drift in foundation files,
-#       missing --force-install or I-UNDERSTAND-OVERWRITE-RISK sentinel)
+#       missing --force-install or I-UNDERSTAND-OVERWRITE-RISK sentinel).
+# fires on the --apply lane ONLY. On the dry-run lane G2 drift
+#       is NON-fatal — a legacy/drifted home's OLD foundation bytes are the
+#       expected pre-engine version-delta preview (rc 0, write-free, the
+#       required override surfaces under required_overrides[]), NOT a refuse.
 #   53  G3 fired (backup proof-of-life: --backup-dir absent when
 #       destructive op pending; or supplied --backup-dir not writable
 #       or round-trip-broken)
 #   54  G4 fired (vault-symlink reachable under $CLAUDE_HOME; no override)
 #   55  G5 fired ($PLANS_HOME contains NN-*/ plans without
 #       --retrofit-existing)
+# 56 under-delivery refuse: one or more
+#       managed files[] members did not converge to the shipped content
+#       after the delivery walk — the home is half-delivered. Refusing to
+#       stamp: NO .installed-state.json written, baseline NOT advanced
+# (forward-progress — the un-stamped home re-runs to eventual
+#       convergence). NOT 54 (54 is G4 vault-symlink); 56 is the free code.
 #   57  G7 fired (settings.json merge would silently delete keys)
 #   58  G8 fired (UID 0; no override)
 #   59  G9 RESERVED — dry-run default is the posture (not refuse-gate);
@@ -88,8 +113,8 @@
 #
 # R-23 bash 3.2 compat. R-37 single-deliverable. R-55 zero $HOME/.claude
 # resolution paths in script body (literal $HOME/.claude appears only in
-# the AC #1 / G1-pre user-facing error text per spec.md L74 and the G1-main
-# string-equality comparison per spec.md L75). G4 resolves $HOME/Documents/
+# the G1-pre user-facing error text and the G1-main
+# string-equality comparison). G4 resolves $HOME/Documents/
 # Obsidian Vault/ as a DETECTION target only — never a write target.
 
 set -u
@@ -110,6 +135,34 @@ info() {
 }
 warn() { printf 'install WARN: %s\n' "$1" >&2; }
 
+# --- vercmp: bash-3.2-safe semver comparator ---
+# vercmp <a> <b> -> prints one of: equal | a>b | a<b  (on stdout).
+# Strips a leading 'v' from each operand, then compares major.minor.patch
+# NUMERICALLY. CORRECTION (versioning-legacy-adopt advisory): each segment is
+# coerced through base-10 via $((10#$seg)) — matching the octal-guard idiom at
+# hooks/spec-context-inject.sh:84 — so a zero-padded segment like 08/09 never
+# trips "value too great for base" under set -euo pipefail. Missing segments
+# (e.g. "v1.0" or the v0.0.0 legacy-adopt floor) default to 0. Non-numeric
+# residue (pre-release suffix etc.) is stripped to its leading digits so the
+# comparator stays total. NO subshell-fork per segment (3.2-safe, fast).
+vercmp() {
+  local a="${1#v}" b="${2#v}" i aseg bseg an bn
+  for i in 1 2 3; do
+    aseg="$(printf '%s' "$a" | cut -d. -f"$i")"
+    bseg="$(printf '%s' "$b" | cut -d. -f"$i")"
+    # keep only the leading run of digits; empty -> 0
+    aseg="${aseg%%[!0-9]*}"; bseg="${bseg%%[!0-9]*}"
+    [ -n "$aseg" ] || aseg=0
+    [ -n "$bseg" ] || bseg=0
+    # base-10 coercion (octal-guard) so 08/09 cannot crash arithmetic
+    an=$((10#$aseg)); bn=$((10#$bseg))
+    if [ "$an" -gt "$bn" ]; then printf 'a>b'; return 0; fi
+    if [ "$an" -lt "$bn" ]; then printf 'a<b'; return 0; fi
+  done
+  printf 'equal'
+  return 0
+}
+
 # --- argv parse (in-memory only; no FS; pre-G1-pre to keep 100ms bound) ---
 FORCE_INSTALL=0
 FORCE_ALL=0
@@ -117,6 +170,29 @@ NO_PRESERVE_CONFIG=0
 APPLY_MODE=0
 BACKUP_DIR=""
 RETROFIT_EXISTING=0
+# --- sentinel-via-argv arm ---
+# A non-interactive driver (CI, the upgrade orchestrator, `</dev/null` smoke
+# tests) cannot supply the I-UNDERSTAND-OVERWRITE-RISK ceremony token over a
+# piped-stdin-only path. Accept the SAME token as an argv flag AND as the bare
+# token, so the G1-main / G2 reads can short-circuit through the unchanged
+# literal-equality check instead of blocking on a stdin read. SENTINEL_ARG=0
+# (default OFF) reproduces today's piped-stdin behavior byte-for-byte. The flag
+# still requires --force-install (the short-circuit lives inside the existing
+# FORCE_INSTALL guard at each read site).
+SENTINEL_ARG=0
+# --- upgrade entrypoint posture ---
+# UPGRADE_MODE (--upgrade): an OPTIONAL assertion, not a required incantation.
+#   Detection of the upgrade case is automatic (.installed-state.json present +
+# target>installed); --action is gated by --apply (Option C synthesis,
+# "detection automatic, action still gated by --apply"). --upgrade adds the
+#   assertion "fail if this is actually a fresh install" (resolved behavior:
+#   `install.sh --upgrade --apply` asserts an installed version exists).
+# MIGRATE_MAJOR (--migrate-major): the explicit ack required to cross a major
+#   version boundary on the --apply lane (: a major bump refuses silent
+#   auto-upgrade and routes through the EXISTING I-UNDERSTAND-OVERWRITE-RISK
+#   sentinel ceremony — reuse the existing sentinel, don't reinvent).
+UPGRADE_MODE=0
+MIGRATE_MAJOR=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply)                APPLY_MODE=1 ;;
@@ -126,6 +202,10 @@ while [ $# -gt 0 ]; do
     --backup-dir)           shift; BACKUP_DIR="${1:-}" ;;
     --backup-dir=*)         BACKUP_DIR="${1#--backup-dir=}" ;;
     --retrofit-existing)    RETROFIT_EXISTING=1 ;;
+    --upgrade)              UPGRADE_MODE=1 ;;
+    --migrate-major)        MIGRATE_MAJOR=1 ;;
+    --i-understand-overwrite-risk) SENTINEL_ARG=1 ;;
+    I-UNDERSTAND-OVERWRITE-RISK)   SENTINEL_ARG=1 ;;
     *)                      ;;
   esac
   shift
@@ -143,7 +223,34 @@ fi
 # --- sentinel-verified flag (G1-main + G2 share single ceremony) ---
 # Set to 1 after the first successful I-UNDERSTAND-OVERWRITE-RISK prompt; later
 # guards consult it to avoid re-prompting in the same install invocation.
+# also set to 1 up-front when the argv sentinel arm is supplied
+# WITH --force-install (the non-interactive ceremony), so both reads short-circuit
+# through the unchanged literal-equality posture without a stdin read.
 sentinel_verified=0
+if [ "$SENTINEL_ARG" = "1" ] && [ "$FORCE_INSTALL" = "1" ]; then
+  sentinel_verified=1
+fi
+
+# --- defer-in-dry-run accumulator ---
+# The refuse-gates G1-main (exit 51) and G3 (exit 53) historically fail-fast on
+# the FIRST unmet requirement, so a populated-home adopter must re-run install
+# once per gate to discover the full override set. In dry-run (APPLY_MODE != 1)
+# these gates instead RECORD their unmet requirement here and CONTINUE; the G9
+# action-plan JSON then emits required_overrides[] so the adopter sees the WHOLE
+# set (--force-install + sentinel AND --backup-dir) in ONE pass (compiler-style
+# aggregate-all-failures). The --apply lane keeps the hard `exit NN` fail-fast at
+# the mutation boundary VERBATIM (fail-open posture preserved).
+# Newline-delimited accumulator (bash 3.2-safe; emitted as a JSON array via jq
+# split at the dry-run object).
+required_overrides=""
+note_required_override() { # note_required_override <requirement-string>
+  if [ -z "$required_overrides" ]; then
+    required_overrides="$1"
+  else
+    required_overrides="$required_overrides
+$1"
+  fi
+}
 
 # --- G8: UID-0 refuse ---
 # Fires before any FS work or env evaluation. Unconditional — no --force override.
@@ -238,7 +345,7 @@ if [ "$g5_existing_count" -gt 0 ]; then
   warn "G5: --retrofit-existing supplied with $g5_existing_count pre-existing plan(s); v2.1 retrofit logic NOT YET IMPLEMENTED — flag is a waiver stub. Proceeding under explicit user waiver; install does not modify \$PLANS_HOME."
 fi
 
-# --- G1-main: $HOME/.claude equality gate (AC #3; spec.md L75) ---
+# --- G1-main: $HOME/.claude equality gate ---
 # Refuse if $CLAUDE_HOME == $HOME/.claude AND target exists with non-foundation
 # content, unless --force-install AND I-UNDERSTAND-OVERWRITE-RISK sentinel typed.
 # String comparison (not resolution) per R-55 carve-out.
@@ -268,21 +375,36 @@ g1_main_has_non_foundation_content() {
 if [ "$CLAUDE_HOME" = "$HOME/.claude" ] && [ -d "$CLAUDE_HOME" ]; then
   if g1_main_has_non_foundation_content "$CLAUDE_HOME"; then
     if [ "$FORCE_INSTALL" != "1" ]; then
-      diag "G1-main fired: \$CLAUDE_HOME equals \$HOME/.claude AND target contains non-foundation content. Pass --force-install AND type I-UNDERSTAND-OVERWRITE-RISK sentinel to proceed (vault-clobber protection)."
-      exit 51
+ # dry-run defers (records the unmet override + continues so the
+      # action-plan can aggregate it); --apply still hard fail-fasts exit 51 here.
+      if [ "$APPLY_MODE" != "1" ]; then
+        note_required_override "--force-install + I-UNDERSTAND-OVERWRITE-RISK sentinel (G1-main: \$CLAUDE_HOME equals \$HOME/.claude AND target contains non-foundation content)"
+      else
+        diag "G1-main fired: \$CLAUDE_HOME equals \$HOME/.claude AND target contains non-foundation content. Pass --force-install AND --i-understand-overwrite-risk (or type the I-UNDERSTAND-OVERWRITE-RISK sentinel) to proceed (Vault-clobber protection)."
+        exit 51
+      fi
+ # argv sentinel arm (sentinel_verified pre-set to 1 above) short-
+    # circuits the stdin read entirely — no prompt, no blocking read, same posture.
+    elif [ "$sentinel_verified" = "1" ]; then
+      info "G1-main sentinel verified via --i-understand-overwrite-risk argv arm; proceeding under --force-install"
+    elif [ "$APPLY_MODE" != "1" ]; then
+      # --force-install passed but no sentinel yet: dry-run records the remaining
+      # sentinel requirement instead of prompting/blocking on a stdin read.
+      note_required_override "I-UNDERSTAND-OVERWRITE-RISK sentinel (G1-main: pass --i-understand-overwrite-risk with --force-install)"
+    else
+      printf 'install: type I-UNDERSTAND-OVERWRITE-RISK to confirm (or pass --i-understand-overwrite-risk): ' >&2
+      sentinel=""
+      if ! IFS= read -r sentinel; then
+        diag "G1-main fired: sentinel not provided (stdin EOF). Pass --i-understand-overwrite-risk or pipe the I-UNDERSTAND-OVERWRITE-RISK token. Aborting."
+        exit 51
+      fi
+      if [ "$sentinel" != "I-UNDERSTAND-OVERWRITE-RISK" ]; then
+        diag "G1-main fired: sentinel mismatch. Expected literal 'I-UNDERSTAND-OVERWRITE-RISK'. Aborting."
+        exit 51
+      fi
+      sentinel_verified=1
+      info "G1-main sentinel verified; proceeding under --force-install"
     fi
-    printf 'install: type I-UNDERSTAND-OVERWRITE-RISK to confirm: ' >&2
-    sentinel=""
-    if ! IFS= read -r sentinel; then
-      diag "G1-main fired: sentinel not provided (stdin EOF). Aborting."
-      exit 51
-    fi
-    if [ "$sentinel" != "I-UNDERSTAND-OVERWRITE-RISK" ]; then
-      diag "G1-main fired: sentinel mismatch. Expected literal 'I-UNDERSTAND-OVERWRITE-RISK'. Aborting."
-      exit 51
-    fi
-    sentinel_verified=1
-    info "G1-main sentinel verified; proceeding under --force-install"
   fi
 fi
 
@@ -360,8 +482,29 @@ info "CLAUDE_STATE_ROOT=$CLAUDE_STATE_ROOT"
 #     yet generated; warns; cannot compare without baseline)
 #   - jq extraction failure (warns; degrade-open rather than wedge install)
 #
-# The manifest lives at $SOURCE_REPO/governance/ next to
-# foundation-master.json + overlay-master.json.
+# manifest relocated from $SOURCE_REPO root to
+# $SOURCE_REPO/governance/ per operator tidy-folder principle (live next to
+# foundation-master.json + overlay-master.json).
+#
+# LEGACY_ADOPT must be known BEFORE the
+# G2 fire block so the G2 message labels OLD-vs-edited correctly. The FULL legacy
+# classification (with baseline-count reporting) is at the block
+# below (post version-detect), but its decision signal — `.installed-state.json
+# absent AND a foundation marker present` — is computable here from $CLAUDE_HOME
+# alone, which is fully resolved by this point (G1-pre default at :271-280). We
+# pre-classify the SAME predicate here so the G2 diag can reframe a legacy home's
+# drifted OLD foundation bytes as an expected pre-engine version-delta rather than
+# "foreign content (you edited)". INSTALLED_STATE_PATH/FOUNDATION_MARKER are
+# (re)defined canonically below at :590/:657 — the assignments here are the early
+# echo, deliberately the same paths, and MUST NOT change UPGRADE_PRESENT or the
+# version-detect ordering (those stay at :686/:574).
+INSTALLED_STATE_PATH="$CLAUDE_HOME/governance/.installed-state.json"
+FOUNDATION_MARKER="$CLAUDE_HOME/governance/foundation-master.json"
+LEGACY_ADOPT=0
+if [ ! -f "$INSTALLED_STATE_PATH" ] && [ -f "$FOUNDATION_MARKER" ]; then
+  LEGACY_ADOPT=1
+fi
+
 g2_violations=""
 g2_violation_count=0
 
@@ -428,21 +571,52 @@ EOF
 g2_detect_foreign_content
 
 if [ "$g2_violation_count" -gt 0 ]; then
-  diag "G2 fired: foreign content (sha256 drift) detected in $g2_violation_count foundation file(s):"
+ # the G2 message must NOT call a legacy adopter's drifted
+  # OLD foundation bytes "foreign content (you edited)". A LEGACY_ADOPT=1 home
+  # (foundation marker present, no .installed-state.json stamp) carries pre-engine
+  # v1.0.2 bytes that are EXPECTED to differ from the shipped manifest — the
+  # drift is a version-delta the upgrade will reconcile, not a tamper. A
+  # genuinely-tampered home (stamped, or no marker) keeps the foreign-content
+  # framing — the reframe is scoped to LEGACY_ADOPT=1 only (no false reassurance
+  # on a real tamper).
+  if [ "$LEGACY_ADOPT" = "1" ]; then
+    diag "G2: $g2_violation_count managed foundation file(s) on disk differ from the shipped version (expected legacy/pre-engine version-delta — these are OLD foundation bytes the upgrade will replace, NOT foreign content you authored):"
+  else
+    diag "G2 fired: foreign content (sha256 drift) detected in $g2_violation_count foundation file(s):"
+  fi
   printf '%s\n' "$g2_violations" | while IFS= read -r p; do
     [ -z "$p" ] || printf '  %s\n' "$p" >&2
   done
   if [ "$FORCE_INSTALL" != "1" ]; then
-    diag "Pass --force-install AND type I-UNDERSTAND-OVERWRITE-RISK sentinel to proceed (cp -n preserves your edits; vault-clobber protection)."
-    exit 52
-  fi
-  if [ "$sentinel_verified" = "1" ]; then
-    info "G2: sentinel reused from G1-main; proceeding under --force-install"
+ # G2 is non-fatal in DRY-RUN ONLY.
+    # On the dry-run lane (APPLY_MODE!=1) the drift is RECORDED into the existing
+    # required_overrides accumulator and the run CONTINUES to the G9 dry-run JSON
+    # emit — so a legacy/drifted adopter gets an honest write-free preview (rc 0)
+    # in ONE pass instead of rc=52 with zero JSON. On the --apply lane the EXISTING
+    # hard refuse (exit 52) and the interactive read path below are preserved
+ # byte-for-byte —: a tampered home cannot slip an apply without the
+ # --force-install + sentinel ceremony. Mirrors the G1-main
+    # defer-in-dry-run posture (note_required_override / required_overrides[]).
+    if [ "$APPLY_MODE" != "1" ]; then
+      if [ "$LEGACY_ADOPT" = "1" ]; then
+        note_required_override "--force-install + I-UNDERSTAND-OVERWRITE-RISK sentinel (G2: $g2_violation_count managed file(s) carry legacy/pre-engine OLD bytes the upgrade will replace — supply the sentinel to take-new on --apply)"
+      else
+        note_required_override "--force-install + I-UNDERSTAND-OVERWRITE-RISK sentinel (G2: $g2_violation_count foundation file(s) show foreign-content sha256 drift)"
+      fi
+    else
+      diag "Pass --force-install AND type I-UNDERSTAND-OVERWRITE-RISK sentinel to proceed (cp -n preserves your edits; Vault-clobber protection)."
+      exit 52
+    fi
+  elif [ "$sentinel_verified" = "1" ]; then
+ # sentinel_verified is also set by the --i-understand-overwrite-risk
+    # argv arm (with --force-install) at the top of the script, so a non-interactive
+    # driver short-circuits this G2 read just as the single-ceremony G1-main reuse does.
+    info "G2: sentinel reused from G1-main / --i-understand-overwrite-risk argv arm; proceeding under --force-install"
   else
-    printf 'install: type I-UNDERSTAND-OVERWRITE-RISK to confirm G2 override: ' >&2
+    printf 'install: type I-UNDERSTAND-OVERWRITE-RISK to confirm G2 override (or pass --i-understand-overwrite-risk): ' >&2
     sentinel=""
     if ! IFS= read -r sentinel; then
-      diag "G2 fired: sentinel not provided (stdin EOF). Aborting."
+      diag "G2 fired: sentinel not provided (stdin EOF). Pass --i-understand-overwrite-risk or pipe the I-UNDERSTAND-OVERWRITE-RISK token. Aborting."
       exit 52
     fi
     if [ "$sentinel" != "I-UNDERSTAND-OVERWRITE-RISK" ]; then
@@ -454,9 +628,194 @@ if [ "$g2_violation_count" -gt 0 ]; then
   fi
 fi
 
-# --- State classification (exit code 21) ---
+# --- Version detection (read side) ---
+# Runs at entrypoint, BEFORE state-classification. Reads the installed-state
+# stamp (write side lives post-Step-13.5 below) and the shipped manifest
+# version, and compares them via vercmp. This stage only DETECTS + COMPARES; it does
+# NOT fork the run on the result — the upgrade entrypoint posture (refuse on
+# downgrade/major, dry-run-vs-apply gate) is its surface. These
+# variables are the substrate every later upgrade-engine task consumes.
+#
+#   INSTALLED_VERSION — foundation_version from
+#     $CLAUDE_HOME/governance/.installed-state.json. Absent ⇒ "(none)" ⇒ this
+#     is a fresh install or a pre-upgrade-engine (legacy-adopt) install — NEVER
+# an error (a missing stamp is the expected first-run / a legacy adopter case).
+#   TARGET_VERSION   — .version from $SOURCE_REPO/governance/foundation-manifest.json
+#     (the shipped manifest; already carries "v1.0.2").
+#   VERSION_DELTA    — vercmp outcome: equal | target>installed | target<installed
+#     | target>installed-fresh-or-legacy (no stamp to compare against).
+INSTALLED_STATE_PATH="$CLAUDE_HOME/governance/.installed-state.json"
+INSTALLED_BASELINE_MANIFEST_PATH="$CLAUDE_HOME/governance/.installed-baseline-manifest.json"
+INSTALLED_VERSION="(none)"
+# PRIOR_MIGRATIONS_APPLIED — the high-water log already on disk (newline-
+# separated migration ids), read here so the Step 13.7 stamp can PRESERVE it
+# and the runner can skip already-applied ids. Absent on a
+# fresh/legacy-adopt home ⇒ empty ⇒ the runner runs the full chain from 0001.
+PRIOR_MIGRATIONS_APPLIED=""
+if [ -f "$INSTALLED_STATE_PATH" ]; then
+  iv="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('foundation_version',''))" "$INSTALLED_STATE_PATH" 2>/dev/null || true)"
+  [ -n "$iv" ] && INSTALLED_VERSION="$iv"
+  PRIOR_MIGRATIONS_APPLIED="$(python3 -c "import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    for m in d.get('migrations_applied',[]):
+        print(m)
+except Exception:
+    pass" "$INSTALLED_STATE_PATH" 2>/dev/null || true)"
+fi
+TARGET_VERSION=""
+if [ -f "$SOURCE_REPO/governance/foundation-manifest.json" ]; then
+  TARGET_VERSION="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('version',''))" "$SOURCE_REPO/governance/foundation-manifest.json" 2>/dev/null || true)"
+fi
+if [ "$INSTALLED_VERSION" = "(none)" ]; then
+  # No stamp on disk ⇒ fresh-or-legacy-adopt; never an error. A target>floor
+  # delta is implied (everything is newer than an absent installed version),
+ # but the legacy-adopt floor reconstruction is its surface.
+  VERSION_DELTA="target>installed-fresh-or-legacy"
+elif [ -z "$TARGET_VERSION" ]; then
+  VERSION_DELTA="unknown-target"
+else
+  case "$(vercmp "$TARGET_VERSION" "$INSTALLED_VERSION")" in
+    'equal') VERSION_DELTA="equal" ;;
+    'a>b')   VERSION_DELTA="target>installed" ;;
+    'a<b')   VERSION_DELTA="target<installed" ;;
+    *)       VERSION_DELTA="unknown-target" ;;
+  esac
+fi
+info "version detection: installed=$INSTALLED_VERSION target=${TARGET_VERSION:-(unknown)} delta=$VERSION_DELTA"
+
+# --- legacy-adopt detection + governance/baselines/ floor-match ---
+# The legacy-adopt case: v0.0.0 bootstrap-from-empty.
+#
+# a legacy adopter force-installed an OLDER brain-stem that predates the upgrade engine, so
+# her home has NO .installed-state.json stamp BUT carries a foundation marker
+# (governance/foundation-master.json). That is NOT a fresh install — it is a
+# legacy-adopt: she must INHERIT the engine + the fixes without a clean
+# reinstall. Detection: .installed-state.json absent AND a foundation marker
+# present ⇒ LEGACY_ADOPT=1.
+#
+# BLOCKING CORRECTION (version-detection + per-file-disposition): governance/
+# baselines/ ships with at least the v1.0.2 manifest (minted at release-cut; see
+# the release-ceremony step in the upgrade-engine ADR). The sha256-floor-match
+# (pick the highest archived baseline whose file set her disk satisfies) is a v2
+# OPTIMIZATION that requires >=2 archived baselines; with a single archived
+# baseline it cannot establish a real floor, so the SOLE operative legacy-adopt
+# path TODAY is v0.0.0 + the full idempotent migration chain from 0001 (the
+# Flyway bootstrap-from-empty property — every migration tolerates the oldest/
+# empty precondition per the authoring contract). INSTALLED_VERSION stays
+# "(none)" so the Step-13.6 runner normalizes the floor to v0.0.0 and runs the
+# full chain WITHOUT min_from-skipping (FLOOR_IS_REAL=0).
+#
+# LEGACY_ADOPT_BASELINES_DIR — the shipped historical-manifest archive. Its
+# per-file shas are the "reachable historical sha" set the legacy-adopt take-new
+# disposition (the upgrade_foundation_file() routine below) consults to decide
+# whether to snapshot an on-disk file to .foundation-local.
+FOUNDATION_MARKER="$CLAUDE_HOME/governance/foundation-master.json"
+LEGACY_ADOPT=0
+LEGACY_ADOPT_BASELINES_DIR="$SOURCE_REPO/governance/baselines"
+if [ ! -f "$INSTALLED_STATE_PATH" ] && [ -f "$FOUNDATION_MARKER" ]; then
+  LEGACY_ADOPT=1
+  # Floor-match (sha256-matching the adopter's on-disk files against the archived
+  # per-release baselines to reconstruct a real installed floor) is a v2 feature
+  # whose matching LOGIC is NOT YET IMPLEMENTED. baselines/ accrues one frozen
+  # manifest per release-cut as the historical record floor-match v2 will consume;
+  # the count is NOT a graduation trigger — the v0.0.0 full-chain path holds at ANY
+  # baseline count until the v2 logic ships. Report the count for operator visibility.
+  baseline_count=0
+  if [ -d "$LEGACY_ADOPT_BASELINES_DIR" ]; then
+    for _bl in "$LEGACY_ADOPT_BASELINES_DIR"/foundation-manifest-v*.json; do
+      [ -e "$_bl" ] && baseline_count=$((baseline_count + 1))
+    done
+  fi
+  info "state: legacy-adopt detected (foundation marker present, no .installed-state.json stamp); floor reconstructed as v0.0.0 + full migration chain from 0001 (floor-match is a v2 feature, not yet implemented; $baseline_count archived baseline(s) on record). The fixes land via FOUNDATION-REPLACE take-new."
+fi
+
+# --- upgrade entrypoint posture ---
+# Forks the run on the version-detect result (version-detect only DETECTS+COMPARES; this
+# is the posture over the existing pipeline — exactly as --apply is a posture over
+# the G9 dry-run). Runs after version-detect, before state-classification, so
+# every refuse here is a pre-flight decision the action-plan/apply both honor.
+#
+# UPGRADE_PRESENT — an .installed-state.json stamp is on disk ⇒ this is an
+#   upgrade lane (not fresh, not legacy-adopt). The decommission of --force-all
+# and the --upgrade assertion key off this.
+UPGRADE_PRESENT=0
+[ -f "$INSTALLED_STATE_PATH" ] && UPGRADE_PRESENT=1
+
+# (1) --upgrade assertion: `--upgrade` is an optional assertion that an
+#     installed version exists; it fails fast if the home is actually fresh
+#     (no stamp). Action stays gated by --apply (Option C); --upgrade alone in
+#     dry-run still emits the action-plan. Exit 10 (prereq family: the asserted
+#     precondition — an installed version to upgrade FROM — is missing).
+if [ "$UPGRADE_MODE" = "1" ] && [ "$UPGRADE_PRESENT" != "1" ]; then
+  diag "--upgrade asserts an installed version exists, but no \$CLAUDE_HOME/governance/.installed-state.json stamp is present (this is a fresh or legacy-adopt install). Re-run WITHOUT --upgrade for a fresh install."
+  exit 10
+fi
+
+# (2) --force-all decommissioned for the upgrade path: --force-all is the
+#     blunt cp -f clobber that bypasses the per-file disposition + USER-PRESERVE
+#     boundary; it survives ONLY for fresh-install/force-reinstall and is
+#     explicitly REFUSED when .installed-state.json is present. No override.
+#     Exit 23 (the upgrade-path refuse family; downgrade shares it below — both
+#     are "this is not a legitimate upgrade action" refusals with no force lane).
+# the decommission now ALSO fires on the
+#     legacy-adopt lane (LEGACY_ADOPT=1, classified at the FOUNDATION_MARKER check
+# above). Before the legacy lane silently ACCEPTED --force-all and
+#     set cp_clobber=-f (the de-facto undocumented no-snapshot clobber path — the
+# only blunt-clobber escape on the rescue lane). The per-file engine
+#     now delivers the legacy subtree correctly via upgrade_foundation_file()'s
+#     take-new (+ .foundation-local snapshot of genuine adopter edits), so there is
+#     no remaining need for a force-all escape on a legacy adopt. Refuse when
+#     FORCE_ALL=1 AND (UPGRADE_PRESENT=1 OR LEGACY_ADOPT=1); a fresh install /
+#     force-reinstall (neither stamped nor a foundation-marker-present legacy home)
+#     KEEPS the existing --force-all → cp_clobber=-f posture (1373-1374).
+if [ "$FORCE_ALL" = "1" ] && { [ "$UPGRADE_PRESENT" = "1" ] || [ "$LEGACY_ADOPT" = "1" ]; }; then
+  if [ "$LEGACY_ADOPT" = "1" ] && [ "$UPGRADE_PRESENT" != "1" ]; then
+    diag "--force-all is decommissioned for the legacy-adopt lane (a foundation home with no \$CLAUDE_HOME/governance/.installed-state.json stamp but a governance/foundation-master.json marker present). The per-file delivery engine now lands every managed file via the sha256 disposition take-new (+ .foundation-local snapshot of genuine adopter edits) — there is no blunt-clobber escape needed on the legacy rescue lane. Drop --force-all and re-run."
+  else
+    diag "--force-all is decommissioned for the upgrade path (refused when \$CLAUDE_HOME/governance/.installed-state.json is present). The upgrade walk uses the per-file sha256 disposition + the USER-PRESERVE boundary; there is no blunt-clobber escape on an upgrade. Drop --force-all and re-run."
+  fi
+  exit 23
+fi
+
+# (3) downgrade refuse: target < installed ⇒ refuse, exit 23, NO --force
+#     override (down-migrations do not exist; is forward-only). Only fires on
+#     a real installed stamp (the fresh-or-legacy delta is never a downgrade).
+if [ "$VERSION_DELTA" = "target<installed" ]; then
+  diag "downgrade refused: target=$TARGET_VERSION < installed=$INSTALLED_VERSION. The upgrade engine is forward-only (no down-migrations); there is no --force override for a downgrade. Install the newer source or leave the installed version in place."
+  exit 23
+fi
+
+# (4) major-bump refuse on --apply alone: target.major > installed.major
+#     refuses a silent auto-upgrade. The --apply lane requires --migrate-major
+#     AND the I-UNDERSTAND-OVERWRITE-RISK sentinel ceremony (sentinel_verified
+#     is set by the --i-understand-overwrite-risk argv arm +
+#     --force-install). Dry-run (APPLY_MODE!=1) records the required
+#     ack and CONTINUES to the action-plan (defer-in-dry-run posture); the
+#     --apply lane hard fail-fasts here. Exit 23 (upgrade-path refuse family).
+#     Major comparison uses the same octal-guarded base-10 coercion as vercmp.
+if [ "$UPGRADE_PRESENT" = "1" ] && [ "$INSTALLED_VERSION" != "(none)" ] && [ -n "$TARGET_VERSION" ]; then
+  t_major="${TARGET_VERSION#v}"; t_major="${t_major%%.*}"; t_major="${t_major%%[!0-9]*}"
+  i_major="${INSTALLED_VERSION#v}"; i_major="${i_major%%.*}"; i_major="${i_major%%[!0-9]*}"
+  [ -n "$t_major" ] || t_major=0
+  [ -n "$i_major" ] || i_major=0
+  if [ "$((10#$t_major))" -gt "$((10#$i_major))" ]; then
+    if [ "$MIGRATE_MAJOR" = "1" ] && [ "$sentinel_verified" = "1" ]; then
+      info "major-version bump ($INSTALLED_VERSION -> $TARGET_VERSION) acked via --migrate-major + I-UNDERSTAND-OVERWRITE-RISK sentinel (ceremony); proceeding"
+    elif [ "$APPLY_MODE" = "1" ]; then
+      diag "major-version bump refused: target.major ($TARGET_VERSION) > installed.major ($INSTALLED_VERSION). A silent auto-upgrade across a major boundary is refused. Pass --migrate-major AND the I-UNDERSTAND-OVERWRITE-RISK sentinel (--i-understand-overwrite-risk with --force-install) to proceed."
+      exit 23
+    else
+      # dry-run: aggregate the requirement into the action-plan (defer-in-dry-run posture).
+      note_required_override "--migrate-major + I-UNDERSTAND-OVERWRITE-RISK sentinel (major-version bump: target.major $TARGET_VERSION > installed.major $INSTALLED_VERSION)"
+      info "major-version bump ($INSTALLED_VERSION -> $TARGET_VERSION) detected; dry-run records the --migrate-major + sentinel ack requirement (action-plan aggregates it)"
+    fi
+  fi
+fi
+
+# --- State classification (write-sequence + installer exit codes) ---
 # Walks $CLAUDE_HOME entries and classifies state once after G2 close + before
-# G3 gate. Reuses foundation_known_entries set already declared at L172 for
+# G3 gate. Reuses foundation_known_entries set already declared above for
 # basename matching.
 #   - fresh             — $CLAUDE_HOME does not exist OR exists but is empty
 #   - foundation-only   — every top-level entry matches foundation-known set
@@ -515,6 +874,19 @@ $base"
   fi
 fi
 
+# refine a foundation-bearing classification to legacy-adopt when
+# the entrypoint detected LEGACY_ADOPT (foundation marker present, no
+# .installed-state.json stamp). This is the new state_classification VALUE the
+# design calls for — it surfaces in the dry-run JSON + provenance so a
+# legacy adopter (a legacy adopter) is never mis-classified as a plain fresh install. It is
+# applied ONLY over foundation-bearing states (foundation-only/mixed); it never
+# overrides user-only (which must still refuse without --force-install) or fresh
+# (no marker ⇒ no legacy-adopt by definition).
+if [ "$LEGACY_ADOPT" = "1" ] \
+   && { [ "$state_classification" = "foundation-only" ] || [ "$state_classification" = "mixed" ]; }; then
+  state_classification="legacy-adopt"
+fi
+
 if [ "$state_classification" = "user-only" ] && [ "$FORCE_INSTALL" != "1" ]; then
   diag "state=user-only fired: \$CLAUDE_HOME contains only non-foundation content; pass --force-install to acknowledge installer is overwriting a non-foundation tree (vault-clobber-class protection — distinct from G1-main \$HOME/.claude equality at 51). Non-foundation entries:"
   printf '%s\n' "$state_non_foundation_list" | while IFS= read -r p; do
@@ -539,6 +911,7 @@ if [ -f "$CLAUDE_HOME/settings.json" ]; then
 fi
 g3_proof_of_life_passed=0
 g3_skip_reason=""
+g3_settings_backup_path=""
 if [ -n "$BACKUP_DIR" ]; then
   if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
     diag "G3 fired: --backup-dir not creatable: $BACKUP_DIR"
@@ -558,14 +931,377 @@ if [ -n "$BACKUP_DIR" ]; then
   rm -f "$g3_test_file" 2>/dev/null
   g3_proof_of_life_passed=1
   info "G3: backup proof-of-life passed at $BACKUP_DIR"
+ # G3: the writability round-trip above is
+  # necessary-not-sufficient — a flag named --backup-dir must produce a RESTORABLE
+  # artifact (principle of least astonishment; dpkg/rpm take a real conffile backup
+  # before overwrite). When a destructive op is pending (a pre-existing
+  # settings.json that Step 12's `mv -f` will overwrite), copy the REAL pre-merge
+  # settings.json into $BACKUP_DIR/settings.json.pre-install-<ts> BEFORE that mv,
+  # exiting 53 if the copy fails. Gated on APPLY_MODE=1 so the dry-run lane stays
+ # provably write-free (invariant); a fresh install (no pre-existing
+  # settings.json → g3_destructive_op_pending=0) writes NO copy. Timestamp format +
+  # cp idiom reuse uninstall.sh's .pre-uninstall-<ts> backup. This is the narrow
+  # settings.json-only honest-backup fix for the non-upgrade/fresh-install
+  # destructive-mv path; the FULL pre-mutation snapshot is the upgrade engine's concern.
+  # The deferred v2.1 whole-tree rsync is NOT pulled in.
+  if [ "$APPLY_MODE" = "1" ] && [ "$g3_destructive_op_pending" = "1" ]; then
+    g3_backup_ts="$(date -u +%Y%m%d-%H%M%S)"
+    g3_settings_backup_path="$BACKUP_DIR/settings.json.pre-install-$g3_backup_ts"
+    if ! cp "$CLAUDE_HOME/settings.json" "$g3_settings_backup_path" 2>/dev/null; then
+      diag "G3 fired: settings.json backup copy failed: $CLAUDE_HOME/settings.json -> $g3_settings_backup_path. No backup -> no install."
+      g3_settings_backup_path=""
+      exit 53
+    fi
+    info "G3: settings.json backed up to $g3_settings_backup_path"
+  fi
 elif [ "$g3_destructive_op_pending" = "1" ]; then
-  diag "G3 fired: \$CLAUDE_HOME/settings.json pre-exists (destructive op pending); --backup-dir <path> required for proof-of-life. No backup → no install."
-  exit 53
+ # dry-run defers (records the missing --backup-dir override + continues
+  # so the action-plan can aggregate it alongside the G1-main sentinel requirement in
+  # ONE pass); --apply still hard fail-fasts exit 53 at the mutation boundary.
+  if [ "$APPLY_MODE" != "1" ]; then
+    note_required_override "--backup-dir <path> (G3: \$CLAUDE_HOME/settings.json pre-exists; a destructive Step-12 mv is pending and requires a backup)"
+    g3_skip_reason="destructive op pending but --backup-dir not supplied (deferred in dry-run; recorded in required_overrides)"
+  else
+    diag "G3 fired: \$CLAUDE_HOME/settings.json pre-exists (destructive op pending); --backup-dir <path> required for proof-of-life. No backup → no install."
+    exit 53
+  fi
 else
   g3_skip_reason="no destructive op pending (no pre-existing settings.json) and --backup-dir not supplied"
 fi
 
-# --- G9: dry-run as default (S66; spec.md L83) ---
+# =============================================================================
+# convergence-not-version no-op semantics
+# (no-op upgrade emits file_dispositions:[] +
+#   migrations_to_run:[]) + line 34 (equal outcome) ·
+#   /tmp/wfv/wfv-full.json::upgrade_validations[idempotency-rollback]
+#   (provable-no-op = converged home, NOT equal version) +
+#   consolidated.blocking_corrections[6] (upgrade-arch/idempotency).
+#
+# THE BLOCKING CORRECTION (rewrite the provable-no-op acceptance): the no-op
+# condition is an already-CONVERGED home, NOT an equal version. The two no-op
+# claims are DISTINCT and gated on DIFFERENT signals:
+#
+#   (1) migration no-op  -> migrations_to_run == []  is VERSION-DELTA-gated:
+#       it is [] exactly when the half-open range (INSTALLED_VERSION,
+#       TARGET_VERSION] selects nothing (every equal/empty-range upgrade). This
+#       is the correct, version-keyed gate (selection).
+#
+#   (2) convergence no-op -> file_dispositions == []  is STATE-gated, NOT
+# version-gated. The hook reconciler, the FOUNDATION-REPLACE
+# disposition walk, and the gitignore-backfill/git-init are
+#       convergence steps that run REGARDLESS of from/to version. file_dispositions
+#       is [] ONLY when the on-disk state already matches the target. A
+#       v1.0.2->v1.0.2 re-apply on a home that is MISSING a foundation hook (the
+# exact regression) MUST take an action (the reconciler
+#       appends the hook) and therefore file_dispositions is NOT [] — equal
+#       version does NOT imply no-op. Repairing drift at equal version IS the
+# fix landing.
+#
+# This block COMPUTES both signals WRITE-FREE (read-only against the already-
+# built home — managed files, settings.json, the migrations dir, and the
+# .installed-state.json/.installed-baseline-manifest.json stamps are all on disk
+# at dry-run time). It populates two newline-joined accumulators threaded into
+# the G9 dry-run JSON below as `migrations_to_run` and `file_dispositions`. The
+# arrays are EMPTY iff converged / empty-range — the provable no-op. The
+# disposition-class + reason/added_hooks ENRICHMENT and the changelog_slice are
+# its layer ON TOP of these arrays; the convergence engine owns the convergence
+# COMPUTATION + the two distinct empty-gates + the acceptance harness.
+#
+# Invariant: zero $CLAUDE_HOME writes — pure reads + a single
+# self-cleaning $TMPDIR scratch for the reconciler before/after diff.
+upgrade_migrations_to_run=""   # newline-joined selected migration ids (version-delta-gated)
+upgrade_file_disp_preview=""   # newline-joined "<path>\t<would-disposition>" (state-gated)
+# admit LEGACY_ADOPT=1 so a stamp-less
+# legacy adopter's dry-run computes real cp -R subtree dispositions instead of [].
+# Pre-fix the whole preview was gated UPGRADE_PRESENT=1 (false for every legacy
+# adopter), so the documented `install.sh | jq .` preview emitted file_dispositions:[]
+# + mode:'install'. The disposition walk below already enumerates from the SHIPPED
+# $SOURCE_REPO files[] (never a disk-walk) with `IFS=<tab> read -r` for
+# space-bearing paths, and degrades a no-baseline (legacy) would-mutate to
+# `replace` take-new — never silently to `sidecar` (legacy take-new). The
+# migration-select sub-block (1) normalizes a "(none)" floor to v0.0.0, so legacy
+# runs the full chain. WRITE-FREE: pure reads + self-cleaning $TMPDIR.
+if [ "$UPGRADE_PRESENT" = "1" ] || [ "$LEGACY_ADOPT" = "1" ]; then
+  # --- (1) migration no-op: select (INSTALLED_VERSION, TARGET_VERSION] minus the
+  #     high-water log, READ-ONLY (the runner's selection predicate, without
+  #     executing any migration). Self-contained header read so this stays inside
+  #     the "install.sh" deliverable (no dependency on sourcing the runner).
+  if [ -n "$TARGET_VERSION" ] && [ -d "$CLAUDE_HOME/migrations" ]; then
+    _mig_floor="$INSTALLED_VERSION"
+    [ "$_mig_floor" = "(none)" ] && _mig_floor="v0.0.0"
+    for _migf in "$CLAUDE_HOME/migrations"/[0-9][0-9][0-9][0-9]-*.sh; do
+      [ -e "$_migf" ] || continue
+      # read the leading-comment `# migration:` and `# applies_at:` headers only
+      _mig_id=""; _mig_aa=""
+      while IFS= read -r _hl; do
+        case "$_hl" in
+          \#*) ;;
+          '') continue ;;
+          *) break ;;
+        esac
+        case "$_hl" in
+          "# migration:"*) _mig_id="${_hl#*: }"; _mig_id="${_mig_id%%[[:space:]]*}" ;;
+          "# applies_at:"*) _mig_aa="${_hl#*: }"; _mig_aa="${_mig_aa%%[[:space:]]*}" ;;
+        esac
+      done < "$_migf"
+      [ -n "$_mig_id" ] || _mig_id="$(basename "$_migf" .sh)"
+      [ -n "$_mig_aa" ] || continue   # no applies_at => unplaceable => not selected
+      # half-open (floor, target]: applies_at STRICTLY > floor AND <= target
+      [ "$(vercmp "$_mig_aa" "$_mig_floor")" = "a>b" ] || continue
+      [ "$(vercmp "$_mig_aa" "$TARGET_VERSION")" = "a>b" ] && continue
+      # high-water skip (already applied => not in the to-run set)
+      if [ -n "$PRIOR_MIGRATIONS_APPLIED" ] && printf '%s\n' "$PRIOR_MIGRATIONS_APPLIED" | grep -qxF "$_mig_id"; then
+        continue
+      fi
+      if [ -z "$upgrade_migrations_to_run" ]; then
+        upgrade_migrations_to_run="$_mig_id"
+      else
+        upgrade_migrations_to_run="$upgrade_migrations_to_run
+$_mig_id"
+      fi
+    done
+  fi
+
+  # --- (2a) FOUNDATION-REPLACE convergence: a managed files[] path whose on-disk
+  #     sha256 differs from the NEW-upstream sha256 (the source manifest) would be
+  #     replaced. Equal sha on every managed file => this source contributes [].
+ #
+ # The would-replace is a THREE-STATE disposition mirroring the apply-path
+  #     gear (install.sh upgrade_foundation_file State 2/State 3): when a frozen
+  #     baseline manifest (.installed-baseline-manifest.json) resolves a per-file
+  #     baseline sha, the dry-run distinguishes the two FOUNDATION-REPLACE outcomes
+ # the schema names (file_dispositions[] +
+ # lines 100-101):
+  #       - on-disk == baseline (adopter UNMODIFIED) => `replace` (clean take-new).
+  #       - on-disk != baseline (adopter EDITED owned code) => `sidecar` (take-new
+  #         BUT snapshot her bytes to <path>.foundation-local, dpkg .dpkg-old). This
+  #         is the `3way-merge|conflict→sidecar` FOUNDATION-REPLACE branch the
+  #         the apply path records as `replace+foundation-local`.
+  #     When NO frozen baseline resolves the path (fresh / legacy-adopt with no
+  #     archived floor), it cannot prove unmodified-ness, so it degrades to the
+  #     legacy take-new default (`replace`) — never silently to `sidecar`. Baseline
+  #     read is WRITE-FREE (read of the on-disk .installed-baseline-manifest.json).
+  _src_manifest="$SOURCE_REPO/governance/foundation-manifest.json"
+  _base_manifest="$INSTALLED_BASELINE_MANIFEST_PATH"
+  _have_base=0
+  [ -f "$_base_manifest" ] && _have_base=1
+  if [ -f "$_src_manifest" ]; then
+    while IFS="$(printf '\t')" read -r _rel _newsha; do
+      [ -n "$_rel" ] || continue
+      _ondisk="$CLAUDE_HOME/$_rel"
+      if [ -f "$_ondisk" ]; then
+        _disksha="$(shasum -a 256 "$_ondisk" 2>/dev/null | awk '{print $1}')"
+        if [ -n "$_disksha" ] && [ "$_disksha" != "$_newsha" ]; then
+          # would-mutate. Three-state disambiguation via the frozen baseline.
+          _disp="replace"
+          if [ "$_have_base" = "1" ]; then
+            _basesha="$(BMS="$_base_manifest" REL="$_rel" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["BMS"]))
+except Exception:
+    sys.exit(3)
+rel = os.environ["REL"]
+for f in m.get("files", []):
+    if f.get("path") == rel:
+        print(f.get("sha256", "")); sys.exit(0)
+sys.exit(2)
+' 2>/dev/null)"
+            # baseline resolved AND on-disk != baseline => adopter EDITED => sidecar.
+            if [ -n "$_basesha" ] && [ "$_disksha" != "$_basesha" ]; then
+              _disp="sidecar"
+            fi
+          fi
+          upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	${_disp}
+"
+        fi
+      else
+        # a managed file absent on disk would be NEW-SHIP'd => not converged.
+        upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	new-ship
+"
+      fi
+    done <<EOF
+$(jq -r '.files[] | "\(.path)\t\(.sha256)"' "$_src_manifest" 2>/dev/null)
+EOF
+  fi
+
+ # --- (2b) hook-reconciler convergence: the EXACT
+  #     missing-hook regression. Re-run the SHIPPED reconciler jq transform
+  #     against a SCRATCH copy of the live settings.json (never the live file)
+  #     and diff: if the transform would change settings.json (a foundation hook
+  #     tuple is absent and would be appended), the home is NOT converged. This
+  #     fires at EQUAL version — that is the convergence-not-version semantics.
+  _live_settings="$CLAUDE_HOME/settings.json"
+  _required_hooks_decl="$CLAUDE_HOME/templates/settings-required-hooks.json"
+  if [ -f "$_live_settings" ] && [ -f "$_required_hooks_decl" ]; then
+    _rec_after="$(mktemp 2>/dev/null || echo "")"
+    if [ -n "$_rec_after" ]; then
+      if jq \
+        --slurpfile decl "$_required_hooks_decl" \
+        '
+        ($decl[0] | if type == "object" then .required_hooks else . end) as $tuples
+        | reduce $tuples[] as $t (
+            .;
+            ($t.event)   as $ev
+            | ($t.matcher)  as $mt
+            | ($t.command)  as $cmd
+            | ({"type":"command","command":$cmd}
+                + (if ($t.timeout != null) then {"timeout":$t.timeout} else {} end)) as $hookobj
+            | if ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
+                   | any(. == $cmd))
+              then .
+              else
+                .hooks[$ev] = (
+                  (.hooks[$ev] // []) as $buckets
+                  | ( [ $buckets | to_entries[]
+                        | select((.value.matcher // null) == $mt) | .key ] | first ) as $idx
+                  | if $idx == null then
+                      $buckets + [
+                        ( (if $mt != null then {"matcher":$mt} else {} end)
+                          + {"hooks":[$hookobj]} )
+                      ]
+                    else
+                      ( $buckets
+                        | .[$idx].hooks = ((.[$idx].hooks // []) + [$hookobj]) )
+                    end
+                )
+              end
+          )
+        ' "$_live_settings" > "$_rec_after" 2>/dev/null; then
+        # canonical-form diff: reconciler is ADDS-only, so any difference is a
+        # would-append (a missing foundation hook tuple). Compare jq-canonical.
+        if ! jq -S . "$_live_settings" 2>/dev/null | diff -q - <(jq -S . "$_rec_after" 2>/dev/null) >/dev/null 2>&1; then
+          upgrade_file_disp_preview="${upgrade_file_disp_preview}settings.json	reconcile-hooks
+"
+        fi
+      fi
+      rm -f "$_rec_after" 2>/dev/null || true
+    fi
+  fi
+
+ # --- (2c) USER-PRESERVE visibility (copied-once-then-adopter-owned set):
+ # the schema (line 215) requires the upgrade
+  #     diff to surface the USER-PRESERVE class explicitly —
+  #       {path:"MEMORY.md", class:"USER-PRESERVE", disposition:"untouched"}
+  #     — so an operator SEES that her copied-once surfaces are structurally NOT
+ # written (: anything not in files[] is unmanaged + never touched; the
+  #     apply walk records `user-preserve-skip`). These are informational, no-
+  #     action entries.
+ #
+  #     CONVERGED no-op invariant (lines 228-232): file_dispositions
+  #     is [] ONLY when the home already matches the target. An informational
+  #     `untouched` entry must NOT itself make a fully-converged home non-empty, so
+  #     the USER-PRESERVE entries are appended ONLY WHEN >=1 actionable disposition
+  #     (replace/sidecar/new-ship/reconcile-hooks/skeleton-merge*) is already
+  #     present — i.e. an actual upgrade is being previewed. WRITE-FREE: only tests
+ # on-disk presence of the copied-once surfaces. Emitted in order.
+  if [ -n "$upgrade_file_disp_preview" ]; then
+    for _up_rel in MEMORY.md rules/README.md; do
+      if [ -f "$CLAUDE_HOME/$_up_rel" ]; then
+        upgrade_file_disp_preview="${upgrade_file_disp_preview}${_up_rel}	untouched
+"
+      fi
+    done
+  fi
+fi
+
+# =============================================================================
+# upgrade-diff dry-run preview enrichment (UX)
+# (lines 147-176, upgrade diff/preview JSON + UX
+#   contract). LAYERED on the G9 dry-run action-plan JSON below + on the
+#   convergence arrays computed above. WRITE-FREE: pure reads of
+# CHANGELOG.md + the already-detected version vars (invariant).
+#
+# This block adds, for an install WITH .installed-state.json (the UPGRADE lane), the
+# upgrade-diff body ON TOP of the upgrade-posture scaffold:
+# - from_version / to_version: the SoT aliases of the installed/
+#     target stamps (the existing installed_version/target_version fields are
+#     retained verbatim — the landed contract — and from_version/
+#     to_version are added as the schema names).
+#   - version_delta_class       : the SEMANTIC delta (major|minor|patch|none|
+#     unknown). NOTE: the existing `version_delta` field stays the RAW delta
+#     ("target>installed"|"equal"|...) — the landed contract the
+#     entrypoint/no-op harnesses assert against — so the semantic delta lands
+#     in a DISTINCT field to avoid re-typing a frozen field.
+#   - changelog_slice[]         : the CHANGELOG.md per-version headers in the
+#     half-open range (installed, target], newest-first (the slice an operator
+#     reads BEFORE --apply). Sliced from the Keep-a-Changelog `## [vX.Y.Z]`
+#     section headers between `## [<installed>]` and `## [<target>]`.
+#   - file_dispositions[]       : ENRICHED so each entry carries class + a human
+# reason (and added_hooks for the reconcile-hooks entry) — the enrichment
+#     is done inside the jq object below, mapping the disposition tokens
+#     (replace|new-ship|reconcile-hooks) to {class, reason, added_hooks}.
+#   - backup_required           : true on the upgrade lane (an upgrade --apply
+#     with >=1 mutating action requires --backup-dir).
+#   - requires_ack              : the major-bump ack string when target.major >
+#     installed.major, else null (and --apply alone refuses — the major-bump gate enforces).
+#
+# This block runs ONLY in the dry-run lane gate below (it is read by the jq emit);
+# it computes write-free and contributes nothing on the apply lane.
+upgrade_changelog_slice=""   # newline-joined "## [vX.Y.Z]" headers in (installed,target]
+upgrade_version_delta_class="" # major|minor|patch|none|unknown
+upgrade_requires_ack=""      # major-bump ack string, "" when not a major bump
+if [ "$UPGRADE_PRESENT" = "1" ]; then
+  # --- (A) semantic version-delta class (major|minor|patch|none|unknown) -------
+  # Reuse the octal-guarded base-10 coercion (matches vercmp / the major gate)
+  # so an 08/09 segment cannot crash under set -euo pipefail.
+  if [ "$INSTALLED_VERSION" != "(none)" ] && [ -n "$TARGET_VERSION" ]; then
+    _iv="${INSTALLED_VERSION#v}"; _tv="${TARGET_VERSION#v}"
+    _i_maj="${_iv%%.*}"; _i_rest="${_iv#*.}"; _i_min="${_i_rest%%.*}"; _i_pat="${_i_rest#*.}"; _i_pat="${_i_pat%%[!0-9]*}"
+    _t_maj="${_tv%%.*}"; _t_rest="${_tv#*.}"; _t_min="${_t_rest%%.*}"; _t_pat="${_t_rest#*.}"; _t_pat="${_t_pat%%[!0-9]*}"
+    _i_maj="${_i_maj%%[!0-9]*}"; _i_min="${_i_min%%[!0-9]*}"
+    _t_maj="${_t_maj%%[!0-9]*}"; _t_min="${_t_min%%[!0-9]*}"
+    [ -n "$_i_maj" ] || _i_maj=0; [ -n "$_i_min" ] || _i_min=0; [ -n "$_i_pat" ] || _i_pat=0
+    [ -n "$_t_maj" ] || _t_maj=0; [ -n "$_t_min" ] || _t_min=0; [ -n "$_t_pat" ] || _t_pat=0
+    if   [ "$((10#$_t_maj))" -ne "$((10#$_i_maj))" ]; then upgrade_version_delta_class="major"
+    elif [ "$((10#$_t_min))" -ne "$((10#$_i_min))" ]; then upgrade_version_delta_class="minor"
+    elif [ "$((10#$_t_pat))" -ne "$((10#$_i_pat))" ]; then upgrade_version_delta_class="patch"
+    else upgrade_version_delta_class="none"
+    fi
+    # --- (B) major-bump requires_ack -------------------------------------
+    # When target.major > installed.major, the preview MUST surface the
+    # ack string and --apply alone refuses (the major-bump gate enforces the refuse).
+    if [ "$((10#$_t_maj))" -gt "$((10#$_i_maj))" ]; then
+      upgrade_requires_ack="--migrate-major + I-UNDERSTAND-OVERWRITE-RISK"
+    fi
+  else
+    upgrade_version_delta_class="unknown"
+  fi
+
+  # --- (C) CHANGELOG slice over (installed, target] ----------------------------
+  # The repo maintains CHANGELOG.md with Keep-a-Changelog per-version sections in
+  # DESCENDING order (`## [vX.Y.Z]`). Slice the section HEADERS in the half-open
+  # range (installed, target]: a header whose version is STRICTLY > installed AND
+  # <= target. Newest-first (CHANGELOG order). Write-free read; absent CHANGELOG
+  # => empty slice (the field is present-but-[]). Range-gated like migrations.
+  _changelog="$SOURCE_REPO/CHANGELOG.md"
+  if [ -f "$_changelog" ] && [ -n "$TARGET_VERSION" ]; then
+    _cl_floor="$INSTALLED_VERSION"
+    [ "$_cl_floor" = "(none)" ] && _cl_floor="v0.0.0"
+    while IFS= read -r _cll; do
+      case "$_cll" in
+        "## ["*"]"*)
+          _clv="${_cll#*[}"; _clv="${_clv%%]*}"
+          # tolerate a leading 'v' or none; vercmp strips it.
+          case "$_clv" in
+            v[0-9]*|[0-9]*) ;;
+            *) continue ;;   # not a version header (e.g. "## [Unreleased]")
+          esac
+          [ "$(vercmp "$_clv" "$_cl_floor")" = "a>b" ] || continue
+          [ "$(vercmp "$_clv" "$TARGET_VERSION")" = "a>b" ] && continue
+          if [ -z "$upgrade_changelog_slice" ]; then
+            upgrade_changelog_slice="$_cll"
+          else
+            upgrade_changelog_slice="$upgrade_changelog_slice
+$_cll"
+          fi
+          ;;
+      esac
+    done < "$_changelog"
+  fi
+fi
+
+# --- G9: dry-run as default ---
 # Posture (not refuse-gate). First invocation without --apply emits action-plan
 # JSON to stdout with zero $CLAUDE_HOME writes; --apply required to actually
 # install. Position: G9 fires AFTER all pre-flight guards (G1-pre, G8, G1-main,
@@ -581,66 +1317,783 @@ if [ "$APPLY_MODE" != "1" ]; then
   # claude_home_defaulted: 1 when CLAUDE_HOME was unset and
   # the dry-run defaulted it to $HOME/.claude; 0 when set
   # explicitly. Informational, not a gate.
-  cat <<JSON
-{
+ # DJ: every variable that carries user/path input is
+  # passed through jq --arg so jq JSON-escapes it — a $CLAUDE_HOME / $SOURCE_REPO /
+  # $BACKUP_DIR / $PLANS_HOME / state-root path containing ", \, or a control char
+  # can no longer emit invalid JSON and break the documented `install.sh | jq` (G9)
+  # consumer contract. Numeric flags (claude_home_defaulted, force_*, etc.) are
+  # 0/1 integers and are interpolated as JSON numbers; the static action-plan
+  # structure (steps/ops/rationale strings — no user input) is a jq literal.
+ # DJ: "G7" is REMOVED from guards_passed — G7 is the
+  # settings.json silent-key-deletion gate that runs only at Step 12 (~:1102),
+  # AFTER this dry-run exit 0, so it was a false attestation. Every guard now in
+  # guards_passed has a fire-site BEFORE this emit: G8 (:176), G1-pre (:185),
+  # G5 (:236), G1-main (:270), G4 (:318), G2 (:375), G3 (:601). G7 remains a
+  # PLANNED action under actions[].step 12.
+ # posture discriminator: an install WITH a .installed-state.json
+  # stamp and a target>installed delta is the UPGRADE lane — its dry-run is the
+  # upgrade-diff preview. The upgrade posture emits the `mode` posture + the upgrade argv
+  # flags; the rich diff body (from_version/to_version, version_delta_class,
+  # changelog_slice[], enriched file_dispositions[], backup_required, requires_ack)
+ # is layered onto this SAME jq-safe object by (the compute block
+  # just above this G9 gate). The semantic delta lands in version_delta_class;
+  # the existing `version_delta` field stays the RAW delta (landed contract).
+ # (convergence-not-version no-op semantics): the
+  # write-free convergence-compute block above populated `migrations_to_run` and
+  # `file_dispositions` (empty iff converged / empty-range). The two no-op claims
+  # are DISTINCT: migrations_to_run==[] is VERSION-DELTA-gated (empty (installed,
+  # target] range); file_dispositions==[] is STATE-CONVERGENCE-gated — it is []
+  # ONLY when the on-disk state matches the target, so an equal-version re-apply
+  # on a home MISSING a hook still emits a NON-empty file_dispositions (the
+ # reconcile-hooks repair — the fix landing at equal version).
+  # This block ENRICHES each file_dispositions entry (class/reason/added_hooks) and
+  # adds changelog_slice on top of these arrays; the convergence engine owns the arrays + gating.
+  dry_run_mode="install"
+  if [ "$UPGRADE_PRESENT" = "1" ] && [ "$VERSION_DELTA" = "target>installed" ]; then
+    dry_run_mode="upgrade"
+  fi
+ # a LEGACY_ADOPT home with a real version-delta
+  # is the legacy-delivery preview — label it mode:'upgrade' (not 'install' with []).
+  # Legacy carries no stamp so VERSION_DELTA reads "target>installed-fresh-or-legacy"
+  # (the no-stamp delta at the version-detect block, :617); treat that as an upgrade
+  # preview ONLY when a real target version exists AND the legacy disposition walk
+  # actually found stale managed files to deliver (a fresh/empty legacy home with
+  # nothing to replace stays mode:'install').
+  if [ "$LEGACY_ADOPT" = "1" ] && [ -n "$TARGET_VERSION" ] \
+     && [ "$VERSION_DELTA" = "target>installed-fresh-or-legacy" ] \
+     && [ -n "$upgrade_file_disp_preview" ]; then
+    dry_run_mode="upgrade"
+  fi
+  jq -n \
+    --arg claude_home "$CLAUDE_HOME" \
+    --arg source_repo "$SOURCE_REPO" \
+    --arg state_classification "$state_classification" \
+    --arg backup_dir "${BACKUP_DIR:-}" \
+    --arg vault_writer_state_root "$VAULT_WRITER_STATE_ROOT" \
+    --arg claude_state_root "$CLAUDE_STATE_ROOT" \
+    --arg plans_home "$PLANS_HOME" \
+    --arg required_overrides "$required_overrides" \
+    --arg mode "$dry_run_mode" \
+    --arg installed_version "$INSTALLED_VERSION" \
+    --arg target_version "${TARGET_VERSION:-}" \
+    --arg version_delta "$VERSION_DELTA" \
+    --arg version_delta_class "$upgrade_version_delta_class" \
+    --arg changelog_slice "$upgrade_changelog_slice" \
+    --arg requires_ack "$upgrade_requires_ack" \
+    --arg migrations_to_run "$upgrade_migrations_to_run" \
+    --arg file_dispositions "$upgrade_file_disp_preview" \
+    --argjson claude_home_defaulted "$claude_home_defaulted" \
+    --argjson force_install "$FORCE_INSTALL" \
+    --argjson force_all "$FORCE_ALL" \
+    --argjson no_preserve_config "$NO_PRESERVE_CONFIG" \
+    --argjson retrofit_existing "$RETROFIT_EXISTING" \
+    --argjson upgrade_mode "$UPGRADE_MODE" \
+    --argjson migrate_major "$MIGRATE_MAJOR" \
+    '{
   "version": "1",
-  "claude_home": "$CLAUDE_HOME",
+  "mode": $mode,
+  "installed_version": $installed_version,
+  "target_version": $target_version,
+  "from_version": $installed_version,
+  "to_version": $target_version,
+  "version_delta": $version_delta,
+  "version_delta_class": (if $version_delta_class == "" then null else $version_delta_class end),
+  "requires_ack": (if $requires_ack == "" then null else $requires_ack end),
+  "backup_required": ($mode == "upgrade"),
+  "changelog_slice": (if ($changelog_slice | rtrimstr("\n")) == "" then [] else ($changelog_slice | rtrimstr("\n") | split("\n")) end),
+  "claude_home": $claude_home,
   "claude_home_defaulted": $claude_home_defaulted,
-  "source_repo": "$SOURCE_REPO",
-  "state_classification": "$state_classification",
+  "source_repo": $source_repo,
+  "state_classification": $state_classification,
   "flags": {
-    "force_install": $FORCE_INSTALL,
-    "force_all": $FORCE_ALL,
-    "no_preserve_config": $NO_PRESERVE_CONFIG,
-    "retrofit_existing": $RETROFIT_EXISTING,
-    "backup_dir": "${BACKUP_DIR:-}"
+    "force_install": $force_install,
+    "force_all": $force_all,
+    "no_preserve_config": $no_preserve_config,
+    "retrofit_existing": $retrofit_existing,
+    "upgrade_mode": $upgrade_mode,
+    "migrate_major": $migrate_major,
+    "backup_dir": $backup_dir
   },
-  "guards_passed": ["G1-pre", "G1-main", "G2", "G3", "G4", "G5", "G7", "G8"],
+  "required_overrides": (if $required_overrides == "" then [] else ($required_overrides | split("\n")) end),
+  "migrations_to_run": (if ($migrations_to_run | rtrimstr("\n")) == "" then [] else ($migrations_to_run | rtrimstr("\n") | split("\n")) end),
+  "file_dispositions": (if ($file_dispositions | rtrimstr("\n")) == "" then [] else ($file_dispositions | rtrimstr("\n") | split("\n") | map(split("\t") | (.[0]) as $p | (.[1]) as $d
+    | (if   $d == "reconcile-hooks"     then {"class":"THREE-WAY-MERGE", "reason":"missing foundation hook tuple(s) appended (reconciler)", "added_hooks":["see settings-required-hooks.json"]}
+       elif $d == "skeleton-merge"      then {"class":"THREE-WAY-MERGE", "reason":"overlay-wins skeleton-merge (adopter registrations preserved, new foundation pillars added)"}
+       elif $d == "skeleton-merge-skip" then {"class":"THREE-WAY-MERGE", "reason":"skeleton-merge skipped (merge failed; adopter overlay untouched)"}
+       elif $d == "new-ship"            then {"class":"FOUNDATION-REPLACE", "reason":"absent on disk; staged into place (NEW-SHIP)"}
+       elif $d == "replace"             then {"class":"FOUNDATION-REPLACE", "reason":"on-disk == baseline (adopter unmodified); take-new (upstream fix lands)"}
+       elif $d == "sidecar"             then {"class":"FOUNDATION-REPLACE", "reason":"on-disk != baseline (adopter edited owned code); take-new + snapshot her bytes to <path>.foundation-local (conflict→sidecar)"}
+       elif $d == "untouched"           then {"class":"USER-PRESERVE", "reason":"copied-once-then-adopter-owned (not in files[]); structurally never written"}
+       else {"class":"FOUNDATION-REPLACE", "reason":$d} end)
+    | {"path": $p, "class": .class, "disposition": $d, "reason": .reason} + (if has("added_hooks") then {"added_hooks": .added_hooks} else {} end))) end),
+  "guards_passed": ["G1-pre", "G1-main", "G2", "G3", "G4", "G5", "G8"],
   "actions": [
-    {"step": 1, "op": "mkdir", "target": "$CLAUDE_HOME/{hooks,hooks/lib,hooks/state,hooks/config,skills,schemas,orchestrator,templates,templates/launchd,templates/settings-fragments,Library/LaunchAgents.staging,installer,logs,governance,governance/file-type-contracts,vault-init}", "rationale": "create target tree: NO plugins/, NO onboarding/ (dissolved into skills/onboarder/), NO governance/{librarian-capabilities,onboarding-reference}/ (R-20)"},
-    {"step": 1.5, "op": "mkdir", "target": "$VAULT_WRITER_STATE_ROOT/{,daily-processing,raw,staging} + $CLAUDE_STATE_ROOT/{,vault-staging,vault-staging/_archive,.coordination,sessions}", "rationale": "two-root state-tier scaffold: durable second-brain root + ephemeral Claude-runtime root incl .coordination/ + sessions/. NO ~/.claude/state back-compat symlink (fresh lineage)"},
-    {"step": 1.6, "op": "sqlite-bootstrap+touch", "target": "$VAULT_WRITER_STATE_ROOT/manifest.sqlite + $CLAUDE_HOME/governance/governance-action-log.jsonl", "source": "$SOURCE_REPO/hooks/lib/manifest-record.sh init (graceful-degrade if absent)", "rationale": "manifest.sqlite re-rooted to the state-tier path. governance-action-log.jsonl bootstrap-CREATED under $CLAUDE_HOME/governance/ (bootstrap-not-copy)"},
+    {"step": 1, "op": "mkdir", "target": ($claude_home + "/{hooks,hooks/lib,hooks/state,hooks/config,skills,schemas,orchestrator,templates,templates/launchd,templates/settings-fragments,Library/LaunchAgents.staging,installer,logs,governance,governance/file-type-contracts,vault-init}"), "rationale": "create target tree: NO plugins/, NO onboarding/ (dissolved into skills/onboarder/), NO governance/{librarian-capabilities,onboarding-reference}/ (R-20)"},
+    {"step": 1.5, "op": "mkdir", "target": ($vault_writer_state_root + "/{,daily-processing,raw,staging} + " + $claude_state_root + "/{,vault-staging,vault-staging/_archive,.coordination,sessions}"), "rationale": "two-root state-tier scaffold: durable second-brain root + ephemeral Claude-runtime root incl .coordination/ + sessions/. NO ~/.claude/state back-compat symlink (fresh lineage)"},
+    {"step": 1.6, "op": "sqlite-bootstrap+touch", "target": ($vault_writer_state_root + "/manifest.sqlite + " + $claude_home + "/governance/governance-action-log.jsonl"), "source": ($source_repo + "/hooks/lib/manifest-record.sh init (graceful-degrade if absent)"), "rationale": "manifest.sqlite re-rooted to the state-tier path. governance-action-log.jsonl bootstrap-CREATED under $CLAUDE_HOME/governance/ (bootstrap-not-copy)"},
     {"step": 1.7, "op": "DROPPED", "rationale": "meeting-processor-state migration struck (hardcoded live author-vault path; fresh-install no-op; brain-stem ships no meeting-processor)"},
-    {"step": 1.8, "op": "mkdir", "target": "$PLANS_HOME", "rationale": "create the plan-tree home (default ~/.claude-plans, OUTSIDE ~/.claude/ to clear the sensitive-file gate). plans_root is never interview-customized, so install creates it ahead of /onboard — /new-plan then works pre-onboard; onboarding only adds the vault Plans/ symlink into it"},
-    {"step": 2, "op": "cp", "target": "$CLAUDE_HOME/hooks/", "source": "$SOURCE_REPO/hooks/{*.sh,*.md,MANIFEST.txt}", "rationale": "ship hook entry-points + MANIFEST"},
-    {"step": 3, "op": "cp", "target": "$CLAUDE_HOME/hooks/lib/", "source": "$SOURCE_REPO/hooks/lib/{*.sh,*.json,*.sql}", "rationale": "ship hook libs (hooks/lib/ is the SOLE lib surface; no lib/→hooks/lib/ translation)"},
-    {"step": 4, "op": "cp", "target": "$CLAUDE_HOME/hooks/config/", "source": "$SOURCE_REPO/hooks/config/", "rationale": "ship hook config JSON (graceful-skip if absent)"},
-    {"step": 5, "op": "cp", "target": "$CLAUDE_HOME/skills/", "source": "$SOURCE_REPO/skills/{brain-stem roster}/", "rationale": "ship brain-stem foundation skill subtrees: librarian, backlog-{hygiene,triage,research}, onboarder (+absorbed producers), govern, doc-amender, writer-reconciler, meeting-note-ingestor, mem-promote, new-plan (R-11), session-checkpoint"},
+    {"step": 1.8, "op": "mkdir", "target": $plans_home, "rationale": "create the plan-tree home (default ~/.claude-plans, OUTSIDE ~/.claude/ to clear the sensitive-file gate). plans_root is never interview-customized, so install creates it ahead of /onboard — /new-plan then works pre-onboard; onboarding only adds the vault Plans/ symlink into it"},
+    {"step": 2, "op": "cp", "target": ($claude_home + "/hooks/"), "source": ($source_repo + "/hooks/{*.sh,*.md,MANIFEST.txt}"), "rationale": "ship hook entry-points + MANIFEST"},
+    {"step": 3, "op": "cp", "target": ($claude_home + "/hooks/lib/"), "source": ($source_repo + "/hooks/lib/{*.sh,*.json,*.sql}"), "rationale": "ship hook libs (hooks/lib/ is the SOLE lib surface; no lib/→hooks/lib/ translation)"},
+    {"step": 4, "op": "cp", "target": ($claude_home + "/hooks/config/"), "source": ($source_repo + "/hooks/config/"), "rationale": "ship hook config JSON (graceful-skip if absent)"},
+    {"step": 5, "op": "cp", "target": ($claude_home + "/skills/"), "source": ($source_repo + "/skills/{brain-stem roster}/"), "rationale": "ship brain-stem foundation skill subtrees: librarian, backlog-{hygiene,triage,research}, onboarder (+absorbed producers), govern, doc-amender, writer-reconciler, meeting-note-ingestor, mem-promote, new-plan (R-11), session-checkpoint"},
     {"step": 6, "op": "DISSOLVED", "rationale": "top-level onboarding/ dissolved into skills/onboarder/; producers ride Step 5 cp -R"},
-    {"step": 7, "op": "cp", "target": "$CLAUDE_HOME/orchestrator/", "source": "$SOURCE_REPO/orchestrator/", "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
-    {"step": 8, "op": "cp", "target": "$CLAUDE_HOME/installer/", "source": "$SOURCE_REPO/installer/", "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
-    {"step": 8.5, "op": "cp-selective", "target": "$CLAUDE_HOME/governance/", "source": "$SOURCE_REPO/governance/ (selective)", "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (12). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
-    {"step": 8.7, "op": "cp", "target": "$CLAUDE_HOME/vault-init/", "source": "$SOURCE_REPO/vault-init/", "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
-    {"step": 9, "op": "cp", "target": "$CLAUDE_HOME/schemas/", "source": "$SOURCE_REPO/schemas/{10 adopter}.json", "rationale": "ship the 10 adopter schemas + README. The 7 repo-only schemas (foundation-master, vault-writers-rules, processing-rules, plans-rules, doc-dependencies, memory-schema, rules-schema) stay authoring-side"},
-    {"step": 10, "op": "cp", "target": "$CLAUDE_HOME/templates/", "source": "$SOURCE_REPO/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/", "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
+    {"step": 7, "op": "cp", "target": ($claude_home + "/orchestrator/"), "source": ($source_repo + "/orchestrator/"), "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
+    {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
+    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (12). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
+    {"step": 8.7, "op": "cp", "target": ($claude_home + "/vault-init/"), "source": ($source_repo + "/vault-init/"), "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
+    {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{9 adopter}.json"), "rationale": "ship the 9 adopter schemas + README. The 4 repo-only schemas (foundation-master-schema, memory-schema, review-queue-schema, rules-schema) stay authoring-side"},
+    {"step": 10, "op": "cp", "target": ($claude_home + "/templates/"), "source": ($source_repo + "/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/"), "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
     {"step": 11, "op": "DROPPED", "rationale": "claude-mem NOT bundled (adopter-installed via marketplace); plugins/ + false README gone"},
     {"step": 11.5, "op": "DROPPED", "rationale": "global CLAUDE.md pre-seed struck; skills/onboarder/scripts/author-claude-home.sh is the authoritative writer"},
-    {"step": 12, "op": "jq-merge", "target": "$CLAUDE_HOME/settings.json", "source": "$CLAUDE_HOME/templates/settings.json", "rationale": "atomic deep-merge with G7 silent-key-deletion gate (template adds AskUserQuestion matcher entry; re-install propagation handled at Step 12.6)"},
-    {"step": 12.6, "op": "jq-register", "target": "$CLAUDE_HOME/settings.json", "rationale": "idempotent post-merge registration of AskUserQuestion matcher → pre-asq-guard.sh. Step 12.5 precedent for the same problem class: jq deep-merge (template * user) lets user PreToolUse array win on array conflicts; re-installs against an adopter without the matcher would silently drop it. Detects absence + appends; presence is a no-op (idempotent)."},
-    {"step": 13, "op": "validate", "target": "$CLAUDE_HOME/schemas/*.json", "rationale": "post-install schema parse validation"},
-    {"step": 13.5, "op": "validate", "target": "$CLAUDE_HOME/governance/foundation-manifest.json", "rationale": "parse-validate baseline post-Step-8.5-copy (load-bearing for G2 + uninstall fingerprint match); lives at governance/"},
-    {"step": 15, "op": "log", "target": "$CLAUDE_HOME/logs/install-*.log", "rationale": "G10 provenance log header emit"}
+    {"step": 12, "op": "jq-merge", "target": ($claude_home + "/settings.json"), "source": ($claude_home + "/templates/settings.json"), "rationale": "atomic deep-merge with G7 silent-key-deletion gate (template * user → user wins on conflict); the reconciler at Step 12.5 re-lands any foundation hook the array-win merge dropped"},
+    {"step": 12.5, "op": "jq-reconcile", "target": ($claude_home + "/settings.json"), "source": ($claude_home + "/templates/settings-required-hooks.json"), "rationale": "data-driven settings-required-hooks reconciler (closes the install-time hook-reconciliation gap). Single loop over the declared {event,matcher,command,timeout?} tuples; per-COMMAND idempotent detect-absence-and-append into the matcher-resolved bucket (new bucket only when none matches; no duplicate Edit|Write PostToolUse bucket); carries template timeouts verbatim. ADDS-only POS1 survivorship; runs after the G7-gated mv so it cannot trip G7. Retires the former bespoke Step 12.5 (spec-context-inject) + Step 12.6 (pre-asq-guard) hand-patches into one source of truth."},
+    {"step": 13, "op": "validate", "target": ($claude_home + "/schemas/*.json"), "rationale": "post-install schema parse validation"},
+    {"step": 13.5, "op": "validate", "target": ($claude_home + "/governance/foundation-manifest.json"), "rationale": "parse-validate baseline post-Step-8.5-copy (load-bearing for G2 + uninstall fingerprint match); lives at governance/"},
+    {"step": 15, "op": "log", "target": ($claude_home + "/logs/install-*.log"), "rationale": "G10 provenance log header emit"}
   ],
   "deferred": ["G6-install-side-explicit-sentinel", "20-conflict-manifest-v2.1", "22-rsync-backup-v2.1", "60-grep-audit-consumer-v2.1"]
-}
-JSON
+}'
   exit 0
 fi
 
-# --- 14-asset write sequence (per spec.md L240-255 audit-2026-04-29) ---
+#   - 14-asset write-sequence
 
-# cp clobber posture (S66): default --force-all=0 → cp -n (no clobber, preserves
+# cp clobber posture: default --force-all=0 → cp -n (no clobber, preserves
 # user-edited foundation files; G2 baseline-mismatch covers drift detection).
 # --force-all=1 → cp -f (overwrite foundation-known files unconditionally).
 # claude-mem at Step 11 has its own clobber posture per --no-preserve-config.
 cp_clobber="-n"
 [ "$FORCE_ALL" = "1" ] && cp_clobber="-f"
 
-# Step 1: mkdir -p target tree (brain-stem layout)
-# Dropped dirs: plugins/ (claude-mem not bundled),
+# =============================================================================
+# backup + atomic per-file apply + apply-journal reverse-restore
+# (100% net-new transaction boundary)
+# (Backup, atomic apply, rollback).
+#
+# RE-LABEL: the rollback ENGINE here is
+# 100% NET-NEW code. skills/librarian/capabilities/backup.sh is NOT the rollback
+# engine — it is a git add/commit/push wrapper (zero restore/journal/snapshot
+# logic). G3 (the backup proof-of-life above, ~:840) is NOT the rollback engine
+# either — it is proof-of-life ONLY (it snapshots zero real files; its scope is
+# the writable-dir precondition + the narrow settings.json honest-backup).
+# G3 contributes ONLY the writable-dir precondition to this transaction.
+# Everything below — the step-0 pre-mutation snapshot, the apply-journal, the
+# per-file atomic stage→validate→mv, and the reverse-journal cp-restore — is the
+# net-new engine.
+#
+# This is the rollback ENVELOPE: an upgrade --apply with >=1 mutating action is
+# all-or-nothing at file granularity. On ANY mid-apply failure (a staged-
+# validation failure, a migration non-zero exit, an mv failure) every already-
+# applied file is restored from the backup snapshot in REVERSE journal order,
+# pre-state=absent creations (incl .foundation-local/.foundation-new sidecars)
+# are rm'd, .installed-state.json (incl migrations_applied[]) is restored
+# WHOLESALE to its pre-invocation value, foundation_version is NOT bumped, and
+# the run exits non-zero.
+# =============================================================================
+
+# UPGRADE_ENVELOPE_ON — the transaction boundary fires ONLY on the real upgrade
+# lane: --apply over a stamped install (UPGRADE_PRESENT=1). A fresh install
+# or a legacy-adopt (no .installed-state.json) keeps the pre-existing posture
+# (cp -n / take-new) with NO journal/snapshot envelope — there is no installed
+# state to roll back TO, and --backup-dir is not mandatory there.
+UPGRADE_ENVELOPE_ON=0
+if [ "$APPLY_MODE" = "1" ] && [ "$UPGRADE_PRESENT" = "1" ]; then
+  UPGRADE_ENVELOPE_ON=1
+fi
+
+# --backup-dir is MANDATORY whenever the run is an upgrade with >=1 mutating
+# action. An upgrade --apply is, by construction, a run with
+# mutating actions (the disposition walk + the reconciler + migrations), so
+# the mandatory gate fires for the whole upgrade lane. Exit 53 (the G3 backup
+# refuse family) — there is no --force override for "upgrade without a backup".
+if [ "$UPGRADE_ENVELOPE_ON" = "1" ] && [ -z "$BACKUP_DIR" ]; then
+  diag "G3 fired: an upgrade --apply mutates managed files (the per-file disposition walk + the hook reconciler + migrations) and REQUIRES --backup-dir <path> as the rollback snapshot root. No backup → no upgrade. Re-run with --backup-dir <path>."
+  exit 53
+fi
+
+# The apply-journal: one $UPGRADE_JOURNAL file under $BACKUP_DIR/<ts>/ holding one
+# TSV record per mutated file:  <abs-target>\t<disposition>\t<backup-rel-path>\t<pre-state>
+#   pre-state = "present"  → the target existed before apply; restore = cp from snapshot
+#   pre-state = "absent"   → the target was CREATED during apply (incl sidecars);
+#                            restore = rm (NOT cp — there is no snapshot to restore from)
+# backup-rel-path = the snapshot's path RELATIVE to $UPGRADE_SNAPSHOT_DIR (only
+#   meaningful for pre-state=present; "-" for pre-state=absent creations).
+# The FIRST journal entry is $CLAUDE_HOME/governance/.installed-state.json,
+# snapshotted whole, so a rollback restores migrations_applied[] WHOLESALE.
+UPGRADE_SNAPSHOT_ROOT=""
+UPGRADE_SNAPSHOT_DIR=""
+UPGRADE_JOURNAL=""
+UPGRADE_ROLLED_BACK=0
+if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+  upgrade_ts="$(date -u +%Y%m%d-%H%M%S)"
+  UPGRADE_SNAPSHOT_ROOT="$BACKUP_DIR/$upgrade_ts"
+  UPGRADE_SNAPSHOT_DIR="$UPGRADE_SNAPSHOT_ROOT/snapshot"
+  UPGRADE_JOURNAL="$UPGRADE_SNAPSHOT_ROOT/journal"
+  if ! mkdir -p "$UPGRADE_SNAPSHOT_DIR" 2>/dev/null; then
+    diag "could not create the upgrade snapshot dir under $UPGRADE_SNAPSHOT_ROOT (no backup root → no upgrade)."
+    exit 53
+  fi
+  : > "$UPGRADE_JOURNAL" || { diag "could not initialize the apply-journal at $UPGRADE_JOURNAL"; exit 53; }
+  info "upgrade transaction envelope active (snapshot=$UPGRADE_SNAPSHOT_DIR; journal=$UPGRADE_JOURNAL)"
+
+  # .installed-state.json is the FIRST journal entry, snapshotted WHOLE.
+  # On rollback it is restored wholesale so migrations_applied[] returns to its
+  # pre-invocation value (roll-forward then re-runs the full range).
+  if [ -f "$INSTALLED_STATE_PATH" ]; then
+    mkdir -p "$UPGRADE_SNAPSHOT_DIR/governance" 2>/dev/null || true
+    if cp -f "$INSTALLED_STATE_PATH" "$UPGRADE_SNAPSHOT_DIR/governance/.installed-state.json" 2>/dev/null; then
+      printf '%s\t%s\t%s\t%s\n' "$INSTALLED_STATE_PATH" "installed-state-snapshot" "governance/.installed-state.json" "present" >> "$UPGRADE_JOURNAL"
+    else
+      diag "could not snapshot .installed-state.json (the first journal entry) — refusing to proceed without a rollback base."
+      exit 53
+    fi
+  fi
+fi
+
+# journal_record <abs-target> <disposition> <pre-state> [snapshot-rel-path]
+# Appends one apply-journal entry. For pre-state=present the caller MUST have
+# already snapshotted the file into $UPGRADE_SNAPSHOT_DIR/<snapshot-rel-path>.
+# No-op when the envelope is off (fresh/legacy/dry-run).
+journal_record() {
+  [ "$UPGRADE_ENVELOPE_ON" = "1" ] || return 0
+  local target="$1" disp="$2" prestate="$3" relpath="${4:--}"
+  printf '%s\t%s\t%s\t%s\n' "$target" "$disp" "$relpath" "$prestate" >> "$UPGRADE_JOURNAL"
+}
+
+# upgrade_snapshot_present <abs-target> <snapshot-rel-path>
+# Snapshot a pre-existing target into the backup dir (pre-state=present). Returns
+# non-zero if the copy fails so the caller can fail the apply (and roll back).
+upgrade_snapshot_present() {
+  local target="$1" relpath="$2" dest="$UPGRADE_SNAPSHOT_DIR/$2"
+  mkdir -p "$(dirname "$dest")" 2>/dev/null || return 1
+  cp -f "$target" "$dest" 2>/dev/null
+}
+
+# validate_staged <staged-path> <type-name>
+# stage-validation: JSON via python3 json.load,.sh via bash -n,.sqlite via
+# sqlite3 PRAGMA integrity_check (when sqlite3 is present). The VALIDATOR CLASS is
+# chosen from <type-name> (the TARGET's name) because the staged file's name ends
+# in .upgrade.$$, not in its real extension; the CONTENT validated is the staged
+# file. Anything else is accepted as-is (no validator class). Returns non-zero on
+# a validation failure so the atomic apply fails BEFORE the mv (the half-write
+# never reaches disk).
+validate_staged() {
+  local f="$1" typename="${2:-$1}"
+  case "$typename" in
+    *.json)
+      python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$f" >/dev/null 2>&1 || return 1 ;;
+    *.sh)
+      bash -n "$f" >/dev/null 2>&1 || return 1 ;;
+    *.sqlite|*.db)
+      if command -v sqlite3 >/dev/null 2>&1; then
+        [ "$(sqlite3 "$f" 'PRAGMA integrity_check;' 2>/dev/null)" = "ok" ] || return 1
+      fi ;;
+  esac
+  return 0
+}
+
+# atomic_apply <abs-source> <abs-target> <disposition>
+# atomic per-file apply for a SINGLE file: snapshot the pre-existing target
+# (journaled present) OR record an absent-creation, stage the new content to a
+# same-dir temp, VALIDATE it, then mv -f (atomic rename). On a staging/validation
+# failure, trigger the reverse-journal rollback and exit non-zero. The relpath in
+# the snapshot mirrors the target's path under $CLAUDE_HOME so a restore is a
+# straight cp back. Returns 0 on success.
+atomic_apply() {
+  local src="$1" target="$2" disp="$3" rel staged prestate
+  rel="${target#"$CLAUDE_HOME"/}"
+  staged="$target.upgrade.$$"
+  if [ -e "$target" ]; then
+    prestate="present"
+    if ! upgrade_snapshot_present "$target" "$rel"; then
+      diag "failed to snapshot $target before apply — rolling back."
+      rollback_restore "snapshot-failed:$target"
+    fi
+  else
+    prestate="absent"
+  fi
+  # Stage (same dir → mv is a rename, atomic within the filesystem).
+  if ! cp -f "$src" "$staged" 2>/dev/null; then
+    rm -f "$staged" 2>/dev/null || true
+    diag "failed to stage $src → $staged — rolling back."
+    rollback_restore "stage-failed:$target"
+  fi
+  if ! validate_staged "$staged" "$target"; then
+    rm -f "$staged" 2>/dev/null || true
+    diag "staged-content validation failed for $target ($staged) — rolling back."
+    rollback_restore "validate-failed:$target"
+  fi
+  sync 2>/dev/null || true
+  if ! mv -f "$staged" "$target" 2>/dev/null; then
+    rm -f "$staged" 2>/dev/null || true
+    diag "atomic mv failed for $target — rolling back."
+    rollback_restore "mv-failed:$target"
+  fi
+  journal_record "$target" "$disp" "$prestate" "$( [ "$prestate" = "present" ] && printf '%s' "$rel" || printf '%s' '-' )"
+  return 0
+}
+
+# rollback_restore <reason>
+# reverse-journal restore. Reads the apply-journal in REVERSE order; for each
+# entry: pre-state=present → cp the snapshot back over the target; pre-state=absent
+# → rm the created file (incl .foundation-local/.foundation-new sidecars). The
+# .installed-state.json first-entry is restored wholesale (so migrations_applied[]
+# returns to its pre-invocation value). foundation_version is NOT bumped (this
+# function exits before Step 13.7). Exits non-zero — the upgrade is all-or-nothing.
+rollback_restore() {
+  local reason="${1:-unknown}"
+  UPGRADE_ROLLED_BACK=1
+  warn "ROLLBACK ($reason): restoring every already-applied file in reverse journal order; foundation_version will NOT bump."
+  if [ -n "$UPGRADE_JOURNAL" ] && [ -f "$UPGRADE_JOURNAL" ]; then
+    # Reverse the journal (last-applied first) and restore each entry.
+    local rev; rev="$(mktemp 2>/dev/null || printf '%s' "$UPGRADE_JOURNAL.rev")"
+    # bash-3.2-safe reverse: tail -r (BSD) || sed reverse fallback.
+    tail -r "$UPGRADE_JOURNAL" > "$rev" 2>/dev/null || sed '1!G;h;$!d' "$UPGRADE_JOURNAL" > "$rev" 2>/dev/null
+    local jt jd jr jp
+    while IFS="$(printf '\t')" read -r jt jd jr jp; do
+      [ -n "$jt" ] || continue
+      if [ "$jp" = "present" ]; then
+        if [ -n "$jr" ] && [ "$jr" != "-" ] && [ -f "$UPGRADE_SNAPSHOT_DIR/$jr" ]; then
+          mkdir -p "$(dirname "$jt")" 2>/dev/null || true
+          cp -f "$UPGRADE_SNAPSHOT_DIR/$jr" "$jt" 2>/dev/null \
+            && info "rollback: restored $jt from snapshot" \
+            || warn "rollback: FAILED to restore $jt from snapshot $jr"
+        fi
+      else
+        # pre-state=absent → the file was created this run; remove it.
+        if [ -e "$jt" ]; then
+          rm -f "$jt" 2>/dev/null \
+            && info "rollback: removed created file $jt" \
+            || warn "rollback: FAILED to remove created file $jt"
+        fi
+      fi
+    done < "$rev"
+    rm -f "$rev" 2>/dev/null || true
+  fi
+  diag "upgrade rolled back (reason: $reason). foundation_version unchanged; migrations_applied[] restored to its pre-invocation value. Resume by re-running install --apply after fixing the cause."
+  exit 60
+}
+
+# --- per-file FOUNDATION-REPLACE disposition (sha256 three-state) ---
+# (FOUNDATION-REPLACE) + (USER-PRESERVE) +
+# design-install-mechanics.md § (upgrade_foundation_file steps 1-3).
+#
+# Replaces the existence-only `cp -n` skip with a per-file three-state compare
+# against the FROZEN baseline (.installed-baseline-manifest.json, the previous
+# release's sha256 set written by the Step 13.7 baseline freeze). This is the line that lands
+# the legacy adopter's fixes that `cp -n` silently skipped.
+#
+# UPGRADE-PATH GATE: the disposition fires ONLY when a frozen baseline manifest
+# is present on disk (an upgrade over a stamped install). On a fresh install
+# OR a legacy-adopt with no resolvable baseline, UPGRADE_BASELINE_PRESENT=0 and
+# every call degrades to the verbatim `cp $cp_clobber` posture (design §:
+# "Until an adopter has a snapshot ... degrade to the current cp -n + G2-detect
+# posture (safe, never destructive)"). The legacy-adopt absent-baseline take-new
+# default is its surface, not the disposition routine's.
+#
+# USER-PRESERVE structural untouchability: the routine writes a file ONLY
+# when its manifest-relative path is a member of foundation-manifest.json::files[].
+# A path NOT in files[] is unmanaged and is never written — no flag, no
+# --force-all escape on the upgrade path.
+UPGRADE_BASELINE_PRESENT=0
+BASELINE_MANIFEST_SNAPSHOT=""
+UPGRADE_FILE_DISPOSITIONS=""   # newline-joined "<path>\t<disposition>" diff records
+if [ "$APPLY_MODE" = "1" ] && [ -f "$INSTALLED_BASELINE_MANIFEST_PATH" ] \
+   && [ -f "$SOURCE_REPO/governance/foundation-manifest.json" ]; then
+  # Freeze a copy of the on-disk baseline BEFORE any copy can overwrite it
+  # (Step 13.7 re-writes .installed-baseline-manifest.json post-apply; the
+  # disposition base is the PREVIOUS release's manifest read here at copy time).
+  BASELINE_MANIFEST_SNAPSHOT="$(mktemp 2>/dev/null || echo "")"
+  if [ -n "$BASELINE_MANIFEST_SNAPSHOT" ] && cp -f "$INSTALLED_BASELINE_MANIFEST_PATH" "$BASELINE_MANIFEST_SNAPSHOT" 2>/dev/null; then
+    UPGRADE_BASELINE_PRESENT=1
+    info "upgrade disposition active (frozen baseline present; per-file sha256 three-state replaces cp -n for managed-set files)"
+  else
+    BASELINE_MANIFEST_SNAPSHOT=""
+  fi
+fi
+
+# reachable-historical-sha resolver for the legacy-adopt lane.
+# legacy_historical_shas <manifest-rel-path> → prints the per-file sha256 for
+# that path from EVERY shipped governance/baselines/foundation-manifest-v*.json
+# (one per line). This is the "any reachable historical sha" set the legacy-adopt
+# take-new disposition consults: an on-disk file that matches ANY reachable
+# historical sha is a known unmodified prior release ⇒ no .foundation-local
+# snapshot needed (take-new is clean). A mismatch against ALL of them ⇒ adopter-
+# modified ⇒ snapshot to .foundation-local before take-new. With a single shipped
+# baseline today this set is the v1.0.2 per-file shas; >=2 baselines is the v2
+# floor-match precondition.
+legacy_historical_shas() {
+  local rel="$1"
+  [ -d "$LEGACY_ADOPT_BASELINES_DIR" ] || return 0
+  REL="$rel" BLDIR="$LEGACY_ADOPT_BASELINES_DIR" python3 -c '
+import glob, json, os, sys
+rel = os.environ["REL"]
+for path in sorted(glob.glob(os.path.join(os.environ["BLDIR"], "foundation-manifest-v*.json"))):
+    try:
+        m = json.load(open(path))
+    except Exception:
+        continue
+    for f in m.get("files", []):
+        if f.get("path") == rel:
+            s = f.get("sha256", "")
+            if s:
+                print(s)
+            break
+' 2>/dev/null
+}
+
+# upgrade_foundation_file <abs-source> <abs-dest>
+# Three-state disposition for ONE managed-set file (path ∈ files[]). On the true
+# fresh / no-marker path it is a transparent `cp $cp_clobber` shim; on the
+# legacy-adopt path it defaults to FOUNDATION-REPLACE take-new.
+upgrade_foundation_file() {
+  local src="$1" dest="$2" rel sha_disk sha_base lookup_rc
+  # rel = manifest-relative path (== files[].path; verified 1:1, no lib/ xlate).
+  rel="${src#"$SOURCE_REPO"/}"
+
+ # No frozen baseline on disk (a fresh install OR a legacy-adopt — the legacy adopter's case).
+  if [ "$UPGRADE_BASELINE_PRESENT" != "1" ]; then
+ # — legacy-adopt FOUNDATION-REPLACE take-new (absent-baseline is NOT
+ # 'equal'/no-op): a legacy adopter has an OLDER foundation on disk with no installed-
+ # baseline to prove unmodified-ness. The fixes MUST land, so a managed-set
+    # file DEFAULTS to take-new (NOT the cp -n skip that silently drops the fix).
+    # The on-disk bytes are snapshotted to <dest>.foundation-local ONLY when they
+    # differ from BOTH the new upstream AND every reachable historical sha — i.e.
+    # the file is neither already-the-new-content nor a known prior release, so it
+    # is an adopter edit worth preserving (dpkg .dpkg-old). This fires only on an
+    # --apply against a detected legacy-adopt home; fresh installs and dry-runs
+    # keep the verbatim cp -n degrade.
+    if [ "${LEGACY_ADOPT:-0}" = "1" ] && [ "${APPLY_MODE:-0}" = "1" ] && [ -e "$dest" ]; then
+      local sha_new hist matched
+      sha_disk="$(shasum -a 256 "$dest" 2>/dev/null | awk '{print $1}')"
+      sha_new="$(shasum -a 256 "$src" 2>/dev/null | awk '{print $1}')"
+      if [ -n "$sha_disk" ] && [ "$sha_disk" = "$sha_new" ]; then
+        # On-disk already IS the new upstream content → take-new is a no-op write.
+        cp -f "$src" "$dest" 2>/dev/null || true
+        UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	legacy-adopt-replace
+"
+        return 0
+      fi
+      matched=0
+      for hist in $(legacy_historical_shas "$rel"); do
+        if [ "$sha_disk" = "$hist" ]; then matched=1; break; fi
+      done
+      if [ "$matched" = "1" ]; then
+        # On-disk matches a known prior-release sha → unmodified legacy file →
+        # take-new with NO sidecar (clean inherit of the upstream fix).
+        cp -f "$src" "$dest" 2>/dev/null || true
+        UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	legacy-adopt-replace
+"
+      else
+        # On-disk differs from new AND every reachable historical sha → adopter
+        # edit → snapshot to .foundation-local, then take-new (the fix still lands).
+        cp -f "$dest" "$dest.foundation-local" 2>/dev/null || true
+        cp -f "$src" "$dest" 2>/dev/null || true
+        UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	legacy-adopt-replace+foundation-local
+"
+      fi
+      return 0
+    fi
+    # True fresh install (no marker), legacy dest-absent, or dry-run → verbatim
+    # legacy posture. Never destructive. For a legacy-adopt dest-absent file this
+    # is a NEW-SHIP (cp -n writes the absent file), exactly as the design wants.
+    cp $cp_clobber "$src" "$dest" 2>/dev/null || true
+    return 0
+  fi
+
+ # USER-PRESERVE: refuse to write anything not in the managed-set files[].
+  # The frozen baseline's files[] IS the boundary (chezmoi managed-vs-unmanaged).
+  sha_base="$(BMS="$BASELINE_MANIFEST_SNAPSHOT" REL="$rel" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["BMS"]))
+except Exception:
+    sys.exit(3)
+rel = os.environ["REL"]
+for f in m.get("files", []):
+    if f.get("path") == rel:
+        print(f.get("sha256", ""))
+        sys.exit(0)
+sys.exit(2)
+' 2>/dev/null)"
+  lookup_rc=$?
+  if [ "$lookup_rc" -eq 2 ]; then
+    # Not a managed-set member → unmanaged → structurally untouchable. No write.
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	user-preserve-skip
+"
+    return 0
+  fi
+  if [ "$lookup_rc" -ne 0 ]; then
+    # Baseline unreadable mid-walk → fail safe to legacy posture, never clobber.
+    cp $cp_clobber "$src" "$dest" 2>/dev/null || true
+    return 0
+  fi
+
+ # — outstanding .foundation-new sidecar SKIP. A
+  # <dest>.foundation-new sidecar parked beside a managed file means a PRIOR
+  # apply could not auto-resolve the merge and deferred it to the user. Until the
+  # user resolves it (and removes the .foundation-new), this file's disposition is
+  # deferred-to-user: a subsequent apply SKIPS it (does NOT re-merge / re-take-new).
+  # The 3-way base stays pinned to the frozen .installed-baseline-manifest.json
+  # (Step 13.7 does NOT advance the per-file base while a sidecar is outstanding —
+  # the baseline is re-frozen only on a clean apply with no sidecar left), so a
+  # second-apply-after-conflict is a provable no-op for this path. Distinct from
+  # the State-3 .foundation-local dpkg-old archive (take-new already landed; no
+  # pending action).
+  if [ "${UPGRADE_ENVELOPE_ON:-0}" = "1" ] && [ -e "$dest.foundation-new" ]; then
+    info "$rel has an outstanding .foundation-new sidecar (prior unresolved merge) — SKIP (disposition deferred-to-user; 3-way base stays pinned)."
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	sidecar-skip-deferred
+"
+    return 0
+  fi
+
+  # State 1: dest absent → NEW-SHIP (mv/cp into place).
+  if [ ! -e "$dest" ]; then
+    if [ "${UPGRADE_ENVELOPE_ON:-0}" = "1" ]; then
+      atomic_apply "$src" "$dest" "new-ship"
+    else
+      cp -f "$src" "$dest" 2>/dev/null || true
+    fi
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	new-ship
+"
+    return 0
+  fi
+
+  sha_disk="$(shasum -a 256 "$dest" 2>/dev/null | awk '{print $1}')"
+
+  # State 2: on-disk == baseline → adopter UNMODIFIED → take-new (force-replace).
+  # This is the cp -n no-update fix: existence alone no longer blocks the update.
+  if [ -n "$sha_base" ] && [ "$sha_disk" = "$sha_base" ]; then
+    if [ "${UPGRADE_ENVELOPE_ON:-0}" = "1" ]; then
+      atomic_apply "$src" "$dest" "replace"
+    else
+      cp -f "$src" "$dest" 2>/dev/null || true
+    fi
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	replace
+"
+    return 0
+  fi
+
+  # State 3: on-disk != baseline AND FOUNDATION-REPLACE-class → adopter edited
+  # owned code → DEFAULT take-new (upstream fix wins) BUT snapshot her bytes to
+  # <dest>.foundation-local (dpkg .dpkg-old) + surface in the diff. Foundation
+  # code is not a customization surface; the fix lands, her bytes are never lost.
+  # The .foundation-local sidecar is a CREATED file (pre-state=absent) so it
+  # is journaled and rm'd on rollback; the take-new itself is the atomic apply.
+ #
+ # BEFORE sidecarring, consult the SAME
+  # legacy_historical_shas resolver the legacy branch uses (1691-1696). An adopter
+  # who already ran broken v1.1.0 is stamped + baseline-frozen to v1.1.0 over stale
+  # v1.0.2 bytes; on v1.1.1 every one of the 18 files hits THIS State-3 branch
+  # (sha_disk v1.0.2 != sha_base v1.1.0) and WITHOUT this consult is MISARCHIVED as
+  # .foundation-local (the misarchive). If sha_disk matches ANY reachable
+  # historical sha, the on-disk bytes are a KNOWN prior release (not an adopter
+  # edit) → take-new with NO sidecar (clean inherit of the upstream fix), exactly
+  # as the legacy branch does. Only when sha_disk matches NEITHER sha_base NOR any
+  # reachable historical sha is it a genuine adopter edit → sidecar then take-new.
+  local s3_hist s3_matched=0
+  for s3_hist in $(legacy_historical_shas "$rel"); do
+    if [ -n "$sha_disk" ] && [ "$sha_disk" = "$s3_hist" ]; then s3_matched=1; break; fi
+  done
+  if [ "$s3_matched" = "1" ]; then
+    # On-disk matches a known prior-release sha → unmodified foundation bytes from
+    # an earlier release (e.g. an already-broken-v1.1.0 home whose subtree files
+    # are still pristine v1.0.2) → take-new with NO .foundation-local sidecar.
+    if [ "${UPGRADE_ENVELOPE_ON:-0}" = "1" ]; then
+      atomic_apply "$src" "$dest" "replace"
+    else
+      cp -f "$src" "$dest" 2>/dev/null || true
+    fi
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	replace
+"
+    return 0
+  fi
+  if [ "${UPGRADE_ENVELOPE_ON:-0}" = "1" ]; then
+    if cp -f "$dest" "$dest.foundation-local" 2>/dev/null; then
+      journal_record "$dest.foundation-local" "foundation-local-sidecar" "absent" "-"
+    fi
+    atomic_apply "$src" "$dest" "replace+foundation-local"
+  else
+    cp -f "$dest" "$dest.foundation-local" 2>/dev/null || true
+    cp -f "$src" "$dest" 2>/dev/null || true
+  fi
+  UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	replace+foundation-local
+"
+  return 0
+}
+
+# — decompose a recursive cp -R subtree into per-file
+# stage→validate→mv ENUMERATED FROM manifest files[]. A `cp -R` of a whole
+# subtree cannot honor file-rename atomicity (it is N un-journaled writes), so on
+# the upgrade envelope lane we DROP cp -R from the upgrade path: we walk the
+# files[] entries whose manifest-relative path falls under <rel-prefix> and route
+# each through upgrade_foundation_file() (per-file three-state disposition +
+# atomic_apply + journal). On a fresh / legacy-adopt / non-envelope run this is a
+# transparent shim back to the caller's existing `cp -R $cp_clobber` posture.
+#
+# apply_subtree_managed <abs-source-dir> <rel-prefix>
+#   <abs-source-dir> — the $SOURCE_REPO subtree root (e.g. $SOURCE_REPO/skills)
+#   <rel-prefix>     — the manifest-relative prefix to select (e.g. "skills/")
+apply_subtree_managed() {
+  local srcdir="$1" prefix="$2" rel src dest
+  [ -d "$srcdir" ] || return 0
+  # Enumerate the managed-set members under <prefix> from the FROZEN baseline
+  # manifest (the same files[] that bounds USER-PRESERVE in upgrade_foundation_file).
+  # Read line-by-line (NOT `for rel in $(...)`): 11 managed paths carry spaces
+  # (vault-init/System Governance/*, vault-init/Vault Writers/*,
+  # governance/file-type-contracts/System Governance.md.json). Word-splitting on
+  # IFS would shatter those into nonexistent tokens and silently skip them — the
+  # exact cp -n silent-skip regression this engine exists to kill. The `< <(...)`
+  # process substitution keeps the loop in the CURRENT shell so per-file global
+  # state (UPGRADE_FILE_DISPOSITIONS) accrues (a pipe would subshell it away).
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    src="$SOURCE_REPO/$rel"
+    dest="$CLAUDE_HOME/$rel"
+    [ -f "$src" ] || continue
+    mkdir -p "$(dirname "$dest")" 2>/dev/null || true
+    upgrade_foundation_file "$src" "$dest"
+  done < <(BMS="$BASELINE_MANIFEST_SNAPSHOT" PREFIX="$prefix" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["BMS"]))
+except Exception:
+    sys.exit(0)
+prefix = os.environ["PREFIX"]
+for f in m.get("files", []):
+    p = f.get("path", "")
+    if p.startswith(prefix):
+        print(p)
+' 2>/dev/null)
+}
+
+# — legacy-lane subtree delivery.
+# The STAMPED envelope walk (apply_subtree_managed, above) enumerates from the
+# FROZEN baseline snapshot (BASELINE_MANIFEST_SNAPSHOT), which is EMPTY on the
+# legacy lane (a legacy adopter has no .installed-baseline-manifest.json →
+# UPGRADE_BASELINE_PRESENT=0 → the snapshot is "" → that walk would ship zero
+# files). So the legacy lane gets its OWN per-file walk that enumerates from the
+# SHIPPED $SOURCE_REPO/governance/foundation-manifest.json files[] instead.
+#
+# This is the KEYSTONE fix: the six cp -R subtree steps degrade to raw
+# `cp -R -n` on the legacy lane (UPGRADE_ENVELOPE_ON=0), and `cp -n` SILENTLY
+# SKIPS every pre-existing file — so v1.1.x fixes never reach the 18 managed
+# subtree files on a legacy adopter's disk. Routing each subtree step through
+# this per-file walk fires upgrade_foundation_file()'s legacy take-new branch
+# (above, the UPGRADE_BASELINE_PRESENT!=1 / LEGACY_ADOPT path) per file, which
+# DELIVERS.
+#
+# (enumerate-from-manifest, NOT disk-walk): we enumerate the SHIPPED
+# files[] filtered by <rel-prefix>, NOT the source subtree on disk. A disk-walk
+# would over-deliver NON-files[] repo-authoring files — e.g. the 7 governance
+# pillar JSONs + governance/_index.json that Step 8.5 DELIBERATELY does not ship
+# — a new over-delivery defect. files[]-membership IS the USER-PRESERVE boundary
+# on the legacy lane: only files[] paths under the prefix are walked, and the
+# legacy branch of upgrade_foundation_file returns before the
+# UPGRADE_BASELINE_PRESENT=1 membership block, so enumeration-from-files[] is the
+# structural filter (a non-files[] path under a foundation subtree is never
+# written by this walk).
+#
+# (space-bearing paths): iterate with `while IFS= read -r rel` over a
+# `< <(...)` PROCESS SUBSTITUTION (current shell, so UPGRADE_FILE_DISPOSITIONS
+# accrues) — NOT `for rel in $(...)`. 11 managed paths carry spaces (e.g.
+# vault-init/Vault Writers/_index.md, vault-init/System Governance/*,
+# governance/file-type-contracts/System Governance.md.json); word-splitting on
+# IFS would shatter them into nonexistent tokens and silently skip them — the
+# exact cp -n silent-skip class this fix kills (mirrors apply_subtree_managed's
+# comment + memory feedback_awk_no_multiline_dash_v).
+#
+# apply_subtree_legacy <abs-source-dir> <rel-prefix>
+#   <abs-source-dir> — the $SOURCE_REPO subtree root (e.g. $SOURCE_REPO/skills)
+#   <rel-prefix>     — the manifest-relative prefix to select (e.g. "skills/")
+apply_subtree_legacy() {
+  local srcdir="$1" prefix="$2" rel src dest
+  [ -d "$srcdir" ] || return 0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    src="$SOURCE_REPO/$rel"
+    dest="$CLAUDE_HOME/$rel"
+    [ -f "$src" ] || continue
+    mkdir -p "$(dirname "$dest")" 2>/dev/null || true
+    upgrade_foundation_file "$src" "$dest"
+  done < <(SHIPPED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json" PREFIX="$prefix" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
+except Exception:
+    sys.exit(0)
+prefix = os.environ["PREFIX"]
+for f in m.get("files", []):
+    p = f.get("path", "")
+    if p.startswith(prefix):
+        print(p)
+' 2>/dev/null)
+}
+
+# --- THREE-WAY-MERGE gear — overlay-master.json skeleton-merge ---
+# (THREE-WAY-MERGE reconcile, overlay-master.json):
+# "Never cp -f clobber (that destroys her registered tag-dimensions/folder-rules).
+#  Merge foundation skeleton changes INTO her overlay: jq deep-merge with
+#  OVERLAY-WINS semantics (foundation-skeleton * adopter-overlay), identical
+#  arg-order discipline to settings.json so her registrations win on every
+#  conflict, new foundation pillars/keys land as additions."
+#
+# overlay-master.json is the adopter's Layer-3 governance overlay — mutated by
+# /govern register (hooks/lib/overlay-master-mutate.sh). It is NOT a
+# FOUNDATION-REPLACE take-new surface (that would clobber her registrations) and
+# NOT in the upgrade_foundation_file() walk. It gets its own MERGE gear here.
+#
+# OVERLAY-WINS arg order: `jq -s '.[0] * .[1]' <foundation-skeleton> <adopter-overlay>`
+# — in `a * b`, b wins on scalar conflicts and objects merge recursively, so
+# adopter-overlay (b) wins (her /govern-registered dimensions/folder-rules survive)
+# while NEW foundation skeleton pillars/keys absent from her overlay land as
+# additions. This is the EXACT survivorship contract as the Step-12 settings.json
+# merge (template * user → user wins), applied to governance.
+#
+# UPGRADE-PATH GATE: mirrors upgrade_foundation_file() — the overlay-wins merge
+# fires only when a frozen baseline is present (UPGRADE_BASELINE_PRESENT=1, an
+# upgrade over a stamped install). On a fresh install OR a legacy-adopt with
+# no baseline, it degrades to the verbatim `cp $cp_clobber` posture (the
+# pre-existing cp -n preserves first-write adopter mutations; never
+# destructive). Atomic stage→mv (stage to a same-dir temp, validate JSON, mv -f).
+#
+# upgrade_overlay_master <abs-source-skeleton> <abs-dest-overlay>
+upgrade_overlay_master() {
+  local src="$1" dest="$2" tmp rel
+  rel="${src#"$SOURCE_REPO"/}"
+
+  # Fresh / no-baseline / dest-absent → verbatim legacy posture (cp -n preserves
+ # adopter mutations after first write per). Never destructive, never merges
+  # against a base that does not exist.
+  if [ "$UPGRADE_BASELINE_PRESENT" != "1" ] || [ ! -f "$dest" ] || [ ! -f "$src" ]; then
+    cp $cp_clobber "$src" "$dest" 2>/dev/null || true
+    return 0
+  fi
+
+  # OVERLAY-WINS deep merge: foundation-skeleton (.[0]) * adopter-overlay (.[1])
+  # → adopter wins on conflict, new foundation pillars/keys land as additions.
+  tmp="$dest.overlay-merge.$$"
+  if jq -s '.[0] * .[1]' "$src" "$dest" > "$tmp" 2>/dev/null \
+     && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; }
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	skeleton-merge
+"
+  else
+    # Merge failed (malformed overlay/skeleton) → never clobber her registrations;
+    # leave the adopter overlay untouched and surface the skip.
+    rm -f "$tmp" 2>/dev/null || true
+    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	skeleton-merge-skip
+"
+  fi
+  return 0
+}
+
+# Step 1: mkdir -p target tree (brain-stem install layout)
+# DROPPED dirs: plugins/ (claude-mem not bundled),
 # onboarding/ (dissolved into skills/onboarder/),
 # governance/librarian-capabilities/, governance/onboarding-reference/ (R-20).
-target_dirs="hooks hooks/lib hooks/state hooks/config skills schemas orchestrator templates templates/launchd templates/settings-fragments Library/LaunchAgents.staging installer logs governance governance/file-type-contracts vault-init"
+target_dirs="hooks hooks/lib hooks/state hooks/config skills schemas orchestrator templates templates/launchd templates/settings-fragments Library/LaunchAgents.staging installer migrations logs governance governance/file-type-contracts vault-init"
 for d in $target_dirs; do
   mkdir -p "$CLAUDE_HOME/$d" || { diag "mkdir failed: $CLAUDE_HOME/$d"; exit 11; }
 done
@@ -719,7 +2172,7 @@ if [ -r "$manifest_record_lib" ]; then
   fi
   info "manifest.sqlite bootstrap applied: $VAULT_WRITER_STATE_ROOT/manifest.sqlite"
 else
-  warn "manifest-record.sh not present at $manifest_record_lib (C5 writer-manifest substrate not landed); skipping manifest.sqlite bootstrap (governance-action-log init still fires)"
+  warn "manifest-record.sh not present at $manifest_record_lib (writer-manifest substrate not landed); skipping manifest.sqlite bootstrap (governance-action-log init still fires)"
 fi
 
 # governance-action-log.jsonl bootstrap: the runtime file is bootstrap-CREATED
@@ -741,20 +2194,22 @@ fi
 # is nothing to migrate. (No mp_state_* vars; the whole step is removed.)
 
 # Step 2: hooks/*.sh + hooks/*.md + MANIFEST → $CLAUDE_HOME/hooks/
-# (cp -n: never clobber; honors user-edited variants)
+# upgrade_foundation_file() replaces bare cp $cp_clobber — on the upgrade
+# path it force-replaces an UNMODIFIED hook (cp -n no longer skips it) + snapshots
+# an adopter-edited one to .foundation-local; on fresh it is a cp $cp_clobber shim.
 for f in "$SOURCE_REPO/hooks"/*.sh "$SOURCE_REPO/hooks"/*.md "$SOURCE_REPO/hooks/MANIFEST.txt"; do
   [ -e "$f" ] || continue
-  cp $cp_clobber "$f" "$CLAUDE_HOME/hooks/" 2>/dev/null || true
+  upgrade_foundation_file "$f" "$CLAUDE_HOME/hooks/${f##*/}"
 done
 
-# Step 3 / 3.5: hooks/lib/ → hooks/lib/  (top-level lib/ does NOT exist in
+# Step 3 / 3.5: hooks/lib/ → hooks/lib/  (: top-level lib/ does NOT exist in
 # brain-stem — hooks/lib/ is the SOLE lib/ surface; no lib/→hooks/lib/ translation).
 # Ships *.sh + *.json + *.sql from the source hooks/lib/ (paths.sh, registry.sh,
 # the govern read/write libs, merge-strategy-registry.json, lockf.sh, the
 # writer-manifest bodies, + manifest-migrate.sql companion if present).
 for f in "$SOURCE_REPO/hooks/lib"/*.sh "$SOURCE_REPO/hooks/lib"/*.json "$SOURCE_REPO/hooks/lib"/*.sql; do
   [ -e "$f" ] || continue
-  cp $cp_clobber "$f" "$CLAUDE_HOME/hooks/lib/" 2>/dev/null || true
+  upgrade_foundation_file "$f" "$CLAUDE_HOME/hooks/lib/${f##*/}"   # foundation-replace disposition
 done
 
 # Step 3.5: SUBSUMED into Step 3. brain-stem has a single
@@ -764,7 +2219,7 @@ done
 # Step 4: hooks/config/*.json → $CLAUDE_HOME/hooks/config/
 for f in "$SOURCE_REPO/hooks/config"/*.json; do
   [ -e "$f" ] || continue
-  cp $cp_clobber "$f" "$CLAUDE_HOME/hooks/config/" 2>/dev/null || true
+  upgrade_foundation_file "$f" "$CLAUDE_HOME/hooks/config/${f##*/}"   # foundation-replace disposition
 done
 
 # Step 5: skills/ → $CLAUDE_HOME/skills/  (brain-stem foundation skill roster)
@@ -777,15 +2232,26 @@ done
 #     (top-level onboarding/ dissolved; producers are part of the onboarder
 #     skill tree, shipped by this cp -R, NOT a separate Step 6).
 # The loop ships every brain-stem foundation skill subtree recursively. It
-# tolerates absent skills; warn + continue.
-for skill in librarian backlog-hygiene backlog-triage backlog-research onboarder govern doc-amender writer-reconciler meeting-note-ingestor mem-promote new-plan session-checkpoint; do
-  src="$SOURCE_REPO/skills/$skill"
-  if [ ! -d "$src" ]; then
-    warn "skill not present in foundation-repo source: $skill (deferred to its sub-plan)"
-    continue
-  fi
-  cp -R $cp_clobber "$src" "$CLAUDE_HOME/skills/" 2>/dev/null || true
-done
+# tolerates absent skills (some land in later sub-plans); warn + continue.
+# on the upgrade envelope lane the recursive cp -R is
+# DROPPED in favor of the per-file files[]-enumerated atomic walk (the whole
+# skills/ subtree decomposes to per-file stage→validate→mv + journal).
+if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+  apply_subtree_managed "$SOURCE_REPO/skills" "skills/"
+elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane routes through the per-file files[] walk so
+  # pre-existing skills/* land (raw cp -R -n silently skips them).
+  apply_subtree_legacy "$SOURCE_REPO/skills" "skills/"
+else
+  for skill in librarian backlog-hygiene backlog-triage backlog-research onboarder govern doc-amender writer-reconciler meeting-note-ingestor mem-promote new-plan session-checkpoint; do
+    src="$SOURCE_REPO/skills/$skill"
+    if [ ! -d "$src" ]; then
+      warn "skill not present in foundation-repo source: $skill (deferred to its sub-plan)"
+      continue
+    fi
+    cp -R $cp_clobber "$src" "$CLAUDE_HOME/skills/" 2>/dev/null || true
+  done
+fi
 
 # Step 6: DISSOLVED. The top-level
 # onboarding/ tree is gone — the onboarder dissolved into a
@@ -794,15 +2260,98 @@ done
 # tree). There is no top-level onboarding/ to prune. No-op step.
 
 # Step 7: orchestrator/ → $CLAUDE_HOME/orchestrator/
+# cp -R dropped from the upgrade path → per-file files[] walk.
 if [ -d "$SOURCE_REPO/orchestrator" ]; then
-  cp -R $cp_clobber "$SOURCE_REPO/orchestrator"/. "$CLAUDE_HOME/orchestrator/" 2>/dev/null || true
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    apply_subtree_managed "$SOURCE_REPO/orchestrator" "orchestrator/"
+  elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane → per-file files[] walk (cp -R -n skips).
+    apply_subtree_legacy "$SOURCE_REPO/orchestrator" "orchestrator/"
+  else
+    cp -R $cp_clobber "$SOURCE_REPO/orchestrator"/. "$CLAUDE_HOME/orchestrator/" 2>/dev/null || true
+  fi
 fi
 
 # Step 8: installer/ → $CLAUDE_HOME/installer/
 # Preserves render-launchd.sh + bootout-launchd.sh with their G6 LABEL_PREFIX
 # default (com.brain-stem); install.sh does NOT override this default.
+# cp -R dropped from the upgrade path → per-file files[] walk.
 if [ -d "$SOURCE_REPO/installer" ]; then
-  cp -R $cp_clobber "$SOURCE_REPO/installer"/. "$CLAUDE_HOME/installer/" 2>/dev/null || true
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    apply_subtree_managed "$SOURCE_REPO/installer" "installer/"
+  elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane → per-file files[] walk (cp -R -n skips).
+    apply_subtree_legacy "$SOURCE_REPO/installer" "installer/"
+  else
+    cp -R $cp_clobber "$SOURCE_REPO/installer"/. "$CLAUDE_HOME/installer/" 2>/dev/null || true
+  fi
+fi
+
+# Step 8.2: installer/migrations/ → $CLAUDE_HOME/migrations/
+# The forward-only migration runner + NNNN-slug.sh files ship FLAT into
+# $CLAUDE_HOME/migrations/ (: "shipped to
+# $CLAUDE_HOME/migrations/ so the adopter has the runner locally for audit").
+# These are FOUNDATION-REPLACE managed files (in foundation-manifest.json::files[]);
+# the bare cp here is the ship — the post-Step-13.5 runner invocation below runs
+# the SHIPPED copy. The Step 8 installer/. copy above also lands a nested
+# installer/migrations/ copy (harmless audit duplicate); the FLAT migrations/ is
+# the runtime path.
+# on the envelope lane the FLAT runtime copy is derived
+# per-file (atomic stage→validate→mv + journal) from the managed installer/migrations/
+# files[] entries — the runner + demonstrators reach $CLAUDE_HOME/migrations/ with
+# the same transaction guarantee, not a recursive cp -R.
+if [ -d "$SOURCE_REPO/installer/migrations" ]; then
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    for mrel in $(BMS="$BASELINE_MANIFEST_SNAPSHOT" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["BMS"]))
+except Exception:
+    sys.exit(0)
+for f in m.get("files", []):
+    p = f.get("path", "")
+    if p.startswith("installer/migrations/"):
+        print(p)
+' 2>/dev/null); do
+      msrc="$SOURCE_REPO/$mrel"
+      mdest="$CLAUDE_HOME/migrations/${mrel##*/}"
+      [ -f "$msrc" ] || continue
+      atomic_apply "$msrc" "$mdest" "migration-flat-ship"
+    done
+    chmod +x "$CLAUDE_HOME/migrations"/*.sh 2>/dev/null || true
+  elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane → per-file files[] walk. Migrations ship
+    # FLAT ($CLAUDE_HOME/migrations/<basename>), so this mirrors the ENVELOPE
+    # flat-ship loop above (NOT the generic apply_subtree_legacy, which would land
+    # the nested installer/migrations/ path) — but enumerates from the SHIPPED
+ # foundation-manifest.json (BASELINE_MANIFEST_SNAPSHOT is empty on the
+ # legacy lane) with IFS= read -r and drives upgrade_foundation_file
+    # (its legacy take-new branch delivers + decides the .foundation-local snapshot
+    # via legacy_historical_shas on the manifest-relative key). chmod +x parity is
+    # kept after the walk (criterion: chmod +x $CLAUDE_HOME/migrations/*.sh).
+    while IFS= read -r mrel; do
+      [ -n "$mrel" ] || continue
+      msrc="$SOURCE_REPO/$mrel"
+      mdest="$CLAUDE_HOME/migrations/${mrel##*/}"
+      [ -f "$msrc" ] || continue
+      mkdir -p "$(dirname "$mdest")" 2>/dev/null || true
+      upgrade_foundation_file "$msrc" "$mdest"
+    done < <(SHIPPED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
+except Exception:
+    sys.exit(0)
+for f in m.get("files", []):
+    p = f.get("path", "")
+    if p.startswith("installer/migrations/"):
+        print(p)
+' 2>/dev/null)
+    chmod +x "$CLAUDE_HOME/migrations"/*.sh 2>/dev/null || true
+  else
+    cp -R $cp_clobber "$SOURCE_REPO/installer/migrations"/. "$CLAUDE_HOME/migrations/" 2>/dev/null || true
+    chmod +x "$CLAUDE_HOME/migrations"/*.sh 2>/dev/null || true
+  fi
 fi
 
 # Step 8.5: governance/ → $CLAUDE_HOME/governance/
@@ -841,20 +2390,57 @@ fi
 #   - librarian-capabilities/ — NOT copied.
 if [ -d "$SOURCE_REPO/governance" ]; then
   # Bundle (single runtime governance artifact for hooks)
-  cp $cp_clobber "$SOURCE_REPO/governance/foundation-master.json" "$CLAUDE_HOME/governance/" 2>/dev/null || true
+  upgrade_foundation_file "$SOURCE_REPO/governance/foundation-master.json" "$CLAUDE_HOME/governance/foundation-master.json"   # foundation-replace disposition
   # Adopter overlay skeleton (mutation target for /govern register)
-  cp $cp_clobber "$SOURCE_REPO/governance/overlay-master.json" "$CLAUDE_HOME/governance/" 2>/dev/null || true
+ # overlay-master.json is a THREE-WAY-MERGE surface, NOT a plain
+  # FOUNDATION-REPLACE take-new surface — routing it through upgrade_foundation_file
+  # would clobber adopter registrations. The overlay-wins skeleton-merge
+  # (foundation-skeleton * adopter-overlay → her /govern-registered dimensions win,
+  # new foundation pillars land as additions) fires on the upgrade path; fresh /
+  # legacy-adopt degrades to the verbatim cp $cp_clobber posture inside the routine.
+  upgrade_overlay_master "$SOURCE_REPO/governance/overlay-master.json" "$CLAUDE_HOME/governance/overlay-master.json"
   # Foundation-manifest sha256 baseline (consumed by G2 foreign-content detector
   # + uninstall.sh fingerprint match; produced by generate-foundation-manifest.sh)
-  cp $cp_clobber "$SOURCE_REPO/governance/foundation-manifest.json" "$CLAUDE_HOME/governance/" 2>/dev/null || true
+  upgrade_foundation_file "$SOURCE_REPO/governance/foundation-manifest.json" "$CLAUDE_HOME/governance/foundation-manifest.json"   # foundation-replace disposition
   # R-05 system-utility canonicality registry
-  cp $cp_clobber "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/" 2>/dev/null || true
+  upgrade_foundation_file "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/log-subtype-registry.json"   # foundation-replace disposition
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
-  # at Step 1.6 under $CLAUDE_HOME/governance/ (F-2 finding: bootstrap-not-copy).
-  # File-type contracts subdir (k8s paramKind shape) — the 12 contract members
+  # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
+  # File-type contracts subdir (k8s paramKind shape) — the 12 contract members.
+ # cp -R dropped from the upgrade path → per-file files[] walk.
   if [ -d "$SOURCE_REPO/governance/file-type-contracts" ]; then
     mkdir -p "$CLAUDE_HOME/governance/file-type-contracts"
-    cp -R $cp_clobber "$SOURCE_REPO/governance/file-type-contracts"/. "$CLAUDE_HOME/governance/file-type-contracts/" 2>/dev/null || true
+    if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+      apply_subtree_managed "$SOURCE_REPO/governance/file-type-contracts" "governance/file-type-contracts/"
+    elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane → per-file files[] walk (cp -R -n skips).
+      apply_subtree_legacy "$SOURCE_REPO/governance/file-type-contracts" "governance/file-type-contracts/"
+    else
+      cp -R $cp_clobber "$SOURCE_REPO/governance/file-type-contracts"/. "$CLAUDE_HOME/governance/file-type-contracts/" 2>/dev/null || true
+    fi
+  fi
+ # Historical-manifest archive (Option A): ship
+  # governance/baselines/ INTO the home so uninstall.sh — which carries NO
+  # $SOURCE_REPO and resolves all baselines from $CLAUDE_HOME/governance/ — can
+  # reach the per-release historical-sha set for stale-pristine-vs-edited
+ # disambiguation. Members: the frozen foundation-manifest-v*.json
+  # archives + README.md, now in foundation-manifest.json::files[] (generator
+  # extension). Shipped through the PER-FILE engine (upgrade_foundation_file via
+  # the files[]-enumerated walk), NOT a raw cp -R -n: a cp -R -n would re-introduce
+  # the silent-skip on the very archive this fix depends on (a legacy adopter's
+  # pre-existing stale archive would never receive the newly-shipped v1.1.0 member).
+  # The archive is append-only; an already-present archived manifest is byte-identical
+  # (its sha never changes) so the per-file disposition is a clean take-new / no-op.
+  if [ -d "$SOURCE_REPO/governance/baselines" ]; then
+    mkdir -p "$CLAUDE_HOME/governance/baselines"
+    if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+      apply_subtree_managed "$SOURCE_REPO/governance/baselines" "governance/baselines/"
+    elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+      # Legacy lane → per-file files[] walk (cp -R -n would skip pre-existing archives).
+      apply_subtree_legacy "$SOURCE_REPO/governance/baselines" "governance/baselines/"
+    else
+      cp -R $cp_clobber "$SOURCE_REPO/governance/baselines"/. "$CLAUDE_HOME/governance/baselines/" 2>/dev/null || true
+    fi
   fi
   # NOT shipped: librarian-capabilities/ + onboarding-reference/ (R-20).
 fi
@@ -872,9 +2458,20 @@ fi
 # The per-plan backlog satellite is retired: backlog +
 # archive now live as librarian-emitted files at ${PLANS_DIR:-$HOME/.claude-plans}/_backlog.md
 # + _archive.md under Plans Pillar governance (writers_allowed: ["librarian"]
-# per governance/plans-rules.json :: root_files).
+# per governance/plans-rules.json :: root_files). Downstream cascade across
+# naming/doc-deps pillars + hooks + librarian SKILL.md tracked separately.
+# cp -R dropped from the upgrade path → per-file files[] walk.
 if [ -d "$SOURCE_REPO/vault-init" ]; then
-  cp -R $cp_clobber "$SOURCE_REPO/vault-init"/. "$CLAUDE_HOME/vault-init/" 2>/dev/null || true
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    apply_subtree_managed "$SOURCE_REPO/vault-init" "vault-init/"
+  elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
+ # legacy lane → per-file files[] walk. Carries the 11
+    # space-bearing paths (vault-init/Vault Writers/_index.md, vault-init/System
+    # Governance/*) intact via the helper's IFS= read -r (cp -R -n skips them).
+    apply_subtree_legacy "$SOURCE_REPO/vault-init" "vault-init/"
+  else
+    cp -R $cp_clobber "$SOURCE_REPO/vault-init"/. "$CLAUDE_HOME/vault-init/" 2>/dev/null || true
+  fi
 fi
 
 # Step 8.8: walk-hygiene prune. The Step 5/7/8/8.5/8.7
@@ -903,32 +2500,28 @@ LC_ALL=C find "$CLAUDE_HOME/orchestrator/state" -type f -print 2>/dev/null | whi
   rm -f "$st" 2>/dev/null || true
 done
 
-# Step 9: schemas/ — selective named-list. vault-schema, gate-config, and
-# gate-config-schema are dropped (dissolved into pillar shards / retired).
-# vault-overlay-schema.json is retired; companion config hooks/config/vault-overlay.json
-# now ships unvalidated until a replacement pillar shard supersedes it.
-# Remaining hooks/config/*.json companion schemas (drift-allowlist) consumed by
-# Step 13.6 jsonschema validation below. Ships the overlay-master,
-# governance-action-log, vault-writers-rules, processing-rules, plans-rules,
-# and writer-manifest schemas.
+# Step 9: schemas/ — selective named-list. Ships the 9 adopter schemas + README:
+# plans, plan-manifest, librarian-manifest, user-manifest, orchestration,
+# drift-allowlist, overlay-master, governance-action-log, and writer-manifest.
+# The drift-allowlist companion schema validates hooks/config/*.json via the
+# Step 13.6 jsonschema validation below.
 #
-# 4 per-pillar schemas are DROPPED from the ship surface —
-# doc-dependencies-schema, vault-writers-rules-schema,
-# processing-rules-schema, plans-rules-schema. Per-pillar schemas stay
-# foundation-repo authoring-side as reference; the bundle-slot schema in
-# foundation-master-schema.json is the runtime validation layer (pillars compose
-# into the bundle at release time; bundle ships, pillars don't).
+# 4 schemas are DROPPED from the ship surface — foundation-master-schema,
+# memory-schema, review-queue-schema, rules-schema. They stay foundation-repo
+# authoring-side as reference; foundation-master-schema.json is the runtime
+# validation layer (pillars compose into the bundle at release time; bundle
+# ships, pillars don't).
 for schema in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema; do
   src="$SOURCE_REPO/schemas/$schema.json"
   if [ ! -f "$src" ]; then
     diag "schema missing in source: $schema.json"
     exit 11
   fi
-  cp $cp_clobber "$src" "$CLAUDE_HOME/schemas/" 2>/dev/null || true
+  upgrade_foundation_file "$src" "$CLAUDE_HOME/schemas/${src##*/}"   # foundation-replace disposition
 done
 # Schemas/README.md ships alongside (operator docs)
 [ -f "$SOURCE_REPO/schemas/README.md" ] && \
-  cp $cp_clobber "$SOURCE_REPO/schemas/README.md" "$CLAUDE_HOME/schemas/" 2>/dev/null || true
+  upgrade_foundation_file "$SOURCE_REPO/schemas/README.md" "$CLAUDE_HOME/schemas/README.md"   # foundation-replace disposition
 
 # Step 10: templates/ — settings.json + skeletons + README + CLAUDE.md templates
 # + plan/capture templates + launchd/*.tmpl + settings-fragments/.
@@ -936,22 +2529,59 @@ done
 # staged here sha256-protected; the
 # onboarder author-claude-home.sh consumes them (NOT install-time seeded).
 # librarian-manifest-skeleton.json + README.md remain in the loop for forward
-# compatibility (skipped via [ -e ] || continue when not yet landed).
-for tmpl in settings.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md updates-template.md prd-template.md context-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md; do
+# compatibility (skipped via [ -e ] || continue when not yet landed; ownership
+# escalated per CSE-templates-band-ownership).
+# templates/settings.json IS in files[] and is force-replaced here as
+# INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
+# target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
+# MIGRATE-STATE surface), a distinct path the templates walk never touches.
+for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md updates-template.md prd-template.md context-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
-  cp $cp_clobber "$src" "$CLAUDE_HOME/templates/" 2>/dev/null || true
+  upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition
 done
 for f in "$SOURCE_REPO/templates/launchd"/*.tmpl; do
   [ -e "$f" ] || continue
-  cp $cp_clobber "$f" "$CLAUDE_HOME/templates/launchd/" 2>/dev/null || true
+  upgrade_foundation_file "$f" "$CLAUDE_HOME/templates/launchd/${f##*/}"   # foundation-replace disposition
 done
 for f in "$SOURCE_REPO/templates/settings-fragments"/*.json; do
   [ -e "$f" ] || continue
-  cp $cp_clobber "$f" "$CLAUDE_HOME/templates/settings-fragments/" 2>/dev/null || true
+  upgrade_foundation_file "$f" "$CLAUDE_HOME/templates/settings-fragments/${f##*/}"   # foundation-replace disposition
 done
 
-# Step 11: DROPPED. claude-mem is NOT bundled — it is
+# The per-file disposition reads of the frozen baseline are complete (all
+# per-file managed-set cp loops above ran before Step 13.7 re-stamps the baseline).
+# Release the snapshot temp. Recursive cp -R subtrees (Steps 5/7/8/8.5-contracts/
+# 8.7) are LEFT as cp $cp_clobber — their per-file decomposition over
+# files[] is its surface (cp -R dropped from the upgrade path there).
+[ -n "$BASELINE_MANIFEST_SNAPSHOT" ] && rm -f "$BASELINE_MANIFEST_SNAPSHOT" 2>/dev/null || true
+
+# Surface the per-file disposition diff (snapshot her version
+# to <file>.foundation-local AND surface it in the diff", dpkg .dpkg-old). The
+# disposition records collected during the copy loops above are now emitted to the
+# operator (info() — dpkg prints config-preservation to its install output) AND
+# carried into the Step-14 provenance log for the audit trail. apply-time surface,
+# distinct from the G9 dry-run-PREVIEW. Only fires on the upgrade
+# path (frozen baseline present); fresh/legacy-adopt leaves UPGRADE_FILE_DISPOSITIONS
+# empty and this block is a no-op.
+if [ "$UPGRADE_BASELINE_PRESENT" = "1" ] && [ -n "$UPGRADE_FILE_DISPOSITIONS" ]; then
+  info "upgrade file dispositions (per-file FOUNDATION-REPLACE three-state diff):"
+  printf '%s' "$UPGRADE_FILE_DISPOSITIONS" | while IFS=$'\t' read -r disp_path disp_kind; do
+    [ -z "$disp_path" ] && continue
+    case "$disp_kind" in
+      replace+foundation-local)
+        info "  - $disp_path: take-new (upstream fix landed); prior bytes snapshotted to $disp_path.foundation-local" ;;
+      replace)       info "  - $disp_path: take-new (unmodified on-disk; upstream fix landed)" ;;
+      new-ship)      info "  - $disp_path: new-ship (absent on disk; staged into place)" ;;
+      user-preserve-skip) info "  - $disp_path: user-preserve-skip (not in managed-set files[]; untouched)" ;;
+      skeleton-merge) info "  - $disp_path: skeleton-merge (overlay-wins THREE-WAY-MERGE; adopter registrations preserved, new foundation pillars added)" ;;
+      skeleton-merge-skip) info "  - $disp_path: skeleton-merge-skip (merge failed; adopter overlay left untouched)" ;;
+      *)             info "  - $disp_path: $disp_kind" ;;
+    esac
+  done
+fi
+
+# Step 11: DROPPED (brain-stem). claude-mem is NOT bundled — it is
 # an OPTIONAL adopter-installed plugin via the Claude Code plugin marketplace.
 # The plugins/claude-mem/v*/ copy + the false plugins/README are gone;
 # the plugins/ dir is not created. brain-stem's first-party memory hygiene is the
@@ -968,6 +2598,22 @@ done
 # (Step 11.5 implementation removed — see the DROP note above. install.sh no
 # longer reads templates/claude-home-claude-md-template.md or writes
 # $CLAUDE_HOME/CLAUDE.md; author-claude-home.sh is the authoritative writer.)
+#
+# (THREE-WAY-MERGE class — live-CLAUDE.md prose-merge REMOVED from the
+# engine walk): the install-side engine performs NO `git merge-file` (prose 3-way
+# merge) against any LIVE $CLAUDE_HOME/CLAUDE.md or vault CLAUDE.md. Those live
+# files have NO files[] path and are OUT of the engine's files[]-driven
+# upgrade_foundation_file() walk; the global ~/.claude/CLAUDE.md is authored by
+# skills/onboarder/scripts/author-claude-home.sh, the sole writer.
+# The two CLAUDE.md *TEMPLATES* under templates/ are handled as ordinary
+# FOUNDATION-REPLACE files by the Step-10 upgrade_foundation_file() loop
+# (unmodified → replace; modified → .foundation-local sidecar), NOT prose-merged.
+# `git merge-file --diff3 on-disk installed-baseline-template new-upstream-template`
+# remains the DOCUMENTED technique for a FUTURE onboarder/author-claude-home.sh
+# live-CLAUDE.md re-author path ONLY (a separate ADR/cluster) — never the install
+# engine. (wfv blocking correction [install-mechanics CLAUDE.md]:
+# putting the live CLAUDE.md in the files[] walk would either no-op — path not in
+# the walk — or clobber an onboarder-owned file.)
 
 # Step 11.6: MEMORY.md skeleton — LAZY SessionStart seed
 # The skeleton is NO LONGER eager-seeded at install time. The former eager seed
@@ -1028,6 +2674,99 @@ else
   info "rules/README.md seeded at $rules_readme_target"
 fi
 
+# Step 11.8: $CLAUDE_HOME/.gitignore secret-exclusion seed.
+# Deny-list-at-the-VCS-
+# boundary: keep the secret-bearing surfaces (settings.local.json, projects/,
+# .pre-uninstall-*) out of the git index so the backup wrapper can never
+# exfiltrate them to a remote. Runs AFTER the Step-10 ship loops and BEFORE the
+# git-init (secure-bootstrap order: write .gitignore -> git init -> first add).
+#
+# SHIP-PATH DISAMBIGUATION (validation
+# correction): Step 10's named-list loop (above) does NOT carry
+# claude-home.gitignore — we DIRECT-SEED $CLAUDE_HOME/.gitignore from
+# $SOURCE_REPO/templates/claude-home.gitignore and NEVER stage it into
+# $CLAUDE_HOME/templates/. This is Option A of the two options (direct seed,
+# not named-list+translate-copy). The generator path-translation map
+# (generate-foundation-manifest.sh) mirrors this exactly:
+# templates/claude-home.gitignore -> installed .gitignore, source repo-root
+# .gitignore stays excluded.
+#
+# MERGE-SAFE / IDEMPOTENT: absent -> cp; present -> append the brain-stem block
+# behind a `# brain-stem: managed secret-exclusions` sentinel ONLY when that
+# sentinel is absent (grep -qF guard). NEVER foundation-replaces the installed
+# .gitignore (THREE-WAY-MERGE class) so an adopter's own ignore rules survive.
+gitignore_template="$SOURCE_REPO/templates/claude-home.gitignore"
+gitignore_target="$CLAUDE_HOME/.gitignore"
+gitignore_sentinel="# brain-stem: managed secret-exclusions"
+
+if [ ! -f "$gitignore_template" ]; then
+  warn "templates/claude-home.gitignore not present at $gitignore_template — skipping \$CLAUDE_HOME/.gitignore secret-exclusion seed"
+elif [ ! -f "$gitignore_target" ]; then
+  # Absent: direct cp of the managed block.
+  gitignore_tmp="$gitignore_target.tmp.$$"
+  if ! cp "$gitignore_template" "$gitignore_tmp"; then
+    diag ".gitignore seed: cp failed: $gitignore_template → $gitignore_tmp"
+    rm -f "$gitignore_tmp"
+    exit 11
+  fi
+  if ! mv -f "$gitignore_tmp" "$gitignore_target"; then
+    diag ".gitignore seed: atomic mv failed: $gitignore_target"
+    rm -f "$gitignore_tmp"
+    exit 11
+  fi
+  info "\$CLAUDE_HOME/.gitignore seeded with brain-stem managed secret-exclusions ($gitignore_target)"
+elif grep -qF "$gitignore_sentinel" "$gitignore_target"; then
+  # Present + sentinel already there: idempotent no-op (survivorship preserved).
+  info "\$CLAUDE_HOME/.gitignore already carries the brain-stem managed secret-exclusions sentinel — preserving (no re-append)"
+else
+  # Present + sentinel absent: append the managed block, leaving the adopter's
+  # own ignore rules untouched (merge-safe). Blank-line separator for clarity.
+  {
+    printf '\n'
+    cat "$gitignore_template"
+  } >> "$gitignore_target" || {
+    diag ".gitignore seed: append failed: $gitignore_target"
+    exit 11
+  }
+  info "\$CLAUDE_HOME/.gitignore: appended brain-stem managed secret-exclusions block (adopter rules preserved)"
+fi
+
+# Step 11.9: git-init the brain-stem-owned $CLAUDE_HOME (the
+# root cause — the first backup of a fresh adopter is a
+# no-op because no default target is a git repo, so backup.sh:101-104 hits the
+# "not a git repo, skipped" branch on $CLAUDE_HOME).
+#
+# SANCTIONED PATH (remediation):
+# auto-`git init` of ~/.claude INSIDE backup.sh is explicitly REJECTED
+# (surprise-mutation + immediate push failure). Install-time, opt-in, default-
+# target-ONLY init is the sanctioned alternative — $CLAUDE_HOME is the one tree
+# brain-stem owns. We init the dir but add NO remote and make NO commit (no
+# surprise push); the first real commit is the adopter's first backup.sh run.
+#
+# ORDERING (secure repo bootstrap, validated above): the .gitignore
+# seed at Step 11.8 lands BEFORE this init, so the first `git add -A .` (the
+# adopter's first backup) never indexes settings.local.json / projects/ /
+# .pre-uninstall-*. Reversing the order leaks on commit 1.
+#
+# SCOPE: $CLAUDE_HOME ONLY. $VAULT_ROOT and $PLANS_DIR are adopter-owned trees —
+# silently git-initing them would be the surprise-mutation the policy rejects; those get
+# an actionable warning at backup time instead.
+#
+# IDEMPOTENT: `[ -d "$CLAUDE_HOME/.git" ] ||` guards the init, so a re-run never
+# re-inits or errors. The runtime .git dir is absent-by-construction (no manifest
+# baseline), mirroring the orchestrator/state/ precedent.
+if [ -d "$CLAUDE_HOME/.git" ]; then
+  info "\$CLAUDE_HOME already a git repo (.git present) — skipping git-init (idempotent guard)"
+elif ! command -v git >/dev/null 2>&1; then
+  warn "git not found on PATH — skipping \$CLAUDE_HOME git-init; backup.sh will emit an actionable non-repo warning until \$CLAUDE_HOME is a repo"
+elif git -C "$CLAUDE_HOME" init -q >/dev/null 2>&1; then
+  # init-only: no `git remote add`, no `git commit`. The first commit is the
+  # adopter's first backup.sh run (which the ignore already protects).
+  info "\$CLAUDE_HOME git-inited (no remote, no commit) — first backup.sh run now produces a real commit ($CLAUDE_HOME)"
+else
+  warn "git init of \$CLAUDE_HOME failed — backup.sh will emit an actionable non-repo warning until \$CLAUDE_HOME is a repo"
+fi
+
 # Step 12: settings.json atomic jq-merge with G7 silent-key-deletion gate
 template_settings="$CLAUDE_HOME/templates/settings.json"
 target_settings="$CLAUDE_HOME/settings.json"
@@ -1084,74 +2823,88 @@ fi
 sync 2>/dev/null || true
 mv -f "$tmp_settings" "$target_settings" || { diag "atomic mv failed: $target_settings"; rm -f "$tmp_settings"; exit 11; }
 
-# Step 12.5: idempotent spec-context-inject hook registration in UserPromptSubmit
-# chain. The template declares this hook, but Step 12 jq merge
-# `template * user_settings` lets the user's array win on array conflicts — so
-# re-installs against an adopter whose UserPromptSubmit chain lacks the hook
-# would silently drop it. Step 12.5 detects absence and appends to the first
-# bucket's hooks array (preserving user customizations); presence is a no-op
-# (idempotent). Operates on the post-Step-12 result.
-if [ -f "$target_settings" ]; then
-  has_spec_inject=$(jq -r '
-    [.hooks.UserPromptSubmit[]?.hooks[]?.command // ""]
-    | map(test("spec-context-inject\\.sh"))
-    | any
-  ' "$target_settings" 2>/dev/null || echo "error")
-  if [ "$has_spec_inject" = "false" ]; then
-    tmp_settings_125="$CLAUDE_HOME/.settings.json.tmp.125.$$"
-    if ! jq '
-      .hooks.UserPromptSubmit |= (
-        if . == null or length == 0 then
-          [{"hooks":[{"type":"command","command":"~/.claude/hooks/spec-context-inject.sh","timeout":5}]}]
-        else
-          .[0].hooks += [{"type":"command","command":"~/.claude/hooks/spec-context-inject.sh","timeout":5}]
-        end
+# Step 12.5: data-driven settings-required-hooks reconciler (
+# UP). Generalizes the two former bespoke append blocks (the old Step
+# 12.5 spec-context-inject UserPromptSubmit patch + Step 12.6 AskUserQuestion
+# PreToolUse patch) into ONE loop over templates/settings-required-hooks.json.
+#
+# Root cause (1b): the Step 12 jq merge `template * user_settings`
+# lets the adopter's hook ARRAY win on array conflict, so a NEW foundation hook in
+# that array (the whole PostToolUse 5-command chain, the PreToolUse Edit|Write
+# pre-write-guard.sh wire, etc.) is silently dropped on re-install. The hand-patched
+# Steps 12.5/12.6 only re-landed two specific commands each; every other foundation
+# hook had no equivalent and silently vanished.
+#
+# Fix: templates/settings-required-hooks.json declares every foundation-required
+# hook as a {event, matcher, command, timeout?} tuple (a FOUNDATION-REPLACE managed
+# artifact in foundation-manifest.json::files[], shipped to $CLAUDE_HOME at Step 10).
+# This single reconciler iterates that declaration and, per tuple:
+#   (a) detect-by-command-substring — present anywhere under .hooks[event] => no-op
+#       (per-COMMAND idempotency; a partially-present chain backfills only the
+#       missing commands);
+#   (b) absent => locate the bucket whose .matcher == tuple.matcher and append the
+#       command there (the 12.5-shape append) — creating a new matcher bucket ONLY
+#       when none matches (the 12.6-shape new-bucket). null matcher (UserPromptSubmit/
+#       SessionStart/Stop/SessionEnd/InstructionsLoaded) matches the bucket that has
+#       no .matcher key — never produces a DUPLICATE Edit|Write PostToolUse bucket;
+#   (c) carry the template's timeout verbatim (timeout:3/5 on memory-auto-stamp/
+#       memory-globalize-auto/tasks-md-autosync are emitted into the appended tuple).
+#
+# POS1 survivorship: ADDS-only — never removes or reorders the adopter's own hooks.
+# Runs AFTER the Step 12 G7-gated atomic mv (above), so its additive mutations
+# cannot trip G7 (G7 fires only on a DROPPED before-path; an add introduces a new
+# after-path, never deletes a before-path).
+required_hooks_decl="$CLAUDE_HOME/templates/settings-required-hooks.json"
+if [ -f "$target_settings" ] && [ -f "$required_hooks_decl" ]; then
+  tmp_settings_125="$CLAUDE_HOME/.settings.json.tmp.125.$$"
+  # Single jq pass: reduce over the declared tuples, appending each absent command
+  # into its matcher-resolved bucket. Idempotent by per-COMMAND substring presence.
+  if ! jq \
+    --slurpfile decl "$required_hooks_decl" \
+    '
+    # Resolve the declaration array under either the {required_hooks:[...]} wrapper
+    # or a bare top-level array (tolerant of both shapes).
+    ($decl[0] | if type == "object" then .required_hooks else . end) as $tuples
+    | reduce $tuples[] as $t (
+        .;
+        ($t.event)   as $ev
+        | ($t.matcher)  as $mt      # may be null (matcher-less event buckets)
+        | ($t.command)  as $cmd
+        | ({"type":"command","command":$cmd}
+            + (if ($t.timeout != null) then {"timeout":$t.timeout} else {} end)) as $hookobj
+        # (a) already present anywhere under this event? -> per-COMMAND no-op.
+        | if ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
+               | any(. == $cmd))
+          then .
+          else
+            # (b) append into the bucket whose .matcher == tuple.matcher
+            #     (null matcher == a bucket with no .matcher key); create the
+            #     bucket ONLY when none matches.
+            .hooks[$ev] = (
+              (.hooks[$ev] // []) as $buckets
+              | ( [ $buckets | to_entries[]
+                    | select((.value.matcher // null) == $mt) | .key ] | first ) as $idx
+              | if $idx == null then
+                  # no matching bucket -> 12.6-shape new matcher bucket
+                  $buckets + [
+                    ( (if $mt != null then {"matcher":$mt} else {} end)
+                      + {"hooks":[$hookobj]} )
+                  ]
+                else
+                  # matching bucket -> 12.5-shape append into its hooks array
+                  ( $buckets
+                    | .[$idx].hooks = ((.[$idx].hooks // []) + [$hookobj]) )
+                end
+            )
+          end
       )
     ' "$target_settings" > "$tmp_settings_125" 2>/dev/null; then
-      diag "jq spec-context-inject registration failed (Step 12.5); manual resolution required"
-      rm -f "$tmp_settings_125"
-      exit 40
-    fi
-    sync 2>/dev/null || true
-    mv -f "$tmp_settings_125" "$target_settings" || { diag "atomic mv failed: $target_settings (Step 12.5)"; rm -f "$tmp_settings_125"; exit 11; }
+    diag "jq settings-required-hooks reconciler failed (Step 12.5); manual resolution required"
+    rm -f "$tmp_settings_125"
+    exit 40
   fi
-fi
-
-# Step 12.6: idempotent AskUserQuestion matcher registration in PreToolUse chain.
-# The template declares this matcher, but Step 12 jq merge
-# `template * user_settings` lets the user's PreToolUse array win on array conflicts
-# — so re-installs against an adopter whose PreToolUse chain lacks the matcher
-# would silently drop it. Step 12.6 detects absence and appends a new matcher
-# entry to the PreToolUse array (preserving user customizations); presence is a
-# no-op (idempotent). Operates on the post-Step-12.5 result.
-#
-# Sister-pattern to Step 12.5 (spec-context-inject registration). Same problem
-# class: hook declared in template but jq deep-merge cannot reliably add new
-# array entries when user has customized the matching parent array.
-if [ -f "$target_settings" ]; then
-  has_asq_matcher=$(jq -r '
-    [.hooks.PreToolUse[]?.hooks[]?.command // ""]
-    | map(test("pre-asq-guard\\.sh"))
-    | any
-  ' "$target_settings" 2>/dev/null || echo "error")
-  if [ "$has_asq_matcher" = "false" ]; then
-    tmp_settings_126="$CLAUDE_HOME/.settings.json.tmp.126.$$"
-    if ! jq '
-      .hooks.PreToolUse |= (
-        if . == null or length == 0 then
-          [{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"~/.claude/hooks/pre-asq-guard.sh"}]}]
-        else
-          . + [{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"~/.claude/hooks/pre-asq-guard.sh"}]}]
-        end
-      )
-    ' "$target_settings" > "$tmp_settings_126" 2>/dev/null; then
-      diag "jq pre-asq-guard registration failed (Step 12.6); manual resolution required"
-      rm -f "$tmp_settings_126"
-      exit 40
-    fi
-    sync 2>/dev/null || true
-    mv -f "$tmp_settings_126" "$target_settings" || { diag "atomic mv failed: $target_settings (Step 12.6)"; rm -f "$tmp_settings_126"; exit 11; }
-  fi
+  sync 2>/dev/null || true
+  mv -f "$tmp_settings_125" "$target_settings" || { diag "atomic mv failed: $target_settings (Step 12.5)"; rm -f "$tmp_settings_125"; exit 11; }
 fi
 
 # Step 13: schema parse validation (post-install)
@@ -1214,6 +2967,316 @@ else
   warn "governance/foundation-manifest.json not present at SOURCE_REPO (baseline absent; G2 + fingerprint match unavailable until generated)"
 fi
 
+# Step 13.6: forward-only idempotent migrations runner
+# Runs AFTER Step 13.5 validated the freshly-copied
+# manifest. Iterates the SHIPPED $CLAUDE_HOME/migrations/NNNN-slug.sh files in
+# numeric prefix order; selects those whose `applies_at` ∈
+# (INSTALLED_VERSION, TARGET_VERSION]; skips any id already in the high-water log
+# (PRIOR_MIGRATIONS_APPLIED, read at entrypoint); honors min_from (SKIP-WARN when
+# min_from > a REAL sha-matched floor); runs the rest converge-if-needed; emits
+# each successfully-applied id on stdout.
+#
+# FLOOR_IS_REAL: a stamped install (INSTALLED_VERSION != "(none)") is a real
+# sha-matched floor, so a migration whose min_from is ABOVE the floor is
+# SKIP-WARNed. A fresh/legacy-adopt home (no stamp ⇒ "(none)") is the v0.0.0
+# unknown-floor lane: the runner normalizes the floor to v0.0.0, runs the full
+# chain from 0001, and NEVER min_from-skips (every migration is authored to
+# tolerate the oldest/empty precondition per the authoring contract).
+#
+# The high-water log is the COMBINED set (PRIOR_MIGRATIONS_APPLIED + the ids the
+# runner emits this invocation), folded into the Step 13.7 stamp below.
+# CRITICAL (advisory): foundation_version is bumped to
+# TARGET_VERSION only on overall-apply-success. A migration exiting non-zero
+# halts here (exit 41) BEFORE the Step 13.7 stamp — so the on-disk
+# foundation_version stays at the pre-invocation value (the partial high-water
+# mark for resume; roll-forward re-runs the unapplied tail because each step is
+# idempotent). Forward-only; no down-migration. The full pre-mutation snapshot +
+# reverse-journal restore is its envelope, NOT the migration runner's; the runner
+# owns the chain + the don't-bump-on-failure contract.
+RAN_MIGRATIONS=""
+if [ -f "$CLAUDE_HOME/migrations/run-migrations.sh" ] && [ -n "$TARGET_VERSION" ]; then
+  if [ "$INSTALLED_VERSION" = "(none)" ]; then mig_floor_is_real=0; else mig_floor_is_real=1; fi
+
+ # whole-file sqlite pre-snapshot INSIDE the rollback
+  # envelope. The sqlite DDL migrations run inside a single BEGIN/COMMIT (the
+  # demonstrator's own transaction); the upgrade envelope owns the whole-file .sqlite(+wal/shm)
+  # pre-snapshot so a migration-chain failure restores the db WHOLESALE (no
+  # per-row reverse). Each db file is journaled (pre-state=present → cp-restore on
+  # rollback; pre-state=absent → rm on rollback) BEFORE the runner mutates it.
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    for dbf in "$CLAUDE_HOME/governance/manifest.sqlite" \
+               "$CLAUDE_HOME/governance/manifest.sqlite-wal" \
+               "$CLAUDE_HOME/governance/manifest.sqlite-shm"; do
+      dbrel="${dbf#"$CLAUDE_HOME"/}"
+      if [ -f "$dbf" ]; then
+        if upgrade_snapshot_present "$dbf" "$dbrel"; then
+          journal_record "$dbf" "sqlite-presnapshot" "present" "$dbrel"
+        else
+          diag "failed to pre-snapshot the sqlite db $dbf before migrations — rolling back."
+          rollback_restore "sqlite-presnapshot-failed:$dbf"
+        fi
+      fi
+    done
+  fi
+
+  mig_out="$CLAUDE_HOME/migrations/.run-$$.ids"
+  if MIGRATIONS_DIR="$CLAUDE_HOME/migrations" \
+     INSTALLED_VERSION="$INSTALLED_VERSION" \
+     TARGET_VERSION="$TARGET_VERSION" \
+     APPLIED_IDS="$PRIOR_MIGRATIONS_APPLIED" \
+     FLOOR_IS_REAL="$mig_floor_is_real" \
+     CLAUDE_HOME="$CLAUDE_HOME" \
+       bash "$CLAUDE_HOME/migrations/run-migrations.sh" > "$mig_out"; then
+    RAN_MIGRATIONS="$(cat "$mig_out" 2>/dev/null || true)"
+    rm -f "$mig_out" 2>/dev/null || true
+    [ -n "$RAN_MIGRATIONS" ] && info "migrations applied this run: $(printf '%s' "$RAN_MIGRATIONS" | tr '\n' ' ')"
+  else
+    rm -f "$mig_out" 2>/dev/null || true
+ # on the envelope lane a migration failure rolls back the whole
+    # transaction (restores every applied file + the sqlite db wholesale +
+    # .installed-state.json wholesale). Off the envelope (fresh/legacy) keep the
+    # runner's bare exit 41 contract.
+    if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+      diag "migration runner exited non-zero (a migration failed) — rolling back the upgrade transaction."
+      rollback_restore "migration-failed"
+    fi
+    diag "migration runner exited non-zero (a migration failed) — foundation_version NOT bumped; resume by re-running install --apply after fixing the cause"
+    exit 41
+  fi
+fi
+
+# Step 13.7: installed-state stamp + frozen baseline manifest
+# (write side). Runs AFTER Step 13.5 validated the
+# freshly-copied manifest, on overall-apply-success. This is the version-
+# awareness substrate the engine reads at entrypoint (the read side above).
+#
+#   $CLAUDE_HOME/governance/.installed-state.json — machine-readable record:
+#     foundation_version (verbatim from the shipped manifest .version),
+#     installed_at, source_install_sha256, manifest_sha256,
+# migrations_applied[] (high-water log; folds the COMBINED set:
+#     PRIOR_MIGRATIONS_APPLIED read at entrypoint + the ids the Step 13.6 runner
+#     emitted this invocation — preserving the log across re-applies so a second
+#     --apply skips already-applied ids), schema_versions{} (ships {};
+#     population is a later-task concern, not an acceptance criterion for this stage).
+#   $CLAUDE_HOME/governance/.installed-baseline-manifest.json — a BYTE-IDENTICAL
+#     frozen copy of the shipped manifest; the per-file sha256 three-way base
+# the disposition engine pins against.
+#
+# CORRECTION (versioning advisory): the foundation_version bump gate is overall-
+# apply-success when the migration range is EMPTY (every current upgrade, incl.
+# this slice that ships no runner) — last-migration ordering only constrains
+# it once >=1 migration runs. Reaching this line means Steps 1..13.6 ran
+# without a non-zero exit ⇒ apply succeeded ⇒ stamp TARGET_VERSION. A mid-chain
+# migration failure exits before here, leaving the pre-invocation
+# stamp intact (the partial high-water mark).
+#
+# --- delivery-verification gate ---------
+# Layer-2 (fail-closed in-product). Runs IMMEDIATELY
+# BEFORE the Step 13.7 stamp + baseline-freeze block below, so a delivery shortfall
+# provably prevents BOTH the .installed-state.json stamp AND the
+# .installed-baseline-manifest.json freeze (couples to the upgrade posture via delivery_verified).
+#
+# WHY: — the legacy `cp -R` lane swallowed copy rc with `|| true`, so the
+# engine stamped + froze the baseline over an UNDER-DELIVERED home (a false
+# success). routes the legacy lane through the per-file walk; this gate
+# is the fail-closed assertion that the walk actually CONVERGED every managed file
+# it was responsible for delivering.
+#
+# SCOPE: verify ONLY the SHIPPED governance/foundation-manifest.json
+# files[] members — the exact set the install ships (enumerated from the shipped
+# manifest, IFS-safe, the same discipline as apply_subtree_legacy). A changed-but-
+# never-shipped source file (e.g. schemas/foundation-master-schema.json, in
+# $SOURCE_REPO but NOT in files[]) is NOT in this set and never trips the refuse.
+#
+# DISPOSITION-AWARENESS: the gate compares against the EXPECTED
+# post-disposition state, NOT a blanket files[]==shipped. A files[] member is
+# EXEMPT from the ==shipped check when ANY of:
+#   - it is governance/overlay-master.json (the THREE-WAY-MERGE skeleton-merge
+#     surface — on-disk != shipped BY DESIGN; never a take-new target), OR
+#   - its disposition kind (read from the UPGRADE_FILE_DISPOSITIONS accumulator the
+#     per-file walk produced) is a merge / edited / deferred kind:
+#       skeleton-merge / skeleton-merge-skip (overlay-master three-way-merge),
+#       replace+foundation-local / legacy-adopt-replace+foundation-local
+#         (State-3 adopter-edited file: take-new landed, prior bytes sidecarred),
+#       user-preserve-skip (not in the managed set; structurally untouched),
+#       sidecar-skip-deferred (outstanding .foundation-new — deferred to user), OR
+#   - a <path>.foundation-local sidecar exists on disk (belt-and-suspenders for the
+#     edited-surface case even if the accumulator record is absent).
+# Only the take-new dispositions (replace / legacy-adopt-replace / new-ship) and
+# any files[] member with NO disposition record on the delivering lane are held to
+# sha256(on-disk) == sha256(shipped).
+#
+# LANE: fires on the DELIVERING lane only — the stamped envelope walk
+# (UPGRADE_ENVELOPE_ON=1) OR the legacy lane (LEGACY_ADOPT=1 with
+# APPLY_MODE=1). A fresh install / dry-run never reaches this assertion (no
+# per-file delivery happened) and is unaffected.
+#
+# SINGLE SOURCE: the shortfall set is computed ONCE here; the operator-
+# actionable exit-56 diag below consumes the SAME set (no second verification
+# walk).
+delivery_verified=1
+if [ -f "$manifest_dst" ] && [ -n "$TARGET_VERSION" ] \
+   && { [ "$UPGRADE_ENVELOPE_ON" = "1" ] || { [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; }; }; then
+  # delivery_shortfall = newline-joined "<rel>\t<expected-sha>\t<ondisk-sha>" for
+  # every non-exempt files[] ship-member whose on-disk content != shipped content.
+  delivery_shortfall="$(
+    SHIPPED_MANIFEST="$manifest_src" \
+    DISPOSITIONS="$UPGRADE_FILE_DISPOSITIONS" \
+    SRC_REPO="$SOURCE_REPO" \
+    CLAUDE_HOME="$CLAUDE_HOME" \
+    python3 -c '
+import hashlib, json, os, sys
+
+src_repo = os.environ["SRC_REPO"]
+claude_home = os.environ["CLAUDE_HOME"]
+
+# Dispositions the per-file walk recorded: rel -> kind (TSV "<rel>\t<kind>").
+disp = {}
+for line in os.environ.get("DISPOSITIONS", "").splitlines():
+    if "\t" not in line:
+        continue
+    rel, kind = line.split("\t", 1)
+    rel = rel.strip()
+    if rel:
+        disp[rel] = kind.strip()
+
+# Kinds EXEMPT from the ==shipped check (merge / edited / deferred surfaces).
+EXEMPT_KINDS = {
+    "skeleton-merge", "skeleton-merge-skip",
+    "replace+foundation-local", "legacy-adopt-replace+foundation-local",
+    "user-preserve-skip", "sidecar-skip-deferred",
+}
+
+def sha256(p):
+    h = hashlib.sha256()
+    try:
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+try:
+    m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
+except Exception:
+    # Shipped manifest unreadable here would have failed Step 13.5 already; treat
+    # as no shortfall (do not block on a manifest the install just validated).
+    sys.exit(0)
+
+for f in m.get("files", []):
+    rel = f.get("path", "")
+    if not rel:
+        continue
+ # overlay-master.json is the three-way-merge surface — never ==shipped.
+    if rel == "governance/overlay-master.json":
+        continue
+    kind = disp.get(rel)
+    if kind in EXEMPT_KINDS:
+        continue
+    dest = os.path.join(claude_home, rel)
+    # Belt-and-suspenders: an edited-surface sidecar exempts even absent a record.
+    if os.path.exists(dest + ".foundation-local"):
+        continue
+    src = os.path.join(src_repo, rel)
+    sha_shipped = f.get("sha256", "") or (sha256(src) or "")
+    sha_disk = sha256(dest)
+    if sha_disk is None:
+        sha_disk = "(absent)"
+    if sha_disk != sha_shipped:
+        print("%s\t%s\t%s" % (rel, sha_shipped, sha_disk))
+' 2>/dev/null
+  )"
+  if [ -n "$delivery_shortfall" ]; then
+    delivery_verified=0
+ # operator-actionable refuse. Mirror the G2
+    # violation-list printf-to-stderr pattern (install.sh g2 block). SINGLE SOURCE:
+    # iterate the SAME $delivery_shortfall set computed above (no second scan).
+    shortfall_count="$(printf '%s\n' "$delivery_shortfall" | grep -c . 2>/dev/null || printf '0')"
+    diag "delivery shortfall: $shortfall_count managed file(s) did not converge to the shipped content (the per-file delivery walk left them stale). Refusing to stamp this home (no .installed-state.json written, baseline NOT advanced) — exit 56."
+    printf '%s\n' "$delivery_shortfall" | while IFS=$'\t' read -r sf_path sf_exp sf_disk; do
+      [ -z "$sf_path" ] && continue
+      sf_exp_p="$(printf '%s' "$sf_exp" | cut -c1-12)"
+      if [ "$sf_disk" = "(absent)" ]; then
+        sf_disk_p="(absent)"
+      else
+        sf_disk_p="$(printf '%s' "$sf_disk" | cut -c1-12)"
+      fi
+      printf '  %s (expected sha %s, on-disk %s)\n' "$sf_path" "$sf_exp_p" "$sf_disk_p" >&2
+    done
+    diag "remediation: re-run \`install.sh --apply\` — the home is left UN-STAMPED and re-classifies as legacy/upgrade, so the next run re-attempts delivery of these files and converges (forward-progress). No manual fix is required for a recoverable under-delivery."
+    exit 56
+  fi
+fi
+# --- end delivery-verification gate ------------------------------
+if [ -f "$manifest_dst" ] && [ -n "$TARGET_VERSION" ]; then
+ # the 3-way base stays PINNED to the prior frozen
+  # .installed-baseline-manifest.json while ANY .foundation-new sidecar is
+  # outstanding (an unresolved deferred-to-user merge). Advancing the base before
+  # the merge lands would make a second-apply-after-conflict NON-idempotent (the
+  # new on-disk would become the base and the parked .foundation-new could never
+  # reconcile). Only re-freeze the base on a CLEAN apply with no sidecar left.
+  baseline_pin=0
+  if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
+    if LC_ALL=C find "$CLAUDE_HOME" -name '*.foundation-new' -type f -print 2>/dev/null | grep -q .; then
+      baseline_pin=1
+      warn "an outstanding .foundation-new sidecar is present — the 3-way base stays PINNED to the prior .installed-baseline-manifest.json (not advanced) until the merge lands with no sidecar outstanding."
+    fi
+  fi
+ # do NOT advance/freeze the baseline unless the
+  # the delivery verification PASSED. The gate above exit-56 short-circuits
+  # before reaching this line on a shortfall (the PRIMARY guard); the
+  # delivery_verified condition here is the belt-and-suspenders so even a refactor
+ # that reorders the gate cannot freeze an unverified baseline. WHY: freezing .installed-baseline-manifest.json to the v1.1.x shipped
+  # shas over an under-delivered (still-stale v1.0.2) home creates the State-3 trap —
+  # the NEXT apply sees sha_disk(v1.0.2) != sha_base(v1.1.x) and misarchives every
+  # pristine file as a .foundation-local "adopter edit". Gating the freeze on
+  # delivery_verified prevents creating that trap. The existing baseline_pin
+  # outstanding-sidecar guard is PRESERVED unchanged (a separate, correct pin).
+  if [ "$baseline_pin" != "1" ] && [ "$delivery_verified" = "1" ]; then
+    # Byte-identical frozen copy of the SHIPPED manifest (the three-way base).
+    cp -f "$manifest_src" "$INSTALLED_BASELINE_MANIFEST_PATH" 2>/dev/null \
+      || { diag "failed to write frozen baseline manifest at $INSTALLED_BASELINE_MANIFEST_PATH"; exit 30; }
+  fi
+  state_installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_install_sha="$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}')"
+  state_manifest_sha="$(shasum -a 256 "$manifest_dst" 2>/dev/null | awk '{print $1}')"
+  if ! FV="$TARGET_VERSION" IA="$state_installed_at" SS="$state_install_sha" MS="$state_manifest_sha" \
+      PRIOR_MIG="$PRIOR_MIGRATIONS_APPLIED" RAN_MIG="$RAN_MIGRATIONS" \
+      python3 -c '
+import json, os, sys
+# COMBINED high-water log: prior on-disk ids + the ids the Step 13.6 runner
+# applied this invocation, de-duplicated preserving first-seen order.
+applied = []
+for src in (os.environ.get("PRIOR_MIG", ""), os.environ.get("RAN_MIG", "")):
+    for line in src.splitlines():
+        mid = line.strip()
+        if mid and mid not in applied:
+            applied.append(mid)
+rec = {
+    "foundation_version": os.environ["FV"],
+    "installed_at": os.environ["IA"],
+    "source_install_sha256": os.environ["SS"],
+    "manifest_sha256": os.environ["MS"],
+    "migrations_applied": applied,
+    "schema_versions": {},
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(rec, f, indent=2)
+    f.write("\n")
+' "$INSTALLED_STATE_PATH" 2>/dev/null; then
+    diag "failed to write installed-state stamp at $INSTALLED_STATE_PATH"
+    exit 30
+  fi
+  if [ -n "${RAN_MIGRATIONS:-}" ]; then
+    info "installed-state stamped: foundation_version=$TARGET_VERSION (migrations applied this run: $(printf '%s' "$RAN_MIGRATIONS" | tr '\n' ' '); baseline frozen)"
+  else
+    info "installed-state stamped: foundation_version=$TARGET_VERSION (migrations applied this run: none; baseline frozen)"
+  fi
+else
+  warn "installed-state stamp skipped (manifest absent post-copy or shipped manifest carries no .version)"
+fi
+
 # Step 14: provenance log header (G10 — write failure exits 11)
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
@@ -1230,6 +3293,16 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
   printf 'no_preserve_config: %s\n' "$NO_PRESERVE_CONFIG"
   printf 'state_classification: %s\n' "$state_classification"
   printf 'retrofit_existing: %s\n' "$RETROFIT_EXISTING"
+ # per-file FOUNDATION-REPLACE disposition diff ("surface it in the diff").
+  # Empty on fresh/legacy-adopt (no frozen baseline) where the disposition degrades
+  # to the cp $cp_clobber legacy posture.
+  printf 'upgrade_baseline_present: %s\n' "$UPGRADE_BASELINE_PRESENT"
+  if [ "$UPGRADE_BASELINE_PRESENT" = "1" ] && [ -n "$UPGRADE_FILE_DISPOSITIONS" ]; then
+    printf 'upgrade_file_dispositions:\n'
+    printf '%s' "$UPGRADE_FILE_DISPOSITIONS" | while IFS=$'\t' read -r disp_path disp_kind; do
+      [ -z "$disp_path" ] || printf '  - %s: %s\n' "$disp_path" "$disp_kind"
+    done
+  fi
   printf 'sentinel_verified: %s\n' "$sentinel_verified"
   printf 'install.sh sha256: %s\n' "$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}')"
   if [ -f "$manifest_dst" ]; then
@@ -1247,6 +3320,7 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
   printf 'g3_backup_dir: %s\n' "${BACKUP_DIR:-(absent)}"
   printf 'g3_destructive_op_pending: %s\n' "$g3_destructive_op_pending"
   printf 'g3_proof_of_life_passed: %s\n' "$g3_proof_of_life_passed"
+  printf 'g3_settings_backup: %s\n' "${g3_settings_backup_path:-(none)}"
   if [ -n "$g3_skip_reason" ]; then
     printf 'g3_skip_reason: %s\n' "$g3_skip_reason"
   fi

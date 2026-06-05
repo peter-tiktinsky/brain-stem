@@ -213,6 +213,17 @@ if START not in new_content or END not in new_content:
     print("writers-index-refresh: refusing to write — sentinels missing", file=sys.stderr)
     sys.exit(1)
 
+# Idempotence-gate: when the rendered content already
+# matches what is on disk, skip the os.replace so a virgin/clean close is a true
+# no-op write. Emit only the info-event (write_skipped_bool).
+if not drift:
+    emit({"finding": "writers-index-regenerated", "file": index_path,
+          "writers_rendered_count": rendered, "writers_skipped_count": skipped,
+          "sentinel_recreated_bool": (not sentinel_existed),
+          "drift_detected_bool": False, "write_skipped_bool": True,
+          "detected_at": today})
+    sys.exit(0)
+
 d = os.path.dirname(index_path) or "."
 fd, tmp = tempfile.mkstemp(dir=d, prefix="._index.", suffix=".tmp")
 try:
@@ -226,5 +237,7 @@ except Exception:
 
 emit({"finding": "writers-index-regenerated", "file": index_path,
       "writers_rendered_count": rendered, "writers_skipped_count": skipped,
-      "sentinel_recreated_bool": (not sentinel_existed), "detected_at": today})
+      "sentinel_recreated_bool": (not sentinel_existed),
+      "drift_detected_bool": True, "write_skipped_bool": False,
+      "detected_at": today})
 PY

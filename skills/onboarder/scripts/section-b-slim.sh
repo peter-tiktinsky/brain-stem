@@ -63,10 +63,13 @@ REFERENCES_DIR="$(cd "$SCRIPT_DIR/../references" && pwd)"
 INPUTS_DIR="${INPUTS_DIR:-${CLAUDE_HOME:-$HOME/.claude}/onboarding}"
 AUDIT_LOG="${AUDIT_LOG:-${CLAUDE_HOME:-$HOME/.claude}/onboarding/audit/section-b-slim.jsonl}"
 TRANSCRIPT_DIR="${TRANSCRIPT_DIR:-${CLAUDE_HOME:-$HOME/.claude}/onboarding/transcripts}"
-# Raw-capture bins are NOT in the GA 6-producer set (Tier-2 minimum-viable; voice
-# capture is a separate add-on). The GA two-pass flow stages the transcript +
-# EXTRACTION_OUTPUT_OVERRIDE, so capture_transcript never reaches these bins. They
-# stay env-overridable for a future voice add-on; absent => graceful degrade.
+# Raw-capture bins: typed-textarea.sh is the shipped Tier-2 minimum-viable rung;
+# voice-capture.sh is a future add-on (env-overridable). When BOTH are absent,
+# capture does NOT silently succeed — it emits the documented rc=5 driver-staging
+# handoff (stage your answer at $TRANSCRIPT_PATH, then re-invoke --extraction-stub
+# <path> one-shot or --resume; see capture_transcript). The GA two-pass flow stages
+# the transcript + EXTRACTION_OUTPUT_OVERRIDE, so capture_transcript short-circuits
+# before reaching these bins.
 VOICE_CAPTURE_BIN="${VOICE_CAPTURE_BIN:-$SCRIPT_DIR/voice-capture.sh}"
 TYPED_TEXTAREA_BIN="${TYPED_TEXTAREA_BIN:-$SCRIPT_DIR/fallback/typed-textarea.sh}"
 PROMPT_CARD="$REFERENCES_DIR/prompt-cards/section-b-slim.txt"
@@ -104,17 +107,44 @@ capture_transcript() {
     info "transcript already present at $TRANSCRIPT_PATH; skipping capture"
     return 0
   fi
+  # Driver/test staging channel (documented at :23-24): when STDIN_TRANSCRIPT_OVERRIDE
+  # is set and no transcript is staged yet, write its contents to $TRANSCRIPT_PATH and
+  # skip capture entirely (no bin invocation). Load-bearing only on the non-stub path —
+  # in the single-pass stub seam main() short-circuits before capture (see :212).
+  if [ -n "${STDIN_TRANSCRIPT_OVERRIDE:-}" ]; then
+    printf '%s' "$STDIN_TRANSCRIPT_OVERRIDE" > "$TRANSCRIPT_PATH" \
+      || { diag "STDIN_TRANSCRIPT_OVERRIDE stage failed"; return 3; }
+    info "transcript staged from STDIN_TRANSCRIPT_OVERRIDE at $TRANSCRIPT_PATH"
+    return 0
+  fi
+  # No capture bin is executable on this host (the GA clean-install state): rather
+  # than fail cryptically (rc=127 -> rc=3), degrade to the documented driver-staging
+  # handoff — return 5 (the established awaiting-driver-action rc, symmetric with the
+  # Pass-1 exit 5 and onboard.sh's :167 rc=5 handling).
+  if [ ! -x "$VOICE_CAPTURE_BIN" ] && [ ! -x "$TYPED_TEXTAREA_BIN" ]; then
+    info "no capture bin available; stage your Section B answer at $TRANSCRIPT_PATH, then re-invoke --extraction-stub <path> (one-shot) or --resume after the model extracts."
+    return 5
+  fi
   if [ "$TYPED_ONLY" = "1" ]; then
     TRANSCRIPT_DIR="$TRANSCRIPT_DIR" "$TYPED_TEXTAREA_BIN" b "$PROMPT_CARD" >/dev/null
     _relocate_transcript $?; return $?
   fi
-  TRANSCRIPT_DIR="$TRANSCRIPT_DIR" "$VOICE_CAPTURE_BIN" b "$PROMPT_CARD" >/dev/null
-  rc=$?
+  # Deterministic voice-availability switch (documented at :38-39): when
+  # VOICE_PROBE_OVERRIDE declares voice unavailable, skip the real voice probe and
+  # force rc=4 so the 'voice unavailable -> typed' branch below is reachable in tests
+  # without a real voice bin.
+  case "${VOICE_PROBE_OVERRIDE:-}" in
+    0|unavailable) rc=4 ;;
+    *) TRANSCRIPT_DIR="$TRANSCRIPT_DIR" "$VOICE_CAPTURE_BIN" b "$PROMPT_CARD" >/dev/null
+       rc=$? ;;
+  esac
   case "$rc" in
     0)   _relocate_transcript 0; return $? ;;
     4)   info "voice unavailable; dispatching to typed-textarea"
          TRANSCRIPT_DIR="$TRANSCRIPT_DIR" "$TYPED_TEXTAREA_BIN" b "$PROMPT_CARD" >/dev/null
          _relocate_transcript $?; return $? ;;
+    127) info "capture bin present but not runnable (rc=127); stage your Section B answer at $TRANSCRIPT_PATH, then re-invoke --extraction-stub <path> (one-shot) or --resume after the model extracts."
+         return 5 ;;
     130) info "user quit during capture"; return 130 ;;
     *)   diag "transcript capture failed (rc=$rc)"; return 3 ;;
   esac
@@ -194,14 +224,22 @@ process_extraction() {
 }
 
 # --- main ---
-capture_transcript
-case "$?" in
-  0)   : ;;
-  130) info "section-b aborted at user request."; exit 130 ;;
-  *)   exit 3 ;;
-esac
+# One-shot --extraction-stub (EXTRACTION_OUTPUT_OVERRIDE set): the driver has
+# already run Pass 1 out-of-band, so the compiled prompt is irrelevant and there
+# is no transcript to capture. Skip capture + render entirely and go straight to
+# process_extraction below — capture-free, render-free. Capturing first here would
+# fire with no transcript + absent bins (rc=5/3) before the stub is ever read.
+if [ -z "${EXTRACTION_OUTPUT_OVERRIDE:-}" ]; then
+  capture_transcript
+  case "$?" in
+    0)   : ;;
+    5)   info "capture unavailable; awaiting driver-staged transcript (exit 5)."; exit 5 ;;
+    130) info "section-b aborted at user request."; exit 130 ;;
+    *)   exit 3 ;;
+  esac
 
-render_compiled_prompt || exit 3
+  render_compiled_prompt || exit 3
+fi
 
 if [ -n "${EXTRACTION_OUTPUT_OVERRIDE:-}" ]; then
   [ -r "$EXTRACTION_OUTPUT_OVERRIDE" ] || { diag "EXTRACTION_OUTPUT_OVERRIDE not readable"; exit 2; }

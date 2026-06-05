@@ -1,6 +1,20 @@
 {
   "schema_version": 1,
-  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written · schema · validation · failure-mode + the capability↔schema/path dependency map. REGENERATE — never hand-edit. Home: skills/librarian/capability-registry.json. The disk↔registry↔SKILL.md bijection (capability-registry-parity) is the integrity invariant.",
+  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written \u00b7 schema \u00b7 validation \u00b7 failure-mode + the capability\u2194schema/path dependency map. HAND-MAINTAINED source-of-truth: edit DIRECTLY; no generator regenerates this file. Home: skills/librarian/capability-registry.json. 37 capabilities (frontmatter-enforce \u2026 session-close). The 10 CUT vault/engagement-specific caps (architect-triage, classify, cluster-by-topic, cron-log-architecture, draft-canonical-file, people-audit, sync-check, transcript-mine, write-frontmatter, entity-parity) have 0 registry keys / 0 bodies / 0 SKILL.md headings. mem-promote is a standalone skill (not here); the 4 engine-auditors (active-gates-rebuild/l3-registry-audit/update-harness-validated/parallel-run-audit) are ABSENT BY CONSTRUCTION from skills/librarian/capabilities/. The disk\u2194registry\u2194SKILL.md bijection (capability-registry-parity) holds at 37.",
+  "_parity_pending_manifest_writes": [
+    "governance-parity-audit",
+    "index-maintain",
+    "log-subtype-canonical",
+    "writers-index-refresh",
+    "writers-overlap-refresh",
+    "writers-health-audit",
+    "trinity-drift-detect",
+    "drift-sweep",
+    "plan-index",
+    "tag-coverage-audit",
+    "backup",
+    "rename-history-sync"
+  ],
   "capabilities": {
     "governance-parity-audit": {
       "tier": "mechanical",
@@ -479,7 +493,8 @@
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
-        "hooks/lib/user-manifest-read.sh"
+        "hooks/lib/user-manifest-read.sh",
+        "hooks/lib/manifest.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.placement",
@@ -489,10 +504,11 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
+          "librarian-manifest drift_findings.placement (manifest_set, atomic; summary subtree last_scan/scanned/findings_count, mirrors xref-check)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
-        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "vault placement rules walked; logs_whitelist_subdirs read from user-manifest (umr_get_array)",
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.placement subtree)",
+        "validation": "vault placement rules walked; logs_whitelist_subdirs read from user-manifest (umr_get_array); manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -541,7 +557,8 @@
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
         "hooks/lib/plan-path.sh",
-        "hooks/lib/user-manifest-read.sh"
+        "hooks/lib/user-manifest-read.sh",
+        "hooks/lib/manifest.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.stale",
@@ -551,10 +568,11 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
+          "librarian-manifest drift_findings.stale (manifest_set, atomic; summary subtree last_scan/scanned/total/counts, mirrors xref-check)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
-        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "plan-root walk via hooks/lib/plan-path.sh; staleness thresholds; logs_whitelist_subdirs from user-manifest",
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.stale subtree)",
+        "validation": "plan-root walk via hooks/lib/plan-path.sh; staleness thresholds; logs_whitelist_subdirs from user-manifest; manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -831,18 +849,14 @@
         "hooks/lib/user-manifest-read.sh"
       ],
       "emits_findings": false,
-      "writes_manifest_subtree": "scan_state.backup",
-      "default_flags": [
-        "--check"
-      ],
+      "writes_manifest_subtree": null,
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
-        "writes": [
-          "{system.backup_targets[]} filesystem snapshots (read from user-manifest via umr_get_array)"
-        ],
+        "writes": [],
         "schema": null,
         "validation": "backup_targets[] resolved from user-manifest; snapshot integrity",
-        "failure_mode": "block-and-log"
+        "failure_mode": "log-and-continue; block-and-log on secret detection"
       },
       "implementation_status": "shipped",
       "script": "capabilities/backup.sh"

@@ -24,7 +24,7 @@
 #     _design_notes.legacy_field_aliases).
 #
 # memory-hygiene#1 retirement is tracked as separate cleanup follow-up;
-# both capabilities co-exist at MVP per S50 DQP fork resolution (Option A).
+# both capabilities co-exist at MVP.
 #
 # NDJSON schema (emit_finding):
 #   { "finding": "memory-staleness", "file": "<basename>",

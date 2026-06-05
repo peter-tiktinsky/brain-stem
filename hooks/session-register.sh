@@ -30,8 +30,9 @@ source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 # Atomic write via the lib's write_registry (temp+rename). Preserves
 # touched_files + started on a re-fire so the R-42 file list survives. Invoked
 # directly OR re-exec'd under lockf (the --do-register internal entry-point).
-# The recorded pid is the SESSION's process (clean_stale keys `kill -0 $pid` on
-# it), passed explicitly so a lockf re-exec doesn't record the lockf pid.
+# The recorded pid is the SESSION's process (the live reaper at
+# reconcile-sessions.sh:57-86 keys `kill -0 $pid` on it), passed explicitly so a
+# lockf re-exec doesn't record the lockf pid.
 register_row() {
   command -v jq >/dev/null 2>&1 || return 0
   local sid="$1" rpid="$2" now reg updated
@@ -45,6 +46,33 @@ register_row() {
        + {touched_files: ((.sessions[$sid].touched_files) // []),
           started: ((.sessions[$sid].started) // $hb)})' 2>/dev/null)
   [ -n "$updated" ] && write_registry "$updated"
+}
+
+# resolve_session_pid — return the long-lived Claude process pid, NOT the
+# transient hook subshell ($$) this SessionStart hook runs in (S2 fix). The
+# reaper at reconcile-sessions.sh:57-86 keys `kill -0 $pid` on the stored pid;
+# storing $$ (a subshell that exits the instant this hook returns) makes the row
+# look dead within milliseconds, so the dead-pid check reaps a live session.
+#
+# This is a NEW $PPID-comm-walk resolver: walk up to ~4 ancestors via
+# `ps -o ppid=`, return the first whose `ps -o comm=` contains 'claude'. It is
+# NOT a reuse of session-close.sh:135-143 — that is a session-ID REVERSE lookup
+# matching ancestor pids against stored .value.pid rows. The only thing borrowed
+# is the prior-art observation that the parent chain is walkable; the technique
+# here (comm-name match) is different. Fail-open: fall back to $PPID, then $$, so
+# a session always registers even when the walk finds no 'claude' ancestor.
+resolve_session_pid() {
+  local p="${PPID:-$$}" depth=0 comm
+  while [ -n "$p" ] && [ "$p" != "0" ] && [ "$p" != "1" ] && [ "$depth" -lt 4 ]; do
+    comm=$(ps -o comm= -p "$p" 2>/dev/null || true)
+    case "$comm" in
+      *claude*) printf '%s' "$p"; return 0 ;;
+    esac
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    depth=$((depth + 1))
+  done
+  # Fail-open: prefer the immediate parent ($PPID) over the subshell ($$).
+  printf '%s' "${PPID:-$$}"
 }
 
 # Internal lockf re-exec target: `session-register.sh --do-register <sid> <pid>`
@@ -89,7 +117,10 @@ fi
 # contended, fall back to a direct (unlocked) upsert so the session still
 # registers — the registry self-reaps and write_registry is atomic.
 ensure_coord_dir 2>/dev/null || true
-SESSION_PID=$$
+# Record the long-lived Claude pid (resolve_session_pid), NOT this hook's
+# transient subshell $$ — see the resolver above. Passed explicitly so the
+# lockf re-exec records this pid, not the lockf pid.
+SESSION_PID=$(resolve_session_pid)
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
   lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-register "$SESSION_ID" "$SESSION_PID" >/dev/null 2>&1 \
     || register_row "$SESSION_ID" "$SESSION_PID"
