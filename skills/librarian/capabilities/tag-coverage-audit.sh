@@ -1,37 +1,29 @@
 #!/bin/bash
 # tag-coverage-audit — Vault-wide tag coverage + taxonomy compliance audit.
-#
 # Walks non-exempt vault .md files, measures presence of `tags:` frontmatter
 # field, classifies tags against the canonical allowlist from
 # `governance/foundation-master.json#tagging.taxonomy.dimension_prefixes`.
-#
 # Foundation philosophy: bundle is source-of-truth for the taxonomy, manifest
 # is source-of-truth for path-pattern exemptions. When dimension_prefixes is
 # empty, prefix-validation is skipped and only the
 # `missing_tags_field` / `empty_tags_field` findings fire. Foundation ships
 # system-utility dimensions (status, log); user-facing dimensions land via
-# overlay-master union-resolve.
-#
+# overlay-master union-resolve (T-7+T-8 scope).
 # Structural exemptions (always exempt; not user-configurable):
 #   - Archive/**                       (frozen history)
 #   - _test*                           (sandbox)
 #   - Symlinks resolving to $PLANS_DIR (e.g., `Plans/`)
 #   - is_plan_root_file OR depth >=2 under $PLANS_DIR
-#
 # User-extension exemptions (read from manifest.vault.tag_audit_exemptions[]):
 #   case-pattern globs matched against $REL (vault-relative path).
-#
 # Findings emitted via lib/findings.sh:
 #   - missing_tags_field            (no `tags:` field at all)
 #   - empty_tags_field              (`tags: []`)
 #   - unrecognized_tag_prefix       (tag prefix not in `_tag_prefixes`;
 #                                    skipped when `_tag_prefixes` is empty)
-#
 # Lifecycle events via emit_event: start / batch progress / end summary.
-#
 # Usage:
 #   tag-coverage-audit.sh [--scope SECTION] [--batch-size N] [--output FILE] [--verbose]
-#
 # Bash 3.2 clean per R-23.
 set -euo pipefail
 
@@ -68,9 +60,28 @@ export FINDINGS_OUTPUT="$OUTPUT"
 
 # Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
 # Foundation ships system-utility dimensions (status, log); user-facing dimensions
-# (engagement, project, scope, etc.) pending overlay-master union-resolve.
+# (engagement, project, scope, etc.) pending overlay-master union-resolve (T-7+T-8).
 # When allowlist is empty, prefix validation is skipped and only missing/empty-tags findings fire.
 FOUNDATION_MASTER="${FOUNDATION_MASTER:-${GOVERNANCE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/governance}/foundation-master.json}"
+# Canonical governance read: tag-coverage-audit
+# CONSUMES .tagging.taxonomy.dimension_prefixes as a runtime validation allowlist (fires
+# unrecognized_tag_prefix against vault tags) — config-consumption, NOT asset-as-subject — so it
+# must read the MERGED view (the :71 "pending overlay-master union-resolve" note is exactly this
+# fix): an adopter overlay declaring engagement/* etc. would otherwise be silently dropped ->
+# false findings. Redirect FOUNDATION_MASTER to the R-52 merged union once; the read below is
+# unchanged. Degrades to the raw bundle if the merger is unavailable.
+if [[ -f "$FOUNDATION_MASTER" ]]; then
+  _OVL="${FOUNDATION_OVERLAY_LOAD:-${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh}"
+  [[ -x "$_OVL" ]] || _OVL="$_REPO_LIB/foundation-overlay-load.sh"
+  if [[ -x "$_OVL" ]]; then
+    _UNION="$(mktemp 2>/dev/null || true)"
+    if [[ -n "$_UNION" ]] && bash "$_OVL" --foundation-path "$FOUNDATION_MASTER" \
+          --overlay-path "$(dirname "$FOUNDATION_MASTER")/overlay-master.json" --force-override > "$_UNION" 2>/dev/null \
+          && [[ -s "$_UNION" ]]; then
+      FOUNDATION_MASTER="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+    elif [[ -n "$_UNION" ]]; then rm -f "$_UNION"; fi
+  fi
+fi
 ALLOWLIST_PREFIXES=""
 if [[ -r "$FOUNDATION_MASTER" ]] && command -v jq >/dev/null 2>&1; then
   ALLOWLIST_PREFIXES=$(jq -r '.tagging.taxonomy.dimension_prefixes // [] | .[]' "$FOUNDATION_MASTER" 2>/dev/null | tr '\n' ' ')

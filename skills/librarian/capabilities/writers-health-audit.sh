@@ -255,7 +255,7 @@ for fn in sorted(os.listdir(writers_dir)):
         counts["multi-writer-overlap"] += 1
 
 # orphan-destination-ref requires a path_routing retired-marker surface which
-# the clean-room foundation does not yet populate; emit nothing rather than
+# the foundation does not yet populate; emit nothing rather than
 # guess (graceful — the finding class is wired, the data source is absent).
 
 if dry_run:

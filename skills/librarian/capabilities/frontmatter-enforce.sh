@@ -1,8 +1,6 @@
 #!/bin/bash
 # frontmatter-enforce — Validate and optionally fix frontmatter on vault files.
-#
 # Sources `hooks/lib/findings.sh` + `hooks/lib/manifest.sh`.
-#
 # Two phases per invocation:
 #   1. Per-file validation — walks scope, checks required fields per 26-row type
 #      table, empty optionals, tag taxonomy. Emits `frontmatter-*` findings via
@@ -16,7 +14,6 @@
 #      (type, schema_key) for ST. Matched rows retain first_seen; new rows get
 #      the next sequence number; resolved rows drop out on the observing run.
 #      Written atomically via manifest_set to `drift_findings.*` arrays.
-#
 # CLI:
 #   frontmatter-enforce.sh                     # --recent by default
 #   frontmatter-enforce.sh --full              # full vault walk
@@ -25,14 +22,12 @@
 #   frontmatter-enforce.sh --dry-run           # summary counts only
 #   frontmatter-enforce.sh --logs-only         # $VAULT_LOGS subset + deliverable
 #                                              # detection only (Module 16-C)
-#
 # Scope exemptions:
 #   $VAULT_ROOT/.claude/, .obsidian/, .git/, .claude/projects/, _test*
 #   <projects_root>/*/CLAUDE.md (no frontmatter required; projects_root
 #       parameterized via FM_PROJECTS_ROOT_DIRNAME env / vault.projects_root_dirname
 #       manifest field; defaults to "Engagements" for backward compatibility)
 #   Logs/ideation-brief-*.md (load-bearing symlink-or-retrofit)
-#
 # Engagement-subfolder taxonomy parameterization:
 #   The four canonical sub-directories under each engagement (People, Projects,
 #   Strategic, Planning) are parameterized via env / user-manifest fields:
@@ -40,10 +35,9 @@
 #     - FM_PROJECTS_SUBDIRNAME  / vault.projects_subdirname  (default: "Projects")
 #     - FM_STRATEGIC_DIRNAME    / vault.strategic_dirname    (default: "Strategic")
 #     - FM_PLANNING_DIRNAME     / vault.planning_dirname     (default: "Planning")
-# Defaults preserve the install-convention for users who never declared
+#   Defaults preserve install-convention for users who never declared
 #   the fields. Path-pattern detection in detect_type() consumes the escaped
 #   env values; no hardcoded substrings remain.
-#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -90,6 +84,25 @@ EXISTING_DRIFT="$(manifest_get '.drift_findings' '{}')"
 # Env-var overrides for testing (waiver-audit precedent).
 DRIFT_ALLOWLIST_FILE="${FM_DRIFT_ALLOWLIST_FILE_OVERRIDE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/drift-allowlist.json}"
 FOUNDATION_MASTER="${FM_FOUNDATION_MASTER:-${FOUNDATION_MASTER:-${GOVERNANCE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/governance}/foundation-master.json}}"
+# --- R-52 union-load redirect (FULL-UNION) ---
+# Read governance through the foundation+overlay merger so adopter Layer-3
+# overlay amendments are honored (overlay wins per R-52), instead of consuming
+# foundation-master RAW. Materialize the merged union ONCE to a temp file and
+# point FOUNDATION_MASTER (hence the exported FM_FOUNDATION_MASTER read by the
+# python _load_tag_prefixes/_load_seed_taxonomy_exempt_paths blocks) at it.
+# Degrade to the raw foundation file when the merger is unavailable (loud-safe).
+# Cleanup is composed into the existing EXIT trap (see _FM_UNION below).
+_FM_UNION=""
+_OVL="${FOUNDATION_OVERLAY_LOAD:-${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh}"
+[ -x "$_OVL" ] || _OVL="$_REPO_LIB/foundation-overlay-load.sh"
+if [ -x "$_OVL" ] && [ -f "$FOUNDATION_MASTER" ]; then
+  _FM_UNION="$(mktemp 2>/dev/null || true)"
+  if [ -n "$_FM_UNION" ] && bash "$_OVL" --foundation-path "$FOUNDATION_MASTER" \
+        --overlay-path "$(dirname "$FOUNDATION_MASTER")/overlay-master.json" --force-override > "$_FM_UNION" 2>/dev/null \
+        && [ -s "$_FM_UNION" ]; then
+    FOUNDATION_MASTER="$_FM_UNION"
+  elif [ -n "$_FM_UNION" ]; then rm -f "$_FM_UNION"; _FM_UNION=""; fi
+fi
 PRE_WRITE_GUARD="${FM_PRE_WRITE_GUARD_OVERRIDE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/pre-write-guard.sh}"
 POST_WRITE_VERIFY="${FM_POST_WRITE_VERIFY_OVERRIDE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/post-write-verify.sh}"
 
@@ -101,14 +114,13 @@ export FM_FOUNDATION_MASTER="$FOUNDATION_MASTER"
 export FM_PRE_WRITE_GUARD="$PRE_WRITE_GUARD"
 export FM_POST_WRITE_VERIFY="$POST_WRITE_VERIFY"
 export FM_ENGAGEMENT_ALIASES_JSON="$(umr_get_object '.vault.engagement_aliases')"
-# Parameterize projects-root directory name.
 # Default "Engagements" preserves the install-convention default for
 # users who never declared the field.
 FM_PROJECTS_ROOT_DIRNAME_RAW="$(umr_get_string '.vault.projects_root_dirname' 2>/dev/null || true)"
 export FM_PROJECTS_ROOT_DIRNAME="${FM_PROJECTS_ROOT_DIRNAME_RAW:-Engagements}"
 # Parameterize engagement-subfolder taxonomy.
-# Defaults preserve the install-convention for users who never declared
-# the fields. Each is an independent env / manifest field so non-default
+# Defaults preserve install-convention for users who never declared
+# the fields. Each is an independent env / manifest field so non-
 # vault structures (academic, generalist, etc.) can rebrand any subset.
 FM_PEOPLE_DIRNAME_RAW="$(umr_get_string '.vault.people_dirname' 2>/dev/null || true)"
 export FM_PEOPLE_DIRNAME="${FM_PEOPLE_DIRNAME_RAW:-People}"
@@ -129,7 +141,6 @@ export FM_VAULT_LOGS="$VAULT_LOGS"
 # os.listdir('') in canonical_scope_files() and raise FileNotFoundError under
 # set -euo pipefail, aborting session-close. Exit 0 = capability records ok/skipped,
 # never error.
-# READ the single-SoT VAULT_CONFIGURED boolean materialized at the
 # producer (paths.sh) rather than re-derive `[ -z … ] || [ ! -d … ]` inline. The
 # `:-0` fallback keeps the guard safe under set -u if paths.sh sourcing was
 # skipped (line 55 source is conditional) — fail closed (skip) on no vault.
@@ -140,7 +151,7 @@ fi
 
 # Tmp file for merged drift_findings JSON emitted by the python block below.
 DRIFT_OUT="$(mktemp -t fm-enforce-drift.XXXXXX)"
-trap 'rm -f "$DRIFT_OUT"' EXIT
+trap 'rm -f "$DRIFT_OUT" ${_FM_UNION:+"$_FM_UNION"}' EXIT
 
 python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$LOGS_ONLY" "$DRIFT_OUT" <<'PY'
 import json, os, re, sys, time, fnmatch
@@ -151,7 +162,6 @@ dry_run = (dry_run_s == "true")
 logs_only = (logs_only_s == "true")
 fix_mode = (mode == "fix")
 
-# Parameterize projects-root directory name.
 # Read from FM_PROJECTS_ROOT_DIRNAME env (set from .vault.projects_root_dirname
 # via umr_get_string above). Fall back to "Engagements" if empty/unset for
 # backward compatibility with users who never declared the field.
@@ -312,7 +322,7 @@ REQUIRED = {
 
 # Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
 # Foundation ships system-utility dimensions (status, log); user-facing dimensions
-# pending overlay-master union-resolve. Empty → tag taxonomy
+# pending overlay-master union-resolve (T-7+T-8). Empty → tag taxonomy
 # validation skips silently (graceful degradation until union-resolve lands).
 def _load_tag_prefixes():
     bundle_path = os.environ.get("FM_FOUNDATION_MASTER", "")
@@ -328,7 +338,6 @@ def _load_tag_prefixes():
 
 TAG_PREFIXES = _load_tag_prefixes()
 
-# DEDICATED tag-TAXONOMY exempt-list, loaded explicitly
 # from foundation-master.json#seed_taxonomy_exempt_paths_composed (composed from
 # tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths via
 # tools/build-foundation-master.sh). SEPARATE from the R-47 tag-PRESENCE exempt
@@ -409,7 +418,6 @@ def build_scope():
     root = vault_scope if walk != "scope" else vault_scope
     if logs_only:
         root = vault_logs
- # (belt-and-suspenders): os.walk('') silently returns []
     # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
     if not root or not os.path.isdir(root):
         return files
@@ -446,7 +454,6 @@ def tag_violations(fm, rel=None):
     if not TAG_PREFIXES:
         # No allowlist configured (foundation default) — skip taxonomy check.
         return []
- # skip the tag-not-in-taxonomy MEMBERSHIP arm for the
     # foundation-shipped vault-init seed surface — those seeds legitimately carry
     # adopter-tier dimensions the foundation taxonomy ships empty (by design).
     # Gates ONLY this membership arm; tags-not-list above still applies.
@@ -488,7 +495,7 @@ def run_per_file(files):
         missing = [k for k in required if k not in fm or (isinstance(fm[k], str) and fm[k].strip() == "")]
         # --- empty optional
         empties = empty_str_optional(fm, set(required))
- # --- tag taxonomy (: pass rel for seed-taxonomy exemption)
+        # --- tag taxonomy (T-3: pass rel for seed-taxonomy exemption)
         tag_issues = tag_violations(fm, rel)
 
         if not (missing or empties or tag_issues):
@@ -609,7 +616,6 @@ def load_drift_allowlist():
 def canonical_scope_files():
     """Vault root depth-1 + System Governance/** + Skills/**"""
     out = []
- # (LOAD-BEARING guard): os.listdir('') raises
     # FileNotFoundError on an empty vault_root, aborting session-close under
     # set -euo pipefail. Guard before the walk so a missing vault degrades to [].
     if not vault_root or not os.path.isdir(vault_root):
@@ -778,12 +784,11 @@ def drift_size_monitoring():
 
 # ---------- schema-type-hook-coverage-gap ----------
 def drift_schema_type_coverage():
- # the dead FM_VAULT_SCHEMA read re-points at the
     # post-dissolution SoT — foundation-master.json#frontmatter.types (vault-schema
- # dissolved in; frontmatter-rules.json:7 absorbed_from_vault_schema).
+    # dissolved in T-4; frontmatter-rules.json:7 absorbed_from_vault_schema).
     # `or {}` is LOAD-BEARING: load_json returns None (not {}) on failure, so without
     # it bundle.get("frontmatter") would raise AttributeError on the graceful-degrade
-    # path — re-introducing the AttributeError crash before the isinstance guard below.
+    # path — re-introducing's exact crash before the isinstance guard below.
     bundle = load_json(os.environ.get("FM_FOUNDATION_MASTER", "")) or {}
     schema = (bundle.get("frontmatter") or {}).get("types") or {}
     if not isinstance(schema, dict):
@@ -801,7 +806,6 @@ def drift_schema_type_coverage():
         pv = ""
     pg_types = set(m.group(1) for m in re.finditer(r"^\s+([a-z][a-z-]*)\)\s+SCHEMA_KEY=", pg, re.MULTILINE))
     pv_types = set(m.group(1) for m in re.finditer(r"^\s+'([a-z][a-z-]*)'\s*:\s*'", pv, re.MULTILINE))
- # (static-arm gate): post-dissolution neither hook carries
     # static type arms (the regexes above match zero lines), so the coverage audit
     # is inapplicable — return empty rather than flood 6 false-positive
     # "missing in both hooks" findings (one per frontmatter.types key).

@@ -5,12 +5,13 @@
   "description": "Hook-consumable runtime artifact for the vault-root CLAUDE.md body-structure contract. The k8s ValidatingAdmissionPolicy paramKind for the only mandatory vault-root file.",
   "version": "1.0.0",
   "status": "runtime",
+  "design_source": "the vault-root CLAUDE.md template + its locked shape record",
   "matcher_pillar": "governance/mandatory-files-rules.json",
   "matcher_entry": "mandates.claude_md_vault_root",
   "_design_notes": {
     "consumer": "hooks/pre-write-guard.sh (size cap + section presence) + hooks/post-write-verify.sh (Mustache substitution validation post-install)",
-    "lockstep_pair": "templates/vault-claude-md-template.md",
-    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + template updated in one commit"
+    "lockstep_pair": "templates/vault-claude-md-template.md (shipped) + its locked shape record",
+    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + template + alignment-lock-record updated in one commit"
   },
 
   "type": "CLAUDE.md",
@@ -27,7 +28,7 @@
     "max_lines": 80,
     "soft_target_lines_min": 30,
     "soft_target_lines_max": 50,
-    "rationale": "Hard cap — the vault-root CLAUDE.md stays a lean orientation file."
+    "rationale": "v3.1 hard cap per operator directive."
   },
 
   "mustache_substitution": [

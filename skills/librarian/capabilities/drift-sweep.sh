@@ -1,36 +1,29 @@
 #!/bin/bash
 # drift-sweep — Frontmatter-drift sweep over vault .md files against the
-# governance bundle, PLUS the master<->sub
-# aggregation axis with an optional --fix that re-points a master's sub_plans[]
-# read-replica to reality.
-#
-# Librarian reconciler. The existing
-# frontmatter-drift sweep is PRESERVED. The master<->sub aggregation axis is the
-# extension. Cross-file invariants live in this
-# reconciler, NEVER write-time.
-#
+# governance bundle, PLUS the master<->sub aggregation axis with an optional
+# --fix that re-points a master's sub_plans[] read-replica to reality.
+# Librarian reconciler: the existing frontmatter-drift sweep is PRESERVED; the
+# master<->sub aggregation axis is a new extension. Cross-file invariants
+# live in this reconciler, NEVER write-time.
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or the
 #     --output sink. With --fix, the master sub_plans[] read-replica is repaired
-#     by delegating to subplan-aggregate.sh — drift-sweep itself never
+#     by delegating to subplan-aggregate.sh (A-03) — drift-sweep itself never
 #     hand-edits sub_plans[]; it invokes the canonical aggregator so the writer
 #     stays single-sourced.
 #   Failure mode: block-and-log; never write-and-hope. Per-file errors are soft
 #     findings, not sweep-fatal.
-#
 # CLI:
 #   drift-sweep.sh [--dry-run] [--live] [--batch-size N] [--output FILE]
 #                  [--plans] [--fix] [--scope <plans-root>]
 #     --plans   run ONLY the master<->sub aggregation axis (skip the vault sweep)
 #     --fix     repair master sub_plans[] drift via subplan-aggregate.sh
 #     --scope   plan-tree root for the master<->sub axis (default: PLANS_DIR)
-#
 # Env overrides:
 #   FOUNDATION_MASTER   governance bundle (default: $GOVERNANCE_DIR/foundation-master.json)
 #   VAULT_ROOT          vault root for the frontmatter sweep
 #   PLANS_DIR           plan-tree root for the master<->sub axis
 #   FINDINGS_OUTPUT     NDJSON sink
-#
 # Bash 3.2 clean per R-23.
 
 set -uo pipefail
@@ -43,6 +36,26 @@ source "$CLAUDE_HOME_RES/hooks/lib/findings.sh" 2>/dev/null \
   || source "$(cd "$(dirname "$0")/../../.." && pwd)/hooks/lib/findings.sh"
 
 FOUNDATION_MASTER="${FOUNDATION_MASTER:-${GOVERNANCE_DIR:-$CLAUDE_HOME_RES/governance}/foundation-master.json}"
+
+# R-52 union-load: read governance through the foundation<->overlay merger so an
+# adopter's overlay-master.json frontmatter amendments are honored — never consume
+# foundation-master RAW. Materialize the merged union ONCE and redirect
+# $FOUNDATION_MASTER at it; every downstream python3 read of "$FOUNDATION_MASTER"
+# (frontmatter.types + r32_type_aliases at ~136/~150) is then unchanged. The redirect
+# is read-only (the existence-check gate at ~101 either sees the real file when the
+# merger is absent, or the valid union when present). Degrades to the raw bundle if
+# the merger is unavailable (loud-safe, never broken).
+_OVL="${FOUNDATION_OVERLAY_LOAD:-${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh}"
+[ -x "$_OVL" ] || _OVL="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib/foundation-overlay-load.sh"
+if [ -x "$_OVL" ] && [ -f "$FOUNDATION_MASTER" ]; then
+  _UNION="$(mktemp 2>/dev/null || true)"
+  if [ -n "$_UNION" ] && bash "$_OVL" --foundation-path "$FOUNDATION_MASTER" \
+        --overlay-path "$(dirname "$FOUNDATION_MASTER")/overlay-master.json" --force-override > "$_UNION" 2>/dev/null \
+        && [ -s "$_UNION" ]; then
+    FOUNDATION_MASTER="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+  elif [ -n "$_UNION" ]; then rm -f "$_UNION"; fi
+fi
+
 DRY_RUN=true
 BATCH_SIZE=50
 OUTPUT=""
@@ -66,7 +79,7 @@ done
 
 export FINDINGS_OUTPUT="${OUTPUT:-${FINDINGS_OUTPUT:-}}"
 
-# --- master<->sub aggregation axis ------------------------------------------
+# --- master<->sub aggregation axis (NET-NEW) ---------------------
 # Re-uses the trinity-drift-detect master<->sub detector for the read; --fix
 # delegates the repair to the canonical aggregator (single-writer invariant).
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -96,7 +109,7 @@ if [[ "$PLANS_ONLY" == "true" ]]; then
   exit 0
 fi
 
-# --- frontmatter-drift sweep (PRESERVED axis) -------------------------------
+# --- frontmatter-drift sweep (PRESERVED axis) ------------------------
 if [[ ! -f "$FOUNDATION_MASTER" ]]; then
   echo "drift-sweep: foundation-master.json not found at $FOUNDATION_MASTER; "\
        "running master<->sub axis only" >&2

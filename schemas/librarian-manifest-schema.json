@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Librarian Manifest",
-  "description": "Librarian runtime state: inventory, cross-reference graph, tag inventory, scan state, drift findings, architect recommendations, rename history. Runtime writes owned by the librarian capabilities. drift_findings.required[] is trimmed to the subtrees a clean-room capability actually writes (frontmatter-enforce) — see drift_findings.description.",
+  "description": "Librarian runtime state: inventory, cross-reference graph, tag inventory, scan state, drift findings, architect recommendations, rename history. Runtime writes owned by the librarian capabilities. drift_findings.required[] is trimmed to the subtrees a librarian capability actually writes (frontmatter-enforce) — see drift_findings.description.",
   "type": "object",
   "required": [
     "schema_version",

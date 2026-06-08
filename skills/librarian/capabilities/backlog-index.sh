@@ -1,18 +1,17 @@
 #!/bin/bash
 # backlog-index — Regenerate <plans-root>/_backlog.md from plan manifests as a
-# manifest-derived read-replica. Librarian reader cap with the master-row
+# manifest-derived read-replica. Librarian reader cap with the A-06 master-row
 # policy + satellite-pointer retarget.
-#
-# Reader cap with two additions:
+# Librarian reader cap (A-06;1.1 line 126). Ported from the
+# backlog-index.sh with two A-06
+# additions:
 #   (1) MASTER-ROW POLICY: when a master plan with sub_plans[] is in the
 #       backlog, render only the MASTER row (its rollup READ from the
-#       sub_plans[] aggregate that subplan-aggregate.sh populates);
+#       sub_plans[] aggregate that subplan-aggregate.sh / A-03 populates);
 #       sub-plan dirs do not get their own backlog rows.
 #   (2) SATELLITE-POINTER RETARGET: the per-row session-history
 #       pointer is the plan dir / master handoff.md — NOT the retired
-#       per-plan satellite.
 #       The Notes cell is carried forward verbatim (the row sentinel pattern).
-#
 # Output Contract
 #   Files written: <plans-root>/_backlog.md (sentinel-bounded table region;
 #     operator narrative + per-row Notes preserved); findings to stdout (NDJSON
@@ -21,16 +20,13 @@
 #     (jsonschema when available; structural fallback).
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Idempotent.
-#
 # Finding categories:
 #   backlog-row-missing-disposition | manifest-status-orphan | slug-violation
 #   | backlog-regenerated (event)
-#
 # CLI:
 #   backlog-index.sh                 # regenerate _backlog.md + emit findings
 #   backlog-index.sh --dry-run       # compute + emit findings + summary; no write
 #   backlog-index.sh --help
-#
 # Env overrides:
 #   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
 #   BACKLOG_FILE             output file (default: $PLANS_ROOT/_backlog.md)
@@ -38,7 +34,6 @@
 #   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
 #   FOUNDATION_TEST_MODE     bypass the non-interactive guard
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -84,8 +79,28 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
+# install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
+# two bundles (foundation-master + overlay-master), which governance consumers read as ONE
+# merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
+# overlay overlaid on foundation). When the loose pillar is absent, resolve the EFFECTIVE
+# `.plans` slot through that merger (--force-override = read posture per pre-write-guard:91
+# "every hook-side read passes the flag") so the cap reads the REAL register instead of
+# hard-exiting on a clean install.
 if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
-  echo "backlog-index: plans-rules.json not found (set PLANS_RULES_PATH)" >&2
+  for _loader in \
+    "$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh" \
+    "$_REPO_LIB/foundation-overlay-load.sh"; do
+    [[ -x "$_loader" ]] || continue
+    _rt="$(mktemp 2>/dev/null)" || break
+    if bash "$_loader" --query '.plans' --force-override > "$_rt" 2>/dev/null \
+         && [[ -s "$_rt" ]] && [[ "$(head -c4 "$_rt" 2>/dev/null)" != null ]]; then
+      RULES_PATH="$_rt"; trap 'rm -f "$_rt"' EXIT; break
+    fi
+    rm -f "$_rt"
+  done
+fi
+if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
+  echo "backlog-index: plans-rules.json not found and no foundation-master+overlay bundle (set PLANS_RULES_PATH)" >&2
   exit 1
 fi
 
@@ -158,8 +173,8 @@ def cell(value):
     s = "" if value is None else str(value)
     return s.replace("\r", " ").replace("\n", " ").replace("|", "\\|").strip()
 
-# inbox-walk: minimal line-oriented frontmatter parser for the
-# _inbox/<slug>.md idea notes.
+# A1 inbox-walk: minimal line-oriented frontmatter parser for the
+# _inbox/<slug>.md idea notes (ported adapted from the backlog-index.sh).
 _FM_KEY_RE = re.compile(r'^([A-Za-z0-9_-]+):\s*"?(.*?)"?\s*$')
 
 def parse_frontmatter(file_path):
@@ -260,7 +275,7 @@ for entry in sorted(os.listdir(plans_root)):
               "detected_at": today, "first_seen": today})
         disposition = "MISSING"
 
-    # MASTER-ROW POLICY: a master with sub_plans[] renders one row whose
+    # A-06 MASTER-ROW POLICY: a master with sub_plans[] renders one row whose
     # status display is the master's own status; the per-sub rows are NOT
     # rendered (the master carries the rollup). Plain plans render normally.
     is_master = (manifest.get("type") == "master") or isinstance(manifest.get("sub_plans"), list)
@@ -269,7 +284,7 @@ for entry in sorted(os.listdir(plans_root)):
         initiative += " (master · %d subs)" % len(manifest["sub_plans"])
 
     # SATELLITE-POINTER RETARGET: the session-history pointer is the plan dir /
-    # master handoff.md, NOT the retired per-plan satellite.
+    # master handoff.md, NOT/<slug>.md.
     project_dir = entry + "/handoff.md"
 
     notes = prior_notes.get(entry, "")
@@ -284,7 +299,7 @@ for entry in sorted(os.listdir(plans_root)):
 # {researching, planned} plan manifests — the unified pickup-able funnel view the
 # triage->research skills depend on. Without this block the funnel renders
 # nothing for captured ideas (the LOAD-BEARING gap). The row
-# pointer is the note itself (_inbox/<slug>.md), NEVER a retired per-plan
+# pointer is the note itself (_inbox/<slug>.md), NEVER a
 # satellite. Slug carries NO NN- prefix (assigned at graduation).
 inbox_cfg = rules.get("inbox", {})
 inbox_funnel = inbox_cfg.get("funnel_status_enum", ["new", "triaged", "briefed"])

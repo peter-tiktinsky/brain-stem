@@ -361,7 +361,7 @@ enforcement over band-aid):
 ## See also
 
 - `hooks/lib/overlay-master-mutate.sh` (atomic mutation library)
-- `schemas/overlay-master-schema.json` (overlay pillar shape)
+- `schemas/overlay-master-schema.json` (overlay pillar structure)
 - `schemas/governance-action-log-schema.json` (action-log row shape)
 - `governance/file-type-contracts/vault-writer.md.json` (writer-reference contract)
 - Foundation governance semantic-extension-flow reference (lock chain; Class D)

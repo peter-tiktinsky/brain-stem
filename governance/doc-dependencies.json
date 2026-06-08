@@ -24,7 +24,7 @@
         "hook"
       ],
       "status": "active",
-      "source": "governance/doc-dependencies.json :: _rules (D7 SoT). R-48 is the broken-wikilink Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
+      "source": "governance/doc-dependencies.json :: _rules (SoT). R-48 is the broken-wikilink Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
       "rule_text": "A file written with wikilink reference(s) [[target]] / [[target|alias]] to a non-existent target SHOULD surface a write-time advisory naming the broken target(s). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability. R-48 is the broken-wikilink write-time advisory (Tier 1).",
       "failure_mode": "A wikilink to a non-existent target lands silently; the vault navigation graph carries a dangling edge that the reader only discovers on click. Advisory: write proceeds; operator told the broken target(s) + pointed at wikilink-repair or to create the target file if intended."
     },
@@ -37,7 +37,7 @@
         "hooks/pre-write-guard.sh (doc-dep cascade advisory)"
       ],
       "status": "active",
-      "source": "governance/doc-dependencies.json :: _rules (D7 SoT — canonical doc-dep cascade ID)",
+      "source": "governance/doc-dependencies.json :: _rules (SoT — canonical doc-dep cascade ID)",
       "rule_text": "When an upstream document declared in this registry's entries[]/entities[] is edited, its declared downstream consumers/mirrors should be cascaded. ADVISORY — surfaced at write-time and at librarian session-close; never a write-time DENY. R-54 is the canonical doc-dep cascade ID; the hook header label is R-54 (renamed from R-07).",
       "failure_mode": "An upstream doc changes but its declared downstream mirrors drift. Advisory only — vault-writer fan-out is the forward path; R-54 is the thin/legacy cascade rail kept for the registry-declared edges.",
       "_framing": "thin/legacy — the vault-writer fan-out (R-58 / writer-reference contract) is the FORWARD path; R-54 covers the registry-declared cascade edges only."

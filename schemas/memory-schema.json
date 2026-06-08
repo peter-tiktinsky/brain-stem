@@ -6,7 +6,7 @@
   "description": "YAML frontmatter contract every file under ~/.claude/projects/<project>/memory/*.md MUST carry. Codifies the System-A curated-memory frontmatter contract. Schema validates the frontmatter block parsed as an object; additionalProperties is true so memory files may carry per-type extensions alongside the universal fields.",
 
   "_design_notes": {
-    "purpose": "Codify the two-axis memory contract: filename prefix carries provenance, the `type:` frontmatter field carries retrieval axis. Foundation-repo only; adopter live memory cutover is OUT OF SCOPE.",
+    "purpose": "Codify the memory contract: filename prefix carries provenance, the `type:` frontmatter field carries retrieval axis. Foundation-repo only; adopter live memory cutover is OUT OF SCOPE.",
 
     "two_axes": {
       "provenance_axis_filename_prefix": {

@@ -1,11 +1,11 @@
 #!/bin/bash
 # promote-from-inbox.sh — Graduate a pre-plan _inbox idea note into a full plan dir.
-#
 # The deterministic, mechanical half of the /backlog-research --promote flow and a
-# helper for /new-plan (the internal R-34 mechanical-mutation boundary:
+# helper for /new-plan (canonical/internal R-34 mechanical-mutation boundary:
 # the migration + scaffold is judgment-free given the inbox note, so it lives in a
-# runtime; the skill orchestrates + frames). Lives at skills/new-plan/lib/.
-#
+# runtime; the skill orchestrates + frames). Ported from the
+# ~/Code//skills/backlog-research/promote-from-inbox.sh and retargeted to
+# this skills/new-plan/lib/ home (OWNS; REC-2 roster member).
 # Given a pre-plan idea note at $PLANS_ROOT/_inbox/<slug>.md (type: idea, per
 # plans-rules.json :: inbox), it:
 #   1. migrates the note body VERBATIM into 00-ideation-brief.md (## Original Idea,
@@ -14,21 +14,17 @@
 #      00-ideation-brief.md) + manifest.json, assigning the next-available NN- prefix
 #      at GRADUATION (inbox slugs carry NO NN- prefix — plans-rules.json :: inbox);
 #   3. tombstones the note by removing it (the plan dir is the durable record).
-#
-# _inbox collision handling (two paths, (A)+(B)):
+# _inbox collision handling (DEFAULT (A)+(B); +.6):
 #   (A) version-on-collision at _inbox/ CAPTURE — `--capture <slug>` writes a fresh
 #       idea-note stub; if _inbox/<slug>.md exists it versions to <slug>-2.md,
 #       <slug>-3.md, … (never clobbers a captured idea).
 #   (B) reject-on-collision at GRADUATION — if the assigned NN-<slug> plan dir OR a
 #       same-base-slug plan already exists, abort (no clobber, note left intact).
-#
 # Failure mode is BLOCK-AND-LOG (never write-and-hope): all validation runs before any
 # write; a mid-scaffold failure rolls back the created dir and leaves the note intact.
 # The note is removed only after the brief is written and its body verified present.
-#
 # NDJSON findings (FINDINGS_OUTPUT or stdout):
 #   idea-graduated (event) | promote-aborted (event) | idea-captured (event)
-#
 # CLI:
 #   promote-from-inbox.sh <inbox-slug>              # graduate the note
 #   promote-from-inbox.sh <inbox-slug> --title "X"  # override rendered title
@@ -36,7 +32,6 @@
 #   promote-from-inbox.sh --capture <slug>          # (A): version-on-collision capture
 #   promote-from-inbox.sh --capture <slug> --title "X"
 #   promote-from-inbox.sh --help
-#
 # Env overrides:
 #   PLANS_ROOT             Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
 #                          else $HOME/.claude-plans.
@@ -44,7 +39,6 @@
 #   PLANS_RULES_PATH       plans-rules.json (default: foundation → live).
 #   FINDINGS_OUTPUT        NDJSON sink (default: stdout).
 #   FOUNDATION_TEST_MODE   Bypass the non-interactive guard.
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -105,8 +99,28 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
+# install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
+# two bundles (foundation-master + overlay-master), which governance consumers read as ONE
+# merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
+# overlay overlaid on foundation). When the loose pillar is absent, resolve the EFFECTIVE
+# `.plans` slot through that merger (--force-override = read posture per pre-write-guard:91)
+# so the cap reads the REAL register instead of hard-exiting on a clean install.
 if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
-  echo "promote-from-inbox: plans-rules.json not found (set PLANS_RULES_PATH)" >&2
+  _REPO_ROOT="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)"
+  for _loader in \
+    "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh" \
+    "$_REPO_ROOT/hooks/lib/foundation-overlay-load.sh"; do
+    [[ -x "$_loader" ]] || continue
+    _rt="$(mktemp 2>/dev/null)" || break
+    if bash "$_loader" --query '.plans' --force-override > "$_rt" 2>/dev/null \
+         && [[ -s "$_rt" ]] && [[ "$(head -c4 "$_rt" 2>/dev/null)" != null ]]; then
+      RULES_PATH="$_rt"; trap 'rm -f "$_rt"' EXIT; break
+    fi
+    rm -f "$_rt"
+  done
+fi
+if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
+  echo "promote-from-inbox: plans-rules.json not found and no foundation-master+overlay bundle (set PLANS_RULES_PATH)" >&2
   exit 1
 fi
 
@@ -176,11 +190,8 @@ plan_slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2}-[a-z]
 inbox_dir = os.path.join(plans_root, "_inbox")
 
 
-# ===========================================================================
-# (A): version-on-collision at _inbox/ CAPTURE.
 # Writes a fresh idea-note stub; if _inbox/<slug>.md already exists, versions to
 # <slug>-2.md, <slug>-3.md, … (never clobbers an already-captured idea).
-# ===========================================================================
 if action == "capture":
     if not re.match(inbox_slug_pattern, slug):
         abort("slug '%s' does not match inbox slug_pattern %s" % (slug, inbox_slug_pattern))
@@ -224,9 +235,7 @@ if action == "capture":
     sys.exit(0)
 
 
-# ===========================================================================
 # GRADUATION (default action).
-# ===========================================================================
 # ---- validate inbox note ---------------------------------------------------
 if not re.match(inbox_slug_pattern, slug):
     abort("slug '%s' does not match inbox slug_pattern %s" % (slug, inbox_slug_pattern))
@@ -263,15 +272,15 @@ plan_dir = os.path.join(plans_root, plan_slug)
 if not re.match(plan_slug_pattern, plan_slug):
     abort("computed plan slug '%s' fails plan slug_pattern %s" % (plan_slug, plan_slug_pattern))
 
-# ---- (B): reject-on-collision at GRADUATION -------------------------------
+# ---- (B): reject-on-collision at GRADUATION -------------------------
 if os.path.exists(plan_dir):
-    abort("target plan dir already exists: %s (reject-on-collision)" % plan_dir, plan_dir=plan_dir)
+    abort("target plan dir already exists: %s (reject-on-collision; B)" % plan_dir, plan_dir=plan_dir)
 for entry in os.listdir(plans_root):
     if entry.startswith(".") or entry.startswith("_"):
         continue
     base = re.sub(r"^[0-9]+-", "", entry)
     if base == slug:
-        abort("slug collision with existing plan: %s (reject-on-collision)" % entry, collision=entry)
+        abort("slug collision with existing plan: %s (reject-on-collision; B)" % entry, collision=entry)
 
 # ---- build the ideation brief (lossless body migration) --------------------
 quoted = "\n".join(("> " + ln) if ln else ">" for ln in note_body.rstrip("\n").split("\n"))

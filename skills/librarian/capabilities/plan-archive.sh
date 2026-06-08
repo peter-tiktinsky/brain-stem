@@ -1,19 +1,17 @@
 #!/bin/bash
 # plan-archive — Promote closed plans to archived; append to
-# <plans-root>/_archive.md. Librarian reader cap with the master-subtree
+# <plans-root>/_archive.md. Librarian reader cap with the A-06 master-subtree
 # archival gate.
-#
-# Reader cap with the
-# MASTER-SUBTREE ARCHIVAL GATE: a master plan is archive-eligible only
+# Librarian reader cap (A-06;1.1 line 127). Ported from the
+# plan-archive.sh with the A-06
+# MASTER-SUBTREE ARCHIVAL GATE added: a master plan is archive-eligible only
 # when EVERY entry in its sub_plans[] read-replica (READ from the aggregate
-# subplan-aggregate.sh populates) is in a terminal status
+# subplan-aggregate.sh / A-03 populates) is in a terminal status
 # (verified/closed/archived/superseded). A master with any non-terminal sub is
 # held back even if its own status is closed.
-#
 # Two-axis trigger: eligibility is event-driven (manifest status == closed);
 # promotion is gated by a data-driven cooldown (plans-rules.json
 # lifecycle.status_transitions.closed_to_archived.cooldown_days; default 3).
-#
 # Output Contract
 #   Files written: <plans-root>/_archive.md (append quarterly row) + the
 #     promoted manifest's status flip (closed -> archived); findings to stdout
@@ -21,17 +19,14 @@
 #   Schema gate: each manifest validates against plan-manifest-schema.json.
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Idempotent (keyed by plan_slug + closed_at).
-#
 # Finding categories:
 #   archive-eligible-plan (event) | archive-row-malformed | manifest-schema-violation
 #   | master-subtree-incomplete (master held back; not all subs terminal)
-#
 # CLI:
 #   plan-archive.sh                       # sweep all plans
 #   plan-archive.sh --plan-slug <slug>    # scope to a single plan
 #   plan-archive.sh --dry-run             # compute + emit findings; no write
 #   plan-archive.sh --help
-#
 # Env overrides:
 #   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
 #   ARCHIVE_FILE             output file (default: $PLANS_ROOT/_archive.md)
@@ -40,7 +35,6 @@
 #   PLAN_ARCHIVE_TODAY       override "today" (YYYY-MM-DD) for deterministic tests
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
 #   FOUNDATION_TEST_MODE     bypass the non-interactive guard
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -88,8 +82,28 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
+# install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
+# two bundles (foundation-master + overlay-master), which governance consumers read as ONE
+# merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
+# overlay overlaid on foundation). When the loose pillar is absent, resolve the EFFECTIVE
+# `.plans` slot through that merger (--force-override = read posture per pre-write-guard:91
+# "every hook-side read passes the flag") so the cap reads the REAL register instead of
+# hard-exiting on a clean install.
 if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
-  echo "plan-archive: plans-rules.json not found (set PLANS_RULES_PATH)" >&2
+  for _loader in \
+    "$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh" \
+    "$_REPO_LIB/foundation-overlay-load.sh"; do
+    [[ -x "$_loader" ]] || continue
+    _rt="$(mktemp 2>/dev/null)" || break
+    if bash "$_loader" --query '.plans' --force-override > "$_rt" 2>/dev/null \
+         && [[ -s "$_rt" ]] && [[ "$(head -c4 "$_rt" 2>/dev/null)" != null ]]; then
+      RULES_PATH="$_rt"; trap 'rm -f "$_rt"' EXIT; break
+    fi
+    rm -f "$_rt"
+  done
+fi
+if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
+  echo "plan-archive: plans-rules.json not found and no foundation-master+overlay bundle (set PLANS_RULES_PATH)" >&2
   exit 1
 fi
 
@@ -214,7 +228,7 @@ def insert_row(content, quarter, row):
     return "\n".join(lines)
 
 def master_subtree_complete(manifest):
-    """Master-subtree gate: True iff not a master, or every sub_plans[]
+    """A-06 master-subtree gate: True iff not a master, or every sub_plans[]
     entry is terminal. Returns (eligible_bool, incomplete_subs[])."""
     subs = manifest.get("sub_plans")
     is_master = (manifest.get("type") == "master") or isinstance(subs, list)
@@ -252,7 +266,7 @@ for slug in candidates:
     if str(manifest.get("status", "")).strip() != "closed":
         continue
 
-    # Master-subtree gate.
+    # A-06 master-subtree gate.
     eligible, incomplete = master_subtree_complete(manifest)
     if not eligible:
         emit({"finding": "master-subtree-incomplete", "file": slug, "plan_slug": slug,

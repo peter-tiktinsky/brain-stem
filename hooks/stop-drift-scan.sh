@@ -1,11 +1,12 @@
 #!/bin/bash
 # Hook: Stop — Scan touched vault files for frontmatter drift before session exit.
-# R-36: Advisory only (dry-run mode). Live enforcement deferred.
+# R-36: Advisory only (dry-run mode). Live enforcement deferred to Phase 4.
 # Emits findings to stderr as informational; does NOT block stop (exit 0 always).
 set -euo pipefail
 
-# Hook-portability — source lib via $SCRIPT_DIR, not
-# a hardcoded install-path literal.
+# a hardcoded install-path literal. The body sourced the install lib path
+# literally, contradicting.14's "5 other C2 hooks portable" estimate;
+# the build re-grep is authoritative ([DRIFT] 3; ).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/registry.sh"
@@ -17,13 +18,30 @@ if [[ -z "$SESSION_ID" ]]; then
   exit 0
 fi
 
-# Bundle-at-load — read the composed governance bundle.
+# per canonical §B; vault-schema.json was dissolved per T-4 pillar shard.
 # FOUNDATION_MASTER is resolved by each consumer (not exported by paths.sh);
 # the canonical idiom guards against an unbound value under `set -u` on a
 # clean install where the bundle is absent.
 FOUNDATION_MASTER="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
 if [[ ! -f "$FOUNDATION_MASTER" ]]; then
   exit 0
+fi
+# Canonical governance read: route the schema read through the R-52 union-load
+# merger (hooks/lib/foundation-overlay-load.sh) so an adopter's overlay-master.json frontmatter
+# amendments are honored — never consume foundation-master RAW. Materialize the merged union
+# once and redirect $FOUNDATION_MASTER at it; every downstream `jq ... "$FOUNDATION_MASTER"` is
+# unchanged. Degrades to the raw bundle if the merger is unavailable (advisory hook; loud-safe,
+# never blocks).
+_OVL="${FOUNDATION_OVERLAY_LOAD:-$SCRIPT_DIR/lib/foundation-overlay-load.sh}"
+if [[ -x "$_OVL" ]]; then
+  _UNION="$(mktemp 2>/dev/null || true)"
+  if [[ -n "$_UNION" ]] && bash "$_OVL" --foundation-path "$FOUNDATION_MASTER" \
+        --overlay-path "$(dirname "$FOUNDATION_MASTER")/overlay-master.json" --force-override \
+        > "$_UNION" 2>/dev/null && [[ -s "$_UNION" ]]; then
+    FOUNDATION_MASTER="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+  elif [[ -n "$_UNION" ]]; then
+    rm -f "$_UNION"
+  fi
 fi
 
 ensure_coord_dir

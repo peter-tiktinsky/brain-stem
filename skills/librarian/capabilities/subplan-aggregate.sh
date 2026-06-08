@@ -161,8 +161,8 @@ if schema_path and os.path.isfile(schema_path):
         sys.exit(1)
 
 # enumerate sub-plan subdirectories (execution-order NN- prefixed dirs with a
-# manifest.json). The clean-room sub-plan convention is NN-<slug>/ under the
-# master dir (the SP-NN-* family in this very build series).
+# manifest.json). The sub-plan convention is NN-<slug>/ under the
+# master dir.
 prior = {}
 for sp in (master.get("sub_plans") or []):
     if isinstance(sp, dict) and sp.get("sub_plan_id"):
@@ -176,7 +176,7 @@ for entry in sorted(os.listdir(master_dir)):
     if entry in ("tests", "_orchestrator"):
         continue
     sub_manifest = os.path.join(sub_dir, "manifest.json")
-    # ordinal: NN- prefix, or SP-NN- prefix (this build series)
+    # ordinal: NN- prefix (optional SP- prefix)
     m = re.match(r"^(?:SP-)?(\d{1,2})[-_]", entry)
     if not m and not os.path.isfile(sub_manifest):
         continue

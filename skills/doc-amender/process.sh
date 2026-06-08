@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
 # skills/doc-amender/process.sh — event-driven LLM-amendment runner for
-# prompt-guided edits to fan-in destinations (the writer-pipeline LLM lane).
-#
-# Lib defaults point to the shipped hooks/lib/; staging root resolved
-# via $CLAUDE_STATE_ROOT (no bare ~/.claude literal).
-#
+# prompt-guided edits to fan-in destinations (the writer-pipeline LLM lane,
+# Ported from the skills/doc-amender/process.sh;
+# (lib defaults repointed to the shipped hooks/lib/ per; staging root resolved
+# via $CLAUDE_STATE_ROOT — no bare ~/.claude or literal).
 # Reads amender-eligible packets from staging, joins them against
 # governance/doc-dependencies.json writer-fan-in entries; for an eligible
 # packet it runs the operator-authored prompt asset through `claude -p`
 # (persistence.mode=llm-mediated / hybrid) OR dispatches to compose-deterministic.sh
-# (persistence.mode=deterministic), then emits a REPLACEMENT packet via
+# (persistence.mode=deterministic, T-06), then emits a REPLACEMENT packet via
 # hooks/lib/staging-emit.sh --packet-kind amender-replacement. NEVER writes the
 # destination directly (R-34 boundary preserved via the staging round-trip).
-#
 # Triggered by launchd WatchPaths on $STAGING_ROOT (NOT cron). Self-exclusion is
 # critical: doc-amender's own emissions land in the same staging root and would
 # re-fire WatchPaths. Filter by packet_kind ∈ {writer-emit, null}; explicitly
 # drop packet_kind ∈ {amender-replacement, amender-conflict}.
-#
 # Debounce + single-instance: global lockf on $STAGING_ROOT/.doc-amender.lock
-# (re-exec sentinel pattern).
-#
+# (re-exec sentinel pattern per feedback_shell_lock_pattern).
 # bash 3.2 compatible. jq REQUIRED. shasum REQUIRED. claude REQUIRED for the
 # llm-mediated lane (dry-run + deterministic lane skip it).
 
@@ -29,7 +25,6 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
-# The shared libs live at hooks/lib/ (brain-stem has no top-level lib/).
 # Resolve via $CLAUDE_HOME at runtime (installed layout) with a repo fallback.
 _DA_CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 _DA_STATE_ROOT="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"
@@ -141,6 +136,27 @@ if [ ! -d "$STAGING_ROOT" ]; then
   exit 0
 fi
 
+# R-52 union-load fallback: the loose doc-dependencies.json is repo-only
+# (composed into the SHIPPED foundation-master bundle; install.sh keeps the 7 pillars unshipped).
+# When it is absent/unreadable — a clean adopter, where this cap would otherwise hard-exit — read
+# the EFFECTIVE .doc_dependencies slot through the foundation⊕overlay merger (overlay wins per
+# R-52) so the cap reads the canonical merged register, never a raw spoke. The merged slot's
+# top-level (.entries) matches the loose spoke the downstream jq expects. Mirrors the plans-rules
+# caps; an explicit --doc-deps-file override (present + readable) is preserved (no fallback).
+if [ ! -r "$DOC_DEPS_FILE" ] || ! jq empty "$DOC_DEPS_FILE" >/dev/null 2>&1; then
+  _OVL="${FOUNDATION_OVERLAY_LOAD:-${_DA_CLAUDE_HOME:-${CLAUDE_HOME:-$HOME/.claude}}/hooks/lib/foundation-overlay-load.sh}"
+  [ -x "$_OVL" ] || _OVL="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)/hooks/lib/foundation-overlay-load.sh"
+  _FM="${_DA_CLAUDE_HOME:-${CLAUDE_HOME:-$HOME/.claude}}/governance/foundation-master.json"
+  if [ -x "$_OVL" ] && [ -f "$_FM" ]; then
+    _UNION="$(mktemp 2>/dev/null || true)"
+    if [ -n "$_UNION" ] && bash "$_OVL" --foundation-path "$_FM" \
+          --overlay-path "$(dirname "$_FM")/overlay-master.json" --query '.doc_dependencies' --force-override > "$_UNION" 2>/dev/null \
+          && [ -s "$_UNION" ] && [ "$(head -c4 "$_UNION" 2>/dev/null)" != null ]; then
+      DOC_DEPS_FILE="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+    elif [ -n "$_UNION" ]; then rm -f "$_UNION"; fi
+  fi
+fi
+
 if [ ! -r "$DOC_DEPS_FILE" ]; then
   printf 'process.sh: doc-deps-file not readable: %s\n' "$DOC_DEPS_FILE" >&2
   exit 5
@@ -161,7 +177,6 @@ if [ "$DRY_RUN" = "0" ]; then
 fi
 
 # ---- lock acquisition (re-exec under global lockf for single-instance) ------
-#
 # Sentinel pattern: outer call (no sentinel set) re-execs $0 under lockf;
 # inner call (sentinel set) proceeds with the real work. The kernel releases
 # the lock on inner-process death automatically. Concurrent WatchPaths fires
@@ -257,7 +272,6 @@ glob_match() {
 }
 
 # ---- writer-fan-in eligible entries -----------------------------------------
-#
 # Build a tab-separated list of (consumer-glob | upstream_writers_csv) tuples
 # for writer-fan-in entries with amendment_strategy=prompt-guided-amend.
 
@@ -290,7 +304,7 @@ resolve_prompt_for_destination() {
     [ -f "$prompt" ] || continue
     local strategy dest_glob
     strategy=$(fm_value "$prompt" "amendment_strategy")
-    # Accept all doc-amender strategies (per the prompt contract): prompt-guided-amend
+    # Accept all doc-amender strategies (T-05 contract): prompt-guided-amend
     # (llm-mediated), template-fill (deterministic), append-section (hybrid).
     # The persistence-mode dispatch (resolve_persistence_mode) then routes to
     # the claude -p lane or compose-deterministic.sh.
@@ -370,7 +384,7 @@ sig2_operator_edit() {
 }
 
 # Resolve a prompt's persistence.mode from the file-type contract +
-# the prompt's own frontmatter. The contract declares the
+# the prompt's own frontmatter. The contract (T-05) declares the
 # amendment_strategy ↔ persistence.mode mapping; a prompt MAY carry an explicit
 # persistence_mode frontmatter override. Echoes one of: deterministic |
 # llm-mediated | hybrid (default llm-mediated for prompt-guided-amend).
@@ -468,8 +482,8 @@ process_packet() {
     return 0
   fi
 
-  # ---- persistence-mode dispatch (strategy-dispatched persistence-contract
-  # runner). deterministic → compose-deterministic.sh (no claude -p);
+  # ---- persistence-mode dispatch (B2 strategy-dispatched persistence-contract
+  # runner). deterministic → compose-deterministic.sh (T-06, no claude -p);
   # llm-mediated / hybrid → the claude -p lane below. ----
   local persistence_mode
   persistence_mode=$(resolve_persistence_mode "$prompt_path")

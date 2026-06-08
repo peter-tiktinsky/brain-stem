@@ -4,6 +4,26 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.1.2]
+
+Maintenance release. Every functional governance value is byte-identical to v1.1.1 — but this release carries several install-correctness and data-safety fixes beyond the original executable-bit repair, and clears internal build-process shorthand out of the public governance artifacts. See the [v1.1.2 release notes](docs/release-notes-v1.1.2.md).
+
+### Fixed
+
+- **Core hooks and librarian capabilities now ship executable.** Two shipped scripts had lost their executable bit, so they silently failed to run after installation: the **governance write-guard hook** (`pre-write-guard`, which `settings.json` invokes by path — a non-executable hook fails outright, leaving writes unguarded) and the **note-placement checker** (`placement-validate`, which session-close skips when it is not executable). Both are restored; the installer now re-applies the executable bit to every hook and librarian capability after copying them; session-close now reports a shipped-but-non-executable capability as an **error** rather than silently treating it as "not installed"; and the pre-tag release gate asserts the executable bit across the whole managed set — so a hook or capability can no longer silently no-op on an install.
+
+- **Librarian capabilities that read the plans and vault-writers governance rules now run on a standard install.** Several capabilities — including backlog indexing, plan archiving, task rendering, and vault-writer reconciliation — read values from governance pillars that are *composed into* the shipped governance master rather than delivered as separate files. On a normal install those separate files aren't present, so the capabilities exited early instead of running. They now resolve the effective values from the shipped governance master, so they work on a clean install.
+
+- **Vault-writer reconciliation no longer risks dropping your edits.** A configuration-shape bug left the reconciler's survivorship setting empty, which silently bypassed the "your edits win" preservation step — so a reconciliation pass could overwrite manual edits. The setting is now read correctly and the preservation step always applies.
+
+### Changed
+
+- **The public governance artifacts read in plain product language.** The shipped governance schema, index, and composed master carried internal build-process shorthand in their descriptive text. Those descriptions now name the product directly — the per-pillar `_rules[]` register, the `home`/`category` rule model, and the v2 pillar structure. This is a description-only change: every functional governance value (types, exempt paths, tag cap, taxonomy) is byte-identical to v1.1.1.
+
+- **Governance is now read through a single merged view.** Every hook and capability that reads governance now resolves it through one merged view — the shipped foundation values, with an optional per-vault overlay layered on top — instead of reading individual rule files directly. For a standard install with no overlay the effective values are identical to v1.1.1; the change makes resolution consistent across the whole system and lays the groundwork for per-vault governance overlays.
+
+- **A post-write verification hook is now active, and the status line is recoverable.** A verify-after-write check that shipped in earlier releases but was registered nowhere is now wired to run after edits; and the installer's hook reconciler can now restore the status-line command if a local settings file had overridden it.
+
 ## [v1.1.1]
 
 Patch release. Makes the in-place upgrade engine actually deliver its fixes to **legacy adopters** — every install made before v1.1.0 introduced the version stamp. In v1.1.0 the per-file delivery path covered the hook, schema, template, and governance-scalar files, but a second copy path that ships whole directories (skills, the orchestrator, the installer support files, and the vault seed) silently skipped any file that already existed on a legacy install. The result: 18 changed files stayed at their old version even after re-running the upgrade. v1.1.1 closes that gap. Re-run `install.sh` from the updated source — see the [upgrade runbook](docs/getting-started/index.md#upgrading-an-existing-install) and the [v1.1.1 release notes](docs/release-notes-v1.1.1.md).
@@ -12,7 +32,7 @@ Patch release. Makes the in-place upgrade engine actually deliver its fixes to *
 
 - **The whole-directory copy path now delivers on a legacy install.** The install steps that ship the skills, orchestrator, installer support files, migrations, file-type contracts, and vault seed previously used a copy mode that skipped any file already present — so on an install made before the upgrade engine existed, those files never updated. They now route through the same per-file engine the rest of the upgrade uses, so every changed file is delivered (including the eleven managed files whose paths contain spaces, which the directory copy also dropped).
 - **The upgrade refuses to declare success if delivery fell short.** Before writing its completion stamp, the installer now verifies that every managed file it shipped actually reached the new version. If any file is still stale, it stops with a non-zero exit, writes no completion stamp, and does not advance its baseline — so a half-delivered home is never recorded as a finished upgrade. Simply re-running converges it.
-- **A home carrying a v1.1.0 stamp self-heals (precautionary).** v1.1.0 was an internal release that was never published, so a public upgrade goes straight from v1.0.2 to v1.1.1 and never reaches this case. It is kept as cheap insurance: if an install ever does carry a v1.1.0 stamp while files underneath are still stale, v1.1.1 recognizes those pristine-but-old files as a known prior release and updates them cleanly, instead of mistaking them for files you had edited and set aside as `<file>.foundation-local`.
+- **A home that already ran the broken v1.1.0 self-heals.** An install that ran v1.1.0 was stamped as up to date while 18 files were still stale underneath. On v1.1.1 those pristine-but-old files are recognized as a known prior release and updated cleanly, instead of being mistaken for files you had edited and set aside as `<file>.foundation-local`.
 - **The upgrade preview tells a legacy adopter the truth.** Running `bash install.sh` over an existing install used to fail with an error and print no plan. It now exits cleanly and prints an honest, write-free preview of exactly which files the upgrade would change.
 
 ## [v1.1.0]
@@ -26,7 +46,6 @@ In-place upgrades. Re-running `install.sh` over an existing install now upgrades
 - **Dry-run upgrade preview.** Preview exactly which files an upgrade would add, replace, or leave untouched before applying.
 - **Forward-only migrations.** An idempotent migration runner applies any version-to-version state transforms once, tracked by a high-water mark.
 - **Per-release manifest archive** under `governance/baselines/` — the per-version file-hash floor the upgrade engine reconstructs from, minted at each release cut.
-- **Foundation seed tags are exempt from taxonomy-membership enforcement.** The vault seed ships its governance spokes pre-tagged, to model good tagging for adopters. Because the foundation taxonomy ships with no user-facing dimensions of its own, those example tags would otherwise be flagged as taxonomy-membership violations on a day-one install. A dedicated exempt-list suppresses exactly those shipped seed paths from the tag-not-in-taxonomy check only — the seed files are unchanged, the tag-presence rule still applies to them, and tags you author on your own files are unaffected.
 
 ### Fixed
 

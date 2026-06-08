@@ -2,14 +2,15 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "brain-stem/governance/file-type-contracts/doc-amender-prompt.md.json",
   "title": "doc-amender-prompt.md runtime body-structure contract",
-  "description": "Hook-consumable runtime artifact for doc-amender-prompt.md files — operator-authored prompt assets consumed by the doc-amender skill when round-tripping amendments through staging-emit. Prompts ship outside-vault as state-tier assets under $VAULT_WRITER_STATE_ROOT/prompts/*.md. Declares the foundation-shipped variable namespace the prompt body may reference; declares the 3-signal survivorship policy (operator-edit-wins + amender-conflict-sidecar + amender-paused-frontmatter). Carries persistence_mode (deterministic|llm-mediated|hybrid) — the det/LLM split the runtime dispatches on: deterministic → compose-deterministic.sh, llm-mediated → the claude -p lane, hybrid → append-section+llm_control. Companion contract to skills/doc-amender.",
+  "description": "Hook-consumable runtime artifact for doc-amender-prompt.md files — operator-authored prompt assets consumed by the doc-amender skill when round-tripping amendments through staging-emit. Prompts ship outside-vault as state-tier assets under $VAULT_WRITER_STATE_ROOT/prompts/*.md. Declares the foundation-shipped variable namespace the prompt body may reference; declares the 3-signal survivorship policy (operator-edit-wins + amender-conflict-sidecar + amender-paused-frontmatter). The v1.1.0 contract ADDS persistence_mode (deterministic|llm-mediated|hybrid) — the det/LLM split the runtime dispatches on; deterministic → the compose-deterministic.sh lane, llm-mediated → the claude -p lane, hybrid → append-section+llm_control. Companion contract to skills/doc-amender.",
   "version": "1.1.0",
   "status": "runtime",
+  "design_source": "the writer-pipeline layering design",
   "matcher_pillar": "governance/mandatory-files-rules.json",
   "matcher_entry": "mandates.doc_amender_prompt",
   "_design_notes": {
-    "consumer": "skills/doc-amender",
-    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in",
+    "consumer": "skills/doc-amender (T-28)",
+    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in (per T-30)",
     "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries"
   },
 
@@ -45,9 +46,9 @@
   },
 
   "persistence_mode_detail": {
-    "_description": "The det/LLM split. persistence_mode selects the composition lane the doc-amender runtime dispatches to (skills/doc-amender/process.sh :: resolve_persistence_mode). When a prompt omits persistence_mode, the runtime DERIVES it from amendment_strategy via persistence_mode_default below (the mapping is the CONTRACT's, not hand-coded in the composer).",
+    "_description": "Persistence-mode contract-extension (the det/LLM split). persistence_mode selects the composition lane the doc-amender runtime dispatches to (skills/doc-amender/process.sh :: resolve_persistence_mode). When a prompt omits persistence_mode, the runtime DERIVES it from amendment_strategy via persistence_mode_default below (the mapping is the CONTRACT's, not hand-coded in the composer). EXTENDS the already-shipped contract — no new artifact.",
     "modes": {
-      "deterministic": "No claude -p. skills/doc-amender/compose-deterministic.sh composes via table-fill (upsert a row by key; replace-on-key) + capped-append; emits an amender-replacement packet back to staging (NEVER writes the destination — R-34).",
+      "deterministic": "No claude -p. The skills/doc-amender/compose-deterministic.sh composes via table-fill (upsert a row by key; replace-on-key) + capped-append; emits an amender-replacement packet back to staging (NEVER writes the destination — R-34).",
       "llm-mediated": "The claude -p lane (skills/doc-amender/process.sh). The operator-authored prompt body is run through the model with the 6-variable context block; output is round-tripped as an amender-replacement packet.",
       "hybrid": "append-section + llm_control — appends a section with LLM-mediated section composition."
     },
@@ -60,7 +61,7 @@
     "pattern_menu": {
       "action-items-table": "amendment_strategy=template-fill → persistence_mode=deterministic (replace-on-key table upsert)",
       "decision-log": "amendment_strategy=append-section → persistence_mode=hybrid (append-section + llm_control; create-if-absent / error-sidecar-if-multiple section_key)",
-      "agentic-wiki": "amendment_strategy=prompt-guided-amend → persistence_mode=llm-mediated (the claude -p lane)"
+      "agentic-wiki": "amendment_strategy=prompt-guided-amend → persistence_mode=llm-mediated (the ported claude -p lane)"
     }
   },
 

@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
 # modes/writer.sh — Class D handler for /govern register --kind writer.
-#
-# Writer-reference frontmatter contract; one file
-# per writer-skill; destinations[] carries per-flow shape. Class D supports
-# auto-suggestion (shared overlay slot with the onboarding wizard +
+# Per Session 5..(writer-reference frontmatter contract; one file
+# per writer-skill; destinations[] carries per-flow shape) + Session 5
+# (Class D auto-suggestion; shared overlay slot with wizard +
 # user-direct invocation). Writer mode is STRUCTURALLY DISTINCT from
 # folder/file-type/tag-extension:
-#
 #   - Canonical declaration = `<vault-root>/Vault Writers/<slug>.md`
 #     (writer-reference file; standard atomic write through pre-write-guard.sh
 #     + post-write-verify.sh)
 #   - overlay-master.vault_writers slot is for processing-defaults overrides
-#     ONLY (rare; not minimum-viable scope). Library is invoked with an
+#     ONLY (rare; not minimum-viable T-10 scope). Library is invoked with an
 #     empty {} payload purely for the atomic action-log row append under the
 #     same lockf serialization the other modes use — ensuring lockstep
 #     causality between writer-reference file existence and action-log row.
 #   - Schema validation (writer-reference frontmatter) is enforced by
-#     pre-write-guard.sh branch #3 downstream against
-#     `governance/file-type-contracts/vault-writer.md.json`. The skill
-#     trusts the hook; no re-validation here.
-#
+#     pre-write-guard.sh branch #3 (Branch #3) downstream against the
+#     SHIPPED contract `governance/file-type-contracts/vault-writer.md.json`
+#     (pillar 6 SHAPE; in foundation-manifest.json::files[], delivered to
+#     $CLAUDE_HOME/governance/file-type-contracts/ at install Step 8.5). The
+#     skill trusts the hook; no re-validation here. NOTE:
+#     the legacy `schemas/vault-schema.json` was DISSOLVED at T-4 (types
+#     absorbed into the pillars); the Output Contract for Vault Writers/ writes
+#     resolves against the shipped vault-writer.md.json — NOT the dissolved
+#     schema. The regression internal/tests/ac-vault-writer-deny-regression.sh
+#     drives invalid frontmatter through the production bare-path hook chain and
+#     asserts a DENY, so the Output Contract is GATE-backed, not write-and-hope.
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
@@ -70,7 +75,7 @@ mode_propose() {
   local vault_root
   vault_root="${VAULT_ROOT:-$HOME/Documents/Obsidian Vault}"
 
-  # Build a writer-reference frontmatter draft per the writer-reference contract.
+  # Build a writer-reference frontmatter draft per + Session 5 contract.
   # Conditional fields per writer_kind — operator validates per-field.
   local frontmatter_json
   frontmatter_json=$(jq -nc \
@@ -101,7 +106,7 @@ mode_propose() {
       | with_entries(select(.value != null))
     ')
 
-  # Add conditional-required fields per writer_kind per vault-writer.md.json:
+  # Add conditional-required fields per writer_kind per + vault-writer.md.json:
   #   connector: writer_subtype + source + authentication
   #   agentic-flow: source
   #   auto-research: source + schedule
@@ -126,7 +131,7 @@ mode_propose() {
       ;;
   esac
 
-  # Body templates DROPPED. /govern register --kind writer
+  # (T-13): body templates DROPPED. /govern register --kind writer
   # composes frontmatter + body INLINE from contract-field knowledge (the
   # vestigial default + proposal field + the dead literal print line are removed;
   # the _generic-writer file no longer exists).

@@ -1,15 +1,12 @@
 #!/bin/bash
 # waiver-audit — Audit bypass surfaces for abuse, ad-hoc use, and cluster-to-rule candidates.
-#
 # Two audits share this capability because both are observational passes over
 # bypass logs, emit findings via the same schema, and run at librarian session-close:
 # (a) cascade-waivers.json abuse surface; (b) override-fire entries in hook-audit.log.
-#
 # Sources (paths resolve via $HOOKS_STATE / $CLAUDE_HOME / env overrides):
 #   - $HOOKS_STATE/cascade-waivers.json              (R-07 waiver log, 4-shape tolerant)
 #   - $CLAUDE_HOME/hooks/doc-dependencies.json       (entry_id registry for ad-hoc check)
 #   - $HOOK_AUDIT_LOG (defaults to $HOOKS_STATE/hook-audit.log)  (override-fire append-only log)
-#
 # CLI:
 #   waiver-audit.sh                         # emit findings to $FINDINGS_OUTPUT or stdout
 #   waiver-audit.sh --scope waivers         # only cascade-waivers.json
@@ -17,19 +14,14 @@
 #   waiver-audit.sh --scope all             # both (default)
 #   waiver-audit.sh --report <path>         # write markdown report + summary to <path>
 #   waiver-audit.sh --dry-run               # count-only summary to stdout, no emission
-#
 # Env overrides (testing):
 #   CASCADE_WAIVER_PATH, HOOK_AUDIT_LOG, DOC_DEP_FILE, FINDINGS_OUTPUT
-#
 # Exits non-zero on:
 #   - unknown flag
 #   - --report path matches the baseline pattern `cascade-waiver-audit-*.md`
-#     (baseline-preservation contract — refuses to overwrite an immutable
-#     baseline audit report)
-#
+#     (baseline preservation contract — the Sub-plan 05 promotion gate needs the
 # Read-only against cascade-waivers.json — audit normalizes shapes on parse,
 # does not rewrite. The canonical writer is ~/.claude/hooks/lib/cascade-waiver.sh.
-#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -74,16 +66,37 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Baseline-preservation hard guard — refuse to overwrite a baseline audit report.
+# Baseline-preservation hard guard — refuse to overwrite audit report.
 if [[ -n "$REPORT_PATH" ]]; then
   RB=$(basename "$REPORT_PATH")
   case "$RB" in
     cascade-waiver-audit-*.md)
       echo "waiver-audit: refusing to write to baseline-pattern path: $REPORT_PATH" >&2
-      echo "  (a baseline audit report at this pattern is immutable evidence.)" >&2
+      echo "  (T-1 baseline at Logs/cascade-waiver--04-20.md is immutable evidence for Sub-plan 05.)" >&2
       exit 3
       ;;
   esac
+fi
+
+# Canonical governance read: the doc-dependencies
+# entry_id registry (.entries) drives the ad-hoc/legitimate waiver classification — it is the
+# REPO-ONLY doc-dependencies pillar, composed into the SHIPPED foundation-master .doc_dependencies
+# slot. The legacy $CLAUDE_HOME/hooks/doc-dependencies.json default is DANGLING (never shipped), so
+# a clean adopter silently degraded ad-hoc detection to all-legitimate. When the resolved file is
+# absent/unreadable, read the EFFECTIVE merged .doc_dependencies slot via the R-52 merger
+# (overlay-amendable; .entries matches the python read). An explicit DOC_DEP_FILE override is preserved.
+if [[ ! -r "$DOC_DEP_FILE_EFF" ]] || ! jq empty "$DOC_DEP_FILE_EFF" >/dev/null 2>&1; then
+  _OVL="${FOUNDATION_OVERLAY_LOAD:-$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh}"
+  [[ -x "$_OVL" ]] || _OVL="$_REPO_LIB/foundation-overlay-load.sh"
+  _FM="$CLAUDE_HOME_RES/governance/foundation-master.json"
+  if [[ -x "$_OVL" ]] && [[ -f "$_FM" ]]; then
+    _UNION="$(mktemp 2>/dev/null || true)"
+    if [[ -n "$_UNION" ]] && bash "$_OVL" --foundation-path "$_FM" \
+          --overlay-path "$(dirname "$_FM")/overlay-master.json" --query '.doc_dependencies' --force-override > "$_UNION" 2>/dev/null \
+          && [[ -s "$_UNION" ]] && [[ "$(head -c4 "$_UNION" 2>/dev/null)" != null ]]; then
+      DOC_DEP_FILE_EFF="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+    elif [[ -n "$_UNION" ]]; then rm -f "$_UNION"; fi
+  fi
 fi
 
 python3 - "$CASCADE_WAIVER_PATH_EFF" "$HOOK_AUDIT_LOG_EFF" "$DOC_DEP_FILE_EFF" "$SCOPE" "$DRY_RUN" "$REPORT_PATH" <<'PY'
@@ -275,7 +288,7 @@ if dry_run:
 
 # --------- markdown report ---------
 if report_path:
-    # Self-stamp the COMPLETE log contract so a
+    # self-stamp the COMPLETE log contract so a
     # Logs/ audit report is findable (R-47 #log/<subtype> tag) + non-orphan,
     # rather than relying on the post-write-verify.sh autogovern backfill. The
     # log contract = type + log-type + date + timestamp + the R-47 tag.

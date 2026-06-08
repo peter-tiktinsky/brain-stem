@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 # skills/doc-amender/compose-deterministic.sh — the deterministic persistence
 # lane for the doc-amender (persistence.mode=deterministic; NO claude -p).
-#
-# The doc-amender runtime (skills/doc-amender/process.sh) dispatches to
+# source). The doc-amender runtime (skills/doc-amender/process.sh) dispatches to
 # this composer when the resolved prompt's persistence_mode is `deterministic`
-# (amendment_strategy=template-fill). The deterministic composer fires
+# (amendment_strategy=template-fill): the deterministic composer fires
 # inside the doc-amender launchd lane.
-#
 # Two deterministic operations (selected by the prompt's amendment_strategy /
 # the contract's pattern_menu):
 #   - table-fill  : upsert a row into a markdown table, keyed by the first
-#                   column; replace-on-key (sub-Q 2) — an existing-key row is
+#                   column; replace-on-key — an existing-key row is
 #                   REPLACED in place; a new-key row is APPENDED.
 #   - capped-append (append-section): append the packet body as a section under
 #                   a section_key heading, capped to a max number of sections
-#                   (oldest sections trimmed). section_key collision (sub-Q 3):
+#                   (oldest sections trimmed). section_key collision:
 #                   create-if-absent; if MULTIPLE matching headings already
 #                   exist → emit an error sidecar + do NOT compose.
-#
 # R-34 boundary: this composer NEVER writes the destination directly. It
 # composes the merged body and round-trips it as an amender-replacement packet
 # back to staging via hooks/lib/staging-emit.sh (exactly like the LLM lane).
-#
 # OUTPUT CONTRACT:
 #   Files written: one amender-replacement packet at
 #     $STAGING_ROOT/<writer-id>+amender/<sha>.json via staging-emit.sh.
@@ -32,7 +28,6 @@
 #     destination-current-content read (empty when destination absent).
 #   Failure mode: BLOCK-AND-LOG — missing inputs / unresolvable strategy /
 #     collision exit non-zero with a diagnostic; no destination write ever.
-#
 # bash 3.2 compatible. jq REQUIRED. shasum REQUIRED (via staging-emit.sh).
 
 set -u
@@ -161,10 +156,9 @@ case "$AMENDMENT_STRATEGY" in
 esac
 
 # ---- composition via python3 (line-oriented; deterministic; no claude -p) ---
-#
 # Python is used for the table-upsert / section-merge string surgery (bash
-# line-surgery on markdown tables is error-prone). Inputs passed via argv
-# (no stdin pipe to the heredoc). The composer
+# line-surgery on markdown tables is error-prone). Inputs passed via argv per
+# feedback_python_heredoc_argv (no stdin pipe to the heredoc). The composer
 # emits the MERGED body to a tempfile; the section_key multi-match collision
 # is signalled via exit code 4.
 
@@ -185,7 +179,7 @@ except ValueError:
 
 def table_fill(current, new_row_block, key_col_header):
     """Upsert markdown table rows from new_row_block into current, keyed by the
-    first column value (replace-on-key per sub-Q 2). If current has no table,
+    first column value (replace-on-key). If current has no table,
     new_row_block is used as the table. Non-table content is preserved as-is."""
     new_rows = [ln for ln in new_row_block.splitlines() if ln.strip().startswith('|')]
     if not new_rows:
@@ -251,7 +245,7 @@ def table_fill(current, new_row_block, key_col_header):
 
 def capped_append(current, body, skey, cap):
     """Append `body` as a section under a `## skey` heading. section_key
-    collision (sub-Q 3): create-if-absent; if MULTIPLE `## skey` headings exist
+    collision: create-if-absent; if MULTIPLE `## skey` headings exist
     → signal collision (exit 4)."""
     heading = '## %s' % skey if skey else '## Section'
     if skey:

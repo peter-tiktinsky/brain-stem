@@ -1,11 +1,9 @@
 #!/bin/bash
 # capability-registry-parity — Audit capability-registry.json against SKILL.md
 # headings + on-disk capability scripts. Mechanical-tier; Monday cron.
-#
-# Librarian capability that enforces
-# disk->registry (the 5th drift class), closing the orphan gap.
-# The existing 4 drift classes are PRESERVED.
-#
+# Librarian capability strengthened to enforce disk->registry (a new 5th
+# drift class), closing the orphan gap that let unregistered auditors slip
+# through. The existing 4 drift classes are PRESERVED.
 # Audits 5 drift classes:
 #   (a) SKILL.md `## Capability: <name>` headings <-> registry keys (strict bijection)
 #       -> registry-parity-bijection-drift
@@ -22,7 +20,7 @@
 #       -> registry-parity-disk-orphan
 #       (spec-only registry entries are NOT required to have a disk body; the
 #       orphan check is the converse: disk bodies must be registered.)
-# (f) NET-NEW: every
+#   (f) every
 #       capability with a NON-NULL writes_manifest_subtree must have a body that
 #       actually calls manifest_set — converts "the registry can't claim a
 #       manifest write the code doesn't do" from fiction-passes-parity into a
@@ -33,27 +31,38 @@
 #       count toward TOTAL drift (parity stays non-RED) until each is remediated.
 #       A NON-allowlisted non-null-subtree capability missing manifest_set fires
 #       HARD (error; counts in TOTAL; turns parity RED).
-#
-# The disk-orphan class reports zero orphans when registered-with-disk == on-disk.
-# This is the load-bearing substance the generator<->install ship-list
-# parity gate asserts on (R-37-documentary AC contributor).
-#
+#   (g) every capability
+#       .sh on disk must carry git-INDEX mode 0755 (100755). The git INDEX
+#       (git ls-files -s), NOT the worktree `[ -x ]` disk bit, is the SoT — a
+#       staged-uncommitted ` M` mode flip (disk 0755, index 100644) is exactly
+#       the trap that shipped public v1.1.1's placement-validate.sh DEAD at
+#       100644 while every worktree-reading gate stayed GREEN. A capability whose
+#       INDEX mode is 100644 ships NON-EXEC → session-close's run_capability can
+#       never invoke it → the cap is dead in production.
+#       -> registry-parity-cap-index-mode
+#       GIT-GATED: when the capabilities dir is not inside a git work tree (an
+#       adopter install — no index to read), this class is SKIPPED (no false
+#       drift); it is the BUILD-DOGFOOD / ship-gate arm. ship-gate sub-gate 5 +
+#       ac-index-mode-parity.sh (T-2) assert the same index-mode truth
+#       over the whole manifest-0755 set; this 7th class extends it into the
+#       capability registry's own parity audit.
+# After T-13 (the 4 engine-auditors absent + parallel-run-audit struck) the
+# disk-orphan class reports zero orphans: registered-with-disk == on-disk. This
+# is the load-bearing substance's generator<->install ship-list
+# parity gate asserts on (R-37-documentary AC CONTRIBUTOR; primary owner).
 # Output Contract
 #   Files written: findings (NDJSON via hooks/lib/findings.sh) + a markdown
 #     summary to stdout.
 #   Failure mode: report-only (exit 0; drift findings emitted as JSON;
 #     non-zero finding count does NOT change exit). exit 2 only on unknown flag.
-#
 # Usage:
 #   capability-registry-parity.sh                 # check (default)
 #   capability-registry-parity.sh --check         # explicit
 #   capability-registry-parity.sh --dry-run       # summary only, no findings
-#
 # Env overrides (testing):
 #   LIBRARIAN_ROOT_OVERRIDE   relocate librarian/ root for fixture tests
 #   FINDINGS_OUTPUT           append findings here instead of stdout
 #   EXPECTED_SCHEMA_VERSION   override expected schema_version (default: 1)
-#
 # Bash 3.2 clean per R-23.
 
 set -uo pipefail
@@ -109,6 +118,7 @@ DRIFT_SUBTREE_FIELD=0
 DRIFT_DISK_ORPHAN=0
 DRIFT_MANIFEST_FICTION=0
 ADVISORY_MANIFEST_FICTION=0
+DRIFT_CAP_INDEX_MODE=0
 REPORT_LINES=""
 
 # Class (c): schema_version drift
@@ -146,9 +156,9 @@ while IFS= read -r name; do
   REPORT_LINES="${REPORT_LINES}- registry-parity-emits-missing-subtree-field: $name"$'\n'
 done < <(jq -r '.capabilities | to_entries[] | select(.value.emits_findings == true) | select(.value | has("writes_manifest_subtree") | not) | .key' "$REGISTRY")
 
-# Class (e): disk->registry orphan check. Every .sh in capabilities/
+# Class (e) NET-NEW: disk->registry orphan check. Every .sh in capabilities/
 # (excluding _archive/) must be a registry entry — an on-disk body not in the
-# registry is orphan drift.
+# registry is the orphan drift that let the 4 engine-auditors slip through.
 REG_SCRIPTS_FILE=$(mktemp -t reg-scripts-XXXXXX)
 jq -r '.capabilities | to_entries[] | .value.script' "$REGISTRY" 2>/dev/null \
   | sed 's#^capabilities/##' | sort -u > "$REG_SCRIPTS_FILE"
@@ -167,7 +177,7 @@ if [[ -d "$CAPABILITIES_DIR" ]]; then
 fi
 rm -f "$REG_SCRIPTS_FILE"
 
-# Class (f) NET-NEW: manifest-write fiction. Every capability with
+# Class (f): manifest-write fiction. Every capability with
 # a non-null writes_manifest_subtree must have a body that calls manifest_set.
 # The registry's ._parity_pending_manifest_writes[] allowlist downgrades the
 # known-pending fictions to ADVISORY (warn; not counted in TOTAL) so parity stays
@@ -195,7 +205,7 @@ while IFS=$'\t' read -r name script; do
     if [[ "$MODE" != "dry-run" ]]; then
       emit_finding "registry-parity-manifest-write-fiction" "$name" \
         "level" "warn" "advisory" "true" \
-        "detail" "non-null writes_manifest_subtree but body lacks a manifest_set call (allowlisted pending)"
+        "detail" "non-null writes_manifest_subtree but body lacks a manifest_set call (allowlisted pending — T-4 tracked follow-up)"
     fi
     REPORT_LINES="${REPORT_LINES}- registry-parity-manifest-write-fiction (ADVISORY, allowlisted): $name → $script"$'\n'
   else
@@ -210,6 +220,42 @@ while IFS=$'\t' read -r name script; do
   fi
 done < <(jq -r '.capabilities | to_entries[] | select(.value.implementation_status != "spec-only") | select(.value.writes_manifest_subtree != null) | [.key, .value.script] | @tsv' "$REGISTRY")
 rm -f "$ALLOWLIST_FILE"
+
+# Class (g): every capability .sh on disk must
+# carry git-INDEX mode 100755. The git index (git ls-files -s), NOT the worktree
+# `[ -x ]` disk bit, is the SoT — a 100644 index entry ships the cap NON-EXEC even
+# when the author's worktree shows 0755 (the trap that shipped v1.1.1's
+# placement-validate.sh DEAD). GIT-GATED: skipped on an adopter install with no
+# work tree (no index to read → no false drift); it is the build-dogfood arm.
+if [[ -d "$CAPABILITIES_DIR" ]] && command -v git >/dev/null 2>&1 \
+   && git -C "$CAPABILITIES_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  # Enumerate the TRACKED capability .sh bodies via git ls-files -s SCOPED to the
+  # capabilities dir, so git itself produces the repo-relative paths — avoiding a
+  # string-prefix strip against `rev-parse --show-toplevel`, which on macOS resolves
+  # the /var -> /private/var symlink and would never match a /var-rooted find path.
+  # Output is `<mode> <sha> <stage>\t<path>`; we only need direct children .sh
+  # (maxdepth-1 equivalent: a path with exactly one segment after the dir).
+  while IFS= read -r idxline; do
+    [[ -z "$idxline" ]] && continue
+    imode="${idxline%% *}"
+    # ls-files -s -- . from inside the capabilities dir emits paths RELATIVE to it
+    # (e.g. `backup.sh`), so a direct-child body has no `/` in its relpath.
+    relpath="${idxline#*$'\t'}"
+    base="${relpath##*/}"
+    case "$base" in *.sh) ;; *) continue ;; esac
+    # Direct children only (the registry's disk-orphan class scopes to maxdepth 1).
+    case "$relpath" in */*) continue ;; esac
+    if [[ "$imode" != "100755" ]]; then
+      DRIFT_CAP_INDEX_MODE=$((DRIFT_CAP_INDEX_MODE + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-cap-index-mode" "$base" \
+          "level" "error" "index_mode" "$imode" "expected" "100755" \
+          "detail" "capability body git-index mode is not 100755 — ships NON-EXEC, run_capability cannot invoke it (the dead-cap class)"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-cap-index-mode: $base (git-index $imode, expected 100755 — ships non-exec)"$'\n'
+    fi
+  done < <(git -C "$CAPABILITIES_DIR" ls-files -s -- . 2>/dev/null)
+fi
 
 # Class (a): SKILL.md <-> registry strict bijection
 if [[ ! -f "$SKILL_MD" ]]; then
@@ -244,9 +290,9 @@ else
   rm -f "$REG_KEYS_FILE" "$SKILL_KEYS_FILE"
 fi
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d; advisory manifest-write-fiction=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$ADVISORY_MANIFEST_FICTION"
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d; advisory manifest-write-fiction=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$ADVISORY_MANIFEST_FICTION"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else

@@ -56,8 +56,7 @@
         "governance/log-subtype-registry.json (system-utility canonicality discipline)",
         "hooks/config/gate-config.json (interim)",
         "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
-      ],
-      "_rule_id_range_note": "R-32-taxonomy was renumbered to R-60 (it collided with the frontmatter R-32, a different rule); the R-60 _rules[] object is homed in governance/naming-rules.json. Mechanical rename."
+      ]
     },
     {
       "id": "naming",
@@ -85,7 +84,6 @@
         "R-58",
         "R-59"
       ],
-      "_rule_id_range_note": "rule_id_range matches the _rules[] membership = [R-09, R-44, R-58, R-59]. R-09 is a DECLARED C1 rule (tier autogovern). R-58 (surface vault-writers) + R-59 (memory cap) are mandatory-files _rules[] members.",
       "size_bytes": "8-10K",
       "loaded_by": [
         "pre-write-guard.sh",
@@ -110,14 +108,12 @@
         "R-48",
         "R-54"
       ],
-      "_rule_id_range_note": "rule_id_range matches the doc-dependencies _rules[] membership = [R-48, R-54]. R-48 is the broken-wikilink advisory; R-54 is the doc-dep cascade rule.",
       "size_bytes": "8-12K",
       "loaded_by": [
         "pre-write-guard.sh",
         "post-write-verify.sh"
       ],
       "spoke": "Doc-Dependencies.md",
-      "_first_class_note": "First-class authoring pillar — the canonical authoring home for both hub-spoke cascades AND upstream→downstream write-time propagation edges. The interim hooks/config/doc-dependencies.json retires in favor of this pillar. The validator schemas/doc-dependencies-schema.json is preserved.",
       "r37_coupled_surfaces": [
         "governance/doc-dependencies.json",
         "schemas/doc-dependencies-schema.json (validator)",
@@ -137,7 +133,6 @@
         "post-write-verify.sh"
       ],
       "spoke": "File-Type-Contracts.md",
-      "_first_class_note": "file-type-contracts is a first-class pillar. Per-file-type body-structure contracts following k8s ValidatingAdmissionPolicy paramKind pattern. CLAUDE.md.json + System Governance.md.json body-shape designs may evolve (sections, max line counts, sentinel patterns). The vault-root System Backlog is not a foundation-shipped file-type — backlog lifecycle is librarian-owned at ~/.claude-plans/_backlog.md.",
       "r37_coupled_surfaces": [
         "governance/file-type-contracts/*.json",
         "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
@@ -161,7 +156,6 @@
         "skills/writer-reconciler"
       ],
       "spoke": "Vault-Writers.md",
-      "_first_class_note": "vault-writers is a first-class pillar, slimmed to operational-config-only (the writer-reference SHAPE lives at file-type-contracts/vault-writer.md.json). Carries operational defaults + staging-area + reconciler identity + foundation Mustache variable namespace + branch #2 historical_data_warning_default.",
       "r37_coupled_surfaces": [
         "governance/vault-writers-rules.json",
         "schemas/vault-writers-rules-schema.json",
@@ -194,9 +188,6 @@
         "skills/librarian/capabilities/backlog-index.sh"
       ],
       "spoke": "Plans.md",
-      "_first_class_note": "plans-tree is a first-class pillar. Plan-tree governance (slugs / quartet / sub-plan execution-order numbering / backlog row shape / lifecycle status enum / validation classes / firing surfaces) lives here.",
-      "_backlog_substrate_note": "The backlog substrate runtime ships under this pillar: backlog-index.sh + plan-archive.sh runtimes + the _inbox/ pre-plan idea substrate + the idea→plan promote helper + the repointed consumer skills are lockstep peers. Cross-pillar coupling: the 4 plan-quartet templates (templates/{spec,tasks,handoff,ideation-brief}-template.md) are authored-to-contract against the file-type-contracts pillar's {spec,tasks,handoff,ideation-brief}.md.json — a template-edit and its body-structure contract must move in lockstep.",
-      "_plan_hardening_note": "Plan-system-hardening refinements as lockstep peers under this pillar: the decision_records convention in plans-rules.json + optional decision_records[] in plan-manifest-schema.json, backed by governance/file-type-contracts/adr.md.json; skills/librarian/capabilities/tasks-render.sh makes tasks.md a manifest.tasks[]-derived read-replica (mirrors backlog-index.sh) with capability contract governance/librarian-capabilities/tasks-render.md; pre-write-guard.sh R-40 block gained the spec.md **Status:** single-enum advisory against lifecycle.status_enum (advisory-first; never DENY).",
       "r37_coupled_surfaces": [
         "governance/plans-rules.json (carries the inbox block + _status_model_note; backlog_row.stale_advisory_days; the decision_records convention)",
         "schemas/plans-rules-schema.json",
@@ -218,8 +209,7 @@
         "governance/librarian-capabilities/backlog-index.md (capability contract)",
         "governance/librarian-capabilities/plan-archive.md (capability contract)",
         "governance/foundation-master.json (forward — composed plans slot)"
-      ],
-      "_rule_id_range_note": "R-15 is excluded from the live rows (it is a status:retired tombstone, preserved in governance/plans-rules.json :: _retired_tombstones). The final plans _rules[] = [R-29,R-30,R-31,R-56,R-61,R-62,R-63] (note R-27/R-28 are homed in the naming pillar, categorized C3, NOT here)."
+      ]
     }
   ],
   "cross_cutting_meta_rules": [
@@ -236,7 +226,7 @@
       "status": "active",
       "rule_text": "R-37 (atomic lockstep) is DOCUMENTARY across the entire governance surface — there is NO write-time DENY, by design. A PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set. Enforcement = git's commit-boundary atomicity + the librarian governance-parity-audit capability at session-close. The lockstep set = pillar JSON + narrative spoke + CLAUDE.md.",
       "failure_mode": "Drift from partial landings of a multi-surface change. Caught at git commit-boundary + audit-time, never write-time.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-35",
@@ -251,7 +241,7 @@
       "status": "active",
       "rule_text": "Tier 1 advisory + promotion_criterion. Clean data -> promote to a blocking tier; no data -> retire. Stage-gated promotion, never ossify, never promote without data.",
       "failure_mode": "Ossify (advisory forever) or promote without data.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-34",
@@ -266,7 +256,7 @@
       "status": "active",
       "rule_text": "Mechanical drift auto-fixes (librarian regenerates mechanically-derivable values); semantic drift self-flags for review, never auto-overwritten.",
       "failure_mode": "Over-reach (auto-overwriting semantic content) or under-reach (failing to auto-fix mechanical drift).",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-52",
@@ -283,7 +273,7 @@
       "status": "active",
       "rule_text": "When adopter Layer-3 overlay and foundation canonical both declare the same rule ID or extensible entry kind: adopter Layer-3 SHADOWS foundation (adopter wins). Foundation declaration is preserved but does not fire. Adopter MUST carry `_override_reason` (free-text, mandatory) on every shadowing entry. Write-time DENY on shadowing writes without `_override_reason`; per-write `--force-override` bypass; no persistent disable.",
       "failure_mode": "Silent collisions between adopter customization and foundation canonical produce unpredictable runtime behavior — rules with the same ID compete; overlay edits silently disable foundation rules.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT; personalization-seams audit)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT; personalization-seams audit)"
     },
     {
       "id": "R-01",
@@ -297,7 +287,7 @@
       "status": "active",
       "rule_text": "Writes to a declared dead path are DENIED. Ships with an EMPTY tripwire_paths[] (no dead paths declared at v1.0.0); the mechanism is present for adopters/future use.",
       "failure_mode": "A write to a known-retired path lands silently. Empty tripwire_paths at ship means no-op by default.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-02",
@@ -311,7 +301,7 @@
       "status": "active",
       "rule_text": "Editing a skill (SKILL.md / process.sh) surfaces the change-protocol checklist (save memory, update docs, grep downstream). Advisory.",
       "failure_mode": "A skill changes without the cross-surface propagation protocol.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-43",
@@ -325,7 +315,7 @@
       "status": "active",
       "rule_text": "The librarian-manifest read-replica is audited for staleness against the foundation surface. Audit-tier (librarian), not write-time.",
       "failure_mode": "librarian-manifest.json drifts stale against the real foundation surface.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-46",
@@ -339,7 +329,7 @@
       "status": "active",
       "rule_text": "Bypass/override usage (governance escape hatches, --force flags, bypass env vars) is audited for abuse patterns. Audit-tier (librarian).",
       "failure_mode": "Escape hatches used routinely rather than exceptionally; governance silently eroded.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-24",
@@ -353,7 +343,7 @@
       "status": "active",
       "rule_text": "Edits that would disable the claude-mem SessionEnd hook are DENIED (CLAUDE_MEM_DISABLE_OK=1 escape hatch). Load-bearing for auto-memory.",
       "failure_mode": "claude-mem SessionEnd hook disabled; auto-memory silently stops persisting.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-26",
@@ -368,7 +358,7 @@
       "status": "active",
       "rule_text": "At context pressure thresholds, a fresh per-session checkpoint is required; the Stop hook gates until the checkpoint is fresh (< 10 min). Safety valve preserved above the high-pressure ceiling.",
       "failure_mode": "A long session compacts without a fresh checkpoint; session continuity state is lost.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-36",
@@ -382,7 +372,7 @@
       "status": "active",
       "rule_text": "On Stop, touched files are scanned for drift and surfaced advisorily.",
       "failure_mode": "Files touched in a session drift from their governed shape without surfacing.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-42",
@@ -396,7 +386,7 @@
       "status": "active",
       "rule_text": "The default SessionStart hook loop (session-register -> track-vault-write -> prompt-context) wires the multi-session coordination + context-injection band. Advisory framing.",
       "failure_mode": "The default session-wiring loop is broken or mis-ordered; coordination + context-injection degrade.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-45",
@@ -410,7 +400,7 @@
       "status": "active",
       "rule_text": "Memory files (memory/<topic>.md) carry the required frontmatter shape (description/tags). Advisory.",
       "failure_mode": "Memory files without frontmatter are mis-indexed in MEMORY.md / mis-resolved by retrieval.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-41",
@@ -424,7 +414,7 @@
       "status": "active",
       "rule_text": "The librarian plan-index read-replica is audited for staleness against the plans-tree. Audit-tier.",
       "failure_mode": "_index.md plan-index drifts stale against the real plans-tree.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-23",
@@ -438,7 +428,7 @@
       "status": "active",
       "rule_text": "cron wrappers + shipped hook bodies must be bash-3.2 clean (no associative arrays, no bash-4 builtins, no param-expansion case-conversion). DENY on violation.",
       "failure_mode": "A bash-4 construct ships in a wrapper/hook and fails on the macOS default bash 3.2.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
       "id": "R-49",
@@ -452,7 +442,7 @@
       "status": "active",
       "rule_text": "Auto-commit silent-failure is detected + surfaced (now default-on). Advisory.",
       "failure_mode": "An auto-commit silently fails; expected state never lands in git.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (D7 SoT)"
+      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     }
   ],
   "dissolved_schemas": {

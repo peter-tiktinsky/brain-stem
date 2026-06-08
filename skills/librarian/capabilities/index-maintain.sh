@@ -2,9 +2,8 @@
 # index-maintain — Audit-time reconciler for every non-exempt folder's
 # _index.md contents-enum table against filesystem reality. The first canonical
 # self-healing capability under the R-34 boundary.
-#
-# Librarian body.
-#
+# NET-NEW librarian body (;1.1 line 136 — replaces the phantom
+# doc-reference). Authored from the authoring-spec index-maintain.md
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
 #     missing/orphan rows, updated: bump, auto-bootstrap of a missing non-exempt
@@ -14,7 +13,6 @@
 #     SEMANTIC-DRIFT branch which emits findings and NEVER writes vault content.
 #   The two branches are not interchangeable — the semantic branch has no
 #     write-to-vault code path.
-#
 # Output Contract
 #   Files written: vault _index.md (bounded mechanical scope — sentinel-bounded
 #     contents-enum region + updated: frontmatter only); findings to stdout
@@ -27,8 +25,7 @@
 #     mandatory-files pillar JSON is malformed.
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Survivorship: content outside the sentinels preserved verbatim.
-#
-# Finding categories (7):
+# Finding categories (7 — §Finding categories):
 #   bootstrap-auto-created     (info-event) created a missing non-exempt _index.md
 #   index-row-drift-mechanical (info-event) auto-corrected Lines/Type/missing/orphan row
 #   index-row-drift-semantic   (warning, --deep) description/ordering drift — NO auto-overwrite
@@ -36,18 +33,15 @@
 #   index-orphan-folder        (warning) parent_folder: does not resolve
 #   index-exemption-conflict   (warning) _index.md exists at an exempt path
 #   mandate-violation          (warning) non-exempt folder lacks _index.md AND bootstrap failed
-#
 # CLI:
 #   index-maintain.sh             # Tier 2 sweep (mechanical auto-correct)
 #   index-maintain.sh --deep      # Tier 3 (+ semantic-drift findings, no auto-overwrite)
 #   index-maintain.sh --dry-run   # findings + would-be corrections, no write
 #   index-maintain.sh --help
-#
 # Env overrides (testing):
 #   VAULT_ROOT        vault root to walk (required for any real sweep)
 #   GOVERNANCE_DIR    governance root (default: foundation-repo -> live install)
 #   FINDINGS_OUTPUT   NDJSON sink (default: stdout)
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -76,7 +70,6 @@ if [ -z "$GOV_DIR" ]; then
   done
 fi
 
-# Bundle-first: mandatory-files-rules.json is repo-only —
 # it does NOT ship to a fresh adopter, where only the composed
 # governance/foundation-master.json bundle lands. Resolve the SHIPPED bundle via
 # ${CLAUDE_HOME:-$HOME/.claude} FIRST; the Python body reads the composed
@@ -88,6 +81,23 @@ for cand in \
   "$GOV_DIR/foundation-master.json"; do
   [ -f "$cand" ] && { BUNDLE="$cand"; break; }
 done
+
+# Canonical governance read: route the bundle read through the R-52 union-load
+# merger (hooks/lib/foundation-overlay-load.sh) so an adopter's overlay-master.json amendments
+# to .mandatory_files are honored — never consume foundation-master RAW. Materialize the merged
+# union once (full-union: same top-level shape as foundation-master) and redirect $BUNDLE at it,
+# so the python3 body below reads .mandatory_files from the merged view unchanged. Degrades to
+# the raw bundle if the merger is unavailable (loud-safe, never broken).
+_OVL="${FOUNDATION_OVERLAY_LOAD:-${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh}"
+[ -x "$_OVL" ] || _OVL="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib/foundation-overlay-load.sh"
+if [ -x "$_OVL" ] && [ -n "$BUNDLE" ] && [ -f "$BUNDLE" ]; then
+  _UNION="$(mktemp 2>/dev/null || true)"
+  if [ -n "$_UNION" ] && bash "$_OVL" --foundation-path "$BUNDLE" \
+        --overlay-path "$(dirname "$BUNDLE")/overlay-master.json" --force-override > "$_UNION" 2>/dev/null \
+        && [ -s "$_UNION" ]; then
+    BUNDLE="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+  elif [ -n "$_UNION" ]; then rm -f "$_UNION"; fi
+fi
 
 VROOT="${VAULT_ROOT:-}"
 if [ -z "$VROOT" ] || [ ! -d "$VROOT" ]; then
@@ -118,7 +128,6 @@ def emit(d):
         sys.stdout.write(line + "\n")
 
 # --- block-and-log: load + validate the mandatory-files pillar -------------
-# Bundle-first. The shipped foundation-master.json
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
