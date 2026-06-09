@@ -18,6 +18,8 @@ Maintenance release focused on the in-place upgrade path for existing adopters, 
 
 - **Dead and mislabeled configuration knobs cleaned up.** Several manifest settings were documented as live but read from nothing (or from environment variables never set); the genuinely-unused ones were removed and the rest are now actually wired (environment → manifest → default), so the documented knobs match what the code does. The user-manifest schema was also reconciled with what the path/vault/behavioral resolvers actually read, so a manifest that exercises those knobs no longer fails validation.
 
+- **Fresh installs now deliver all 12 adopter schemas.** Three schemas (`memory-schema`, `rules-schema`, `review-queue-schema`) are resolved at runtime by installed helpers, but the installer's schema list had not grown to include them — so every fresh install since v1.1.2 was missing those three files. The affected helpers degrade gracefully when a schema is absent (falling back to built-in defaults), so this was a latent completeness gap rather than a failure; the installer now ships the full set, so the schema-driven validation paths are actually live.
+
 ### Changed
 
 - **The upgrade dry-run shows every blocker in one pass.** Pre-flight gates that used to stop on the first problem now aggregate: a single `bash install.sh` preview lists every required override together, and the genuine must-stop safety conditions (an unset `CLAUDE_HOME`, or a vault symlinked under the install target) are surfaced in the same preview under a separate, non-waivable findings list — so you can see and resolve everything before committing to `--apply`.
