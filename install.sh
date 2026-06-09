@@ -252,6 +252,23 @@ $1"
   fi
 }
 
+# NON-WAIVABLE blocking findings. The genuine must-stop safety gates (G4 vault-
+# clobber, CLAUDE_HOME write-target) keep their --apply hard exits, but the dry-run
+# surfaces them in a SEPARATE channel so the one-pass action plan shows EVERY
+# blocker — not just the waivable required_overrides[]. Kept distinct from
+# required_overrides[] precisely because a blocking finding has NO override flag;
+# folding it in would falsely imply waivability. Same accumulator shape; emitted as
+# a JSON array (blocking_findings[]) on the dry-run object.
+blocking_findings=""
+note_blocking_finding() { # note_blocking_finding <finding-string>
+  if [ -z "$blocking_findings" ]; then
+    blocking_findings="$1"
+  else
+    blocking_findings="$blocking_findings
+$1"
+  fi
+}
+
 # --- G8: UID-0 refuse ---
 # Fires before any FS work or env evaluation. Unconditional — no --force override.
 # Root context broadens blast radius irreversibly (vault-clobber protection).
@@ -286,6 +303,9 @@ if [ -z "${CLAUDE_HOME:-}" ]; then
   CLAUDE_HOME="$HOME/.claude"
   claude_home_defaulted=1
   info "CLAUDE_HOME not set; dry-run defaulting to \$HOME/.claude ($CLAUDE_HOME) for the action-plan preview (install-convention fallback). --apply requires CLAUDE_HOME to be set explicitly."
+  # Surface the --apply prerequisite in the one-pass preview so the adopter sees it
+  # alongside every other blocker (not serially on the first --apply).
+  note_blocking_finding "export CLAUDE_HOME (G1-pre: CLAUDE_HOME is unset; the dry-run previews against the \$HOME/.claude default, but --apply HARD-FAILS exit 10 until CLAUDE_HOME is exported explicitly)"
 fi
 
 # --- prereq binary check ---
@@ -335,14 +355,20 @@ $base"
   done
 fi
 if [ "$g5_existing_count" -gt 0 ]; then
-  if [ "$RETROFIT_EXISTING" != "1" ]; then
+  if [ "$RETROFIT_EXISTING" = "1" ]; then
+    warn "G5: --retrofit-existing supplied with $g5_existing_count pre-existing plan(s); v2.1 retrofit logic NOT YET IMPLEMENTED — flag is a waiver stub. Proceeding under explicit user waiver; install does not modify \$PLANS_HOME."
+  elif [ "$APPLY_MODE" != "1" ]; then
+    # The dry-run AGGREGATES — record the waivable override and CONTINUE so the
+    # one-pass action plan surfaces every blocker (mirrors the G1-main/G2/G3
+    # posture); --apply keeps the hard exit 55 at the mutation boundary below.
+    note_required_override "--retrofit-existing (G5: \$PLANS_HOME contains $g5_existing_count existing NN-*/ plan(s); the flag waives — v2.1 retrofit logic deferred). \$PLANS_HOME=$PLANS_HOME"
+  else
     diag "G5 fired: \$PLANS_HOME contains $g5_existing_count existing NN-*/ plan(s); pass --retrofit-existing to acknowledge (v2.1 retrofit logic deferred — flag currently waives only). \$PLANS_HOME=$PLANS_HOME"
     printf '%s\n' "$g5_existing_plans" | while IFS= read -r p; do
       [ -z "$p" ] || printf '  %s\n' "$p" >&2
     done
     exit 55
   fi
-  warn "G5: --retrofit-existing supplied with $g5_existing_count pre-existing plan(s); v2.1 retrofit logic NOT YET IMPLEMENTED — flag is a waiver stub. Proceeding under explicit user waiver; install does not modify \$PLANS_HOME."
 fi
 
 # --- G1-main: $HOME/.claude equality gate ---
@@ -440,11 +466,19 @@ $(find "$CLAUDE_HOME" -type l 2>/dev/null)
 EOF
 fi
 if [ "$g4_violation_count" -gt 0 ]; then
-  diag "G4 fired: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching ~/Documents/Obsidian Vault/. Vault-clobber protection — refuse unconditionally (no --force override)."
-  printf '%s\n' "$g4_violations" | while IFS= read -r v; do
-    [ -z "$v" ] || printf '  %s\n' "$v" >&2
-  done
-  exit 54
+  if [ "$APPLY_MODE" != "1" ]; then
+    # The dry-run surfaces G4 in the NON-WAIVABLE blocking_findings[] channel and
+    # CONTINUES (one-pass preview); --apply keeps the unconditional exit 54. G4 is
+    # genuinely non-waivable (vault-clobber, no override) → blocking_findings[], NOT
+    # required_overrides[] (which would falsely imply a waiver flag exists).
+    note_blocking_finding "G4 vault-clobber: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching ~/Documents/Obsidian Vault/ — NO override; --apply refuses unconditionally (exit 54). Point \$CLAUDE_HOME at a path that does not symlink into the vault before --apply."
+  else
+    diag "G4 fired: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching ~/Documents/Obsidian Vault/. Vault-clobber protection — refuse unconditionally (no --force override)."
+    printf '%s\n' "$g4_violations" | while IFS= read -r v; do
+      [ -z "$v" ] || printf '  %s\n' "$v" >&2
+    done
+    exit 54
+  fi
 fi
 
 info "CLAUDE_HOME=$CLAUDE_HOME"
@@ -1147,7 +1181,15 @@ EOF
             | ($t.command)  as $cmd
             | ({"type":"command","command":$cmd}
                 + (if ($t.timeout != null) then {"timeout":$t.timeout} else {} end)) as $hookobj
-            | if ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
+            # statusLine is structurally distinct — it lives at top-level
+            # .statusLine.command, not under .hooks[$ev] — so re-land the foundation
+            # command when .statusLine is absent or its .command diverges (parity with
+            # the apply reconcile below; previews a shadowed statusLine reconcile).
+            | if $ev == "statusLine"
+              then
+                ( if (.statusLine.command // "") == $cmd then .
+                  else .statusLine = ({"type":"command","command":$cmd}) end )
+            elif ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
                    | any(. == $cmd))
               then .
               else
@@ -1373,6 +1415,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     --arg claude_state_root "$CLAUDE_STATE_ROOT" \
     --arg plans_home "$PLANS_HOME" \
     --arg required_overrides "$required_overrides" \
+    --arg blocking_findings "$blocking_findings" \
     --arg mode "$dry_run_mode" \
     --arg installed_version "$INSTALLED_VERSION" \
     --arg target_version "${TARGET_VERSION:-}" \
@@ -1415,6 +1458,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     "backup_dir": $backup_dir
   },
   "required_overrides": (if $required_overrides == "" then [] else ($required_overrides | split("\n")) end),
+  "blocking_findings": (if $blocking_findings == "" then [] else ($blocking_findings | split("\n")) end),
   "migrations_to_run": (if ($migrations_to_run | rtrimstr("\n")) == "" then [] else ($migrations_to_run | rtrimstr("\n") | split("\n")) end),
   "file_dispositions": (if ($file_dispositions | rtrimstr("\n")) == "" then [] else ($file_dispositions | rtrimstr("\n") | split("\n") | map(split("\t") | (.[0]) as $p | (.[1]) as $d
     | (if   $d == "reconcile-hooks"     then {"class":"THREE-WAY-MERGE", "reason":"missing foundation hook tuple(s) appended (reconciler)", "added_hooks":["see settings-required-hooks.json"]}
@@ -1442,7 +1486,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
     {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (12). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
     {"step": 8.7, "op": "cp", "target": ($claude_home + "/vault-init/"), "source": ($source_repo + "/vault-init/"), "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
-    {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{9 adopter}.json"), "rationale": "ship the 9 adopter schemas + README. The 4 repo-only schemas (foundation-master-schema, memory-schema, review-queue-schema, rules-schema) stay authoring-side"},
+    {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{12 named}.json"), "rationale": "ship the 12 named schemas (the Step 9 loop is ground-truth) + README. memory-schema, rules-schema, and review-queue-schema are resolved at runtime by installed consumers ($CLAUDE_HOME/schemas/...) so they ship; only foundation-master-schema stays authoring-side"},
     {"step": 10, "op": "cp", "target": ($claude_home + "/templates/"), "source": ($source_repo + "/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/"), "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
     {"step": 11, "op": "DROPPED", "rationale": "claude-mem NOT bundled (adopter-installed via marketplace); plugins/ + false README gone"},
     {"step": 11.5, "op": "DROPPED", "rationale": "global CLAUDE.md pre-seed struck; skills/onboarder/scripts/author-claude-home.sh is the authoritative writer"},
@@ -1747,6 +1791,24 @@ for path in sorted(glob.glob(os.path.join(os.environ["BLDIR"], "foundation-manif
 # Three-state disposition for ONE managed-set file (path ∈ files[]). On the true
 # fresh / no-marker path it is a transparent `cp $cp_clobber` shim; on the
 # legacy-adopt path it defaults to FOUNDATION-REPLACE take-new.
+# Is <rel> a member of the SHIPPED manifest files[] — the upgrade target's managed
+# set? Used by upgrade_foundation_file to tell a NEWLY-ENROLLED foundation file
+# (present in the shipped manifest, absent from the adopter's frozen prior-release
+# baseline — a path that transitioned from un-manifested to manifest-managed across
+# the release) apart from genuinely-unmanaged user content. A shipped-manifest member
+# is foundation and MUST converge; only a path in NEITHER manifest is USER-PRESERVE.
+in_shipped_manifest() {
+  REL="$1" SM="$SOURCE_REPO/governance/foundation-manifest.json" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["SM"]))
+except Exception:
+    sys.exit(1)
+rel = os.environ["REL"]
+sys.exit(0 if any(f.get("path") == rel for f in m.get("files", [])) else 1)
+' 2>/dev/null
+}
+
 upgrade_foundation_file() {
   local src="$1" dest="$2" rel sha_disk sha_base lookup_rc
   # rel = manifest-relative path (== files[].path; verified 1:1, no lib/ xlate).
@@ -1819,10 +1881,26 @@ sys.exit(2)
 ' 2>/dev/null)"
   lookup_rc=$?
   if [ "$lookup_rc" -eq 2 ]; then
-    # Not a managed-set member → unmanaged → structurally untouchable. No write.
-    UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	user-preserve-skip
+    # rel is absent from the adopter's frozen prior-release baseline files[]. Two sub-cases:
+    #  (a) NEWLY-ENROLLED managed foundation file — present in the SHIPPED
+    #      manifest but not the prior baseline (a path that transitioned from
+    #      un-manifested to manifest-managed across the release, e.g. the
+    #      memory/rules/review-queue schemas enrolled into files[] in v1.1.2). It IS
+    #      foundation and MUST converge on the upgrade, not be skipped. Treat it as a
+    #      baseline-less managed file (sha_base="") and fall through to the State-1/3
+    #      disposition — new-ship when absent; historical-consult + take-new; genuine
+    #      adopter edit → .foundation-local sidecar. This is the SAME non-destructive
+    #      logic the legacy lane uses, so an adopter edit is never clobbered.
+    #  (b) genuinely unmanaged — present in NEITHER manifest → USER-PRESERVE, never
+    #      write. The managed-vs-unmanaged boundary stays absolute: a path the adopter
+    #      owns (in no foundation manifest) is structurally untouchable.
+    if in_shipped_manifest "$rel"; then
+      sha_base=""; lookup_rc=0
+    else
+      UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${rel}	user-preserve-skip
 "
-    return 0
+      return 0
+    fi
   fi
   if [ "$lookup_rc" -ne 0 ]; then
     # Baseline unreadable mid-walk → fail safe to legacy posture, never clobber.
@@ -1938,8 +2016,24 @@ sys.exit(2)
 apply_subtree_managed() {
   local srcdir="$1" prefix="$2" rel src dest
   [ -d "$srcdir" ] || return 0
-  # Enumerate the managed-set members under <prefix> from the FROZEN baseline
-  # manifest (the same files[] that bounds USER-PRESERVE in upgrade_foundation_file).
+  # Enumerate the managed-set members under <prefix> from the UNION of the adopter's
+  # FROZEN prior-release baseline manifest AND the SHIPPED manifest. upgrade_foundation_file
+  # bounds USER-PRESERVE per-file (its baseline lookup + in_shipped_manifest), so the
+  # ENUMERATION's job is to name every member we may need to deliver — which MUST
+  # include files[] members NEWLY ENROLLED in this release (present in the shipped
+  # manifest but absent from the older adopter's frozen baseline).
+  #
+  # Enumerating from the baseline ALONE missed any newly-enrolled member on a
+  # version-SKIP envelope upgrade (e.g. v1.1.1 -> v1.1.3, where
+  # governance/baselines/foundation-manifest-v1.1.2.json is a NEW files[] member the
+  # v1.1.1 adopter never had). That member was never enumerated -> never delivered ->
+  # the delivery-verification gate (which checks the SHIPPED files[]) then found it
+  # absent -> exit 56. The legacy lane already enumerates from the shipped manifest;
+  # this aligns the envelope lane with it. Baseline-only members removed in this release have no
+  # $SOURCE_REPO/$rel source -> the `[ -f "$src" ]` guard skips them (no over-
+  # delivery); upgrade_foundation_file no-ops any member not in the shipped manifest
+  # (case (b) user-preserve-skip).
+  #
   # Read line-by-line (NOT `for rel in $(...)`): 11 managed paths carry spaces
   # (vault-init/System Governance/*, vault-init/Vault Writers/*,
   # governance/file-type-contracts/System Governance.md.json). Word-splitting on
@@ -1954,17 +2048,24 @@ apply_subtree_managed() {
     [ -f "$src" ] || continue
     mkdir -p "$(dirname "$dest")" 2>/dev/null || true
     upgrade_foundation_file "$src" "$dest"
-  done < <(BMS="$BASELINE_MANIFEST_SNAPSHOT" PREFIX="$prefix" python3 -c '
+  done < <(BMS="$BASELINE_MANIFEST_SNAPSHOT" SM="$SOURCE_REPO/governance/foundation-manifest.json" PREFIX="$prefix" python3 -c '
 import json, os, sys
-try:
-    m = json.load(open(os.environ["BMS"]))
-except Exception:
-    sys.exit(0)
 prefix = os.environ["PREFIX"]
-for f in m.get("files", []):
-    p = f.get("path", "")
-    if p.startswith(prefix):
-        print(p)
+paths = set()
+for key in ("BMS", "SM"):
+    path = os.environ.get(key, "")
+    if not path:
+        continue
+    try:
+        m = json.load(open(path))
+    except Exception:
+        continue
+    for f in m.get("files", []):
+        p = f.get("path", "")
+        if p.startswith(prefix):
+            paths.add(p)
+for p in sorted(paths):
+    print(p)
 ' 2>/dev/null)
 }
 
@@ -2253,6 +2354,17 @@ else
   done
 fi
 
+# Restore the executable bit on the bare-path-invoked hooks and the librarian
+# capabilities. The foundation manifest records mode but no gate asserts a REQUIRED
+# mode, and a per-file/directory copy does not reliably preserve the executable bit
+# across platforms. settings.json invokes hooks by BARE PATH (a non-exec hook hard-
+# fails rc=126) and session-close gates each capability on `[ -x ]` (a non-exec cap
+# silently skips). hooks/lib + hooks/config are sourced/data and excluded by the non-
+# recursive */*.sh glob. Mirrors the migrations/*.sh chmod parity below.
+for _xdir in "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/skills/librarian/capabilities"; do
+  [ -d "$_xdir" ] && chmod +x "$_xdir"/*.sh 2>/dev/null || true
+done
+
 # Step 6: DISSOLVED. The top-level
 # onboarding/ tree is gone — the onboarder dissolved into a
 # self-contained skills/onboarder/ skill. Its producers ride Step 5's
@@ -2500,18 +2612,60 @@ LC_ALL=C find "$CLAUDE_HOME/orchestrator/state" -type f -print 2>/dev/null | whi
   rm -f "$st" 2>/dev/null || true
 done
 
-# Step 9: schemas/ — selective named-list. Ships the 9 adopter schemas + README:
+# Step 8.9: MANIFEST-DRIVEN mode restore over the WHOLE 0755 set. The narrow
+# `chmod +x hooks/*.sh + capabilities/*.sh` glob above repairs only ~50 of the ~104
+# manifest-0755 files — the ~50 out-of-glob 0755 files (orchestrator/*, hooks/lib/*,
+# skills/govern/*, doc-amender/*, installer/*, onboarder scripts) are delivered with
+# whatever mode the cp -R / per-file walk happened to carry. When a SOURCE file's exec
+# bit is stripped (a staged-uncommitted 100644, a platform that drops the bit on copy),
+# the file is delivered 0644 on a rc=0 install and install even tells the adopter to run
+# the now non-exec binary by bare path. The fix: make mode a DELIVERED PROPERTY read
+# from the manifest .mode — not a narrow blanket +x that papers over the symptom and
+# fails no gate. The manifest is the SoT (.mode derives from the git INDEX, so
+# manifest.mode == shipped index mode == intended delivered mode). The source manifest is
+# always present at $SOURCE_REPO/governance/foundation-manifest.json (the shipped copy
+# under $CLAUDE_HOME is landed by Step 8.5; either resolves). Migrations also ship FLAT
+# to $CLAUDE_HOME/migrations/ and keep their dedicated chmod above; this walk covers the
+# nested $CLAUDE_HOME/installer/migrations/ copy by its manifest path.
+_mode_manifest="$CLAUDE_HOME/governance/foundation-manifest.json"
+[ -f "$_mode_manifest" ] || _mode_manifest="$SOURCE_REPO/governance/foundation-manifest.json"
+if [ -f "$_mode_manifest" ] && command -v python3 >/dev/null 2>&1; then
+  MM="$_mode_manifest" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["MM"]))
+except Exception:
+    sys.exit(0)
+for f in m.get("files", []):
+    mode = f.get("mode", "")
+    path = f.get("path", "")
+    if mode and path:
+        # tab-delimited <mode>\t<path> so a space-bearing path survives the read.
+        sys.stdout.write(mode + "\t" + path + "\n")
+' 2>/dev/null | while IFS="$(printf '\t')" read -r _mmode _mpath; do
+    [ -n "$_mpath" ] || continue
+    _dest="$CLAUDE_HOME/$_mpath"
+    [ -e "$_dest" ] || continue
+    chmod "$_mmode" "$_dest" 2>/dev/null || true
+  done
+fi
+
+# Step 9: schemas/ — selective named-list. Ships the 12 adopter schemas + README:
 # plans, plan-manifest, librarian-manifest, user-manifest, orchestration,
-# drift-allowlist, overlay-master, governance-action-log, and writer-manifest.
-# The drift-allowlist companion schema validates hooks/config/*.json via the
-# Step 13.6 jsonschema validation below.
+# drift-allowlist, overlay-master, governance-action-log, writer-manifest, and
+# the memory, rules, and review-queue schemas.
 #
-# 4 schemas are DROPPED from the ship surface — foundation-master-schema,
-# memory-schema, review-queue-schema, rules-schema. They stay foundation-repo
-# authoring-side as reference; foundation-master-schema.json is the runtime
-# validation layer (pillars compose into the bundle at release time; bundle
-# ships, pillars don't).
-for schema in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema; do
+# memory-schema, rules-schema, and review-queue-schema ship because installed
+# consumers resolve them at runtime under $CLAUDE_HOME/schemas/ — the memory-
+# staleness, memory-globalize, rules-hygiene, and review-queue helpers each gate
+# on the schema file being present. Shipped, the schema-driven path is live;
+# unshipped, every consumer silently fell back to its hardcoded default and the
+# conformance gates were never enforced.
+#
+# Only foundation-master-schema stays foundation-repo authoring-side: it is the
+# canonical runtime validation layer the composed bundle is built from (pillars
+# compose into the bundle at release time; the bundle ships, the pillars don't).
+for schema in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema memory-schema rules-schema review-queue-schema; do
   src="$SOURCE_REPO/schemas/$schema.json"
   if [ ! -f "$src" ]; then
     diag "schema missing in source: $schema.json"
@@ -2698,6 +2852,16 @@ fi
 gitignore_template="$SOURCE_REPO/templates/claude-home.gitignore"
 gitignore_target="$CLAUDE_HOME/.gitignore"
 gitignore_sentinel="# brain-stem: managed secret-exclusions"
+# .gitignore is a sha-pinned foundation-manifest.json files[] member, but this
+# three-way append leaves an adopter's merged .gitignore at a DIFFERENT on-disk sha.
+# Each delivery branch records a `three-way-merge` disposition so the delivery-
+# verification gate (Step 13.6) exempts it the same data-driven way it exempts
+# overlay-master.json — otherwise a pre-existing non-sentinel .gitignore never
+# converges, the home never stamps, and the sentinel makes the re-run idempotent:
+# an infinite re-run loop. Disposition key MUST equal the installed .gitignore's
+# foundation-manifest.json::files[].path (the generator maps
+# templates/claude-home.gitignore -> .gitignore).
+gitignore_rel=".gitignore"
 
 if [ ! -f "$gitignore_template" ]; then
   warn "templates/claude-home.gitignore not present at $gitignore_template — skipping \$CLAUDE_HOME/.gitignore secret-exclusion seed"
@@ -2715,9 +2879,13 @@ elif [ ! -f "$gitignore_target" ]; then
     exit 11
   fi
   info "\$CLAUDE_HOME/.gitignore seeded with brain-stem managed secret-exclusions ($gitignore_target)"
+  UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${gitignore_rel}	three-way-merge
+"
 elif grep -qF "$gitignore_sentinel" "$gitignore_target"; then
   # Present + sentinel already there: idempotent no-op (survivorship preserved).
   info "\$CLAUDE_HOME/.gitignore already carries the brain-stem managed secret-exclusions sentinel — preserving (no re-append)"
+  UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${gitignore_rel}	three-way-merge
+"
 else
   # Present + sentinel absent: append the managed block, leaving the adopter's
   # own ignore rules untouched (merge-safe). Blank-line separator for clarity.
@@ -2729,6 +2897,8 @@ else
     exit 11
   }
   info "\$CLAUDE_HOME/.gitignore: appended brain-stem managed secret-exclusions block (adopter rules preserved)"
+  UPGRADE_FILE_DISPOSITIONS="${UPGRADE_FILE_DISPOSITIONS}${gitignore_rel}	three-way-merge
+"
 fi
 
 # Step 11.9: git-init the brain-stem-owned $CLAUDE_HOME (the
@@ -2872,8 +3042,18 @@ if [ -f "$target_settings" ] && [ -f "$required_hooks_decl" ]; then
         | ($t.command)  as $cmd
         | ({"type":"command","command":$cmd}
             + (if ($t.timeout != null) then {"timeout":$t.timeout} else {} end)) as $hookobj
+        # statusLine is structurally distinct — it lives at top-level
+        # .statusLine.command, NOT under .hooks[$ev]. The .hooks tuple loop below
+        # cannot recover a SHADOWED statusLine (a user who wins the .statusLine object
+        # wholesale leaves the foundation worker-statusline.sh unrecoverable). Re-land
+        # the foundation command when .statusLine is ABSENT or its .command DIVERGES;
+        # adds-only on absence, corrective on divergence.
+        | if $ev == "statusLine"
+          then
+            ( if (.statusLine.command // "") == $cmd then .
+              else .statusLine = ({"type":"command","command":$cmd}) end )
         # (a) already present anywhere under this event? -> per-COMMAND no-op.
-        | if ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
+        elif ([ (.hooks[$ev] // [])[]?.hooks[]?.command // "" ]
                | any(. == $cmd))
           then .
           else
@@ -2916,29 +3096,59 @@ for schema in "$CLAUDE_HOME/schemas"/*.json; do
   fi
 done
 
-# Step 13.6: jsonschema validation of foundation-shipped configs.
-# Validates hooks/config/*.json against the
-# 4 companion schemas shipped at Step 9. Graceful skip when python3 jsonschema
-# module is unavailable on the adopter machine — preserves the
-# error_action: ignore posture (fresh adopters degrade silently at runtime
-# when validation tooling absent). Adopters with jsonschema installed
-# (pip3 install jsonschema) get fail-loud-at-install behavior on malformed
-# configs via exit 30 (pre-allocated for "schema parse failure (post-install)").
+# Step 13.6: jsonschema validation of foundation-shipped configs. Graceful skip when
+# python3 jsonschema is unavailable on the adopter machine — preserves the
+# error_action: ignore posture (fresh adopters degrade silently at runtime when
+# validation tooling absent). Adopters with jsonschema installed (pip3 install
+# jsonschema) get fail-loud-at-install behavior on malformed configs via exit 30.
+#
+# The prior loop validated two HARDCODED configs at
+# $CLAUDE_HOME/hooks/config/{doc-dependencies,drift-allowlist}.json — a path NO
+# product tree ever populates (hooks/config/ ships only .gitkeep). doc-dependencies.json
+# is a repo-only pillar that composes into foundation-master.json (not shipped to the
+# adopter), and its companion schema was dropped from the ship surface; drift-allowlist.json
+# has no source file at all. So BOTH `[ -f ]` guards always short-circuited → the only
+# install-time jsonschema loop was a fully dead branch. Replaced with a manifest-driven
+# walk: validate exactly the configs that are ACTUALLY SHIPPED (present in the shipped
+# foundation-manifest) against schemas that are ACTUALLY SHIPPED, resolving each config at
+# its REAL installed path. The config<->schema pairing is convention-based (<name>.json
+# validated by <name>-schema.json when both landed); a config with no shipped companion
+# schema is parse-validated only (Step 13) and skipped here. Today no shipped config has a
+# shipped companion schema, so this is a correct no-op that lights up the instant a real
+# config+schema pair ships — not a dead branch masquerading as coverage.
 if python3 -c "import jsonschema" 2>/dev/null; then
-  for pair in \
-    "doc-dependencies.json:doc-dependencies-schema.json" \
-    "drift-allowlist.json:drift-allowlist-schema.json"; do
-    cfg_name="${pair%:*}"
-    sch_name="${pair#*:}"
-    cfg_path="$CLAUDE_HOME/hooks/config/$cfg_name"
-    sch_path="$CLAUDE_HOME/schemas/$sch_name"
-    [ -f "$cfg_path" ] || continue
-    [ -f "$sch_path" ] || continue
-    if ! python3 -c "import json,sys; from jsonschema.validators import Draft202012Validator; Draft202012Validator(json.load(open(sys.argv[1]))).validate(json.load(open(sys.argv[2])))" "$sch_path" "$cfg_path"; then
-      diag "config schema validation failed: $cfg_path against $sch_path"
-      exit 30
-    fi
-  done
+  s136_manifest="$CLAUDE_HOME/governance/foundation-manifest.json"
+  if [ -f "$s136_manifest" ] && command -v jq >/dev/null 2>&1; then
+    # Every shipped *.json under a config-bearing tree (governance/, hooks/config/)
+    # whose <name>-schema.json companion is ALSO shipped. Resolve from the manifest
+    # path-set (the adopter's ground truth), not a hardcoded list.
+    s136_shipped="$(jq -r '.files[].path' "$s136_manifest" 2>/dev/null)"
+    printf '%s\n' "$s136_shipped" \
+      | grep -E '^(governance|hooks/config)/[A-Za-z0-9._-]+\.json$' \
+      | grep -vE '/[A-Za-z0-9._-]*-schema\.json$' \
+      | grep -vE '/(foundation-manifest|foundation-master|overlay-master)\.json$' \
+      | while IFS= read -r cfg_rel; do
+          [ -z "$cfg_rel" ] && continue
+          cfg_base="${cfg_rel##*/}"
+          sch_rel="schemas/${cfg_base%.json}-schema.json"
+          # Both the config AND its companion schema must be shipped (in-manifest AND
+          # on disk) for a schema-conformance gate; otherwise skip (parse-only).
+          printf '%s\n' "$s136_shipped" | grep -qxF "$sch_rel" || continue
+          cfg_path="$CLAUDE_HOME/$cfg_rel"
+          sch_path="$CLAUDE_HOME/$sch_rel"
+          [ -f "$cfg_path" ] || continue
+          [ -f "$sch_path" ] || continue
+          if ! python3 -c "import json,sys; from jsonschema.validators import Draft202012Validator; Draft202012Validator(json.load(open(sys.argv[1]))).validate(json.load(open(sys.argv[2])))" "$sch_path" "$cfg_path"; then
+            diag "config schema validation failed: $cfg_path against $sch_path"
+            exit 30
+          fi
+        done
+    # `while` runs in a subshell (pipe); propagate an inner exit 30 to the installer.
+    s136_rc=$?
+    [ "$s136_rc" -eq 30 ] && exit 30
+  else
+    warn "Step 13.6: foundation-manifest or jq unavailable; manifest-driven config-vs-schema validation skipped. Configs were JSON-syntax-validated by Step 13."
+  fi
 else
   warn "python3 jsonschema module not available; install-time config-vs-schema validation skipped (pip3 install jsonschema to enable). Configs were JSON-syntax-validated by Step 13."
 fi
@@ -2955,8 +3165,22 @@ fi
 # foundation-repo remains usable.
 manifest_src="$SOURCE_REPO/governance/foundation-manifest.json"
 manifest_dst="$CLAUDE_HOME/governance/foundation-manifest.json"
+# governance/foundation-manifest.json SELF-EXCLUDES from its own files[] (a manifest
+# cannot record its own sha256 — circular), so it is in NEITHER the adopter's frozen
+# prior-release baseline NOR the shipped files[]; upgrade_foundation_file classifies it
+# user-preserve-skip and the plain cp -n below SILENTLY SKIPS it on an upgrade (dest
+# pre-exists). The live manifest then stays frozen at the prior-release seed while every
+# managed file converges to the shipped release — mis-stamping .installed-state.json::manifest_sha256
+# and making uninstall.sh misclassify every upgraded-but-pristine file as user-edited.
+# The manifest is foundation-runtime, never user content, so a take-new clobber on the
+# upgrade/legacy lane is correct. Force-copy whenever the dest pre-exists on a non-fresh
+# apply lane; fresh installs (dest absent) are unaffected (cp -n == cp -f there).
+manifest_cp="$cp_clobber"
+if [ "$APPLY_MODE" = "1" ] && { [ "$UPGRADE_ENVELOPE_ON" = "1" ] || [ "${LEGACY_ADOPT:-0}" = "1" ]; }; then
+  manifest_cp="-f"
+fi
 if [ -f "$manifest_src" ]; then
-  cp $cp_clobber "$manifest_src" "$manifest_dst" 2>/dev/null || true
+  cp $manifest_cp "$manifest_src" "$manifest_dst" 2>/dev/null || true
   if [ -f "$manifest_dst" ]; then
     if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$manifest_dst" 2>/dev/null; then
       diag "governance/foundation-manifest.json parse failure post-copy: $manifest_dst"
@@ -3145,6 +3369,11 @@ EXEMPT_KINDS = {
     "skeleton-merge", "skeleton-merge-skip",
     "replace+foundation-local", "legacy-adopt-replace+foundation-local",
     "user-preserve-skip", "sidecar-skip-deferred",
+    # The installed .gitignore is a THREE-WAY-MERGE sentinel-append surface (Step
+    # 11.8) — on-disk != pinned template sha BY DESIGN for any adopter with pre-
+    # existing ignore rules. Data-driven exemption (same shape as the overlay-
+    # master.json hardcode above); self-extends to future merge-delivered files.
+    "three-way-merge",
 }
 
 def sha256(p):
@@ -3340,13 +3569,14 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
 } > "$log_path" || { diag "G10: provenance log write failed at $log_path"; exit 11; }
 
 info "install complete. next-steps:"
-# Post-install plist rendering walks O.jobs[] via for_each_job (sourced
-# from onboarding/lib/job-iterator.sh) and invokes render-launchd.sh per declared
-# job. Single-job (librarian|architect) callers may still invoke render-launchd.sh
-# directly; multi-job callers (post-onboarding, post-connector-wizard) use
-# render-all-launchd.sh which iterates via for_each_job over orchestration.json.
-info "  - render plists for ALL declared jobs (post-onboarding):"
-info "    \$CLAUDE_HOME/installer/render-all-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging"
+# The next-steps must reference ONLY shipped runnables. The minimum-viable foundation
+# ships render-launchd.sh (a SINGLE-job renderer: `render-launchd.sh <job>`, job in
+# {writer-reconciler, doc-amender}); the multi-job render-all-launchd.sh iterator was
+# NEVER authored into the ship surface, so instructing the adopter to run it handed out
+# a command that cannot run on a clean install. The for-each-job loop over the shipped
+# single-job renderer is the resolution.
+info "  - render plists for ALL declared jobs (post-onboarding) — loop the shipped single-job renderer:"
+info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging \"\$job\"; done"
 info "  - render a single job manually:"
 info "    \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging <job-id>"
 info "  - claude-mem bundle: deferred"
