@@ -205,39 +205,39 @@ Runtime: `capabilities/capability-registry-parity.sh`.
 Validates (and optionally `--fix`es) frontmatter on vault files against the
 26-row type table; runs the provides-canonicality, size-monitoring, and
 schema-type-coverage drift audits, persisting `drift_findings.*` to the
-librarian-manifest. Ported as-is @().
+librarian-manifest. Ported as-is.
 Runtime: `capabilities/frontmatter-enforce.sh`.
 
 ## Capability: placement-validate
 
 Validates vault file placement against the governance placement rules (reads
 `vault.logs_whitelist_subdirs` from the user-manifest); emits placement
-findings. Ported as-is @().
+findings. Ported as-is.
 Runtime: `capabilities/placement-validate.sh`.
 
 ## Capability: xref-check
 
 Cross-reference integrity check over vault `.md` links; computes the xref_graph
-into the librarian-manifest. Ported as-is @().
+into the librarian-manifest. Ported as-is.
 Runtime: `capabilities/xref-check.sh`.
 
 ## Capability: stale-detect
 
 Detects stale plan-root + vault files past their freshness threshold (walks
-plan roots via `hooks/lib/plan-path.sh`). Ported as-is @().
+plan roots via `hooks/lib/plan-path.sh`). Ported as-is.
 Runtime: `capabilities/stale-detect.sh`.
 
 ## Capability: tag-coverage-audit
 
 Audits vault tag-taxonomy coverage (reads `vault.tag_audit_exemptions` from the
-user-manifest); emits coverage findings. Ported as-is @().
+user-manifest); emits coverage findings. Ported as-is.
 Runtime: `capabilities/tag-coverage-audit.sh`.
 
 ## Capability: sanctioned-schema-drift-detect
 
 Byte-diffs the 2 sanctioned schemas (plans-schema, plan-manifest-schema)
 between the foundation-repo source and the live `~/.claude/schemas/` install;
-exit 1 on drift. Self-contained (no lib source). Ported as-is @().
+exit 1 on drift. Self-contained (no lib source). Ported as-is.
 Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
 
 ## Capability: handoff-disposition-check
@@ -251,7 +251,7 @@ Runtime: `capabilities/handoff-disposition-check.sh`.
 
 Resolves the R-28 `parent_plan:` frontmatter convention (via
 `hooks/lib/frontmatter.sh`) and surfaces drift findings where a sub-task file's
-parent does not resolve. Ported as-is @().
+parent does not resolve. Ported as-is.
 Runtime: `capabilities/plan-parent-resolve.sh`.
 
 ## Capability: librarian-manifest-validate
@@ -259,13 +259,13 @@ Runtime: `capabilities/plan-parent-resolve.sh`.
 Validates a staged `librarian-manifest.json` write against
 `schemas/librarian-manifest-schema.json` (tier ajv → python-jsonschema →
 minimal); DENY (exit 1) + diagnostic log on schema-invalid. Ported as-is
-@().
+.
 Runtime: `capabilities/librarian-manifest-validate.sh`.
 
 ## Capability: skill-parity
 
 Audits the skill registry against the on-disk skill bodies for parity drift.
-Ported as-is @().
+Ported as-is.
 Runtime: `capabilities/skill-parity.sh`.
 
 ## Capability: waiver-audit
@@ -286,7 +286,7 @@ Runtime: `capabilities/rules-hygiene.sh`.
 ## Capability: log-archive
 
 Archives old log files from `Vault/Logs/` per retention thresholds (dashboard
-3d / general 7d) using `hooks/lib/dates.sh`. Ported as-is @().
+3d / general 7d) using `hooks/lib/dates.sh`. Ported as-is.
 Runtime: `capabilities/log-archive.sh`.
 
 ## Capability: backup
@@ -299,7 +299,7 @@ Runtime: `capabilities/backup.sh`.
 ## Capability: wikilink-repair
 
 Rename-aware wikilink fixups over vault `.md` files (dry-run by default; atomic
-per-file rewrite after review). Ported as-is @().
+per-file rewrite after review). Ported as-is.
 Runtime: `capabilities/wikilink-repair.sh`.
 
 ## Capability: rename-detect
@@ -307,33 +307,33 @@ Runtime: `capabilities/wikilink-repair.sh`.
 Detects file renames via `git log --diff-filter=R` across the vault + plans
 roots; with `--register`, appends `drift_findings.rename_detected` to the
 librarian-manifest (late-sources `hooks/lib/manifest.sh`). Upstream signal for
-rename-cascade. Ported as-is @().
+rename-cascade. Ported as-is.
 Runtime: `capabilities/rename-detect.sh`.
 
 ## Capability: rename-cascade
 
 Consumes rename-detect output and cascades wikilink updates downstream across
-vault `.md` files (dry-run by default). Ported as-is @().
+vault `.md` files (dry-run by default). Ported as-is.
 Runtime: `capabilities/rename-cascade.sh`.
 
 ## Capability: rename-history-sync
 
 Appends detected renames to the librarian-manifest `rename_history[]` (the
-rename pipeline's history writer). Ported as-is @().
+rename pipeline's history writer). Ported as-is.
 Runtime: `capabilities/rename-history-sync.sh`.
 
 ## Capability: memory-globalize
 
 Promotes a vault memory entry to a global `.claude/rules/<name>.md` rule (only
 with `--apply`; validates the candidate vs `schemas/rules-schema.json`;
-name-collision guard; requires confirmation). Ported as-is @().
+name-collision guard; requires confirmation). Ported as-is.
 Runtime: `capabilities/memory-globalize.sh`.
 
 ## Capability: memory-hygiene
 
 The memory lifecycle auditor — index-health + staleness over
 `system.memory_dir` (resolved via `hooks/lib/paths.sh`; thresholds via
-`hooks/lib/dates.sh`; requires confirmation). Ported as-is @().
+`hooks/lib/dates.sh`; requires confirmation). Ported as-is.
 Runtime: `capabilities/memory-hygiene.sh`.
 
 ## Capability: memory-staleness
@@ -347,7 +347,7 @@ Runtime: `capabilities/memory-staleness.sh`.
 
 The load-bearing session-close orchestrator (#1) — chains the
 C1/C2/C3/S2 capability set; cut caps degrade via `run_capability`
-skip-not-installed. Ported AS-IS UNMODIFIED @().
+skip-not-installed. Ported AS-IS UNMODIFIED.
 Runtime: `capabilities/session-close.sh`.
 
 ## Capability: review
