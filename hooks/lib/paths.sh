@@ -1,23 +1,18 @@
 # hooks/lib/paths.sh — single canonical source of truth for filesystem paths
 # used by hooks, orchestrator scripts, and cron wrappers. Source this file —
 # do not execute it.
-#
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-#
-# This is the SOLE canonical paths.sh body — there is no
+# brain-stem. This is the SOLE canonical paths.sh body — there is no
 # top-level lib/paths.sh 1-line sourcing shim. All hook bodies source THIS
-# path directly.
-#
+# path directly. (/ paths.sh dedup PRIMARY OWNER.)
 # Resolution order for each path:
 #   1. Caller-set environment variable wins (test/CI overrides).
 #   2. Field in user-manifest.json (when file exists, jq present, key non-empty).
 #   3. Install-convention default ($HOME-relative).
-#
 # VAULT_ROOT and BACKUPS_DIR have no install-convention default — they stay
 # empty when neither env nor manifest provides them. Consumers must check
 # before use; missing-vault is graceful-degrade (every hook exits 0 on
 # missing manifest).
-#
 # Bash 3.2 clean (R-23): no associative arrays, no bash-4 file-into-array
 # builtins, no parameter-expansion case-conversion, and no regex capture
 # groups in production paths.
@@ -62,7 +57,8 @@ export CLAUDE_STATE_ROOT
 
 # Coordination directory (machine-local ephemeral): the session
 # registry + the four lockf locks live here. registry.sh consumes COORD_DIR
-# from this file. Homed under machine-local ephemeral state, not in-vault.
+# from this file. Re-pointed off the's in-vault
+# $VAULT_LOGS/.coordination to machine-local ephemeral state.
 export COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
 
 # --- hooks runtime state ---
@@ -72,6 +68,17 @@ if [ -z "${HOOKS_STATE:-}" ]; then
   unset _v
 fi
 export HOOKS_STATE
+
+# --- per-session checkpoint/pressure state root ---
+# checkpoint.md + context-pressure.json are EPHEMERAL per-session state, so they
+# root under $CLAUDE_STATE_ROOT (the XDG ephemeral tier) — NOT $HOOKS_STATE. This
+# is the binding C2/S2 contract: "S2 owns the root; C2 owns the sessions/<sid>/
+# substructure." The session-checkpoint skill (writer) and the four C2 hooks
+# (prompt-context, stop-checkpoint-check, pre-compact-checkpoint, session-register)
+# all resolve sessions/<sid>/ through this single SoT so they never re-drift — the
+# to $HOOKS_STATE while the skill + the binding spec stayed on $CLAUDE_STATE_ROOT.
+# HOOKS_STATE_OVERRIDE wins for test isolation (feedback_test_isolation_for_hooks_state).
+export SESSION_STATE_ROOT="${HOOKS_STATE_OVERRIDE:-$CLAUDE_STATE_ROOT}"
 
 # --- plans tree ---
 if [ -z "${PLANS_DIR:-}" ]; then
@@ -94,7 +101,6 @@ if [ -z "${VAULT_ROOT:-}" ]; then
 fi
 export VAULT_ROOT
 
-# companion VAULT_CONFIGURED sentinel — materialize the
 # missing-vault contract (paths.sh:17-19) ONCE at the SoT producer so every
 # vault-scoped consumer (frontmatter-enforce.sh, pre-write-guard.sh) READS it
 # rather than re-deriving `[ -n … ] && [ -d … ]` inline. This prevents the next

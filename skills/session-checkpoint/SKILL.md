@@ -14,7 +14,7 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 ## Output Contract
 
 **Files written:**
-- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is `$CLAUDE_SESSION_ID`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh); the legacy bare path under the install root was retired (cross-session-pollution incident class closure).
+- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is `$CLAUDE_SESSION_ID`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh /); the legacy bare path under the install root was retired (cross-session-pollution incident class closure,).
 
 **Schema:** Session Continuity Block, keyed fields (the 10-field block below). The flat scalar lines `plan_id`/`phase`/`task_id` are a binding invariant (see Checkpoint file contract).
 
@@ -51,13 +51,23 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 
 ## Procedure
 
+### Step 0 — Resolve the per-session state dir
+
+`$CLAUDE_STATE_ROOT` is **not** present in a bare shell — it is resolved by `paths.sh`, the same single source of truth the hooks use. Source it first so the skill writes to the **exact** dir the readers (`stop-checkpoint-check.sh`, `pre-compact-checkpoint.sh`, `session-register.sh`) and the writer (`prompt-context.sh`) resolve — the writer/reader convergence. Each Bash tool call is a fresh shell, so re-source `paths.sh` in **every** Bash block below.
+
+```bash
+source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
+CKPT_DIR="$CLAUDE_STATE_ROOT/sessions/$CLAUDE_SESSION_ID"   # binding root: / 
+```
+
 ### Step 1 — Gather context pressure
 
 ```bash
+source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 jq -r '.pct // "[MISSING]"' "$CLAUDE_STATE_ROOT/sessions/$CLAUDE_SESSION_ID/context-pressure.json" 2>/dev/null || echo "[MISSING]"
 ```
 
-`$CLAUDE_STATE_ROOT` and `$CLAUDE_SESSION_ID` are the same values used for the `checkpoint.md` per-session path. The pressure file uses per-session paths; the legacy bare path was retired the same day.
+`$CLAUDE_STATE_ROOT` and `$CLAUDE_SESSION_ID` are the same values used for the `checkpoint.md` per-session path. The pressure file uses per-session paths (); the legacy bare path was retired the same day.
 
 ### Step 2 — Gather the 10 fields
 
@@ -138,7 +148,7 @@ This skill writes to `$CLAUDE_STATE_ROOT`-resolved per-session paths (not hardco
 3. **UserPromptSubmit mandate** — you'll see `CONTEXT PRESSURE … IMMEDIATE ACTION REQUIRED` (default 48%). Checkpoint *before* responding to anything else. No other tool calls until checkpoint is written.
 4. **Stop hook block (48-80% stale)** — Stop returns exit 2 with instruction to refresh checkpoint. Run this skill, then retry stop.
 
-Thresholds are manifest-overridable via `user-manifest.json :: hooks.context_pressure.{warn,mandate,hard}_pct` (defaults 45/48/80).
+The warn/mandate nudge thresholds are manifest-overridable via `user-manifest.json :: hooks.context_pressure.{warn,mandate}_pct` (defaults 45/48). The stop-gate's 48/80/90 boundaries are fixed constants in `stop-checkpoint-check.sh` by design and are NOT settings-driven (`hard_pct` is schema-parity vocabulary only —).
 
 ---
 

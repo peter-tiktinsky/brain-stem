@@ -2,8 +2,7 @@
 # Hook: PreCompact — Mechanically extract session state if no fresh checkpoint exists.
 # Zero-LLM-cost: all bash/grep/sed/jq. Must complete in <3 seconds.
 # Output matches Session Continuity Block schema from CLAUDE.md.
-#
-# 2026-05-10 fix (session rework, validated):
+# 2026-05-10 fix (Session 2-rework, authorized):
 #   (1) Removed invalid hookSpecificOutput emission.
 #       "PreCompact" is NOT in Claude Code's hookEventName enum
 #       (PreToolUse|UserPromptSubmit|PostToolUse|PostToolBatch only).
@@ -18,11 +17,9 @@
 #       is stale OR missing OR is a previous panic-fallback.
 #   (3) [MISSING] tokens replace empty fields per R-26 contract verbatim
 #       ("never silently skipped").
-#
 set -uo pipefail
 
-# Hook-portability — source lib via $SCRIPT_DIR, not a
-# hardcoded install-path literal.
+# hardcoded install-path literal ([DRIFT] 3; ).
 # hook-journal.sh is a hooks/lib/ peer; source it only when present + provide a
 # no-op journal_emission fallback so the hook never hard-fails before it lands.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -32,15 +29,15 @@ if ! command -v journal_emission >/dev/null 2>&1; then
   journal_emission() { :; }
 fi
 
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-$HOOKS_STATE}"
+# Per-session checkpoint dir roots at $CLAUDE_STATE_ROOT (/ /
+STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 # Coordination registry is machine-local under $CLAUDE_STATE_ROOT/.coordination
-# ($COORD_DIR emitted by paths.sh), not the legacy $VAULT_LOGS path.
+# (; $COORD_DIR emitted by paths.sh), not the legacy $VAULT_LOGS path.
 SESSION_REGISTRY="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}/session-registry.json"
 
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
-# Per-session checkpoint paths. Env var preferred; stdin JSON fallback.
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 if [[ -z "$SESSION_ID" ]]; then
   SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
@@ -114,9 +111,9 @@ if [[ -d "$PLANS_DIR" ]]; then
   fi
 fi
 
-# 2. Read session registry for touched files:
+# 2. Read session registry for touched files — T-4 (2026-05-11):
 # scope to current $SESSION_ID deterministically (was MRU-heartbeat-active,
-# which was stochastic and prone to cross-session pollution).
+# stochastic per feedback_guard_signal_determinism + cross-session pollution).
 if [[ -f "$SESSION_REGISTRY" ]]; then
   registry_files=$(jq -r --arg sid "$SESSION_ID" '.sessions | to_entries | map(select(.key == $sid)) | .[0] // empty | .value.touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null | head -20 | tr '\n' '; ')
   if [[ -n "$registry_files" ]]; then

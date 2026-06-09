@@ -4,6 +4,30 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.1.3]
+
+Maintenance release focused on the in-place upgrade path for existing adopters, plus the runtime-config and session-continuity fixes staged after v1.1.2. See the [v1.1.3 release notes](docs/release-notes-v1.1.3.md).
+
+### Fixed
+
+- **Upgrading over a `~/.claude/.gitignore` you already had no longer loops forever.** `.gitignore` is delivered by a three-way merge (your own ignore rules are preserved, the brain-stem block is appended), so on any home with a pre-existing `.gitignore` the merged file legitimately differs from the pristine template. The delivery-verification step treated that difference as an under-delivery, refused to stamp the install (exit 56), and — because the merge is idempotent — every re-run hit the same wall. Merge-delivered files are now exempt from that check, so the upgrade converges and stamps on the first pass.
+
+- **Skipping a version on upgrade now delivers every prior-release floor.** Upgrading directly across a version (for example v1.1.1 → v1.1.3 without stopping at v1.1.2) left out the prior release's baseline record — a file the newer install references — which then tripped the same delivery-verification refusal (exit 56). The upgrade engine now enumerates everything the new version ships, not only what the older install already had, so a multi-version jump delivers the complete set and converges.
+
+- **Session checkpoints are written and read from the same place.** The checkpoint writer and the hooks that read it resolved different default directories, which could fire a false "stale checkpoint" stop-block. Both now resolve the one canonical session-state root, and the missing checkpoint-pressure writer was added.
+
+- **Dead and mislabeled configuration knobs cleaned up.** Several manifest settings were documented as live but read from nothing (or from environment variables never set); the genuinely-unused ones were removed and the rest are now actually wired (environment → manifest → default), so the documented knobs match what the code does. The user-manifest schema was also reconciled with what the path/vault/behavioral resolvers actually read, so a manifest that exercises those knobs no longer fails validation.
+
+### Changed
+
+- **The upgrade dry-run shows every blocker in one pass.** Pre-flight gates that used to stop on the first problem now aggregate: a single `bash install.sh` preview lists every required override together, and the genuine must-stop safety conditions (an unset `CLAUDE_HOME`, or a vault symlinked under the install target) are surfaced in the same preview under a separate, non-waivable findings list — so you can see and resolve everything before committing to `--apply`.
+
+- **The getting-started and upgrade runbook is now copy-paste runnable end to end.** The upgrade section now shows the required `export CLAUDE_HOME`, documents `--retrofit-existing` (for a home that already has plans) and `--backup-dir` (required on an upgrade that replaces your merged `settings.json`), adds a note for clones made before the one-time public-history rewrite (`git fetch origin && git reset --hard origin/main`, or re-clone), and links the current release notes.
+
+- **The `/librarian full` sweep is documented honestly.** The skill doc now enumerates what `full` runs and states plainly that the plan-tree index files (`_index.md`, `_backlog.md`, `_archive.md`) are written lazily on the first relevant librarian run — they are not seeded at install — so a brand-new plans folder legitimately has none of them until then.
+
+- **The release pipeline now produces a byte-reproducible manifest, and the baseline-freeze guard is stronger.** The shipped manifest's build tools are now propagated into the published tree so its `generated_at` is pinned to commit time (identical across rebuilds), and the guard that keeps every superseded release's baseline frozen now checks the complete expected set rather than only the files that happen to be present — so a deleted floor is caught instead of passing silently.
+
 ## [v1.1.2]
 
 Maintenance release. Every functional governance value is byte-identical to v1.1.1 — but this release carries several install-correctness and data-safety fixes beyond the original executable-bit repair, and clears internal build-process shorthand out of the public governance artifacts. See the [v1.1.2 release notes](docs/release-notes-v1.1.2.md).

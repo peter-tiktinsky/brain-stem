@@ -1,27 +1,24 @@
 #!/bin/bash
 # Hook: SessionStart (#1) — register the session into the coordination registry
 # AND, on source=compact, restore the per-session checkpoint + rotate it.
-#
-# SessionStart fire-order #1 (restore + rotation; lockf-guarded registry at
-# <coord-root>/.coordination). It must run FIRST in the SessionStart row so the
-# registry/checkpoint-restore context exists before spec-context-inject (#3),
-# session-start (#4), memory-seed (#5).
-#
-# Two responsibilities:
+# C2-owned body (canonical/SessionStart fire-order #1;.4 restore +
+# rotation;.6 lockf-guarded registry at <coord-root>/.coordination). It must
+# run FIRST in the SessionStart row so the registry/checkpoint-restore context
+# exists before spec-context-inject (#3), session-start (#4), memory-seed (#5).
+# Two responsibilities (.4,.6):
 #   1. Register / refresh this session's row in session-registry.json
-#      (machine-local ephemeral; REGISTRY_FILE from lib/registry.sh),
+#      (machine-local ephemeral,; REGISTRY_FILE from lib/registry.sh),
 #      lockf-guarded against registry.lock.
 #   2. On source=compact with a fresh per-session checkpoint.md present:
 #      cat it -> re-inject verbatim as text additionalContext -> mv it to
 #      sessions/<sid>/checkpoint-<ts>.md (rotation/archive, NOT delete).
-#      Rotation is owned HERE, not by the session-checkpoint skill.
-#
+#      Rotation is owned HERE, not by the session-checkpoint skill (.4).
 # Graceful no-op when $CLAUDE_SESSION_ID (and stdin .session_id) are absent —
 # the zero-cross-session-pollution invariant. NEVER fail-hard:
 # a SessionStart hook that non-zero-exits can break the user's session.
 set -uo pipefail
 
-# Portability: resolve libs via $SCRIPT_DIR — no $HOME/.claude
+# Portability (/ LOCK): resolve libs via $SCRIPT_DIR — no $HOME/.claude
 # body literal. registry.sh sources paths.sh and exports COORD_DIR/REGISTRY_FILE.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
@@ -53,7 +50,6 @@ register_row() {
 # reaper at reconcile-sessions.sh:57-86 keys `kill -0 $pid` on the stored pid;
 # storing $$ (a subshell that exits the instant this hook returns) makes the row
 # look dead within milliseconds, so the dead-pid check reaps a live session.
-#
 # This is a NEW $PPID-comm-walk resolver: walk up to ~4 ancestors via
 # `ps -o ppid=`, return the first whose `ps -o comm=` contains 'claude'. It is
 # NOT a reuse of session-close.sh:135-143 — that is a session-ID REVERSE lookup
@@ -82,10 +78,11 @@ if [ "${1:-}" = "--do-register" ]; then
   exit 0
 fi
 
-# State root for the per-session checkpoint dir. HOOKS_STATE_OVERRIDE wins for
-# test isolation; else HOOKS_STATE
-# (resolved by paths.sh under the install convention).
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/state}}"
+# State root for the per-session checkpoint dir. Roots at $CLAUDE_STATE_ROOT
+# via the paths.sh SoT — NOT $HOOKS_STATE: the
+# checkpoint is ephemeral per-session state. HOOKS_STATE_OVERRIDE wins for test
+# isolation (feedback_test_isolation_for_hooks_state).
+STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 
 # Read the SessionStart JSON payload once (session_id + source). Drain stdin so
 # we never block. Env var preferred; stdin .session_id fallback.
@@ -118,7 +115,7 @@ fi
 # registers — the registry self-reaps and write_registry is atomic.
 ensure_coord_dir 2>/dev/null || true
 # Record the long-lived Claude pid (resolve_session_pid), NOT this hook's
-# transient subshell $$ — see the resolver above. Passed explicitly so the
+# transient subshell $$ — see the resolver above (S2). Passed explicitly so the
 # lockf re-exec records this pid, not the lockf pid.
 SESSION_PID=$(resolve_session_pid)
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
@@ -129,7 +126,7 @@ else
 fi
 
 # --- 2. Post-compaction checkpoint restore + rotation (source=compact) -------
-# Only on source=compact (R-26). Re-inject the live checkpoint verbatim
+# Only on source=compact (R-26 /.4). Re-inject the live checkpoint verbatim
 # as text, then archive it to a dated variant (rotation, not delete).
 if [ "$SOURCE" = "compact" ]; then
   SESSION_DIR="$STATE_DIR/sessions/$SESSION_ID"

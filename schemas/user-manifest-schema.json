@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "User Manifest (Tier-2 slim)",
-  "description": "Identity/config manifest for a brain-stem Tier-2 GA install. Instance file: user-manifest.json. Carries the fields the onboarding interview captures (the substitution inputs for the two CLAUDE.md templates plus runtime path/identity fields) plus the runtime hook-threshold extensions. Read-side consumers (hooks/session-start.sh, hooks/prompt-context.sh, lib/paths.sh, skills/librarian/lib/user-manifest-read.sh, install.sh identity substitution) all read with jq '<path> // default' — fields dropped from this slim contract degrade to the consumer's own default; no Tier-2-live consumer validates an instance against this schema. The only write-side validator is onboarding/bootstrap-user-manifest.sh. The `hooks` block carries hooks.memory_review and hooks.context_pressure thresholds.",
+  "description": "Identity/config manifest for a brain-stem Tier-2 GA install. Instance file: user-manifest.json. Carries the fields the onboarding interview captures (the substitution inputs for the two CLAUDE.md templates plus runtime path/identity fields) plus the runtime hook-threshold extensions. Read-side consumers (hooks/session-start.sh, hooks/prompt-context.sh, lib/paths.sh, skills/librarian/lib/user-manifest-read.sh, install.sh identity substitution) all read with jq '<path> // default' — fields dropped from this slim contract degrade to the consumer's own default; no Tier-2-live consumer validates an instance against this schema. The only write-side validator is onboarding/bootstrap-user-manifest.sh. The `hooks` block is the extension surface (hooks.memory_review thresholds + hooks.context_pressure thresholds).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -36,8 +36,8 @@
     },
     "paths": {
       "type": "object",
-      "additionalProperties": false,
-      "description": "Filesystem pointers. paths.vault_root is canonical; vault.root mirrors it.",
+      "additionalProperties": true,
+      "description": "Filesystem pointers. paths.vault_root is canonical; vault.root mirrors it. additionalProperties:true (): paths.sh reads every field with `jq // default`, so an override degrades gracefully to the install-convention default; the block stays open so a future path knob never trips bootstrap validation (the reject-what-the-reader-supports class).",
       "properties": {
         "vault_root": {
           "type": ["string", "null"],
@@ -46,13 +46,25 @@
         "plans_root": {
           "type": ["string", "null"],
           "description": "Fills {{PLANS_HOME}} in the vault template. Install resolves to ~/.claude-plans when null."
+        },
+        "state_root": {
+          "type": ["string", "null"],
+          "description": "Override for $CLAUDE_STATE_ROOT — the machine-local ephemeral state root (per-session checkpoint/pressure + the coordination dir); default ${XDG_STATE_HOME:-~/.local/state}/brain-stem. Read by hooks/lib/paths.sh."
+        },
+        "hooks_state": {
+          "type": ["string", "null"],
+          "description": "Override for $HOOKS_STATE — the hooks runtime state dir; default $CLAUDE_HOME/hooks/state. Read by hooks/lib/paths.sh."
+        },
+        "backups_dir": {
+          "type": ["string", "null"],
+          "description": "Override for $BACKUPS_DIR; default ~/Backups. Read by hooks/lib/paths.sh and the librarian backup capability."
         }
       }
     },
     "vault": {
       "type": "object",
-      "additionalProperties": false,
-      "description": "Tier-2 builds a FRESH 'brain' vault inline at install — so there is no is_fresh branch. User cluster folders and vault-specific rules are NOT captured in the interview: clusters are created organically via the runtime propose-and-validate folder flow, and rules are hand-edited into the vault CLAUDE.md's <USER> section.",
+      "additionalProperties": true,
+      "description": "Tier-2 builds a FRESH 'brain' vault inline at install — so there is no is_fresh branch. User cluster folders and vault-specific rules are NOT captured in the interview: clusters are created organically via the runtime propose-and-validate folder flow, and rules are hand-edited into the vault CLAUDE.md's <USER> section. additionalProperties:true (): the librarian capabilities below read these via skills/librarian/lib/user-manifest-read.sh (umr_get_*) with graceful defaults; the block stays open so a new vault-customization knob never trips bootstrap validation (the class).",
       "properties": {
         "root": {
           "type": ["string", "null"],
@@ -61,13 +73,47 @@
         "top_level_folder": {
           "type": ["string", "null"],
           "description": "Fills {{VAULT_TOP_LEVEL_FOLDER}} in the vault template. NOT interview-captured in Tier-2 (clusters are deferred to the runtime folder flow). Set to the brain vault's starter cluster at build time, or substitutes a default; null until then."
+        },
+        "tag_audit_exemptions": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "User-extension tag-audit exemption patterns. Read by skills/librarian/capabilities/tag-coverage-audit.sh (umr_get_array)."
+        },
+        "engagement_aliases": {
+          "type": ["object", "null"],
+          "description": "Engagement-name alias map. Read by skills/librarian/capabilities/frontmatter-enforce.sh (umr_get_object)."
+        },
+        "logs_whitelist_subdirs": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Additional Logs/ subdirs exempt from placement/stale checks. Read by placement-validate.sh + stale-detect.sh (umr_get_array)."
+        },
+        "projects_root_dirname": {
+          "type": ["string", "null"],
+          "description": "Vault projects-root dir name override. Read by frontmatter-enforce.sh (umr_get_string)."
+        },
+        "people_dirname": {
+          "type": ["string", "null"],
+          "description": "Vault people dir name override. Read by frontmatter-enforce.sh (umr_get_string)."
+        },
+        "projects_subdirname": {
+          "type": ["string", "null"],
+          "description": "Vault projects-subdir name override. Read by frontmatter-enforce.sh (umr_get_string)."
+        },
+        "strategic_dirname": {
+          "type": ["string", "null"],
+          "description": "Vault strategic-cluster dir name override. Read by frontmatter-enforce.sh (umr_get_string)."
+        },
+        "planning_dirname": {
+          "type": ["string", "null"],
+          "description": "Vault planning dir name override. Read by frontmatter-enforce.sh (umr_get_string)."
         }
       }
     },
     "behavioral": {
       "type": "object",
-      "additionalProperties": false,
-      "description": "Personal-prose fields, each distilled by the slim extraction pass from the Section B transcript into <=4 tight lines sized for the claude-home template's 60-line cap. Optional; a field is null when the user skipped that prose prompt.",
+      "additionalProperties": true,
+      "description": "Personal-prose fields, each distilled by the slim extraction pass from the Section B transcript into <=4 tight lines sized for the claude-home template's 60-line cap. Optional; a field is null when the user skipped that prose prompt. additionalProperties:true (): runtime hook-preference toggles below are read with graceful defaults; the block stays open so a new toggle never trips bootstrap validation (the class).",
       "properties": {
         "communication_style": {
           "type": ["string", "null"],
@@ -80,18 +126,29 @@
         "tooling_domain": {
           "type": ["string", "null"],
           "description": "Fills the claude-home template '## Tooling & Domain' USER section."
+        },
+        "hook_preferences": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "Runtime hook opt-outs (read with `jq // default`).",
+          "properties": {
+            "memory_consolidation_enabled": {
+              "type": ["boolean", "null"],
+              "description": "Opt-out for the SessionEnd memory-consolidation gate. Default = enabled; set false to skip (writes a '## Skipped' audit line). Read by hooks/memory-consolidation-check.sh + memory-consolidation-run.sh."
+            }
+          }
         }
       }
     },
     "hooks": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Runtime hook-threshold overrides. All fields optional; consumers read with jq '<path> // default' and fall back to the documented defaults when absent.",
+      "description": "Runtime hook-threshold overrides. extension surface. All fields optional; consumers read with jq '<path> // default' and fall back to the documented defaults when absent.",
       "properties": {
         "memory_review": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Memory-review surfacing thresholds + opt-out. Consumed by memory-review-banner.sh (SessionStart), prompt-context.sh (re-firing band), stop-checkpoint-check.sh (high-severity CONFLICT Stop-block yielding to R-26).",
+          "description": "(): memory-review surfacing thresholds + opt-out (.7). Consumed by memory-review-banner.sh (SessionStart), prompt-context.sh (re-firing band), stop-checkpoint-check.sh (high-severity CONFLICT Stop-block yielding to R-26).",
           "properties": {
             "enabled": {
               "type": ["boolean", "null"],
@@ -100,47 +157,37 @@
             "high_severity_pending_days": {
               "type": ["integer", "null"],
               "minimum": 0,
-              "description": "Days a high-severity item may be pending before the re-firing mandate escalates. Default 3."
+              "description": "Days a high-severity item may be pending before the re-firing mandate escalates. Default 3 (.7). Resolved env > manifest > default in review-queue.sh (_rq_high_sev_days,)."
             },
             "defer_count_cap": {
               "type": ["integer", "null"],
               "minimum": 0,
-              "description": "defer_count at which an item force-escalates to the re-firing mandate. Default 2."
-            },
-            "batch_cap": {
-              "type": ["integer", "null"],
-              "minimum": 1,
-              "description": "Maximum items surfaced per review pass (anti-fatigue). Default ~20."
-            },
-            "auto_suppress_after": {
-              "type": ["integer", "null"],
-              "minimum": 1,
-              "description": "Number of ignores after which a LOW-severity hygiene finding auto-suppresses + logs a tuning signal. Default 3. Revalidation items are EXEMPT from this 3-strike auto-suppress."
+              "description": "defer_count at which an item force-escalates to the re-firing mandate. Default 2. Resolved env > manifest > default in review-queue.sh (_rq_defer_cap,)."
             }
           }
         },
         "context_pressure": {
           "type": "object",
           "additionalProperties": true,
-          "description": "R-26 context-pressure loop thresholds. Consumed by prompt-context.sh (warn/mandate bands) + stop-checkpoint-check.sh (48-80% freshness gate / 80-90% existence gate).",
+          "description": "(): R-26 context-pressure loop thresholds (.4). ONLY warn_pct + mandate_pct are consumed (by prompt-context.sh's warn/mandate bands). The stop-gate's 48/80/90 boundaries are FIXED constants in stop-checkpoint-check.sh by design — a safety gate is not weakened by misconfig (sessions.md: 'the stop-gate reads neither field') — so hard_pct is schema-parity vocabulary only and is NOT consumed by any hook ().",
           "properties": {
             "warn_pct": {
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "At-next-boundary warn threshold. Default 45."
+              "description": "At-next-boundary warn threshold. Default 45 (.4). Consumed by prompt-context.sh."
             },
             "mandate_pct": {
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "Immediate-action mandate threshold. Default 48."
+              "description": "Immediate-action mandate threshold. Default 48 (.4). Consumed by prompt-context.sh."
             },
             "hard_pct": {
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "Stop-block existence-gate threshold (80-90% band; >90% is the always-allow safety valve). Default 80."
+              "description": "Schema-parity vocabulary ONLY — NOT consumed. The stop-gate's 80-90% existence-gate boundary (and the 48%/90% bounds) are fixed constants in stop-checkpoint-check.sh by design, not manifest-driven (; sessions.md 'not read from your settings'). The 80 documents the in-code constant for readers."
             }
           }
         }
@@ -148,12 +195,18 @@
     },
     "system": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["schema_version"],
+      "description": "Writer-owned system fields + runtime system knobs. additionalProperties:true (): backup_targets is read by the librarian backup capability with a graceful default; the block stays open so a new system knob never trips bootstrap validation (the class).",
       "properties": {
         "timezone": {
           "type": ["string", "null"],
           "description": "IANA timezone (e.g. America/New_York), needed for TZ-aware hooks. Confirmed from `readlink /etc/localtime` in Section A."
+        },
+        "backup_targets": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Extra directories the librarian backup capability snapshots beyond the defaults. Read by skills/librarian/capabilities/backup.sh."
         },
         "schema_version": {
           "const": "2.0.0",

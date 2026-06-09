@@ -3,23 +3,24 @@
 # Exit 2 = force continuation. Exit 0 = allow stop.
 set -euo pipefail
 
-# Hook-portability — source the journal peer via $SCRIPT_DIR.
-# hook-journal.sh is a hooks/lib/ peer (named in registry.sh's peer-source
-# loop); source it only when present and provide a no-op journal_emission
-# fallback so the hook never hard-fails when the peer is absent (matches
-# registry.sh graceful-degrade).
+# ([DRIFT] 3; ). hook-journal.sh is a hooks/lib/ peer
+# (named in registry.sh's peer-source loop as landing at/); source it
+# only when present and provide a no-op journal_emission fallback so the hook
+# never hard-fails before the peer lands (matches registry.sh graceful-degrade).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 [ -r "$SCRIPT_DIR/lib/hook-journal.sh" ] && source "$SCRIPT_DIR/lib/hook-journal.sh"
 if ! command -v journal_emission >/dev/null 2>&1; then
   journal_emission() { :; }
 fi
+[ -r "$SCRIPT_DIR/lib/context-pressure.sh" ] && source "$SCRIPT_DIR/lib/context-pressure.sh"
 
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-$CLAUDE_HOME/hooks/state}}"
+# Per-session checkpoint/pressure dir roots at $CLAUDE_STATE_ROOT (/
+# /), via the paths.sh SoT (sourced above) — NOT $HOOKS_STATE.
+STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 CLEARING_WINDOW_SEC=600
 
-# Per-session checkpoint paths + per-session pressure file paths.
-# Use the env var Claude Code sets in hook subprocesses (no stdin parsing in this hook).
+# Session id comes from the env var Claude Code sets in hook subprocesses.
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 if [[ -z "$SESSION_ID" ]]; then
   # Cannot determine session — allow stop (graceful degrade; we cannot enforce
@@ -29,6 +30,16 @@ fi
 CHECKPOINT_FILE="$STATE_DIR/sessions/$SESSION_ID/checkpoint.md"
 PRESSURE_FILE="$STATE_DIR/sessions/$SESSION_ID/context-pressure.json"
 
+# AFTER the just-completed tool chain (a stale last-prompt pct would under-protect).
+# The Stop payload carries transcript_path on stdin; drain non-blocking (</dev/null
+# in tests → empty → the writer no-ops and any existing pressure file is preserved).
+STOP_INPUT=""
+[ -t 0 ] || STOP_INPUT=$(cat 2>/dev/null || true)
+if command -v write_context_pressure >/dev/null 2>&1; then
+  _tp=$(printf '%s' "$STOP_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+  write_context_pressure "$_tp" "$PRESSURE_FILE" 2>/dev/null || true
+fi
+
 # Read context percentage
 pct=0
 if [[ -f "$PRESSURE_FILE" ]]; then
@@ -37,7 +48,7 @@ fi
 pct_int=${pct%.*}
 
 # Safety valve: >90% always allows stop (context too full to continue productively).
-# The memory-review band YIELDS to this valve unconditionally.
+# The memory-review band YIELDS to this valve unconditionally (.7).
 if (( pct_int > 90 )); then
   exit 0
 fi
@@ -47,13 +58,13 @@ fi
 # memory-review band NEVER competes with or overrides session-continuity: the
 # R-26 48-80%/80-90% gates and the >90% valve all take precedence (they are
 # evaluated above and below this branch and win). Even a genuine contradiction
-# defers to the checkpoint Stop-block (escalation ladder).
+# defers to the checkpoint Stop-block (canonical/escalation ladder; C2).
 if (( pct_int < 48 )); then
-  # Memory-review Stop-block for high-severity CONFLICTS only.
   # Reads the review queue via hooks/lib/review-queue.sh (block-and-log); fires
   # only when a high-severity CONFLICT item is unaddressed AND the operator has
-  # not opted out. All thresholds manifest-driven (user-manifest.json ::
-  # hooks.memory_review). Advisory degrade: if the queue lib is absent, no-op.
+  # not opted out. The memory-review thresholds it consults are resolved env >
+  # user-manifest.json :: hooks.memory_review > default inside review-queue.sh
+  #. Advisory degrade: if the queue lib is absent, no-op.
   _rq_lib="$SCRIPT_DIR/lib/review-queue.sh"
   if [ -r "$_rq_lib" ]; then
     source "$_rq_lib"

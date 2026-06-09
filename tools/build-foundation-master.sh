@@ -1,24 +1,25 @@
 #!/bin/bash
 # build-foundation-master.sh — composes foundation governance pillars into
 # governance/foundation-master.json at foundation-repo RELEASE time.
-#
-# Release-time tool — NOT in the adopter ship-list (release-time NOT installed).
-# Adopters never build; install.sh ships the composed artifact as immutable
-# shipped state.
-#
-# Pillar shape:
-#   - R-47 exempt-paths read from the register location:
-#     tagging-rules.json#_rules[id=R-47].r47_exempt_paths. The tagging pillar
+# brain-stem (ABSORB-govern). Release-time tool — NOT in the adopter
+# ship-list (.1:296 'release-time NOT installed'). Adopters never build;
+# install.sh ships the composed artifact as immutable shipped state per
+# feedback_ship_bundle_dont_build_on_consumer.
+# CLEAN-ROOM v2 pillar shape (in-transit modifications vs the
+# @— flagged as a closure-discovery):
+#   - Rename (-> brain-stem) throughout.
+#   - R-47 exempt-paths read RE-POINTED to the clean-room register location:
+#     tagging-rules.json#_rules[id=R-47].r47_exempt_paths (NOT the legacy
+#     .rules[id=R-47].r47_exempt_paths). The clean-room tagging pillar
 #     homes R-47 in the `_rules[]` register and its own r47_exempt_paths_provenance
-#     mandates this composition. The 8-slot bundle shape, the
+#     mandates this composition at. The 8-slot bundle shape, the
 #     r32/r47 top-level runtime-contract slots, and the consumer read-paths
 #     (governance/_index.json cross_cutting rules-index lines 502-508;
 #     hooks/pre-write-guard.sh :1046/:1048/:1568) are unchanged.
-#   - gate-config.json is absent (dropped); the r32/r47
+#   - gate-config.json is absent in the clean-room (dropped); the r32/r47
 #     gate-config absorption guards already default gracefully ({}, [], 25).
-#
 # Inputs (read-only):
-#   governance/frontmatter-rules.json       (carries types + tier_compliance)
+#   governance/frontmatter-rules.json       (; carries types + tier_compliance)
 #   governance/tagging-rules.json           (canonical taxonomy; R-47 in _rules)
 #   governance/naming-rules.json
 #   governance/mandatory-files-rules.json
@@ -27,11 +28,9 @@
 #   governance/_index.json
 #   governance/vault-writers-rules.json     (pillar 7)
 #   governance/plans-rules.json             (pillar 8)
-#   schemas/gate-config.json                (optional; absent)
-#
+#   schemas/gate-config.json                (optional; absent in the clean-room)
 # Output (single artifact):
 #   governance/foundation-master.json
-#
 # Deterministic discipline:
 #   - All composition uses `jq -S` (sorted keys; canonical JSON serialization).
 #   - bundle_version = sha256(canonical-serialized bundle WITHOUT _meta). Same
@@ -39,12 +38,10 @@
 #     does NOT participate in the version hash.
 #   - r47_exempt_paths_composed: deduped + sorted (sort -u) union.
 #   - File ordering: jq -S enforces deterministic top-level key order.
-#
 # Validation:
 #   - jq syntax check on every input
 #   - jsonschema check on output against schemas/foundation-master-schema.json
 #     (skipped with warning if python3 + jsonschema unavailable)
-#
 # Exit codes:
 #   0  success
 #   1  generic error
@@ -124,10 +121,10 @@ mtime_iso() {
 BUILD_AT="$(iso_utc "$BUILD_EPOCH")"
 
 # --- 4. Compose r47_exempt_paths_composed (deduped sorted union) ------------
-# Canonical declaration: tagging-rules.json#_rules[id=R-47].r47_exempt_paths
-# (the `_rules[]` register, per the tagging pillar's own
-# r47_exempt_paths_provenance composition contract).
-# Interim contributor: gate-config.json#r47.exempt_paths (absent here).
+# Clean-room v2 canonical declaration: tagging-rules.json#_rules[id=R-47].r47_exempt_paths
+# (the rule register; re-pointed off the legacy .rules[] path per the tagging pillar's
+# own r47_exempt_paths_provenance — composition contract).
+# Interim contributor: gate-config.json#r47.exempt_paths (absent in clean-room).
 TAGGING_R47=$(jq -r '._rules[]? | select(.id=="R-47") | .r47_exempt_paths[]?' "$TAGGING")
 if [ -f "$GATE_CONFIG" ] && jq -e . "$GATE_CONFIG" >/dev/null 2>&1; then
   GATE_R47=$(jq -r '.r47.exempt_paths[]' "$GATE_CONFIG" 2>/dev/null || true)
@@ -137,16 +134,15 @@ fi
 R47_COMPOSED_JSON=$(printf '%s\n%s\n' "$TAGGING_R47" "$GATE_R47" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
 
 # --- 4a. Compose seed_taxonomy_exempt_paths_composed (deduped sorted) -------
-# DEDICATED tag-TAXONOMY exempt-list, SEPARATE from
-# r47_exempt_paths (the tag-PRESENCE list). Composed from the register
-# tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths so the
+# r47_exempt_paths (the tag-PRESENCE list). Composed from the clean-room
+# register tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths so the
 # 9 day-one shipped-seed tag-not-in-taxonomy violations are exempted without
 # touching seed bytes. Consumed by frontmatter-enforce.sh tag-taxonomy arm.
 TAGGING_SEED_TAX=$(jq -r '._rules[]? | select(.id=="R-47") | .seed_taxonomy_exempt_paths[]?' "$TAGGING")
 SEED_TAX_COMPOSED_JSON=$(printf '%s\n' "$TAGGING_SEED_TAX" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
 
 # --- 4b. Absorb gate-config r32/r47 residual slices --------------------------
-# gate-config.json is dropped, so these default to {}/[]/25.
+# In the clean-room gate-config.json is dropped, so these default to {}/[]/25.
 # Hooks read .frontmatter.r32_type_aliases (// {}), .r32_exempt_paths ([]?),
 # .r47_exempt_paths_composed; .r47_tag_cap retained for shape compatibility.
 if [ -f "$GATE_CONFIG" ] && jq -e . "$GATE_CONFIG" >/dev/null 2>&1; then
@@ -202,7 +198,7 @@ SOURCE_MTIMES_JSON=$(jq -n -S \
 
 # --- 7. Compose the bundle (sans _meta) --------------------------------------
 # r32_type_aliases injected INTO the frontmatter pillar (.frontmatter.r32_type_aliases);
-# empty {} (gate-config dropped). Hooks read pillar-nested.
+# empty {} in the clean-room (gate-config dropped). Hooks read pillar-nested.
 FRONTMATTER_JSON=$(jq -S --argjson aliases "$R32_TYPE_ALIASES_JSON" '. + {r32_type_aliases: $aliases}' "$FRONTMATTER")
 TAGGING_JSON=$(jq -S '.' "$TAGGING")
 NAMING_JSON=$(jq -S '.' "$NAMING")

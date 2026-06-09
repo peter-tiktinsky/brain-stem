@@ -5,13 +5,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh"
-# The memory-review re-firing band reads the review queue. Source
 # the producer/reader API when present (graceful-degrade — advisory band).
 [ -r "$SCRIPT_DIR/lib/review-queue.sh" ] && source "$SCRIPT_DIR/lib/review-queue.sh"
+[ -r "$SCRIPT_DIR/lib/context-pressure.sh" ] && source "$SCRIPT_DIR/lib/context-pressure.sh"
 
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/state}}"
+# Per-session checkpoint/pressure dir roots at $CLAUDE_STATE_ROOT (/
+# /), via the paths.sh SoT — NOT $HOOKS_STATE. registry.sh (sourced
+# above) sources paths.sh, so SESSION_STATE_ROOT is exported here.
+STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 
-# Per-session checkpoint paths + per-session pressure file paths
 # (`sessions/<sid>/context-pressure.json`). PRESSURE_FILE construction moved
 # AFTER SESSION_ID resolution. Empty SID → PRESSURE_FILE="" → existence checks
 # fall through to default-pct-0 path; R-26 mandate firing preserved.
@@ -22,11 +24,15 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 if [[ -z "$SESSION_ID" ]]; then
   SESSION_ID="${CLAUDE_SESSION_ID:-}"
 fi
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 if [[ -n "$SESSION_ID" ]]; then
   SESSION_DIR="$STATE_DIR/sessions/$SESSION_ID"
   CHECKPOINT_FILE="$SESSION_DIR/checkpoint.md"
   PRESSURE_FILE="$SESSION_DIR/context-pressure.json"
   mkdir -p "$SESSION_DIR" 2>/dev/null || true
+  if command -v write_context_pressure >/dev/null 2>&1; then
+    write_context_pressure "$TRANSCRIPT_PATH" "$PRESSURE_FILE" 2>/dev/null || true
+  fi
 else
   # No session ID — checkpoint + pressure operations skipped (per-session path unavailable).
   # Existence checks against "" return false, so pressure mandates default to pct=0.
@@ -41,15 +47,17 @@ fi
 # UserPromptSubmit until the clearing condition is met.
 CLEARING_WINDOW_SEC=600
 
-# --- Manifest-driven thresholds for hooks.context_pressure ---
-# Reads warn_pct/mandate_pct/hard_pct from $CLAUDE_HOME/user-manifest.json with
-# sane defaults (45/48/80) when fields are absent or null. hard_pct is read
-# for parity with the schema and downstream consumers (stop-checkpoint-check.sh
-# at 48-80%); this hook itself only enforces warn+mandate in-band.
+# --- T-13 (G3): manifest-driven thresholds for hooks.context_pressure ---
+# Reads warn_pct/mandate_pct from $CLAUDE_HOME/user-manifest.json (defaults 45/48
+# when absent or null). These are the ONLY context_pressure thresholds any hook
+# consumes: this hook enforces warn+mandate in-band. The stop-gate's 48/80/90
+# boundaries are FIXED constants in stop-checkpoint-check.sh by design (a safety
+# gate is not weakened by misconfig) — so `hard_pct` is schema-parity vocabulary
+# only and is intentionally NOT read here or by the stop-gate (; sessions.md
+# §"the stop-gate reads neither field").
 USER_MANIFEST="${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json"
 WARN_PCT=45
 MANDATE_PCT=48
-HARD_PCT=80
 if [[ -f "$USER_MANIFEST" ]] && command -v jq >/dev/null 2>&1; then
   _ctxp_read() {
     local jq_path="$1" default="$2"
@@ -63,7 +71,6 @@ if [[ -f "$USER_MANIFEST" ]] && command -v jq >/dev/null 2>&1; then
   }
   WARN_PCT=$(_ctxp_read '.hooks.context_pressure.warn_pct' 45)
   MANDATE_PCT=$(_ctxp_read '.hooks.context_pressure.mandate_pct' 48)
-  HARD_PCT=$(_ctxp_read '.hooks.context_pressure.hard_pct' 80)
 fi
 
 pressure_context=""
@@ -112,14 +119,15 @@ CKPT
   fi
 fi
 
-# --- Memory-review re-firing band — YIELDS to R-26 ---
+# ---: memory-review re-firing band — YIELDS to R-26 ---
 # Escalates a UserPromptSubmit mandate for aged (high-severity pending >3d) or
 # defer_count≥2 review items. The band NEVER competes with the R-26 checkpoint
 # mandate: it fires ONLY when pressure_context is empty (no active checkpoint
 # mandate). Clear-condition: the item leaves the queue only on explicit confirm
 # OR reject-with-reason (never silent dismiss / session-exit / bare defer) —
 # enforced at the queue layer, so the mandate re-fires every prompt until then.
-# All thresholds manifest-driven (user-manifest.json :: hooks.memory_review).
+# The aged/defer thresholds are resolved env > user-manifest.json ::
+# hooks.memory_review > default inside review-queue.sh.
 if [[ -z "$pressure_context" ]] \
    && command -v review_queue_has_aged_or_deferred >/dev/null 2>&1; then
   if ! { command -v memory_review_opt_out >/dev/null 2>&1 && memory_review_opt_out; }; then
@@ -129,7 +137,7 @@ if [[ -z "$pressure_context" ]] \
   fi
 fi
 
-# stdin + SESSION_ID parsed at top. Re-check empty case here:
+# stdin + SESSION_ID parsed at top (T-2). Re-check empty case here:
 if [[ -z "$SESSION_ID" ]]; then
   # No session ID but we may still have pressure / memory-review context
   if [[ -n "$pressure_context" ]]; then
