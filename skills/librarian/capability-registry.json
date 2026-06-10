@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written \u00b7 schema \u00b7 validation \u00b7 failure-mode + the capability\u2194schema/path dependency map. HAND-MAINTAINED source-of-truth: edit DIRECTLY; no generator regenerates this file. Home: skills/librarian/capability-registry.json. 37 capabilities (frontmatter-enforce \u2026 session-close). The 10 CUT vault/engagement-specific caps (architect-triage, classify, cluster-by-topic, cron-log-architecture, draft-canonical-file, people-audit, sync-check, transcript-mine, write-frontmatter, entity-parity) have 0 registry keys / 0 bodies / 0 SKILL.md headings. mem-promote is a standalone skill (not here); the 4 engine-auditors (active-gates-rebuild/l3-registry-audit/update-harness-validated/parallel-run-audit) are ABSENT BY CONSTRUCTION from skills/librarian/capabilities/. The disk\u2194registry\u2194SKILL.md bijection (capability-registry-parity) holds at 37.",
+  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written · schema · validation · failure-mode + the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit DIRECTLY; no generator regenerates this file (feedback_manifest_no_hand_edit scopes to read-replica manifests, e.g. librarian-manifest.json, NOT this primary registry). Home: skills/librarian/capability-registry.json. 37 capabilities: the 15 built bodies + the 22 ported capabilities (frontmatter-enforce … session-close, ported as-is, with the lib/→hooks/lib/ path translation). The 10 CUT vault/engagement-specific caps (architect-triage, classify, cluster-by-topic, cron-log-architecture, draft-canonical-file, people-audit, sync-check, transcript-mine, write-frontmatter, entity-parity) have 0 registry keys / 0 bodies / 0 SKILL.md headings. mem-promote is a standalone skill (not here); the 4 engine-auditors (active-gates-rebuild/l3-registry-audit/update-harness-validated/parallel-run-audit) are ABSENT BY CONSTRUCTION from skills/librarian/capabilities/. The disk↔registry↔SKILL.md bijection (capability-registry-parity, classes a/b/e) holds at 39 after T-4 added chronicle-index (the live base was 38: 37 .sh bodies + the spec-only review key; the earlier '37' in this note was stale — read the live count, never trust this prose: feedback B2). This count is the live registry length.",
   "_parity_pending_manifest_writes": [
     "governance-parity-audit",
     "index-maintain",
@@ -270,8 +270,8 @@
         "writes": [
           "{PLANS_ROOT}/<master>/manifest.json :: sub_plans[] (pull-based read-replica; graduation_timestamp WRITER)"
         ],
-        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field)",
-        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying",
+        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field, A-02)",
+        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying per B-04",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -357,7 +357,7 @@
           "{PLANS_ROOT}/_index.md (status-grouped navigation index)"
         ],
         "schema": "plan-index.md contract (governed by THIS registry output_contract; no governance/librarian-capabilities/plan-index.md, no _index.json pillar-8 entry)",
-        "validation": "reader cap — READS the master sub_plans[] aggregate (coarse-bucket rollup); >0-plan-root + group-count assertions before write",
+        "validation": "A-06 reader cap — READS the master sub_plans[] aggregate (B-04 coarse-bucket rollup); >0-plan-root + group-count assertions before write",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -385,7 +385,7 @@
           "{PLANS_ROOT}/_backlog.md (backlog sentinel region)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
+        "validation": "A-06 reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -414,7 +414,7 @@
           "{PLANS_ROOT}/<slug>/manifest.json (status flip closed -> archived)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
+        "validation": "A-06 reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -442,11 +442,70 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract)",
-        "validation": "5 drift classes: (a) SKILL.md<->registry bijection, (b) script-missing, (c) schema_version, (d) emits->writes_manifest_subtree, (e) disk->registry orphan",
+        "validation": "5 drift classes: (a) SKILL.md<->registry bijection, (b) script-missing, (c) schema_version, (d) emits->writes_manifest_subtree, (e) NET-NEW disk->registry orphan (closes 40-vs-44)",
         "failure_mode": "report-only (exit 0; findings as JSON; non-zero finding count does not change exit)"
       },
       "implementation_status": "shipped",
       "script": "capabilities/capability-registry-parity.sh"
+    },
+    "chronicle-index": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "governance/file-type-contracts/episodic-chronicle.md.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{MEM_DIR}/episodic-chronicle.md (summary backfill + 50KB rotation re-derive; atomic os.replace)",
+          "{MEM_DIR}/episodic-chronicle-archive-<date>.md (rotation target; split-to-archive, no row deleted)",
+          "{MEM_DIR}/MEMORY.md (sentinel-bounded ## Episodic pointer-line metadata refresh ONLY)"
+        ],
+        "schema": "governance/file-type-contracts/episodic-chronicle.md.json (append-only newest-first row shape; 50KB cap = no-LLM PROXY for a ~12.5K-token single-read budget)",
+        "validation": "total_counted==0 walk ABORTS (exit 4) without blanking the chronicle/pointer (plan-index.sh:318 clone); group-sum assertion live+archive == pre-rotation (exit 3); sentinel-bounded pointer re-derive never clobbers hand-curation (index-maintain.sh:209-383)",
+        "failure_mode": "block-and-log; never write-and-hope. Graceful no-op (exit 0) when the memory dir / chronicle is absent"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/chronicle-index.sh"
+    },
+    "pointer-currency-scan": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#pointer-currency-scan",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON candidates to stdout (or $FINDINGS_OUTPUT) — finding name pointer-currency",
+          "{HOOKS_STATE}/pointer-currency-scan.cache (runtime change-gate state — corpus content-hash; NOT manifest-managed)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding; finding=pointer-currency)",
+        "validation": "every plain-text absolute-path pointer in MEMORY.md + memory topic-files + rules/*.md is resolved on disk; non-resolving targets emitted as warn (ephemeral-by-design checkpoint paths as info, never suppressed). INVERTS memory-staleness (path-resolution, not last_validated interval)",
+        "failure_mode": "skip-and-log; propose-only (NO --fix). Graceful no-op (exit 0 + stderr note) when MEMORY_DIR absent; claude-mem absent has no effect"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/pointer-currency-scan.sh"
     },
     "frontmatter-enforce": {
       "tier": "mechanical",
@@ -504,7 +563,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "librarian-manifest drift_findings.placement (manifest_set, atomic; summary subtree last_scan/scanned/findings_count, mirrors xref-check)",
+          "librarian-manifest drift_findings.placement (manifest_set, atomic; summary subtree last_scan/scanned/findings_count — T-4, mirrors xref-check)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.placement subtree)",
@@ -568,7 +627,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "librarian-manifest drift_findings.stale (manifest_set, atomic; summary subtree last_scan/scanned/total/counts, mirrors xref-check)",
+          "librarian-manifest drift_findings.stale (manifest_set, atomic; summary subtree last_scan/scanned/total/counts — T-4, mirrors xref-check)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.stale subtree)",
@@ -1096,7 +1155,7 @@
           "{VAULT_LOGS}/session-close-YYYYMMDD-HHMMSS.md"
         ],
         "schema": "governance/foundation-master.json#frontmatter.types.log",
-        "validation": "orchestrates the core capability chain over the installed caps; cut caps (0 disk bodies) are absent from the dependency map so the registry↔disk bijection holds; the matching run_capability chain calls are likewise absent from session-close.sh",
+        "validation": "orchestrates the C1/C2/C3/S2 capability chain over the installed caps; stripped the 3 CUT caps (cron-log-architecture/sync-check/architect-triage — 0 disk bodies) from the dependency map so the registry↔disk bijection holds; strips the matching run_capability chain calls from session-close.sh",
         "failure_mode": "advisory-log-and-continue"
       },
       "implementation_status": "shipped",
@@ -1130,7 +1189,7 @@
         "failure_mode": "block-and-log"
       },
       "implementation_status": "spec-only",
-      "_note": "/librarian review is a judgment-tier rubric (SKILL.md#review), NOT a capabilities/review.sh disk body — review is an LLM diff+impact judgment loop; the four hooks/lib/review-queue.sh queue-drain primitives carry the mechanical state writes. A spec-only registry entry without a disk body is bijection-legal (capability-registry-parity class (b) excludes implementation_status==spec-only, class (e) orphan check is the converse)."
+      "_note": "SKILL side: /librarian review is a judgment-tier rubric (SKILL.md#review), NOT a capabilities/review.sh disk body — review is an LLM diff+impact judgment loop; the four hooks/lib/review-queue.sh queue-drain primitives carry the mechanical state writes. Spec-only registry entry without a disk body is bijection-legal (capability-registry-parity class (b) excludes implementation_status==spec-only, class (e) orphan check is the converse)."
     }
   }
 }

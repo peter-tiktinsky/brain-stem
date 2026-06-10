@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/episodic-chronicle.md.json",
+  "title": "episodic-chronicle.md runtime body-structure contract",
+  "description": "Hook-consumable runtime artifact for the curated episodic tier. Append-only newest-first no-LLM session chronicle, one row per session, placed FLAT in the memory dir beside MEMORY.md. Supersedes the prior per-episode memory producer. Authored by hooks/session-episode-write.sh at SessionEnd; maintained by skills/librarian/capabilities/chronicle-index.sh at session-close.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "design_source": "Curated episodic-tier session chronicle; supersedes the prior per-episode memory producer.",
+  "matcher_pillar": "schemas/memory-schema.json",
+  "matcher_entry": "_design_notes.body_conventions.episodic_chronicle_row",
+  "_design_notes": {
+    "consumer": "hooks/session-episode-write.sh (SessionEnd producer — newest-first row PREPEND + the MEMORY.md ## Episodic pointer line) + skills/librarian/capabilities/chronicle-index.sh (session-close maintainer — pointer-metadata refresh + 50KB rotation + one-line-summary backfill)",
+    "runtime_generated": "This file is RUNTIME-GENERATED in each adopter's memory dir. It is NOT a foundation-manifest files[] member; only this contract + the chronicle-index capability are manifest-managed.",
+    "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder (hooks/memory-consolidation-run.sh:209 `grep -q \"$BASE\"`) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
+    "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (memory-consolidation-run.sh:174; episodic never decays).",
+    "evolution_protocol": "Append-only; historical rows never edited in place except the one-line-summary backfill of the just-closed-session row (placeholder -> harvested close-out one-liner, no-LLM). R-37 documentary lockstep with schemas/memory-schema.json body_conventions.episodic_chronicle_row + episodic_chronicle_optional_slots — the append-only invariant is the lockstep record, NOT a write-time DENY."
+  },
+  "type": "episodic-chronicle",
+  "applies_to": {
+    "path_glob": "**/.claude/projects/*/memory/episodic-chronicle.md"
+  },
+  "append_only": true,
+  "append_only_rationale": "One harvested no-LLM row per session. Historical rows are an immutable witnessed skeleton of the session arc. The sole in-place mutation is the one-line-summary backfill of the most-recent row by chronicle-index.",
+  "newest_first": true,
+  "newest_first_rationale": "Repository convention — newest row PREPENDS at top (under the header block); pre-existing rows shift downward without modification, so the last N sessions are read first.",
+  "section_schema": "## <YYYY-MM-DD> — <git-slug>\\n- slots: \\{handoff: (true|false), checkpoint: (true|false), claude_mem: (true|false)\\}\\n- \\*\\*Anchor:\\*\\* .*\\n- \\*\\*Touched:\\*\\* touched: [0-9]+ file\\(s\\) on .*\\n- \\*\\*Next session:\\*\\* .*\\n- \\*\\*Summary:\\*\\* .*\\n- \\*\\*handoff:\\*\\* .*\\n- \\*\\*checkpoint:\\*\\* .*\\n- \\*\\*claude-mem:\\*\\* .*",
+  "section_schema_format": "regex",
+  "row_fields": {
+    "anchor": "cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
+    "touched": "`touched: <COUNT> file(s) on <branch>` — COUNT from the registry touched_files row; branch via git rev-parse --abbrev-ref HEAD",
+    "next_session": "the verbatim `**Next session:**` line harvested no-LLM from the plan handoff/close-out",
+    "summary": "written NO-LLM at SessionEnd as the literal placeholder `— summary on review —`; chronicle-index BACKFILLS it at session-close from the just-written handoff/close-out",
+    "slots_presence_map": "frontmatter-line `slots: {handoff: bool, checkpoint: bool, claude_mem: bool}` — machine-canonical O(1) parse-free presence signal carried ALONGSIDE the inline `— none —` human render",
+    "optional_pointer_slots": "handoff.md path / checkpoint.md path / claude-mem session-summary; each emitted only after on-disk resolution; `— none —` on absence (never a dangling link). claude-mem pins content_session_id via source_session_id, never the renumberable `#S` ids"
+  },
+  "size_limits": {
+    "max_kb": 50,
+    "split_strategy": "split to episodic-chronicle-archive-<date>.md at threshold"
+  },
+  "write_shape": "prepend-row-newest-first"
+}

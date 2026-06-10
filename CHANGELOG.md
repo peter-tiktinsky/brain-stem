@@ -4,6 +4,30 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.1.4]
+
+Feature release. brain-stem now keeps a running **episodic record of your sessions** and adopts a **pointer-based shape** for the long-lived memory that survives between sessions. The memory index stays small and readable; the bulky detail lives in a chronicle file and in your vault, referenced by a single line. See the [v1.1.4 release notes](docs/release-notes-v1.1.4.md).
+
+### Added
+
+- **A session chronicle.** When a session ends, brain-stem now prepends a one-row, newest-first entry to `memory/episodic-chronicle.md` — the session's anchor, what it touched, its hand-off and resume pointers, and a one-line summary. `MEMORY.md` carries a single pointer line to that chronicle instead of a growing pile of per-session files. The chronicle is harvested without calling a model (no token cost at session end), rotates to a dated archive when it crosses ~50 KB, and never deletes rows. The one-line summary is filled in at session-close from the hand-off you just wrote.
+
+- **A pointer-currency check.** A new librarian capability runs at session-close and reports any plain-text absolute-path pointer — in `MEMORY.md`, a memory topic-file, or a `rules/*.md` file — that no longer resolves on disk. It is advisory and propose-only (it never edits or blocks), and it is change-gated: it stays silent unless one of those files actually changed since the last scan, so it does not train you to ignore an always-on "all clear."
+
+- **A memory-pointer placement advisory.** The write-guard now warns (never blocks) when a pointer line in `MEMORY.md` would land below the read-fold — past line 200 or the byte cap — where the loader would not see it on a normal read.
+
+### Changed
+
+- **Memory uses a documented pointer shape.** `MEMORY.md` and the seeded `rules/` README now describe a "vault-pointer shape" — an absolute path, an imperative read-instruction, and a short why — for referencing a large external file instead of inlining it. This keeps the always-loaded index lean while still pointing at the full detail.
+
+- **The rules README documents a known upstream limitation.** User-scope `~/.claude/rules/` glob scoping is silently non-functional upstream (GitHub `#21858` / `#25562`); project-scope `.claude/rules/` is reliable. The seeded README now says so, and a broken in-repo documentation link was repointed at the public memory docs.
+
+- **Documentation corrected.** The memory-model doc no longer cites a fabricated decay statistic (it states the corroborated signal-to-noise point instead), and a librarian capability-status note that overstated what is wired was split into two accurate statements.
+
+### Fixed
+
+- **A legacy install's old episode files are migrated, not orphaned.** Upgrading moves any pre-existing `memory/episode_*.md` files into `memory/episodic-legacy/` so they leave the flat memory glob (and stop being re-indexed) without being deleted. A fresh install does nothing here; the migration is idempotent.
+
 ## [v1.1.3]
 
 Maintenance release focused on the in-place upgrade path for existing adopters, plus the runtime-config and session-continuity fixes staged after v1.1.2. See the [v1.1.3 release notes](docs/release-notes-v1.1.3.md).

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://brain-stem.local/schemas/memory-schema.json",
-  "schema_version": "2.0.0",
+  "schema_version": "2.1.0",
   "title": "Memory file frontmatter contract (System A — curated file-memory)",
   "description": "YAML frontmatter contract every file under ~/.claude/projects/<project>/memory/*.md MUST carry. Codifies the System-A curated-memory frontmatter contract. Schema validates the frontmatter block parsed as an object; additionalProperties is true so memory files may carry per-type extensions alongside the universal fields.",
 
@@ -20,7 +20,7 @@
         }
       },
       "retrieval_axis_type_field": {
-        "description": "The `type:` frontmatter field declares retrieval-axis classification. Drives MEMORY.md template grouping, single 180d re-validation staleness signal, and future retrieval-shaped operations.",
+        "description": "The `type:` frontmatter field declares retrieval-axis classification (TRIAD). Drives MEMORY.md template grouping, single 180d re-validation staleness signal, and future retrieval-shaped operations.",
         "values": {
           "semantic": "Facts, preferences, conventions, identity. Stable knowledge.",
           "episodic": "Session/event records, decision narratives. Time-anchored. Never decays.",
@@ -36,12 +36,13 @@
     },
 
     "body_conventions": {
-      "_description": "Markdown body shape is NOT validated by this JSON Schema (no JSON path into body bytes). Conventions are documentary; regression tests verify body-shape compliance for episodic entries only.",
+      "_description": "Markdown body shape is NOT validated by this JSON Schema (no JSON path into body bytes). Conventions are documentary; regression tests verify body-shape compliance for the episodic chronicle row (internal/tests/ac-m1-chronicle-row.sh).",
       "feedback_procedural": "Rule sentence (lead) + **Why:** (incident/preference rationale; 1-2 lines) + **How to apply:** (edge-case judgment; 1-2 lines). Per ~/.claude/CLAUDE.md feedback-authoring contract.",
       "project_semantic": "Lead with fact or decision + **Why:** (motivation, constraint, deadline) + **How to apply:** (how this shapes future suggestions). Project memories decay fast; the Why pins relevance.",
       "user_semantic": "Lead with the identity/preference statement; rationale optional but recommended for non-obvious preferences.",
       "reference_semantic": "Lead with the external-system pointer (URL or system name) + purpose (what consumer of the pointer needs to know).",
-      "episode_episodic_coala": "Per CoALA paper (arXiv 2309.02427). Sections: ## Situation (1-2 lines: what triggered the session) → ## Thought (1-3 lines: model interpretation / decision frame) → ## Action (1-3 lines: what was done) → ## Result (1-3 lines: outcome + downstream signal). Authored by hooks/session-episode-write.sh."
+      "episodic_chronicle_row": "Supersedes the CoALA Situation/Thought/Action/Result episodic body. One no-LLM row PER SESSION, PREPENDED newest-first to episodic-chronicle.md by hooks/session-episode-write.sh at SessionEnd. Fields, all harvested no-LLM (no transcript_path parse): **Anchor** = cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`); **Touched** = `touched: <COUNT> file(s) on <branch>` (COUNT from the registry touched_files row, branch via git rev-parse --abbrev-ref HEAD); **Next session** = the verbatim `**Next session:**` line harvested from the plan handoff/close-out (handoff-disposition-check.sh:80-126 python3 argv line-harvest); **Summary** = written NO-LLM as the literal placeholder `— summary on review —` at SessionEnd, BACKFILLED by the chronicle-index capability at librarian session-close after the handoff/close-out block is written.",
+      "episodic_chronicle_optional_slots": "Each episodic-chronicle row carries 3 OPTIONAL pointer slots — handoff.md path / checkpoint.md path / claude-mem session-summary — each emitted ONLY after on-disk resolution; renders the literal `— none —` on absence (NEVER a dangling link; the DataCite-tombstone analog that disambiguates checked-and-absent from broken-link). The claude-mem slot pins the content_session_id UUID via `source_session_id`, NEVER the renumberable `#S` ids, and resolves only when the claude-mem db ($HOME/.claude-mem/claude-mem.db) is reachable. The row ALSO carries a MACHINE-CANONICAL presence map in its frontmatter — `slots: {handoff: bool, checkpoint: bool, claude_mem: bool}` — written ALONGSIDE (not instead of) the inline `— none —` human render: an O(1), parse-free presence signal for the pointer-currency scanner + future tooling (Tolerant Reader / lifecycle-state-metadata pattern), so machine consumers never parse rendered prose."
     },
 
     "legacy_field_aliases": {
@@ -92,7 +93,7 @@
     "type": {
       "type": "string",
       "enum": ["semantic", "episodic", "procedural"],
-      "description": "Retrieval-axis classification. See _design_notes.two_axes.retrieval_axis_type_field for value semantics. Orthogonal to the filename-prefix provenance axis. `reflective` was dropped at the 2.0.0 MAJOR bump — reflection is a consolidation process that rides the feedback_ provenance prefix, not a storage type."
+      "description": "Retrieval-axis classification (TRIAD). See _design_notes.two_axes.retrieval_axis_type_field for value semantics. Orthogonal to the filename-prefix provenance axis. `reflective` was dropped at the 2.0.0 MAJOR bump — reflection is a consolidation process that rides the feedback_ provenance prefix, not a storage type."
     },
 
     "tags": {

@@ -1484,7 +1484,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 6, "op": "DISSOLVED", "rationale": "top-level onboarding/ dissolved into skills/onboarder/; producers ride Step 5 cp -R"},
     {"step": 7, "op": "cp", "target": ($claude_home + "/orchestrator/"), "source": ($source_repo + "/orchestrator/"), "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
     {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
-    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (12). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
+    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (13). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
     {"step": 8.7, "op": "cp", "target": ($claude_home + "/vault-init/"), "source": ($source_repo + "/vault-init/"), "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
     {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{12 named}.json"), "rationale": "ship the 12 named schemas (the Step 9 loop is ground-truth) + README. memory-schema, rules-schema, and review-queue-schema are resolved at runtime by installed consumers ($CLAUDE_HOME/schemas/...) so they ship; only foundation-master-schema stays authoring-side"},
     {"step": 10, "op": "cp", "target": ($claude_home + "/templates/"), "source": ($source_repo + "/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/"), "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
@@ -2518,7 +2518,7 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   upgrade_foundation_file "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/log-subtype-registry.json"   # foundation-replace disposition
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
   # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
-  # File-type contracts subdir (k8s paramKind shape) — the 12 contract members.
+  # File-type contracts subdir (k8s paramKind shape) — the 13 contract members.
  # cp -R dropped from the upgrade path → per-file files[] walk.
   if [ -d "$SOURCE_REPO/governance/file-type-contracts" ]; then
     mkdir -p "$CLAUDE_HOME/governance/file-type-contracts"
@@ -2804,11 +2804,32 @@ fi
 template_rules_readme="$CLAUDE_HOME/templates/claude-home-rules-readme-template.md"
 rules_dir="$CLAUDE_HOME/rules"
 rules_readme_target="$rules_dir/README.md"
+rules_caveat_sentinel="<!-- brain-stem: #21858-caveat -->"
 
 if [ ! -f "$template_rules_readme" ]; then
   warn "claude-home-rules-readme-template.md not present at $template_rules_readme — skipping rules/README.md seed"
 elif [ -f "$rules_readme_target" ]; then
-  info "rules/README.md exists at $rules_readme_target — preserving (no clobber)"
+  # No-clobber: an existing README is preserved. On an upgrade, deliver the
+  # user-scope `paths:`-glob "Known limitation" caveat (now in the template body)
+  # to pre-existing adopters by APPENDING it behind a sentinel — only when absent
+  # (grep -qF guard → idempotent), leaving the adopter's own edits untouched.
+  if grep -qF "$rules_caveat_sentinel" "$rules_readme_target"; then
+    info "rules/README.md exists at $rules_readme_target — preserving (no clobber); #21858 caveat already present (no re-append)"
+  else
+    {
+      printf '\n%s\n' "$rules_caveat_sentinel"
+      printf '## Known limitation — user-scope `paths:` globs are silently ignored\n\n'
+      printf 'In **user-scope** `~/.claude/rules/` (this directory), a `paths:` glob is **silently ignored**: a glob-scoped rule placed here does not lazy-load on matching files — it is simply not picked up by the glob, with no warning. This is a known upstream limitation, tracked in GitHub issues `#21858` and `#25562`.\n\n'
+      printf 'Practical consequence and the reliable alternative:\n\n'
+      printf -- '- A user-scope rule that **must** fire should be **unscoped** (omit the `paths:` key) so it loads always-on at session start.\n'
+      printf -- '- Glob-scoped (`paths:`) rules load reliably only in **project-scope** `.claude/rules/` (inside a repo). Put domain-specific, file-matched rules there.\n'
+      printf -- '- Until the upstream behavior changes, treat a `paths:` key in user-scope as documentation of intent rather than an active loader.\n'
+    } >> "$rules_readme_target" || {
+      diag "rules/README.md caveat append failed: $rules_readme_target"
+      exit 11
+    }
+    info "rules/README.md exists at $rules_readme_target — preserving (no clobber); appended #21858 caveat block (adopter content preserved)"
+  fi
 else
   if ! mkdir -p "$rules_dir"; then
     diag "rules/README.md seed: mkdir failed: $rules_dir"
@@ -2826,6 +2847,66 @@ else
     exit 11
   fi
   info "rules/README.md seeded at $rules_readme_target"
+fi
+
+# Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
+# Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat
+# memory dir. The orphan-adder globs the FLAT memory dir and would keep indexing every legacy
+# episode_*.md, competing with the single episodic-chronicle pointer line. Supersede-don't-delete:
+# move them into a memory/episodic-legacy/ subdir (out of the flat *.md glob the orphan-adder
+# walks; the glob is non-recursive). Files are preserved under legacy/, not deleted; the
+# consolidation sweep then strips the now-dead episode_* index entries.
+# IDEMPOTENT: a second run finds no flat episode_*.md (already moved) -> no-op. FRESH INSTALL:
+# gated on UPGRADE_PRESENT -> a fresh install never enters this branch. Scope: every per-project
+# memory dir under $CLAUDE_HOME/projects/*/memory plus a flat autoMemoryDirectory when set.
+# LEGACY_EPISODE_ROOT overrides the projects base for isolated testing.
+migrate_legacy_episodes() {
+  local mem_dir moved base legacy_dir f
+  moved=0
+  for mem_dir in "$@"; do
+    [ -d "$mem_dir" ] || continue
+    legacy_dir="$mem_dir/episodic-legacy"
+    for f in "$mem_dir"/episode_*.md; do
+      [ -e "$f" ] || continue           # glob-no-match guard (nullglob-safe)
+      base="$(basename "$f")"
+      if ! mkdir -p "$legacy_dir"; then
+        warn "legacy-episode migration: mkdir failed: $legacy_dir — skipping $base"
+        continue
+      fi
+      if mv -f "$f" "$legacy_dir/$base"; then
+        moved=$((moved + 1))
+      else
+        warn "legacy-episode migration: mv failed: $base"
+      fi
+    done
+  done
+  printf '%s' "$moved"
+}
+
+if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
+  episode_mig_root="${LEGACY_EPISODE_ROOT:-$CLAUDE_HOME/projects}"
+  episode_mig_dirs=""
+  if [ -d "$episode_mig_root" ]; then
+    for _proj in "$episode_mig_root"/*/; do
+      [ -d "$_proj" ] || continue           # glob-no-match guard
+      [ -d "${_proj}memory" ] && episode_mig_dirs="$episode_mig_dirs ${_proj}memory"
+    done
+    if [ -z "$episode_mig_dirs" ]; then
+      episode_mig_dirs="$episode_mig_root"
+    fi
+  fi
+  if command -v jq >/dev/null 2>&1 && [ -r "$CLAUDE_HOME/settings.json" ]; then
+    _flat_mem="$(jq -r '.autoMemoryDirectory // empty' "$CLAUDE_HOME/settings.json" 2>/dev/null)"
+    case "$_flat_mem" in "~/"*) _flat_mem="$HOME/${_flat_mem#\~/}" ;; esac
+    [ -n "$_flat_mem" ] && [ -d "$_flat_mem" ] && episode_mig_dirs="$episode_mig_dirs $_flat_mem"
+  fi
+  # shellcheck disable=SC2086
+  episode_mig_moved="$(migrate_legacy_episodes $episode_mig_dirs)"
+  if [ "${episode_mig_moved:-0}" -gt 0 ]; then
+    info "legacy episode_*.md migration: moved $episode_mig_moved file(s) to memory/episodic-legacy/ (supersede-don't-delete; out of the orphan-adder flat glob)"
+  else
+    info "legacy episode_*.md migration: no flat episode_*.md found (fresh upgrade or already migrated) — no-op"
+  fi
 fi
 
 # Step 11.8: $CLAUDE_HOME/.gitignore secret-exclusion seed.

@@ -401,7 +401,20 @@ step2_integrity() {
   run_capability xref-check
   run_capability placement-validate
   run_capability stale-detect
+  # CHANGE-GATED. Verifies every plain-text absolute-path pointer in MEMORY.md +
+  # memory topic-files + rules/*.md still resolves on disk (INVERTS memory-
+  # staleness). --session-close fires the change-gate: it SILENT no-ops unless a
+  # tracked file changed since the last scan (content-hash state under HOOKS_STATE)
+  # — defeats alert-fatigue. Positioned between stale-detect and the close-out
+  # write so its findings flow into the per-run sink with the rest of step 2.
+  run_capability pointer-currency-scan --session-close
   run_capability handoff-disposition-check
+  # handoff-disposition-check so the handoff/close-out block is already written —
+  # the one-line-summary backfill harvests it. Read-mostly: pointer-metadata
+  # refresh + 50KB rotation + placeholder backfill (advisory; no 5s hook
+  # timeout, so the close-out-harvest work that the SessionEnd hook cannot do
+  # runs here).
+  run_capability chronicle-index
   run_capability plan-index
   run_capability plan-parent-resolve
   # R-44 _index regen). writers-index-refresh -> Vault Writers/_index.md catalog;

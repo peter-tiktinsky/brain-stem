@@ -9,6 +9,8 @@
   to. The R-59 load guard (governance/mandatory-files-rules.json) counts both
   the raw line count AND the comment-stripped count and gates on the LARGER —
   these <!-- --> comment blocks do not buy unlimited headroom.
+  Placement: pointer entries MUST sit above line 200 / 25KB or they load
+  invisibly — the G1 placement guard (R-59 ordinal_position_check) warns.
 
   Two-axis taxonomy (see the memory-architecture docs spoke):
   - Filename prefix carries provenance: user_*, feedback_*, project_*,
@@ -24,6 +26,17 @@
   Entry shape (≤200 chars/line):
   - [filename](memory/filename.md) — one-line retrieval hook starting with the
     rule, fact, or trigger (NOT a topic name).
+
+  Vault-pointer shape (when an entry points into ~/.claude-plans/, the Obsidian
+  vault, or a state path — NOT a memory/ sibling file): three elements —
+  (1) the absolute path + (2) an imperative read-instruction (Read / Consult /
+  Load / See) + (3) a decision-useful why. Worked exemplar:
+    ~/.claude-plans/payments-migration/spec.md — Consult BEFORE any dependency analysis; this is the binding spec, not the working notes.
+  Note the deliberate distinctness: a vault-pointer begins with a bare absolute
+  path (no leading `- [`), whereas a relative-link entry begins with `- [`. That
+  shape difference is load-bearing — the G1 placement guard keys on the bare-path
+  imperative shape, so a relative-link `[filename](memory/...)` entry is never
+  mistaken for a vault-pointer.
 
   Memory files MUST carry frontmatter conforming to schemas/memory-schema.json
   (required: name, description, type, tags, created, updated, last_validated).
@@ -46,12 +59,19 @@
 
 ## Episodic
 
-<!-- Session/event records. Time-anchored. Authored by hooks/session-episode-
-     write.sh on non-trivial session close. Never decays (provenance preserved).
-     SAMPLED section: newest ~10 entries inline + the glob pointer below; the
-     only unbounded producer is the only windowed section, keeping the index
-     bounded.
-     Pointer: glob memory/episode_*.md
-     Example shape (uncomment when populated):
-     - [episode_2026-05-24_mvp-spec](memory/episode_2026-05-24_mvp-spec.md) — MVP spec authored after the path-selection fork.
+<!-- Session/event records. Time-anchored. Never decays (provenance preserved).
+     SINGLE-POINTER chronicle model: this section carries exactly ONE pointer
+     line (sentinel-bounded, idempotent) to the append-only, newest-first
+     episodic-chronicle.md beside this file — one harvested no-LLM row per
+     session. NOT a sampled-inline list; the chronicle is the unbounded store
+     and stays out of the index, so this section never grows.
+     hooks/session-episode-write.sh writes/refreshes the pointer at session
+     close; the librarian chronicle-index capability re-derives its metadata.
+     The pointer is a vault-pointer (bare absolute path + imperative Read +
+     why), so the G1 placement guard keeps it above the fold. Live shape
+     (<user>/<slug> runtime-substituted by resolve_memory_dir; emitted between
+     the start/end sentinels at the TOP of this section):
+     <!-- episodic-chronicle-pointer:start -->
+     /Users/<user>/.claude/projects/<slug>/memory/episodic-chronicle.md — Read this append-only newest-first session chronicle for the last N sessions' anchors, Next-session lines, and resume pointers.
+     <!-- episodic-chronicle-pointer:end -->
 -->

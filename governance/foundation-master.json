@@ -512,8 +512,8 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-08T16:13:08Z",
-    "bundle_version": "ca8c42fafc8441cfea01d5631485dc2e7f43a0c871aa84e64968eb44f2b5886b",
+    "built_at": "2026-06-09T15:54:35Z",
+    "bundle_version": "e43f69e9331cbb0d5e921e5e6190730772a81c033002645faba742c91ae53b24",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-08T16:13:08Z",
@@ -1160,6 +1160,47 @@
       ],
       "version": "1.1.0",
       "write_shape": "create-only"
+    },
+    "episodic-chronicle.md": {
+      "$id": "brain-stem/governance/file-type-contracts/episodic-chronicle.md.json",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "_design_notes": {
+        "consumer": "hooks/session-episode-write.sh (SessionEnd producer — newest-first row PREPEND + the MEMORY.md ## Episodic pointer line) + skills/librarian/capabilities/chronicle-index.sh (session-close maintainer — pointer-metadata refresh + 50KB rotation + one-line-summary backfill)",
+        "evolution_protocol": "Append-only; historical rows never edited in place except the one-line-summary backfill of the just-closed-session row (placeholder -> harvested close-out one-liner, no-LLM). R-37 documentary lockstep with schemas/memory-schema.json body_conventions.episodic_chronicle_row + episodic_chronicle_optional_slots — the append-only invariant is the lockstep record, NOT a write-time DENY.",
+        "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder (hooks/memory-consolidation-run.sh:209 `grep -q \"$BASE\"`) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
+        "runtime_generated": "This file is RUNTIME-GENERATED in each adopter's memory dir. It is NOT a foundation-manifest files[] member; only this contract + the chronicle-index capability are manifest-managed.",
+        "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (memory-consolidation-run.sh:174; episodic never decays)."
+      },
+      "append_only": true,
+      "append_only_rationale": "One harvested no-LLM row per session. Historical rows are an immutable witnessed skeleton of the session arc. The sole in-place mutation is the one-line-summary backfill of the most-recent row by chronicle-index.",
+      "applies_to": {
+        "path_glob": "**/.claude/projects/*/memory/episodic-chronicle.md"
+      },
+      "description": "Hook-consumable runtime artifact for the curated episodic tier. Append-only newest-first no-LLM session chronicle, one row per session, placed FLAT in the memory dir beside MEMORY.md. Supersedes the prior per-episode memory producer. Authored by hooks/session-episode-write.sh at SessionEnd; maintained by skills/librarian/capabilities/chronicle-index.sh at session-close.",
+      "design_source": "Curated episodic-tier session chronicle; supersedes the prior per-episode memory producer.",
+      "matcher_entry": "_design_notes.body_conventions.episodic_chronicle_row",
+      "matcher_pillar": "schemas/memory-schema.json",
+      "newest_first": true,
+      "newest_first_rationale": "Repository convention — newest row PREPENDS at top (under the header block); pre-existing rows shift downward without modification, so the last N sessions are read first.",
+      "row_fields": {
+        "anchor": "cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
+        "next_session": "the verbatim `**Next session:**` line harvested no-LLM from the plan handoff/close-out",
+        "optional_pointer_slots": "handoff.md path / checkpoint.md path / claude-mem session-summary; each emitted only after on-disk resolution; `— none —` on absence (never a dangling link). claude-mem pins content_session_id via source_session_id, never the renumberable `#S` ids",
+        "slots_presence_map": "frontmatter-line `slots: {handoff: bool, checkpoint: bool, claude_mem: bool}` — machine-canonical O(1) parse-free presence signal carried ALONGSIDE the inline `— none —` human render",
+        "summary": "written NO-LLM at SessionEnd as the literal placeholder `— summary on review —`; chronicle-index BACKFILLS it at session-close from the just-written handoff/close-out",
+        "touched": "`touched: <COUNT> file(s) on <branch>` — COUNT from the registry touched_files row; branch via git rev-parse --abbrev-ref HEAD"
+      },
+      "section_schema": "## <YYYY-MM-DD> — <git-slug>\\n- slots: \\{handoff: (true|false), checkpoint: (true|false), claude_mem: (true|false)\\}\\n- \\*\\*Anchor:\\*\\* .*\\n- \\*\\*Touched:\\*\\* touched: [0-9]+ file\\(s\\) on .*\\n- \\*\\*Next session:\\*\\* .*\\n- \\*\\*Summary:\\*\\* .*\\n- \\*\\*handoff:\\*\\* .*\\n- \\*\\*checkpoint:\\*\\* .*\\n- \\*\\*claude-mem:\\*\\* .*",
+      "section_schema_format": "regex",
+      "size_limits": {
+        "max_kb": 50,
+        "split_strategy": "split to episodic-chronicle-archive-<date>.md at threshold"
+      },
+      "status": "runtime",
+      "title": "episodic-chronicle.md runtime body-structure contract",
+      "type": "episodic-chronicle",
+      "version": "1.0.0",
+      "write_shape": "prepend-row-newest-first"
     },
     "handoff.md": {
       "$id": "brain-stem/governance/file-type-contracts/handoff.md.json",
@@ -1922,7 +1963,7 @@
         "id": "R-58",
         "matcher_path": "mandates.vault_writer_reference",
         "rule_text": "Vault Writers/<writer>.md writer-reference files MUST conform to the writer-reference shape defined by governance/file-type-contracts/vault-writer.md.json (the single authority for writer-reference shape; R-58 matcher contract). Branch 3 DENIES a frontmatter-schema violation at write-time. R-58 is the mandate (vault-writer reference — Branch 3), home mandatory-files, category C1.",
-        "source": "governance/mandatory-files-rules.json :: mandates.vault_writer_reference (SoT)",
+        "source": "governance/mandatory-files-rules.json :: mandates.vault_writer_reference",
         "status": "active",
         "surface": "vault-writers",
         "tier": "mandate"
@@ -1937,7 +1978,7 @@
         "id": "R-59",
         "matcher_path": "mandates._memory_md_cap",
         "rule_text": "MEMORY.md files under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented harness load contract: first 200 lines OR first 25KB (whichever first) loaded at session start. Per-line maximum 200 characters (drift signal). When any threshold is exceeded, hooks/pre-write-guard.sh MUST emit an additionalContext advisory at write-time naming the breached threshold(s) + actual value(s) + a remediation pointer. ADVISORY — the write always proceeds.",
-        "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap (SoT; codifies the Anthropic-documented load contract from code.claude.com/docs/en/memory)",
+        "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap",
         "status": "active",
         "thresholds_source": "mandates._memory_md_cap.thresholds",
         "tier": "mandate"
@@ -1962,12 +2003,12 @@
         "matcher_path": "mandates._index_md",
         "rule_text": "Every non-exempt user-facing folder in the vault MUST carry a sibling _index.md at folder root. The _index.md file MUST conform to the frontmatter contract at governance/frontmatter-rules.json #types.index AND the body-structure contract at governance/file-type-contracts/_index.md.json. Exempt paths are enumerated in mandates._index_md.exemption_paths (positive-list). Enforced structurally via the three-tier maintenance architecture: Tier 1 post-write-verify auto-bootstrap + live-sync; Tier 2 librarian index-maintain audit sweep; Tier 3 librarian index-maintain --deep opt-in semantic validation.",
         "self_healing_capability": "skills/librarian/capabilities/index-maintain.sh (R-34 self-healing boundary — mutations bounded to mechanically-derivable values; semantic content flagged for review, never auto-overwritten)",
-        "source": "governance/mandatory-files-rules.json :: mandates._index_md (SoT)",
+        "source": "governance/mandatory-files-rules.json :: mandates._index_md",
         "status": "active",
         "tier": "mandate"
       },
       {
-        "_lockstep": "R-37 documentary lockstep: pillar _rules[] + pre-write-guard.sh header + the post-write-verify.sh Logs/ auto-govern branch (the enforcement_layer body this declaration names) + bundle mirror.",
+        "_lockstep": "The enforcement_layer body this declaration names is the post-write-verify.sh Logs/ auto-govern branch. R-37 documentary lockstep: pillar _rules[] + hook header + enforcement body + bundle mirror.",
         "category": "C1",
         "enforcement_layer": [
           "hook (post-write-verify.sh Logs/ auto-govern branch)",
@@ -1977,7 +2018,7 @@
         "home": "mandatory-files",
         "id": "R-09",
         "rule_text": "Logs/ is a free-write scratch sink; write-time governance is AUTO-APPLIED (never denied, never propose-and-confirm). A file landing under Logs/ is not blocked and is not surfaced for confirmation — the post-write-verify.sh Logs/ auto-govern branch applies the required frontmatter/tagging governance automatically, and the librarian frontmatter-enforce capability reconciles at audit-time. R-09 is the Logs/ auto-govern rule (tier autogovern), home mandatory-files, category C1.",
-        "source": "governance/mandatory-files-rules.json :: _rules (SoT). R-09 is the live Logs/ auto-govern rule; the deny→auto-govern reframe mints the autogovern tier.",
+        "source": "governance/mandatory-files-rules.json :: _rules",
         "status": "active",
         "surface": "Logs",
         "tier": "autogovern"
@@ -2018,6 +2059,15 @@
           "count_both_raw_and_stripped": true,
           "gate_on": "larger"
         },
+        "ordinal_position_check": {
+          "consumers": [
+            "hooks/pre-write-guard.sh (PreToolUse Edit|Write G1 sub-check inside the R-59 cap block)"
+          ],
+          "enabled": true,
+          "enforcement_mechanism": "advisory — same posture as the parent cap rule (never blocks; promotion to BLOCK gated on future observation data).",
+          "pointer_shape_predicate": "two-signal AND-gate (the false-positive killer): (a) NOT a Markdown-link entry — does NOT match ^[[:space:]]*[-*][[:space:]]*\\[ ; AND (b) begins with a bare absolute/tilde path token after an optional list marker — matches ^[[:space:]]*([-*][[:space:]]*)?(~|/Users/|/home/) ; AND (c) contains a word-bounded imperative read verb — matches \\b(Read|Consult|Load|See)\\b. Clause (a) excludes standard [filename](memory/..) index entries that merely mention ~/ or /Users in their description text.",
+          "rule": "G1: a vault-pointer-shaped line whose START sits past the 200-line OR max_bytes fold (byte cap governs) loads invisibly — the harness truncates the index at the fold and the pointer never reaches the model. hooks/pre-write-guard.sh emits a distinct POINTER PLACEMENT ADVISORY (concatenated with any total-cap advisory into one emit) at write-time."
+        },
         "overflow_routing": {
           "_description": "Cold-spill seam — DOCUMENTED ONLY (pre-built, cheap). At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill is v-next, volume-gated, no calendar gate). The fixed section order below makes the cold boundary always knowable.",
           "archive_created": false,
@@ -2028,7 +2078,7 @@
             "Procedural",
             "Episodic"
           ],
-          "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is the SAMPLED windowed section (newest ~10 + a glob memory/episode_*.md pointer) and is not cold-spilled."
+          "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is a single pointer line to the append-only episodic-chronicle.md and is not cold-spilled."
         },
         "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md referenced via [[wikilinks]]. The byte cap is the governing trigger (bites at ~110 entries before the line cap).",
         "rule_id": "R-59",
