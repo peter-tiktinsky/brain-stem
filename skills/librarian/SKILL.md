@@ -260,7 +260,13 @@ Runtime: `capabilities/xref-check.sh`.
 ## Capability: stale-detect
 
 Detects stale plan-root + vault files past their freshness threshold (walks
-plan roots via `hooks/lib/plan-path.sh`). Ported as-is.
+plan roots via `hooks/lib/plan-path.sh`) — 9 staleness rules (the per-rule roster
+is the `stale-detect.sh` header block). Rule #9 (R-FLOW-MAINT-1, binder-freshness):
+a per-spoke binder surface (`_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md`)
+whose `updated:` regen date lags the newest constituent-plan activity (max
+manifest/handoff mtime across the spoke's plans) by >14d emits a `severity: warn`
+`binder-stale` finding — warn-only family (rules #4/#7/#8), no Stop/exit-2; an
+absent binder is first-run state, not staleness.
 Runtime: `capabilities/stale-detect.sh`.
 
 ## Capability: tag-coverage-audit
@@ -286,7 +292,12 @@ Runtime: `capabilities/handoff-disposition-check.sh`.
 
 Resolves the R-28 `parent_plan:` frontmatter convention (via
 `hooks/lib/frontmatter.sh`) and surfaces drift findings where a sub-task file's
-parent does not resolve. Ported as-is.
+parent does not resolve. Also re-validates the auto-stamped `project:` spoke key
+(R-ARCH-PID-DRIFT / R-FLOW-MAINT-7) against the anchored-spoke registry (sourced
+via `skills/new-plan/lib/spoke-resolve.sh`) and the plan's lineage; a
+disagreement reuses the `parent-plan-path-drift` finding name with a
+`drift_class` (`project-stamp-unregistered` | `project-stamp-vs-lineage`),
+severity warn, for human adjudication — never a silent re-file.
 Runtime: `capabilities/plan-parent-resolve.sh`.
 
 ## Capability: librarian-manifest-validate
@@ -305,7 +316,7 @@ Runtime: `capabilities/skill-parity.sh`.
 ## Capability: waiver-audit
 
 Read-only audit of the governance waiver registry (the canonical writer is the
-SP-owned `hooks/lib/cascade-waiver.sh`, elsewhere). Ported as-is.
+SP-owned `hooks/cascade-waiver.sh`, elsewhere). Ported as-is.
 Runtime: `capabilities/waiver-audit.sh`.
 
 ## Capability: rules-hygiene
@@ -353,6 +364,123 @@ Runtime: `capabilities/rename-cascade.sh`.
 Appends detected renames to the librarian-manifest `rename_history[]` (the
 rename pipeline's history writer). Ported as-is.
 Runtime: `capabilities/rename-history-sync.sh`.
+
+## Capability: library-scrub
+
+Dual-output promotion scrub: workshop research -> a universal
+`_library/<topic>/<article>.md` (scrubbed of plan/project-specific detail, with
+a synthesized `routing:` one-liner) AND a plan-SoT `<plan>/_research/` record,
+with bidirectional `originating_plan:`/`library_refs[]` stamps and a
+`workshop/_archive/` move — all in one propose/`--apply` (only `--apply`
+writes). Novel-bet advisory-first; the propose diff is the human backstop;
+empty-article output is block-and-logged.
+Runtime: `capabilities/library-scrub.sh`.
+
+## Capability: library-index
+
+Keystone re-derive of the library's two `type: index` surfaces — per-topic
+`_library/<topic>/_index.md` and the library-root `_library/_index.md` — from
+article frontmatter on every run (C-IDX). Emits the sentinel-bounded
+`contents-enum` table (`| File | Lines | Type | Description |`, wikilink File
+cells) with a `routing:`-first Description chain; survivorship-preserves the H1
+and the folder-context paragraph outside the sentinels; falls back to a prose
+"Current Contents" section under the <3-distinct-types condition. The root index
+aggregates member-article `routing:` (1:many) and carries each topic's staleness
+date from `_library/log.md` when present. Audit-time findings (never a write-time
+guard): over-threshold, basename-collision, near-duplicate-title, broken /
+one-sided-edge (the R-FLOW-PROMO-4 crash-window detector), and R-LIB-1 body-shape.
+A read-only `--query <topic>` mode (zero writes) resolves a topic (exact name
+first, then case-insensitive/fuzzy prefix) and prints its `_index.md` to stdout —
+or a short available-topics list when the topic does not resolve — serving the
+three-load selectivity chain and the R-FLOW-PRE-4 at-cap pointer
+`pre-research-check.sh` emits.
+Runtime: `capabilities/library-index.sh`.
+
+## Capability: library-log-rotate
+
+The librarian (rotation/audit) half of the composite maintainer for the library
+global change log `_library/log.md` (R-GOV-1a): the appender hook
+(`hooks/library-log-append.sh`) is the sole appender of routine entries; this
+capability owns rotation, audit, and any full re-derive and NEVER appends a
+routine entry. When the log exceeds the threshold (R-LIB-8 `size_limits`
+`{max_lines: 2000}`), the event lines are moved out of the live log into per-year
+`_library/log-archive/<YYYY>.md` archives (each itself a C-FM-LOG `type: log`
+artifact), the C-FM-LOG frontmatter is preserved, and the live log continues
+fresh with an `[AUDIT]` rotation marker so the appender keeps appending to a small
+tail. Under threshold it emits a `rotation-not-due` finding with zero writes
+(idempotent); `--dry-run` reports would-rotate counts without writing.
+Runtime: `capabilities/library-log-rotate.sh`.
+
+## Capability: plan-research-index
+
+Generates the per-spoke binder research surface
+`_projects/<spoke>/research-index.md` (R-BIND-2/R-BIND-5) plus the
+`research/<plan-slug>/` directory-symlink farm (R-BIND-8), re-derived from every
+plan manifest's `research_artifacts[]` on every run. The binder is per-spoke: only
+plans whose manifest `project:` matches the target spoke contribute rows, and rows
+are grouped by `parent_plan:` lineage. One row per declared
+`research_artifacts[]` entry (declaration is the selectivity gate): `| Path | Type
+| Status | Plan-origin | One-liner | Library |`, the Library column derived from
+`library_refs`. Row-content selectivity (02:179): a finalized finding body is
+copied inline as a `> ` distilled blockquote ONLY when it is non-inferable — when
+status is `finalized`, an explicit distilled field (`finding`/`distilled`/`summary`)
+is present, and that text is not already inferable from the one-liner; every other
+entry emits a path pointer, never the full body. The `research/` farm is generated
+AND pruned each run — a symlink whose target plan `_research/` no longer exists, or
+whose plan no longer belongs to the spoke, is unlinked (the link only; the target
+is never followed or deleted). Re-derive surfaces one-sided R-FLOW-PROMO-4 edges
+(a manifest `library_ref` without the article back-stamp, or vice versa) as
+findings — DETECT + report, never repair-write (library-scrub owns the promotion
+write-orchestration, R-FLOW-PROMO). Missing manifest fields render empty, never error
+(R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
+would-be writes/links without writing.
+Runtime: `capabilities/plan-research-index.sh`.
+
+## Capability: plan-decision-log
+
+Generates the per-spoke binder decision surface
+`_projects/<spoke>/decision-log.md` (R-BIND-3 / R-BIND-6) — the
+`decision_records[]` projection across every plan launched from the spoke,
+re-derived from each plan manifest on every run. Distinct from the shipped
+`handoff-disposition-check` close-out checker (this is a binder generator, not a
+chronicle checker). The log is per-spoke: only plans whose manifest `project:`
+matches the target spoke contribute rows, grouped by `parent_plan:` lineage. One
+row per declared `decision_records[]` entry — a PURE projection, no symlink farm
+and no inline-vs-pointer selectivity: `| ADR | Title | Status | Path |
+Superseded-by | Created | Plan-origin |`. ADR bodies, rationale, and option-tables
+STAY at the linked path; the projection never copies them inline. Append-immutable
+per R-BIND-6: a record whose status is `superseded` is forward-linked via its
+`superseded_by` ADR ordinal (cross-referenced to the in-projection row when that
+ADR is present) and is NEVER dropped from the log. A `superseded` record missing
+its forward-link, or a status outside the shipped enum
+(`proposed|accepted|rejected|deprecated|superseded`), is surfaced as a finding (the
+record still renders). Missing/empty `decision_records[]` renders an empty section,
+never an error (R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run`
+reports findings + would-be writes without writing.
+Runtime: `capabilities/plan-decision-log.sh`.
+
+## Capability: plan-handoff-index
+
+Generates the per-spoke binder handoff surface
+`_projects/<spoke>/handoff-chronicle.md` (R-BIND-4 / R-BIND-7) — the
+session-handoff reconciliation chronicle across every plan launched from the
+spoke, re-derived from each plan's `handoff.md` on every run. Distinct from the
+shipped `handoff-disposition-check` close-out missing-disposition checker (this is
+a chronicle generator, not a checker). Append-only, newest-first: one block per
+session — source `handoff.md` path + session number/date + the `Next session:`
+line + a ONE-LINE summary harvested from `### Locks captured` / `### Decision-Quality
+Protocol passes`; when both canonical subsections are absent it FALLS BACK to the
+first ~200 chars of the block body rather than emitting an empty row. Handoff
+bodies are NEVER concatenated. This is the PRIMARY (re-derive) half of the
+R-GOV-1a composite maintainer: the librarian re-derive owns the WHOLE file
+(frontmatter + intro + the sentinel-bounded chronicle region), and the
+SECONDARY-ROLE hook (`hooks/handoff-chronicle-append.sh`) appends ONE block at the
+HEAD of the sentinel region `<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->`
+— DISJOINT surfaces (the hook never re-derives, the librarian never appends a
+routine block). A missing/unreadable/empty/no-session-heading `handoff.md` is a
+defensive skip + finding, never an error (R-BIND-10a). `--spoke <key>` scopes to
+one spoke; `--dry-run` reports findings + would-be writes without writing.
+Runtime: `capabilities/plan-handoff-index.sh`.
 
 ## Capability: memory-globalize
 

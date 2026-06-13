@@ -12,9 +12,9 @@ description: >
   destination directly (R-34 boundary preserved via round-trip through staging).
   Triggered by launchd WatchPaths on staging root (NOT cron). The operator
   authors prompt assets via the Layer-3 guided flow (/govern register --kind
-  doc-amender-prompt). The runtime is paired with a Layer-3
-  authoring companion, the persistence.mode contract extension, and the
-  deterministic composer.
+  doc-amender-prompt). Runtime ported under T-03; the Layer-3
+  authoring companion + the persistence.mode contract extension + the
+  deterministic composer are T-04/T-05/T-06.
 disable-model-invocation: true
 argument-hint: "[--staging-root PATH] [--prompt-root PATH] [--dry-run] [--once]"
 ---
@@ -24,12 +24,12 @@ argument-hint: "[--staging-root PATH] [--prompt-root PATH] [--dry-run] [--once]"
 Event-driven LLM-amendment runner for the Bucket-1(b) prompt-guided edit lane
 of the vault writer pipeline (Posture D — per-destination contract-driven
 hybrid). Doc-amender sits BETWEEN `hooks/lib/staging-emit.sh` and
-`skills/writer-reconciler/` in the writer-pipeline layering: it reads
+`skills/writer-reconciler/` per writer-pipeline-layering: it reads
 amender-eligible packets from staging, runs an operator-authored prompt asset
 through `claude -p` (or the deterministic composer for
 `persistence.mode=deterministic`), and emits a REPLACEMENT packet back to
 staging via `hooks/lib/staging-emit.sh --packet-kind amender-replacement`. The writer-reconciler
-(WatchPaths-primary + relaxed hourly StartInterval backstop) then writes
+(WatchPaths-primary + relaxed hourly StartInterval backstop,) then writes
 the destination mechanically per R-34.
 
 Doc-amender is **NOT** a cron skill. It is triggered by launchd `WatchPaths`
@@ -44,7 +44,7 @@ self-loop. Concurrent fires are coalesced (or blocked) via a global lockf on
 Doc-amender is **NOT** a destination writer. R-34 is preserved structurally:
 all output round-trips through `hooks/lib/staging-emit.sh`, and the writer-reconciler
 owns the actual destination write on its WatchPaths-hybrid trigger (WatchPaths
-primary + relaxed hourly StartInterval backstop).
+primary + relaxed hourly StartInterval backstop,).
 
 ## Pipeline
 
@@ -62,7 +62,7 @@ writer  ─emit─►  staging packet (packet_kind=writer-emit)
                        ▼
               hooks/lib/staging-emit.sh --packet-kind amender-replacement
                        │
-                       │  (writer-reconciler WatchPaths fire + StartInterval backstop)
+                       │  (writer-reconciler WatchPaths fire + StartInterval backstop,)
                        ▼
               writer-reconciler  ─writes─►  destination
                                               (mechanical-only per R-34)
@@ -100,7 +100,7 @@ writer  ─emit─►  staging packet (packet_kind=writer-emit)
 ## Eligibility filter
 
 Per WatchPaths fire OR explicit `--once` invocation, doc-amender decides which
-packets to amend via the **writer-fan-in join surface**:
+packets to amend via the **writer-fan-in join surface** per:
 
 1. Read `governance/doc-dependencies.json`; filter `entries[]` to
    `kind == "writer-fan-in"` AND `amendment_strategy == "prompt-guided-amend"`.
@@ -131,7 +131,7 @@ For each eligible packet:
   6 entries: `packet_body`, `destination_current_content`, `destination_path`,
   `upstream_writers`, `writer_metadata`, `amendment_history`.
 
-## Survivorship (3-signal)
+## Survivorship (3-signal per)
 
 The contract's `survivorship_policy_detail` declares 3 signals. Doc-amender
 checks them in this order BEFORE invoking `claude -p`:
@@ -142,7 +142,7 @@ checks them in this order BEFORE invoking `claude -p`:
 2. **`operator-edit-wins`** — read destination frontmatter `last_user_edit`
    timestamp AND content-diff against the most-recent active manifest row's
    `content_sha256` (per `hooks/lib/manifest-record.sh query-destination-history
-   --destination-path <path>`). If operator edit detected →
+   --destination-path <path>`; T-25 dependency). If operator edit detected →
    skip LLM call; emit `_amender-conflict.json` sidecar next to the packet
    in staging. Audit `survivorship-skip / operator-edit`.
 3. **`amender-conflict-sidecar`** — terminal signal: when signal 2 fires,
@@ -158,7 +158,7 @@ context; capture stdout as new body; emit replacement packet via staging-emit.
 - **Replacement packet** at `$STAGING_ROOT/<original-writer-id>+amender/<new-sha>.json`
   via `hooks/lib/staging-emit.sh --packet-kind amender-replacement`. The reconciler
   picks it up on its WatchPaths-hybrid trigger (WatchPaths primary + relaxed
-  hourly StartInterval backstop) and writes the destination mechanically.
+  hourly StartInterval backstop,) and writes the destination mechanically.
 - **Conflict sidecar** at `<original-packet-path>.amender-conflict.json` when
   survivorship signal 2 fires OR when prompt-resolution returns multiple
   matches. Free-form JSON; operator triages.
@@ -168,8 +168,8 @@ context; capture stdout as new body; emit replacement packet via staging-emit.
 
 **Schemas:**
 - Replacement packet conforms to packet v1.1 shape — validated by
-  `hooks/lib/staging-emit.sh` upstream (the v1.1 shape carries the `packet_kind`
-  + `source_id` fields).
+  `hooks/lib/staging-emit.sh` upstream (writer-pipeline-layering; Batch D
+  T-26 landed the v1.1 `packet_kind` + `source_id` fields).
 - Conflict sidecar is free-form JSON-object; minimum fields:
   `ts`, `reason`, `original_packet`, `destination_path`, `candidates` (when
   applicable). Documented inline in `process.sh`.
@@ -204,8 +204,7 @@ Self-exclusion + debounce + lockf prevent infinite self-loop. First-of-kind
 WatchPaths fire mechanism; cadence is NOT coupled to the writer-reconciler's
 WatchPaths-hybrid trigger (which would couple LLM cost to the mechanical
 reconciler cadence — unwanted). NO `doc_amender_tick_minutes_default` field in pillar 7
-(saves R-37 lockstep on `governance/vault-writers-rules.json` +
-`schemas/vault-writers-rules-schema.json`).
+(saves R-37 lockstep on `governance/vault-writers-rules.json`).
 
 ## Limitations and non-goals
 
@@ -227,7 +226,8 @@ reconciler cadence — unwanted). NO `doc_amender_tick_minutes_default` field in
 
 ## Persistence modes (per `doc-amender-prompt.md.json :: persistence.mode`)
 
-The prompt contract's `persistence.mode` selects the composition lane:
+The prompt contract's `persistence.mode` selects the composition lane (
+B2):
 
 - **`llm-mediated`** — runs the prompt body through `claude -p` (the ported
   runtime above). Default for `amendment_strategy=prompt-guided-amend`.

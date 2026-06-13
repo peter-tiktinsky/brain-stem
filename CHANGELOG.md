@@ -4,6 +4,30 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.2.0]
+
+Feature release. brain-stem now has a **three-surface context library**: a shared **library** of durable, reusable knowledge that any project can draw on; per-project **binders** that gather a project's research, decisions, and hand-offs into living index pages; and a **workshop flow** that nudges you to check the library before starting fresh research. The librarian gains the capabilities that keep all three surfaces current, and a new file type governs the library articles themselves. See the [v1.2.0 release notes](docs/release-notes-v1.2.0.md).
+
+### Added
+
+- **A shared knowledge library.** A new `_library/` area holds durable, reusable articles — one concept per file, written in general terms so they apply across projects rather than to a single piece of work. Each article carries a one-line "when to read this" so a reader can tell at a glance whether it is relevant. A library index lists every article by topic, and a running change log records what was added or revised, so the library stays browsable as it grows.
+
+- **A new "reference" file type for library articles.** Library articles are governed by their own contract: one concept per file, a required routing one-liner, and a size budget that keeps an article readable. The index pages read that routing line first when deciding how to describe an article. Templates for an article and a topic index ship with the install.
+
+- **Project binders.** Each project now gets three living index pages — a research index, a decision log, and a hand-off index — that gather the project's scattered notes into one readable place per kind. The librarian regenerates them from what is actually on disk, so they never drift from the underlying files, and a hub page ties them together. Binder and index templates ship with the install.
+
+- **Librarian capabilities for the three surfaces.** Six new librarian capabilities keep the surfaces current: a library index builder, a promotion step that lifts a project note into a scrubbed, reusable library article, a library change-log rotator, and the three binder builders (research, decisions, hand-offs). They regenerate from disk and never invent content.
+
+- **Workshop hooks.** Three hooks wire the flow together: a session-close step that appends a one-row chronicle entry for the session, a library change-log appender, and an advisory pre-research check that, before you start new research, points you at any library article that already covers the ground. The pre-research check only advises; it never blocks.
+
+### Changed
+
+- **The library index understands light topics.** A topic index page adapts its layout for a small or single-type topic, and the index contract now states that adaptation explicitly — fewer than three articles **and** fewer than three distinct types reads as a light topic — so the generated pages and the contract agree.
+
+### Fixed
+
+- **A parent-plan resolver no longer mistakes a correct self-reference for a loop.** A plan file that correctly points at its own top-level plan was being misread as a circular reference and flagged as an error. The resolver now recognises a legitimate self-pointer and only reports genuine cross-plan loops.
+
 ## [v1.1.4]
 
 Feature release. brain-stem now keeps a running **episodic record of your sessions** and adopts a **pointer-based shape** for the long-lived memory that survives between sessions. The memory index stays small and readable; the bulky detail lives in a chronicle file and in your vault, referenced by a single line. See the [v1.1.4 release notes](docs/release-notes-v1.1.4.md).

@@ -53,8 +53,8 @@ CLEARING_WINDOW_SEC=600
 # consumes: this hook enforces warn+mandate in-band. The stop-gate's 48/80/90
 # boundaries are FIXED constants in stop-checkpoint-check.sh by design (a safety
 # gate is not weakened by misconfig) — so `hard_pct` is schema-parity vocabulary
-# only and is intentionally NOT read here or by the stop-gate (; sessions.md
-# §"the stop-gate reads neither field").
+# only and is intentionally NOT read here or by the stop-gate (neither this hook
+# nor the stop-gate reads that field).
 USER_MANIFEST="${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json"
 WARN_PCT=45
 MANDATE_PCT=48

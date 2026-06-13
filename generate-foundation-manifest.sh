@@ -236,7 +236,7 @@ emit_pairs() {
     printf 'schemas/README.md\tschemas/README.md\n'
   fi
 
-  # onboarding/ walk DROPPED (; brain-stem). The top-level onboarding/
+  # onboarding/ walk DROPPED (brain-stem). The top-level onboarding/
   # tree is dissolved into skills/onboarder/ — its producers are enumerated by the
   # skills/ walk above (skill=onboarder). There is no top-level onboarding/ ship
   # surface to walk.
@@ -261,16 +261,16 @@ emit_pairs() {
 
   # governance/ — SELECTIVE walk mirroring install.sh Step 8.5 ship surface
   # (brain-stem). The 7 pillar *-rules.json + doc-dependencies.json + _index.json
-  # stay repo-only (; composed into foundation-master.json at release).
+  # stay repo-only (composed into foundation-master.json at release).
   # EXCLUDED from the walk (mirror install Step 8.5 strikes):
   #   - foundation-manifest.json (chicken-and-egg: this script generates it)
-  #   - governance-action-log.jsonl (: bootstrap-CREATED at Step 1.6, NOT copied;
+  #   - governance-action-log.jsonl (bootstrap-CREATED at Step 1.6, NOT copied;
   #     runtime-empty file, not a fingerprinted ship artifact)
   #   - librarian-capabilities/ ((a)) + onboarding-reference/ (R-20)
   d="$SOURCE_REPO/governance"
   if [ -d "$d" ]; then
     # Top-level files that ship via Step 8.5 selective copy
-    for base in foundation-master.json overlay-master.json log-subtype-registry.json; do
+    for base in foundation-master.json overlay-master.json log-subtype-registry.json anchored-spoke-registry.json; do
       [ -f "$d/$base" ] || continue
       printf 'governance/%s\tgovernance/%s\n' "$base" "$base"
     done
@@ -337,7 +337,7 @@ emit_pairs() {
   # residue). Subdirs (launchd/, settings-fragments/) handled by loops below;
   # `[ -f ]` skips them. A generator↔install parity test (T-1) will
   # catch any future divergence in either direction.
-  # PATH-TRANSLATION (/ T-1, validation correction
+  # PATH-TRANSLATION (T-1, validation correction
   # whose installed path differs from its source path. install.sh Step 11.8
   # DIRECT-SEEDS it to $CLAUDE_HOME/.gitignore (never $CLAUDE_HOME/templates/),
   # so the manifest must baseline the TRANSLATED installed path `.gitignore`.
@@ -368,7 +368,7 @@ emit_pairs() {
     printf 'templates/settings-fragments/%s\ttemplates/settings-fragments/%s\n' "$base" "$base"
   done
 
-  # plugins/claude-mem walk DROPPED (; brain-stem). claude-mem is NOT
+  # plugins/claude-mem walk DROPPED (brain-stem). claude-mem is NOT
   # bundled — it is an optional adopter-installed marketplace plugin. install.sh
   # Step 11 is dropped; there is no plugins/ ship surface to walk.
 }

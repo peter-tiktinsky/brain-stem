@@ -1,5 +1,4 @@
 {
-  "$schema": "schemas/vault-writers-rules-schema.json",
   "schema_version": "2.0.0",
   "pillar": "vault-writers",
   "_description": "Pillar 7 — Vault Writers Rules (operational-config-only). Slimmed to pure operational config per the rule model: the writer-reference SHAPE lives at governance/file-type-contracts/vault-writer.md.json (pillar 6), and the R-58 mandate is authored in governance/mandatory-files-rules.json :: mandates.vault_writer_reference (pillar 4). This pillar carries NO rules — _rules: [].",

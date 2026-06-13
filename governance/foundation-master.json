@@ -313,10 +313,9 @@
         "path": "frontmatter-rules.json",
         "r37_coupled_surfaces": [
           "governance/frontmatter-rules.json",
-          "onboarding/scaffold/vault-architecture/System Governance - Frontmatter.md",
+          "vault-init/System Governance/System Governance - Frontmatter.md",
           "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
           "hooks/post-write-verify.sh (type_map)",
-          "hooks/config/gate-config.json (interim)",
           "governance/foundation-master.json (forward — composed from this pillar via tools/build-foundation-master.sh)"
         ],
         "rule_id_range": [
@@ -338,10 +337,9 @@
         "path": "tagging-rules.json",
         "r37_coupled_surfaces": [
           "governance/tagging-rules.json",
-          "onboarding/scaffold/vault-architecture/System Governance - Tagging.md",
+          "vault-init/System Governance/System Governance - Tagging.md",
           "hooks/pre-write-guard.sh (tag-validation branch)",
           "governance/log-subtype-registry.json (system-utility canonicality discipline)",
-          "hooks/config/gate-config.json (interim)",
           "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
         ],
         "rule_id_range": [
@@ -359,6 +357,12 @@
           "pre-write-guard.sh"
         ],
         "path": "naming-rules.json",
+        "r37_coupled_surfaces": [
+          "governance/naming-rules.json",
+          "vault-init/System Governance/System Governance - Naming.md",
+          "hooks/pre-write-guard.sh (R-04 vault-root-allowlist branch — known_roots check)",
+          "governance/foundation-master.json (forward — composed naming slot)"
+        ],
         "rule_id_range": [
           "R-04",
           "R-10",
@@ -382,7 +386,7 @@
         "r37_coupled_surfaces": [
           "governance/mandatory-files-rules.json",
           "governance/file-type-contracts/*.json (registry pattern)",
-          "onboarding/scaffold/vault-architecture/System Governance - Mandatory-Files.md",
+          "vault-init/System Governance/System Governance - Mandatory-Files.md",
           "hooks/post-write-verify.sh (auto-bootstrap)",
           "skills/librarian/capabilities/index-maintain.sh",
           "governance/foundation-master.json (forward)"
@@ -405,9 +409,7 @@
         "path": "doc-dependencies.json",
         "r37_coupled_surfaces": [
           "governance/doc-dependencies.json",
-          "schemas/doc-dependencies-schema.json (validator)",
           "hooks/pre-write-guard.sh (cascade propagation)",
-          "hooks/config/doc-dependencies.json (interim — retires)",
           "governance/foundation-master.json (forward)"
         ],
         "rule_id_range": [
@@ -429,7 +431,7 @@
         "r37_coupled_surfaces": [
           "governance/file-type-contracts/*.json",
           "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
-          "onboarding/scaffold/vault-architecture/System Governance - File-Type-Contracts.md (forward)",
+          "vault-init/System Governance/System Governance - File-Type-Contracts.md (forward)",
           "hooks/pre-write-guard.sh (body-structure validation lookup)",
           "hooks/post-write-verify.sh (body-structure validation)",
           "templates/{spec,tasks,handoff,ideation-brief}-template.md (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
@@ -440,6 +442,7 @@
         "spoke": "File-Type-Contracts.md"
       },
       {
+        "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
         "id": "vault-writers",
         "loaded_by": [
           "hooks/pre-write-guard.sh",
@@ -448,9 +451,7 @@
         "path": "vault-writers-rules.json",
         "r37_coupled_surfaces": [
           "governance/vault-writers-rules.json",
-          "schemas/vault-writers-rules-schema.json",
           "governance/file-type-contracts/vault-writer.md.json (writer-reference SHAPE)",
-          "schemas/processing-rules-schema.json (folder-level overrides)",
           "hooks/pre-write-guard.sh (branch #3 vault-writers-writer-reference-only + branch #2 historical-data-warning fallback)",
           "skills/writer-reconciler (consumes processing_defaults + staging_area)",
           "governance/foundation-master.json (forward — composed vault_writers slot)"
@@ -459,9 +460,10 @@
           "R-58"
         ],
         "size_bytes": "1-2K",
-        "spoke": "Vault-Writers.md"
+        "spoke": null
       },
       {
+        "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
         "id": "plans",
         "loaded_by": [
           "hooks/pre-write-guard.sh",
@@ -472,24 +474,20 @@
         "path": "plans-rules.json",
         "r37_coupled_surfaces": [
           "governance/plans-rules.json (carries the inbox block + _status_model_note; backlog_row.stale_advisory_days; the decision_records convention)",
-          "schemas/plans-rules-schema.json",
           "schemas/plan-manifest-schema.json (manifest.json validator with conditional fields; optional decision_records[])",
           "hooks/pre-write-guard.sh (R-27 status header + R-28 parent_plan + branch #4 librarian-only writes; the R-40-block spec.md status-line single-enum advisory)",
           "governance/file-type-contracts/adr.md.json (ADR decision-record body-structure contract; matcher convention = plans-rules.json :: decision_records, manifest pointer = plan-manifest-schema.json :: decision_records[]; reciprocal pointer in the file-type-contracts pillar)",
           "skills/librarian/capabilities/tasks-render.sh (renders manifest.tasks[] → tasks.md read-replica; mirrors backlog-index.sh, sentinel-bounded survivorship + --check parity)",
-          "governance/librarian-capabilities/tasks-render.md (capability contract)",
-          "lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
+          "hooks/lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
           "skills/librarian/capabilities/plan-index.sh (consumes lifecycle.status_enum + root_files)",
           "skills/librarian/capabilities/plan-archive.sh (consumes lifecycle.status_transitions.closed_to_archived)",
           "skills/librarian/capabilities/backlog-index.sh (renders {researching,planned} manifests + _inbox/*.md idea notes into the unified _backlog.md)",
-          "skills/backlog-research/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
+          "skills/new-plan/lib/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
           "templates/idea-note-template.md (inbox capture template)",
           "templates/{spec,tasks,handoff,ideation-brief}-template.md (plan-quartet templates; authored-to-contract — see file-type-contracts pillar coupling)",
           "skills/backlog-triage/SKILL.md (captures/classifies _inbox/<slug>.md idea notes; consumes inbox.funnel_status_enum + backlog_row.disposition_enum)",
           "skills/backlog-research/SKILL.md (reads triaged inbox notes + {researching} manifests; --promote graduation; never hand-writes _backlog.md)",
           "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index + archival → plan-archive; consumes backlog_row.stale_advisory_days)",
-          "governance/librarian-capabilities/backlog-index.md (capability contract)",
-          "governance/librarian-capabilities/plan-archive.md (capability contract)",
           "governance/foundation-master.json (forward — composed plans slot)"
         ],
         "rule_id_range": [
@@ -504,7 +502,7 @@
           "R-63"
         ],
         "size_bytes": "3-5K",
-        "spoke": "Plans.md"
+        "spoke": null
       }
     ],
     "schema_version": "2.0.0"
@@ -512,14 +510,14 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-09T15:54:35Z",
-    "bundle_version": "e43f69e9331cbb0d5e921e5e6190730772a81c033002645faba742c91ae53b24",
+    "built_at": "2026-06-10T21:12:54Z",
+    "bundle_version": "14c7572b407b572df2dc7207aecfde749baf995f230827684df7526a9fd0302f",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-08T16:13:08Z",
       "governance/doc-dependencies.json": "2026-06-08T16:13:08Z",
       "governance/frontmatter-rules.json": "2026-06-08T16:13:08Z",
-      "governance/mandatory-files-rules.json": "2026-06-08T16:13:08Z",
+      "governance/mandatory-files-rules.json": "2026-06-10T21:12:54Z",
       "governance/naming-rules.json": "2026-06-08T16:13:08Z",
       "governance/plans-rules.json": "2026-06-08T16:13:08Z",
       "governance/tagging-rules.json": "2026-06-08T16:13:08Z",
@@ -792,8 +790,9 @@
           "header_row": "| File | Lines | Type | Description |",
           "light_content_fallback": {
             "alternative": "prose 'Current Contents' section replaces the table",
-            "condition": "folder carries fewer than 3 child .md files of distinct types",
-            "rationale": "Table enumeration is premature when folder has very few children; prose is more readable"
+            "condition": "folder carries fewer than 3 child .md files AND fewer than 3 distinct frontmatter types among them",
+            "condition_semantics": "Both predicates must hold (logical AND): the prose fallback fires only when file_count < 3 AND distinct_type_count < 3. A folder with 3+ files, or 3+ distinct types, renders the full sentinel table.",
+            "rationale": "Table enumeration is premature when a folder has very few children AND little type variety; prose is more readable. The AND reading keeps a small-but-type-diverse folder on the table, where the Type column is the load-bearing routing signal"
           },
           "ordering_convention": {
             "enforced_at_tier": "3",
@@ -832,6 +831,40 @@
           "match_rule": "must equal the folder name or a close variant (case-insensitive substring match against the parent folder's basename)",
           "rationale": "Matches folder name; reinforces folder-mirrors-tag invariant — heading reads like a tag value",
           "required": true
+        },
+        "root_index_adaptation": {
+          "applies_to": "the library-root _index.md only (the topic-roster index), NOT a per-topic folder _index.md",
+          "columns": [
+            {
+              "derivation": "the topic directory name rendered as an Obsidian wikilink to that topic's _index.md",
+              "name": "Topic",
+              "position": 1,
+              "value_type": "wikilink"
+            },
+            {
+              "derivation": "count of member article .md files in the topic folder",
+              "name": "Articles",
+              "position": 2,
+              "value_type": "integer"
+            },
+            {
+              "derivation": "the constant 'index' (each row points at a topic _index.md)",
+              "name": "Type",
+              "position": 3,
+              "value_type": "literal"
+            },
+            {
+              "derivation": "topic-scope activation line synthesized by aggregating member-article routing (1:many); an optional trailing staleness marker '(updated <date>)' is appended when a library log records a write to that topic",
+              "max_chars": 200,
+              "name": "Description",
+              "position": 4,
+              "value_type": "prose_oneliner"
+            }
+          ],
+          "header_row": "| Topic | Articles | Type | Description |",
+          "rationale": "The root index is a roster of TOPICS, not a list of files. One row aggregates a whole topic's member articles into a single topic-scope routing line, so the standard per-file columns are re-headed to read as a topic roster. This is the authorized root-level adaptation of the contents-enum table.",
+          "row_cardinality": "one row per topic (aggregated routing), NOT one row per file",
+          "separator_row": "|---|---|---|---|"
         }
       },
       "consumers": [
@@ -844,7 +877,7 @@
           "type": "hook"
         },
         {
-          "contract_path": "governance/librarian-capabilities/index-maintain.md",
+          "contract_path": "skills/librarian/capabilities/index-maintain.sh",
           "implementation_target": "skills/librarian/capabilities/index-maintain.sh",
           "name": "index-maintain.sh",
           "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)",
@@ -1279,6 +1312,77 @@
       "version": "1.0.0",
       "write_shape": "create-only"
     },
+    "library-article.md": {
+      "$id": "brain-stem/governance/file-type-contracts/library-article.md.json",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "_design_notes": {
+        "consumer": "skills/librarian/capabilities/library-scrub.sh emits the article at promotion (synthesizes the routing one-liner + scrubbed body); skills/librarian/capabilities/library-index.sh reads size_limits at the audit-time re-derive scan to emit the over-threshold finding and consumes routing as the first Description-derivation source. The templates/library-article.md scaffold instantiates this contract.",
+        "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.reference (the type registration) + the vault-init/System Governance/System Governance - Frontmatter.md narrative spoke + the hook SCHEMA_KEY dispatch + governance/foundation-master.json forward-composed move in one commit.",
+        "type_registration_rationale": "The article type is registered via the frontmatter pillar, not the tagging pillar; frontmatter is the activation surface the index generators read to route a reader to the article."
+      },
+      "applies_to": {
+        "path_glob": "~/.claude-plans/_library/**/*.md"
+      },
+      "body_structure": {
+        "h1": {
+          "level": 1,
+          "match_rule": "the H1 is the concept name (one concept per file)",
+          "rationale": "The single top-level heading names the durable concept the article carries; bare-wikilink cross-references resolve against the basename, which mirrors this concept name.",
+          "required": true
+        },
+        "in_document_toc": {
+          "auto_generated": false,
+          "permitted_above_soft_budget_only": true,
+          "rationale": "An in-doc table of contents is permitted only when the article exceeds the soft budget and is not decomposable, and it is authored by hand, never auto-generated.",
+          "soft_budget_lines": 400
+        },
+        "leading_section_index": {
+          "forbidden": true,
+          "rationale": "A leading in-document section index is forbidden; the article is short enough that a reader scans the body directly, and an auto-generated index drifts from hand-edited prose."
+        },
+        "sibling_wikilinks_at_foot": {
+          "form": "bare",
+          "placement": "at the foot of the body",
+          "rationale": "Sibling articles are cross-referenced with bare wikilinks at the foot for backlink-graph value; basename uniqueness backs the bare form, and the basename-collision scan guards it.",
+          "value_pattern": "^\\[\\[[^\\[\\]|]+\\]\\]$"
+        },
+        "synthesized_body": {
+          "rationale": "The body is synthesized at promotion and scrubbed of all plan/project-specific detail (task IDs, plan slugs, engagement names, decision dates); it is regenerated content, not hand-maintained prose, so per-article changelogs are replaced by the single global library log."
+        }
+      },
+      "description": "Hook-and-scan-consumable runtime artifact for durable universal-knowledge library articles at _library/<topic>/<article>.md — one concept per file, synthesized by the librarian at promotion and scrubbed of all plan/project-specific detail. The k8s ValidatingAdmissionPolicy paramKind for the library-article type. This contract is the canonical home for the article's size_limits and the routing activation-condition field that the library-index scan reads as the first source for index Description columns. The frontmatter type registration (type: reference) lives in governance/frontmatter-rules.json#types.reference; this contract carries the WHAT-it-contains body-structure and the length governance.",
+      "frontmatter_contract_source": "governance/frontmatter-rules.json#types.reference",
+      "revalidation_interval_days": {
+        "fallback_days": 90,
+        "field": "revalidation_interval_days",
+        "guidance": "Per-article staleness-velocity tier. Fast-moving tool documentation revalidates near 45 days; stable concepts near 270; the freshness scan applies a 90-day fallback when the field is undeclared.",
+        "required": false,
+        "revalidation_interval_days_rationale": "Different knowledge ages at different rates, so a single global staleness window either nags on durable concepts or lets fast-moving tool docs rot; a per-article tier with a safe default keeps the freshness signal trustworthy.",
+        "value_type": "integer"
+      },
+      "routing": {
+        "description": "Activation-condition one-liner ('when to read this'): a precise scope/applicability statement synthesized at promotion. The FIRST source the index Description-derivation chain reads, ahead of description / H1 / first-paragraph.",
+        "field": "routing",
+        "max_chars": 200,
+        "required": true,
+        "routing_rationale": "A net-new activation-condition field, carried by no other shipped contract; it lets an index row state when a reader should open the article rather than restating its title, which is what makes a coverage signal load-bearing at research time.",
+        "value_type": "prose_oneliner"
+      },
+      "size_limits": {
+        "enforcement": "librarian-scan",
+        "enforcement_detail": "Length is enforced by the librarian library-index re-derive scan, which emits an over-threshold finding when an article exceeds the soft budget — NEVER by a write-time guard. No write-time body-structure or line-count guard governs library articles in the runtime.",
+        "hard": 800,
+        "max_lines": 400,
+        "size_limits_rationale": "A soft budget keeps each article one readable concept and an audit-time scan flags overflow without a write-time block, so a long synthesis is never silently truncated and the author decides between splitting and adding a manual table of contents.",
+        "soft": 400,
+        "split_vs_pointer_rule": "An article over the soft budget that is MECE-decomposable is split into per-sub-topic articles; one over the soft budget that is a single-topic narrative gains an in-doc table of contents above the body (never auto-generated)."
+      },
+      "status": "runtime",
+      "title": "library-article (_library/<topic>/<article>.md) runtime body-structure + size contract",
+      "type": "reference",
+      "version": "1.0.0",
+      "write_shape": "replace"
+    },
     "manifest.json": {
       "$id": "brain-stem/governance/file-type-contracts/manifest.json.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1588,8 +1692,8 @@
         "path_routing (was vault-schema.json `_path_rules`; renamed for clarity)"
       ],
       "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
-      "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + Vault Architecture - Frontmatter.md + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
-      "lockstep_pair": "Vault Architecture - Frontmatter.md (narrative spoke) + pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
+      "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + vault-init/System Governance/System Governance - Frontmatter.md + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
+      "lockstep_pair": "vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke) + pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
       "source_dependencies": [
         "../research/vault-construction/frontmatter-design.md",
         "../research/vault-construction/vault-construction-principles.md"
@@ -1635,10 +1739,9 @@
         "category": "S1",
         "coupled_surfaces": [
           "governance/frontmatter-rules.json",
-          "onboarding/scaffold/vault-architecture/Vault Architecture - Frontmatter.md",
+          "vault-init/System Governance/System Governance - Frontmatter.md",
           "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
           "hooks/post-write-verify.sh (type_map)",
-          "hooks/config/gate-config.json (interim)",
           "governance/foundation-master.json (forward; built from this pillar via tools/build-foundation-master.sh)"
         ],
         "enforcement_layer": [
@@ -1649,7 +1752,7 @@
         "home": "meta-block",
         "id": "R-37",
         "meta_rule_reference": "governance/_index.json cross_cutting_meta_rules[] R-37",
-        "rule_text": "The frontmatter pillar binds three coupled surfaces under R-37 atomic lockstep: (1) governance/frontmatter-rules.json (canonical pillar declaring types, tiers, path-routing rules, and rule registry; absorbed the former schemas/vault-schema.json), (2) onboarding/scaffold/vault-architecture/Vault Architecture - Frontmatter.md (narrative spoke), (3) hooks/pre-write-guard.sh SCHEMA_KEY case-statement + hooks/post-write-verify.sh type_map (runtime mirror). Adding, modifying, or retiring a `type:` value, changing a required-field list, introducing a new field class, or updating the tier-compliance contract requires touching ALL THREE surfaces in a single commit. R-37 is documentary — enforced via author discipline at the close-out merge boundary, git's commit-boundary atomicity, and the librarian governance-parity-audit at audit-time. There is no write-time hook branch that denies partial-surface commits (PreToolUse architecture sees one file per invocation and has no view of the multi-file commit set; the proper enforcement layer for that would be a pre-commit or post-merge audit, not pre-write-guard). This entry is the pillar-scoped instantiation of the canonical R-37 meta-rule at governance/_index.json `cross_cutting_meta_rules[]`. The interim coupled-surfaces declaration in governance/_index.json carries hooks/config/gate-config.json (interim) and governance/foundation-master.json (forward).",
+        "rule_text": "The frontmatter pillar binds three coupled surfaces under R-37 atomic lockstep: (1) governance/frontmatter-rules.json (canonical pillar declaring types, tiers, path-routing rules, and rule registry; absorbed the former schemas/vault-schema.json), (2) vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke), (3) hooks/pre-write-guard.sh SCHEMA_KEY case-statement + hooks/post-write-verify.sh type_map (runtime mirror). Adding, modifying, or retiring a `type:` value, changing a required-field list, introducing a new field class, or updating the tier-compliance contract requires touching ALL THREE surfaces in a single commit. R-37 is documentary — enforced via author discipline at the close-out merge boundary, git's commit-boundary atomicity, and the librarian governance-parity-audit at audit-time. There is no write-time hook branch that denies partial-surface commits (PreToolUse architecture sees one file per invocation and has no view of the multi-file commit set; the proper enforcement layer for that would be a pre-commit or post-merge audit, not pre-write-guard). This entry is the pillar-scoped instantiation of the canonical R-37 meta-rule at governance/_index.json `cross_cutting_meta_rules[]`. The coupled-surfaces declaration in governance/_index.json carries governance/foundation-master.json (forward).",
         "source": "governance/frontmatter-rules.json :: _rules (SoT)",
         "status": "active",
         "tier": "2"
@@ -1698,17 +1801,17 @@
           "Skills/**"
         ],
         "category": "C3",
-        "drift_allowlist_path": "hooks/config/drift-allowlist.json",
+        "drift_allowlist_path": "hooks/drift-allowlist.json",
         "enforcement_layer": [
           "librarian frontmatter-coverage-audit (`provides-canonicality-drift` finding category)",
-          "drift-allowlist override at hooks/config/drift-allowlist.json (`provides_overlap[]` for deliberate co-canonical pairs)",
+          "drift-allowlist override at hooks/drift-allowlist.json (`provides_overlap[]` for deliberate co-canonical pairs)",
           "manifest mirror at librarian-manifest.json `drift_findings.provides_canonicality`"
         ],
         "failure_mode": "Two or more canonical-scope files claiming the same `provides:` capability fragment authority. A consumer routing to the capability does not know which file to read; updates to one canonical do not propagate to the other; the two files drift into mutually-contradictory statements within months. Without an audit, the drift is invisible — `grep provides:` returns both files and the consumer picks one by accident. The librarian-audit finding surfaces the collision and asks the operator to either consolidate, archive one source, or register the overlap as deliberate in the drift-allowlist.",
         "home": "frontmatter",
         "id": "R-40",
         "manifest_mirror_path": "librarian-manifest.json drift_findings.provides_canonicality",
-        "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + System Governance/** + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root or inside System Governance/**; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/config/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
+        "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + System Governance/** + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root or inside System Governance/**; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
         "scope_exemptions": [
           "Meetings/** — meeting `provides:` is cross-reference helper, not canonical claim (foundation-shipped folder)",
           "Daily/** — daily notes are temporally-scoped (foundation-shipped folder)"
@@ -1801,7 +1904,7 @@
       }
     },
     "types": {
-      "_description": "Canonical type registry — 6 foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
+      "_description": "Canonical type registry — 7 foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
       "ideation-brief": {
         "_description": "Plan-tree ideation brief files at ~/.claude-plans/<plan>/00-ideation-brief.md. Validated against this type registry as an interim measure; planned relocation to plans pillar type registry as a follow-up.",
         "body_structure_contract": "governance/file-type-contracts/ideation-brief.md.json",
@@ -1886,6 +1989,33 @@
           "tags",
           "processed",
           "updated"
+        ],
+        "tier": "strict"
+      },
+      "reference": {
+        "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime; the only write-time line-count enforcement is the System-Governance-specific max-lines guard. Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template.",
+        "_description": "Durable universal-knowledge library articles at _library/<topic>/<article>.md — one concept per file, synthesized by the librarian at promotion and scrubbed of all plan/project-specific detail. Frontmatter is the activation surface index generators read to route a reader to the article.",
+        "canonical_scope": false,
+        "expected_path": [
+          {
+            "label": "_library/",
+            "pattern": "_library/**"
+          }
+        ],
+        "optional": [
+          "description",
+          "revalidation_interval_days",
+          "supersedes",
+          "depends_on",
+          "contradicts"
+        ],
+        "required": [
+          "type",
+          "tags",
+          "updated",
+          "routing",
+          "sources",
+          "originating_plan"
         ],
         "tier": "strict"
       },
@@ -2474,7 +2604,7 @@
       ]
     },
     "inbox": {
-      "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
+      "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (hooks/lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
       "_slug_pattern_note": "Inbox notes have NO NN- numeric prefix (distinct from plan slugs). The prefix is assigned at graduation, not at capture — avoids prefix burn on discarded ideas.",
       "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation",
       "dir": "_inbox/",
@@ -2576,7 +2706,29 @@
         "manifest.json"
       ]
     },
-    "root_files": {},
+    "root_files": {
+      "_archive.md": {
+        "generated_by": "librarian:plan-archive",
+        "mandatory": true,
+        "writers_allowed": [
+          "librarian"
+        ]
+      },
+      "_backlog.md": {
+        "generated_by": "librarian:backlog-index",
+        "mandatory": true,
+        "writers_allowed": [
+          "librarian"
+        ]
+      },
+      "_index.md": {
+        "generated_by": "librarian:plan-index",
+        "mandatory": true,
+        "writers_allowed": [
+          "librarian"
+        ]
+      }
+    },
     "schema_version": "2.0.0",
     "slug_rules": {
       "pattern": "^[0-9]{2}-[a-z][a-z0-9-]+$",
@@ -2770,7 +2922,6 @@
     }
   },
   "vault_writers": {
-    "$schema": "schemas/vault-writers-rules-schema.json",
     "_description": "Pillar 7 — Vault Writers Rules (operational-config-only). Slimmed to pure operational config per the rule model: the writer-reference SHAPE lives at governance/file-type-contracts/vault-writer.md.json (pillar 6), and the R-58 mandate is authored in governance/mandatory-files-rules.json :: mandates.vault_writer_reference (pillar 4). This pillar carries NO rules — _rules: [].",
     "_design_notes": {
       "consumer": "hooks/pre-write-guard.sh Branch 3 (reads processing_defaults + historical_data_warning_default), skills/writer-reconciler (reads processing_defaults + staging_area)"

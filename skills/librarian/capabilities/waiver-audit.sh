@@ -21,7 +21,7 @@
 #   - --report path matches the baseline pattern `cascade-waiver-audit-*.md`
 #     (baseline preservation contract — the Sub-plan 05 promotion gate needs the
 # Read-only against cascade-waivers.json — audit normalizes shapes on parse,
-# does not rewrite. The canonical writer is ~/.claude/hooks/lib/cascade-waiver.sh.
+# does not rewrite. The canonical writer is ~/.claude/hooks/cascade-waiver.sh.
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail

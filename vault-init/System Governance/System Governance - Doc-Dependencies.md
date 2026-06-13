@@ -59,7 +59,7 @@ Order of checks the system runs when you write any file under the vault:
 3. **Advisory emission.** If any match fired, the hook injects the advisory into the write decision. The decision itself proceeds (no block), but the related-files list now travels with the session.
 4. **Session-close audit.** At session close the librarian re-checks every advisory the session surfaced. If a match fired and the related file was not edited in the same session, the librarian records a cascade-pending finding for review.
 
-A cascade waiver lets you proceed without touching the related file when you have a reason: `source ~/.claude/hooks/lib/cascade-waiver.sh && cascade_waiver_write <entry_id> "<reason>"`. The waiver lands in the run log so the audit trail carries why the divergence is intentional.
+A cascade waiver lets you proceed without touching the related file when you have a reason: `source ~/.claude/hooks/cascade-waiver.sh && cascade_waiver_write <entry_id> "<reason>"`. The waiver lands in the run log so the audit trail carries why the divergence is intentional.
 
 ## Anti-patterns
 

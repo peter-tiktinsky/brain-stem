@@ -123,10 +123,45 @@
         "rationale": "Key-role types listed before supporting types makes load-priority signal explicit; convention not enforced as DENY — Tier 3 --deep audit flags drift for hand-tune review"
       },
       "light_content_fallback": {
-        "condition": "folder carries fewer than 3 child .md files of distinct types",
+        "condition": "folder carries fewer than 3 child .md files AND fewer than 3 distinct frontmatter types among them",
+        "condition_semantics": "Both predicates must hold (logical AND): the prose fallback fires only when file_count < 3 AND distinct_type_count < 3. A folder with 3+ files, or 3+ distinct types, renders the full sentinel table.",
         "alternative": "prose 'Current Contents' section replaces the table",
-        "rationale": "Table enumeration is premature when folder has very few children; prose is more readable"
+        "rationale": "Table enumeration is premature when a folder has very few children AND little type variety; prose is more readable. The AND reading keeps a small-but-type-diverse folder on the table, where the Type column is the load-bearing routing signal"
       }
+    },
+    "root_index_adaptation": {
+      "applies_to": "the library-root _index.md only (the topic-roster index), NOT a per-topic folder _index.md",
+      "rationale": "The root index is a roster of TOPICS, not a list of files. One row aggregates a whole topic's member articles into a single topic-scope routing line, so the standard per-file columns are re-headed to read as a topic roster. This is the authorized root-level adaptation of the contents-enum table.",
+      "header_row": "| Topic | Articles | Type | Description |",
+      "separator_row": "|---|---|---|---|",
+      "row_cardinality": "one row per topic (aggregated routing), NOT one row per file",
+      "columns": [
+        {
+          "position": 1,
+          "name": "Topic",
+          "value_type": "wikilink",
+          "derivation": "the topic directory name rendered as an Obsidian wikilink to that topic's _index.md"
+        },
+        {
+          "position": 2,
+          "name": "Articles",
+          "value_type": "integer",
+          "derivation": "count of member article .md files in the topic folder"
+        },
+        {
+          "position": 3,
+          "name": "Type",
+          "value_type": "literal",
+          "derivation": "the constant 'index' (each row points at a topic _index.md)"
+        },
+        {
+          "position": 4,
+          "name": "Description",
+          "value_type": "prose_oneliner",
+          "max_chars": 200,
+          "derivation": "topic-scope activation line synthesized by aggregating member-article routing (1:many); an optional trailing staleness marker '(updated <date>)' is appended when a library log records a write to that topic"
+        }
+      ]
     }
   },
 
@@ -149,7 +184,7 @@
       "name": "index-maintain.sh",
       "type": "librarian-capability",
       "status": "new-capability",
-      "contract_path": "governance/librarian-capabilities/index-maintain.md",
+      "contract_path": "skills/librarian/capabilities/index-maintain.sh",
       "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)",
       "implementation_target": "skills/librarian/capabilities/index-maintain.sh"
     }

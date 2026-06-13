@@ -1,15 +1,11 @@
 #!/bin/bash
 # new-plan.sh — The ONE collapsed plan scaffolder (research-skip mode entrypoint).
-#
-# ONE canonical scaffolder, multiple modes. /new-plan is the
 # research-skip mode; /backlog-research is the research-backed mode (peer skill).
-# The flat depth-2 quartet is the DEFAULT emission; --master is OPT-IN (never
 # auto-emitted); --add-subplan adds a sub-plan to an existing master.
-#
 # Modes:
 #   (default)        Emit the flat depth-2 quartet at ~/.claude-plans/NN-<slug>/:
 #                    spec.md + tasks.md + handoff.md + manifest.json + the
-#                    placeholder 00-ideation-brief.md. type:plan.
+#                    placeholder 00-ideation-brief.md (DEFAULT). type:plan.
 #   --master         Emit the master quartet (from templates/master-*.tmpl) +
 #                    the first sub-plan quartet (from templates/sub-*.tmpl) at
 #                    NN-<slug>/ and NN-<slug>/01-<sub-slug>/. OPT-IN only.
@@ -17,28 +13,28 @@
 #                    an existing master and register it in the master's
 #                    sub_plans[] aggregate skeleton. The librarian reconciler does
 #                    the pull-based status fill, NOT this scaffolder.
-#
-# NOT built:
-#   - flat->master graduation (designed-but-deferred; see SKILL.md).
-#   - --promote-master (no such flag exists; --add-subplan is the only
+# NOT built (charter — NOT minted):
+#   - flat->master graduation (DESIGNED-BUT-DEFERRED; see SKILL.md).
+#   - --promote-master (— no such flag exists; --add-subplan is the only
 #     sub-emit path).
-#
 # Failure mode is BLOCK-AND-LOG (never write-and-hope): all validation runs before
 # any write; a mid-scaffold failure rolls back the created directory.
-#
 # CLI:
-#   new-plan.sh <slug> [--section <backlog-section>] [--title <title>] [--force-slug]
-#   new-plan.sh --master <slug> --sub <sub-slug> [--sub-title <title>] [--title <title>] [--force-slug]
+#   new-plan.sh <slug> [--section <backlog-section>] [--title <title>] [--project <spoke-key>] [--force-slug]
+#   new-plan.sh --master <slug> --sub <sub-slug> [--sub-title <title>] [--title <title>] [--project <spoke-key>] [--force-slug]
 #   new-plan.sh --add-subplan <master-NN-slug> --sub <sub-slug> [--sub-title <title>]
 #   new-plan.sh --dry-run ...        # compute + emit; no write
 #   new-plan.sh --help
-#
+# Identity field-triad (R-ARCH-PID): the scaffolded manifest stamps `title:` (human
+# display name), `project:` (the owning-spoke machine identity, resolved from the
+# session cwd through the anchored-spoke registry — NEVER the bare title), and
+# `parent_plan:` (lineage, on sub-plans). --project <spoke-key> overrides the
+# auto-resolved spoke (must be a registered key; collision-safe per R-ARCH-13/14).
 # Env overrides:
 #   PLANS_ROOT     Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
 #                  else $HOME/.claude-plans.
 #   TEMPLATES_DIR  Quartet template source (default: this skill's templates/).
-#
-# Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (no stdin pipe to the heredoc).
+# Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 / feedback_python_heredoc_argv.
 
 set -euo pipefail
 
@@ -49,12 +45,22 @@ if [[ -z "${PLANS_DIR:-}" ]]; then
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null || true
 fi
 
+# Spoke-key resolver (R-ARCH-13/14): prefer the live install, fall back to this
+# skill's lib/ copy (dev-repo / test isolation).
+for _sr in \
+  "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh" \
+  "$SCRIPT_DIR/lib/spoke-resolve.sh"; do
+  # shellcheck source=/dev/null
+  if [[ -f "$_sr" ]]; then source "$_sr"; break; fi
+done
+
 MODE="flat"            # flat | master | add-subplan
 SLUG=""                # plan slug (flat/master) OR master NN-slug (add-subplan)
 SUB_SLUG=""
 TITLE_OVERRIDE=""
 SUB_TITLE_OVERRIDE=""
 SECTION="Vault & Infrastructure"
+PROJECT_OVERRIDE=""
 FORCE_SLUG="false"
 DRY_RUN="false"
 
@@ -67,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --sub)          SUB_SLUG="${2:-}"; shift 2 ;;
     --sub-title)    SUB_TITLE_OVERRIDE="${2:-}"; shift 2 ;;
     --title)        TITLE_OVERRIDE="${2:-}"; shift 2 ;;
+    --project)      PROJECT_OVERRIDE="${2:-}"; shift 2 ;;
     --section)      SECTION="${2:-}"; shift 2 ;;
     --force-slug)   FORCE_SLUG="true"; shift ;;
     --dry-run)      DRY_RUN="true"; shift ;;
@@ -103,8 +110,22 @@ if [[ ! -d "$TMPL_DIR" ]]; then
   exit 1
 fi
 
+# Resolve the owning-spoke key (R-ARCH-13/14). --project overrides the cwd
+# auto-resolution; either way the value must be a registered spoke key. A
+# collision (two anchors → one key) or an unrecognized override BLOCKS here,
+# before any write (block-and-log).
+if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
+  echo "new-plan: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
+  exit 1
+fi
+if [[ -n "$PROJECT_OVERRIDE" ]]; then
+  SPOKE_KEY="$(spoke_validate_override "$PROJECT_OVERRIDE")" || exit 1
+else
+  SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
+fi
+
 python3 - "$MODE" "$SLUG" "$SUB_SLUG" "$TITLE_OVERRIDE" "$SUB_TITLE_OVERRIDE" \
-  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" <<'PY'
+  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" "$SPOKE_KEY" <<'PY'
 import json
 import os
 import re
@@ -114,7 +135,7 @@ import tempfile
 from datetime import date
 
 (mode, slug, sub_slug, title_override, sub_title_override,
- force_slug, dry_run, plans_root, tmpl_dir) = sys.argv[1:10]
+ force_slug, dry_run, plans_root, tmpl_dir, spoke_key) = sys.argv[1:11]
 force_slug = force_slug == "true"
 dry_run = dry_run == "true"
 today = date.today().isoformat()
@@ -203,11 +224,9 @@ def write_atomic(plan_dir, files):
         abort("scaffold write failed (%s); rolled back" % exc)
 
 
-# ---------------------------------------------------------------------------
 # FLAT default emission. Inline bodies (the roster authorizes only the 8
 # master/sub .tmpl + the brief template; the flat quartet is emitted inline here,
 # mirroring the live /new-plan inline-manifest pattern). type:plan, no parent_plan.
-# ---------------------------------------------------------------------------
 def flat_files(title, plan_dir):
     spec = (
         "---\n"
@@ -257,7 +276,7 @@ def flat_files(title, plan_dir):
         "## Status Key\n\n"
         "`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
         "<!-- ledger-at-top + per-task-at-bottom; tasks:start/end sentinel bounds the "
-        "librarian:tasks-render region. Task-state SoT = manifest.tasks[]. R-37 lockstep. -->\n\n"
+        "librarian:tasks-render region. Task-state SoT = manifest.tasks[] (). R-37 lockstep. -->\n\n"
         "<!-- tasks:start -->\n\n"
         "## Task ledger\n\n"
         "| ID | Title | Status | Depends on | Notes |\n"
@@ -305,7 +324,8 @@ def flat_files(title, plan_dir):
 
     manifest = {
         "schema_version": 1,
-        "project": title,
+        "title": title,
+        "project": spoke_key,
         "spec_path": os.path.join(plan_dir, "spec.md"),
         "architecture_path": None,
         "type": "plan",
@@ -342,7 +362,7 @@ def flat_files(title, plan_dir):
 
 def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief):
     """Render the sub-plan quartet from templates/sub-*.tmpl into plan_dir-relative files."""
-    kw = dict(title=title, date=today, plan_dir=plan_dir,
+    kw = dict(title=title, date=today, plan_dir=plan_dir, spoke_key=spoke_key,
               parent_plan=parent_plan, sub_plan_id=sub_plan_id, slug=sub_slug)
     files = {
         "spec.md": render(tmpl("sub-spec.md.tmpl"), **kw),
@@ -357,7 +377,6 @@ def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief
     return files
 
 
-# ===========================================================================
 if mode == "flat":
     check_slug(slug, "slug")
     coll = base_slug_collision(plans_root, slug)
@@ -375,11 +394,11 @@ if mode == "flat":
     files = flat_files(title, plan_dir)
     if dry_run:
         print("new-plan: dry-run flat — would create %s (%d files)" % (plan_dir, len(files)), file=sys.stderr)
-        print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "files": sorted(files)}))
+        print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "files": sorted(files)}))
         sys.exit(0)
     write_atomic(plan_dir, files)
     print("new-plan: created flat plan %s (%d files)" % (plan_slug, len(files)), file=sys.stderr)
-    print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "plan_dir": plan_dir}))
+    print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "plan_dir": plan_dir}))
 
 elif mode == "master":
     check_slug(slug, "master slug")
@@ -400,7 +419,8 @@ elif mode == "master":
     m_title = title_override.strip() or title_case(slug)
     s_title = sub_title_override.strip() or title_case(sub_slug)
 
-    m_kw = dict(title=m_title, date=today, plan_dir=master_dir, first_sub_slug=sub_slug, slug=slug)
+    m_kw = dict(title=m_title, date=today, plan_dir=master_dir, spoke_key=spoke_key,
+                first_sub_slug=sub_slug, slug=slug)
     master_files = {
         "spec.md": render(tmpl("master-spec.md.tmpl"), **m_kw),
         "tasks.md": render(tmpl("master-tasks.md.tmpl"), **m_kw),
@@ -441,6 +461,12 @@ elif mode == "add-subplan":
         master = json.load(fh)
     if master.get("type") != "master":
         abort("target manifest type is '%s', expected 'master' (use --master to create one)" % master.get("type"))
+
+    # The new sub-plan inherits the master's owning-spoke key (same project; the
+    # cwd-resolved key is for fresh-tree creation, not for joining an existing
+    # lineage). Fall back to the cwd-resolved spoke_key if the master predates
+    # the field-triad migration.
+    spoke_key = master.get("project") or spoke_key
 
     existing = master.get("sub_plans", []) or []
     # next sub_plan_id = execution-order ordinal (not creation order; here = max+1)

@@ -1,13 +1,11 @@
 #!/bin/bash
 # placement-validate — Check that every file is in the correct location per routing rules.
-#
 # Sources `lib/findings.sh`.
-#
 # Rules per SKILL.md:
 #   1. Vault root allowlist: CLAUDE.md, System Governance.md (foundation
 #      ships only these two; System Backlog.md + System Backlog - Archive.md
-#      retired — backlog lifecycle is now
-# librarian-owned at ~/.claude-plans/_backlog.md per
+#      retired per T-15 Tier B 2026-05-22 — backlog lifecycle now
+#      librarian-owned at ~/.claude-plans/_backlog.md per
 #      governance/plans-rules.json :: root_files).
 #   2. Project folders: only `{Project} - *.md` + `_index.md` + `File-Index.md`
 #   3. People files: must be in <cluster_folder>/*/People/ (read from manifest.vault.cluster_folder;
@@ -18,17 +16,14 @@
 #   6. Reference/ (Tier 1): no engagement-specific files
 #   7. Logs/ allowed patterns: dated logs + build-* + ideation-brief-* symlinks
 #      (frontmatter-enforce must skip ideation-brief-*.md)
-#
 # Index File Convention (always allowed):
 #   - _index.md at any directory root
 #   - File-Index.md at cluster + project roots
 #   - Logs/ideation-brief-*.md (symlinks to plan-tree ideation briefs)
-#
 # CLI:
 #   placement-validate.sh                     # emit findings
 #   placement-validate.sh --scope <path>      # narrow scope
 #   placement-validate.sh --dry-run           # summary counts only
-#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -108,7 +103,7 @@ def emit(payload):
         sys.stdout.write(line + "\n")
 
 # Vault root allowlist (CLAUDE.md + System Governance.md per foundation
-# ship; System Backlog entries retired)
+# ship; System Backlog entries retired per T-15 Tier B 2026-05-22)
 # + index-file convention.
 VAULT_ROOT_ALLOWLIST = {
     "CLAUDE.md", "System Governance.md",
@@ -265,7 +260,7 @@ PY
 
 # Persist the placement summary subtree to the librarian-manifest. This makes
 # the registry's declared writes_manifest_subtree: "drift_findings.placement"
-# real (fix), mirroring xref-check.sh's manifest_set.
+# real (3-notwired-swallowed-2 fix), mirroring xref-check.sh's manifest_set.
 # Review-hardening (empty-VAULT_LOGS contract): a manifest write needs a
 # configured vault — with empty VAULT_LOGS the manifest_set lockfile resolves to
 # '/.coordination/manifest.lock' (uncreatable) and the helper raises under set -e,
@@ -277,14 +272,16 @@ if [[ -n "${VAULT_LOGS:-}" && -s "$MANIFEST_SUBTREE_OUT" ]]; then
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"
 
-# === R-15 promotion: RETIRED 2026-05-22 per Tier B ===============
+# === R-15 promotion: RETIRED 2026-05-22 per T-15 Tier B ===============
 # The backlog-row-missing session-close finding was the librarian-side R-15
 # promotion (lockstep peer with hooks/pre-write-guard.sh R-15 PL_CONTEXT
 # injection retired in the same commit set). Backlog lifecycle now
 # librarian-owned at ~/.claude-plans/_backlog.md per
 # governance/plans-rules.json :: root_files (writers_allowed=[librarian];
 # generated_by=librarian:backlog-index). The librarian:backlog-index
-# capability contract (governance/librarian-capabilities/backlog-index.md)
-# owns row presence/absence findings via its `backlog-row-missing-disposition`
+# capability contract lives in the registry
+# (skills/librarian/capability-registry.json :: backlog-index.output_contract;
+# the finding is emitted by capabilities/backlog-index.sh) and owns row
+# presence/absence findings via its `backlog-row-missing-disposition`
 # finding category — no parallel finding needed here.
 # === end R-15 promotion ======================================================

@@ -89,6 +89,13 @@
       "owner_cron": null,
       "first_registered_at": "2026-05-12",
       "description": "Inventory-walk outputs (vault filesystem inventory, manifest regeneration runs, packet-coverage scans)."
+    },
+    {
+      "subtype": "library-change",
+      "owner_skill": "librarian",
+      "owner_cron": null,
+      "first_registered_at": "2026-06-12",
+      "description": "Global library change-log entries (_library/log.md): one ISO-timestamped line per promotion/amend/supersede event (INGEST | UPDATE | AUDIT | LINT | PROMOTE | SUPERSEDE). Appended by the library-log-append hook; rotated to log-archive/<YYYY>.md by the library-log-rotate librarian capability. Registered at first emission per this registry's evolution protocol."
     }
   ],
   "status_subtypes": [

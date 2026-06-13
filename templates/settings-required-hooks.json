@@ -58,6 +58,12 @@
       "timeout": 5
     },
     {
+      "event": "UserPromptSubmit",
+      "matcher": null,
+      "command": "~/.claude/hooks/pre-research-check.sh",
+      "timeout": 5
+    },
+    {
       "event": "SessionStart",
       "matcher": null,
       "command": "~/.claude/hooks/session-register.sh"

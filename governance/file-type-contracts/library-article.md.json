@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/governance/file-type-contracts/library-article.md.json",
+  "title": "library-article (_library/<topic>/<article>.md) runtime body-structure + size contract",
+  "description": "Hook-and-scan-consumable runtime artifact for durable universal-knowledge library articles at _library/<topic>/<article>.md — one concept per file, synthesized by the librarian at promotion and scrubbed of all plan/project-specific detail. The k8s ValidatingAdmissionPolicy paramKind for the library-article type. This contract is the canonical home for the article's size_limits and the routing activation-condition field that the library-index scan reads as the first source for index Description columns. The frontmatter type registration (type: reference) lives in governance/frontmatter-rules.json#types.reference; this contract carries the WHAT-it-contains body-structure and the length governance.",
+  "version": "1.0.0",
+  "status": "runtime",
+  "frontmatter_contract_source": "governance/frontmatter-rules.json#types.reference",
+  "_design_notes": {
+    "consumer": "skills/librarian/capabilities/library-scrub.sh emits the article at promotion (synthesizes the routing one-liner + scrubbed body); skills/librarian/capabilities/library-index.sh reads size_limits at the audit-time re-derive scan to emit the over-threshold finding and consumes routing as the first Description-derivation source. The templates/library-article.md scaffold instantiates this contract.",
+    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.reference (the type registration) + the vault-init/System Governance/System Governance - Frontmatter.md narrative spoke + the hook SCHEMA_KEY dispatch + governance/foundation-master.json forward-composed move in one commit.",
+    "type_registration_rationale": "The article type is registered via the frontmatter pillar, not the tagging pillar; frontmatter is the activation surface the index generators read to route a reader to the article."
+  },
+
+  "type": "reference",
+  "applies_to": {
+    "path_glob": "~/.claude-plans/_library/**/*.md"
+  },
+
+  "routing": {
+    "required": true,
+    "field": "routing",
+    "value_type": "prose_oneliner",
+    "max_chars": 200,
+    "description": "Activation-condition one-liner ('when to read this'): a precise scope/applicability statement synthesized at promotion. The FIRST source the index Description-derivation chain reads, ahead of description / H1 / first-paragraph.",
+    "routing_rationale": "A net-new activation-condition field, carried by no other shipped contract; it lets an index row state when a reader should open the article rather than restating its title, which is what makes a coverage signal load-bearing at research time."
+  },
+
+  "revalidation_interval_days": {
+    "required": false,
+    "field": "revalidation_interval_days",
+    "value_type": "integer",
+    "fallback_days": 90,
+    "guidance": "Per-article staleness-velocity tier. Fast-moving tool documentation revalidates near 45 days; stable concepts near 270; the freshness scan applies a 90-day fallback when the field is undeclared.",
+    "revalidation_interval_days_rationale": "Different knowledge ages at different rates, so a single global staleness window either nags on durable concepts or lets fast-moving tool docs rot; a per-article tier with a safe default keeps the freshness signal trustworthy."
+  },
+
+  "size_limits": {
+    "max_lines": 400,
+    "soft": 400,
+    "hard": 800,
+    "enforcement": "librarian-scan",
+    "enforcement_detail": "Length is enforced by the librarian library-index re-derive scan, which emits an over-threshold finding when an article exceeds the soft budget — NEVER by a write-time guard. No write-time body-structure or line-count guard governs library articles in the runtime.",
+    "split_vs_pointer_rule": "An article over the soft budget that is MECE-decomposable is split into per-sub-topic articles; one over the soft budget that is a single-topic narrative gains an in-doc table of contents above the body (never auto-generated).",
+    "size_limits_rationale": "A soft budget keeps each article one readable concept and an audit-time scan flags overflow without a write-time block, so a long synthesis is never silently truncated and the author decides between splitting and adding a manual table of contents."
+  },
+
+  "body_structure": {
+    "h1": {
+      "required": true,
+      "level": 1,
+      "match_rule": "the H1 is the concept name (one concept per file)",
+      "rationale": "The single top-level heading names the durable concept the article carries; bare-wikilink cross-references resolve against the basename, which mirrors this concept name."
+    },
+    "leading_section_index": {
+      "forbidden": true,
+      "rationale": "A leading in-document section index is forbidden; the article is short enough that a reader scans the body directly, and an auto-generated index drifts from hand-edited prose."
+    },
+    "in_document_toc": {
+      "permitted_above_soft_budget_only": true,
+      "soft_budget_lines": 400,
+      "auto_generated": false,
+      "rationale": "An in-doc table of contents is permitted only when the article exceeds the soft budget and is not decomposable, and it is authored by hand, never auto-generated."
+    },
+    "sibling_wikilinks_at_foot": {
+      "form": "bare",
+      "value_pattern": "^\\[\\[[^\\[\\]|]+\\]\\]$",
+      "placement": "at the foot of the body",
+      "rationale": "Sibling articles are cross-referenced with bare wikilinks at the foot for backlink-graph value; basename uniqueness backs the bare form, and the basename-collision scan guards it."
+    },
+    "synthesized_body": {
+      "rationale": "The body is synthesized at promotion and scrubbed of all plan/project-specific detail (task IDs, plan slugs, engagement names, decision dates); it is regenerated content, not hand-maintained prose, so per-article changelogs are replaced by the single global library log."
+    }
+  },
+
+  "write_shape": "replace"
+}

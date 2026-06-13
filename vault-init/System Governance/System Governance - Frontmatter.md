@@ -3,7 +3,7 @@ type: system-governance-spoke
 title: System Governance - Frontmatter
 mirrors_pillar: frontmatter
 description: How the system reads YAML frontmatter on every vault file — the three compliance tiers, the foundation type registry, the folder-lineage convention, and how foundation defaults combine with your overlay at write time.
-updated: 2026-06-01
+updated: 2026-06-12
 tags: ["#scope/reference"]
 ---
 
@@ -42,8 +42,11 @@ Foundation ships a small set of types — only those that have a foundation cons
 | `vault-writer` | Strict | `type`, `writer_name`, `writer_kind`, `writer_skill`, `destinations`, `status`, `created`, `updated`, `tags` | `Vault Writers/` |
 | `log` | Strict | `type`, `log-type`, `date`, `timestamp` | `Logs/` (and `Archive/Logs/`) |
 | `ideation-brief` | Strict | `type`, `title`, `created`, `updated` | plan-tree (`~/.claude-plans/<plan>/00-ideation-brief.md`) |
+| `reference` | Strict | `type`, `tags`, `updated`, `routing`, `sources`, `originating_plan` | `_library/` |
 
-Three fields are universal across every Strict type: `type`, `tags`, `updated`. The other entries declare additional required fields per their purpose (a meeting note needs attendees and a date; a writer descriptor declares its source and destinations; a log file declares its operational subtype).
+Three fields are universal across every Strict type: `type`, `tags`, `updated`. The other entries declare additional required fields per their purpose (a meeting note needs attendees and a date; a writer descriptor declares its source and destinations; a log file declares its operational subtype; a reference article declares the `routing:` line that says when to read it, the `sources:` it was synthesized from, and the `originating_plan:` that promoted it).
+
+The `reference` type is the durable knowledge-library article — one concept per file, synthesized and kept current by the librarian, scrubbed of plan- and project-specific detail so it reads as universal. A reference article carries no leading in-document section index and no auto-generated table of contents; its body shape is checked by the librarian's library scans, not at write time.
 
 Plan-tree files other than `ideation-brief` — `spec.md`, `tasks.md`, `handoff.md`, `manifest.json` — are governed by the plans pillar, not by this registry. They have their own body-structure contracts and write-time rules; the plans pillar's slice in `foundation-master.json` carries them.
 

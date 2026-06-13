@@ -122,7 +122,29 @@
       "failure_mode": "n/a (retired tombstone)"
     }
   ],
-  "root_files": {},
+  "root_files": {
+    "_index.md": {
+      "mandatory": true,
+      "generated_by": "librarian:plan-index",
+      "writers_allowed": [
+        "librarian"
+      ]
+    },
+    "_backlog.md": {
+      "mandatory": true,
+      "generated_by": "librarian:backlog-index",
+      "writers_allowed": [
+        "librarian"
+      ]
+    },
+    "_archive.md": {
+      "mandatory": true,
+      "generated_by": "librarian:plan-archive",
+      "writers_allowed": [
+        "librarian"
+      ]
+    }
+  },
   "plan_folder_quartet": {
     "required": [
       "spec.md",
@@ -239,7 +261,7 @@
     "_stale_advisory_days_note": "[advisory_threshold, escalation_threshold] in days for a backlog row missing a disposition. backlog-index emits backlog-row-missing-disposition once per run; backlog-hygiene escalates severity Warning->Alert by stale_for_days against these thresholds (R-56)."
   },
   "inbox": {
-    "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
+    "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (hooks/lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
     "dir": "_inbox/",
     "note_glob": "_inbox/*.md",
     "writers_allowed": [

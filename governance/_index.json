@@ -27,10 +27,9 @@
       "absorbs": "types{} registry + tier_compliance + packet_only_fields + excluded_fields + retired_types + path_routing (absorbed from dissolved schemas/vault-schema.json)",
       "r37_coupled_surfaces": [
         "governance/frontmatter-rules.json",
-        "onboarding/scaffold/vault-architecture/System Governance - Frontmatter.md",
+        "vault-init/System Governance/System Governance - Frontmatter.md",
         "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
         "hooks/post-write-verify.sh (type_map)",
-        "hooks/config/gate-config.json (interim)",
         "governance/foundation-master.json (forward — composed from this pillar via tools/build-foundation-master.sh)"
       ]
     },
@@ -51,10 +50,9 @@
       "absorbs": "canonical tag-prefix taxonomy (absorbed from dissolved schemas/vault-schema._tag_prefixes + _tag_prefixes_meta)",
       "r37_coupled_surfaces": [
         "governance/tagging-rules.json",
-        "onboarding/scaffold/vault-architecture/System Governance - Tagging.md",
+        "vault-init/System Governance/System Governance - Tagging.md",
         "hooks/pre-write-guard.sh (tag-validation branch)",
         "governance/log-subtype-registry.json (system-utility canonicality discipline)",
-        "hooks/config/gate-config.json (interim)",
         "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
       ]
     },
@@ -73,7 +71,13 @@
       "loaded_by": [
         "pre-write-guard.sh"
       ],
-      "spoke": "Naming.md"
+      "spoke": "Naming.md",
+      "r37_coupled_surfaces": [
+        "governance/naming-rules.json",
+        "vault-init/System Governance/System Governance - Naming.md",
+        "hooks/pre-write-guard.sh (R-04 vault-root-allowlist branch — known_roots check)",
+        "governance/foundation-master.json (forward — composed naming slot)"
+      ]
     },
     {
       "id": "mandatory-files",
@@ -95,7 +99,7 @@
       "r37_coupled_surfaces": [
         "governance/mandatory-files-rules.json",
         "governance/file-type-contracts/*.json (registry pattern)",
-        "onboarding/scaffold/vault-architecture/System Governance - Mandatory-Files.md",
+        "vault-init/System Governance/System Governance - Mandatory-Files.md",
         "hooks/post-write-verify.sh (auto-bootstrap)",
         "skills/librarian/capabilities/index-maintain.sh",
         "governance/foundation-master.json (forward)"
@@ -116,9 +120,7 @@
       "spoke": "Doc-Dependencies.md",
       "r37_coupled_surfaces": [
         "governance/doc-dependencies.json",
-        "schemas/doc-dependencies-schema.json (validator)",
         "hooks/pre-write-guard.sh (cascade propagation)",
-        "hooks/config/doc-dependencies.json (interim — retires)",
         "governance/foundation-master.json (forward)"
       ]
     },
@@ -136,7 +138,7 @@
       "r37_coupled_surfaces": [
         "governance/file-type-contracts/*.json",
         "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
-        "onboarding/scaffold/vault-architecture/System Governance - File-Type-Contracts.md (forward)",
+        "vault-init/System Governance/System Governance - File-Type-Contracts.md (forward)",
         "hooks/pre-write-guard.sh (body-structure validation lookup)",
         "hooks/post-write-verify.sh (body-structure validation)",
         "templates/{spec,tasks,handoff,ideation-brief}-template.md (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
@@ -155,12 +157,11 @@
         "hooks/pre-write-guard.sh",
         "skills/writer-reconciler"
       ],
-      "spoke": "Vault-Writers.md",
+      "spoke": null,
+      "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
       "r37_coupled_surfaces": [
         "governance/vault-writers-rules.json",
-        "schemas/vault-writers-rules-schema.json",
         "governance/file-type-contracts/vault-writer.md.json (writer-reference SHAPE)",
-        "schemas/processing-rules-schema.json (folder-level overrides)",
         "hooks/pre-write-guard.sh (branch #3 vault-writers-writer-reference-only + branch #2 historical-data-warning fallback)",
         "skills/writer-reconciler (consumes processing_defaults + staging_area)",
         "governance/foundation-master.json (forward — composed vault_writers slot)"
@@ -187,27 +188,24 @@
         "skills/librarian/capabilities/plan-archive.sh",
         "skills/librarian/capabilities/backlog-index.sh"
       ],
-      "spoke": "Plans.md",
+      "spoke": null,
+      "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
       "r37_coupled_surfaces": [
         "governance/plans-rules.json (carries the inbox block + _status_model_note; backlog_row.stale_advisory_days; the decision_records convention)",
-        "schemas/plans-rules-schema.json",
         "schemas/plan-manifest-schema.json (manifest.json validator with conditional fields; optional decision_records[])",
         "hooks/pre-write-guard.sh (R-27 status header + R-28 parent_plan + branch #4 librarian-only writes; the R-40-block spec.md status-line single-enum advisory)",
         "governance/file-type-contracts/adr.md.json (ADR decision-record body-structure contract; matcher convention = plans-rules.json :: decision_records, manifest pointer = plan-manifest-schema.json :: decision_records[]; reciprocal pointer in the file-type-contracts pillar)",
         "skills/librarian/capabilities/tasks-render.sh (renders manifest.tasks[] → tasks.md read-replica; mirrors backlog-index.sh, sentinel-bounded survivorship + --check parity)",
-        "governance/librarian-capabilities/tasks-render.md (capability contract)",
-        "lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
+        "hooks/lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
         "skills/librarian/capabilities/plan-index.sh (consumes lifecycle.status_enum + root_files)",
         "skills/librarian/capabilities/plan-archive.sh (consumes lifecycle.status_transitions.closed_to_archived)",
         "skills/librarian/capabilities/backlog-index.sh (renders {researching,planned} manifests + _inbox/*.md idea notes into the unified _backlog.md)",
-        "skills/backlog-research/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
+        "skills/new-plan/lib/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
         "templates/idea-note-template.md (inbox capture template)",
         "templates/{spec,tasks,handoff,ideation-brief}-template.md (plan-quartet templates; authored-to-contract — see file-type-contracts pillar coupling)",
         "skills/backlog-triage/SKILL.md (captures/classifies _inbox/<slug>.md idea notes; consumes inbox.funnel_status_enum + backlog_row.disposition_enum)",
         "skills/backlog-research/SKILL.md (reads triaged inbox notes + {researching} manifests; --promote graduation; never hand-writes _backlog.md)",
         "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index + archival → plan-archive; consumes backlog_row.stale_advisory_days)",
-        "governance/librarian-capabilities/backlog-index.md (capability contract)",
-        "governance/librarian-capabilities/plan-archive.md (capability contract)",
         "governance/foundation-master.json (forward — composed plans slot)"
       ]
     }

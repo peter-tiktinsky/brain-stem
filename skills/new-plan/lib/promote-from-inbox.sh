@@ -26,12 +26,17 @@
 # NDJSON findings (FINDINGS_OUTPUT or stdout):
 #   idea-graduated (event) | promote-aborted (event) | idea-captured (event)
 # CLI:
-#   promote-from-inbox.sh <inbox-slug>              # graduate the note
-#   promote-from-inbox.sh <inbox-slug> --title "X"  # override rendered title
-#   promote-from-inbox.sh <inbox-slug> --dry-run    # compute + emit; no write
-#   promote-from-inbox.sh --capture <slug>          # (A): version-on-collision capture
+#   promote-from-inbox.sh <inbox-slug>                  # graduate the note
+#   promote-from-inbox.sh <inbox-slug> --title "X"      # override rendered title
+#   promote-from-inbox.sh <inbox-slug> --project <key>  # override owning-spoke (R-ARCH-14)
+#   promote-from-inbox.sh <inbox-slug> --dry-run        # compute + emit; no write
+#   promote-from-inbox.sh --capture <slug>              # (A): version-on-collision capture
 #   promote-from-inbox.sh --capture <slug> --title "X"
 #   promote-from-inbox.sh --help
+# Identity field-triad (R-ARCH-PID): the graduated manifest stamps `title:` (human
+# display name, from the inbox note title) and `project:` (the owning-spoke machine
+# identity, resolved from the session cwd through the anchored-spoke registry — NEVER
+# the bare title). --project <spoke-key> overrides the auto-resolved spoke.
 # Env overrides:
 #   PLANS_ROOT             Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
 #                          else $HOME/.claude-plans.
@@ -52,15 +57,26 @@ if [[ -z "${PLANS_DIR:-}" ]]; then
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null || true
 fi
 
+# Spoke-key resolver (R-ARCH-13/14): prefer the live install, fall back to this
+# skill's lib/ copy (dev-repo / test isolation). This lib lives alongside us.
+for _sr in \
+  "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh" \
+  "$SCRIPT_DIR/spoke-resolve.sh"; do
+  # shellcheck source=/dev/null
+  if [[ -f "$_sr" ]]; then source "$_sr"; break; fi
+done
+
 ACTION="promote"      # promote | capture
 DRY_RUN="false"
 TITLE_OVERRIDE=""
+PROJECT_OVERRIDE=""
 SLUG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --capture) ACTION="capture"; SLUG="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     --title) TITLE_OVERRIDE="${2:-}"; shift 2 ;;
+    --project) PROJECT_OVERRIDE="${2:-}"; shift 2 ;;
     -h|--help) /usr/bin/sed -n '2,52p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "promote-from-inbox: unknown flag '$1'" >&2; exit 2 ;;
     *) if [[ -z "$SLUG" ]]; then SLUG="$1"; else echo "promote-from-inbox: unexpected arg '$1'" >&2; exit 2; fi; shift ;;
@@ -124,7 +140,25 @@ if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
   exit 1
 fi
 
-python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" <<'PY'
+# Resolve the owning-spoke key (R-ARCH-13/14) for the graduation path. --project
+# overrides the cwd auto-resolution; either way the value must be a registered
+# spoke key. A collision or unrecognized override BLOCKS here, before any write.
+# (capture writes only an _inbox idea note — no manifest — so the spoke key is
+# resolved unconditionally but consumed only on graduation.)
+SPOKE_KEY=""
+if [[ "$ACTION" == "promote" ]]; then
+  if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
+    echo "promote-from-inbox: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
+    exit 1
+  fi
+  if [[ -n "$PROJECT_OVERRIDE" ]]; then
+    SPOKE_KEY="$(spoke_validate_override "$PROJECT_OVERRIDE")" || exit 1
+  else
+    SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
+  fi
+fi
+
+python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" "$SPOKE_KEY" <<'PY'
 import json
 import os
 import re
@@ -140,6 +174,7 @@ tmpl_dir = sys.argv[4]
 rules_path = sys.argv[5]
 slug = sys.argv[6]
 title_override = sys.argv[7]
+spoke_key = sys.argv[8]
 
 today = date.today().isoformat()
 
@@ -364,7 +399,8 @@ handoff_content = (
 
 manifest = {
     "schema_version": 1,
-    "project": title,
+    "title": title,
+    "project": spoke_key,
     "spec_path": os.path.join(plan_dir, "spec.md"),
     "architecture_path": None,
     "type": "plan",
@@ -402,7 +438,7 @@ files = {
 if dry_run:
     emit({
         "finding": "idea-graduated", "inbox_slug": slug, "plan_slug": plan_slug,
-        "plan_dir": plan_dir, "title": title,
+        "plan_dir": plan_dir, "title": title, "project": spoke_key,
         "body_chars_migrated": len(note_body.strip()),
         "tombstoned": False, "dry_run": True, "detected_at": today,
     })
@@ -442,7 +478,7 @@ os.remove(note_path)  # tombstone: body losslessly preserved in the brief
 
 emit({
     "finding": "idea-graduated", "inbox_slug": slug, "plan_slug": plan_slug,
-    "plan_dir": plan_dir, "title": title,
+    "plan_dir": plan_dir, "title": title, "project": spoke_key,
     "body_chars_migrated": len(note_body.strip()),
     "tombstoned": True, "dry_run": False, "detected_at": today,
 })

@@ -369,7 +369,7 @@ except Exception:
 fi
 # === end plan status enforcement =========================================
 
-# === R-27 depth-3 sub-plan-root status assertion (A-08 /) ====
+# === R-27 depth-3 sub-plan-root status assertion ====
 # sub-plan roots. Depth-3 sub-plan spec.md/manifest.json are governed PEERS
 # carrying their OWN canonical status (vocabulary), NOT status-derived
 # shadows of the master. A sub-plan can be `paused` independently of its master.
@@ -516,17 +516,17 @@ if [[ "$FILE_PATH" == *"librarian-manifest.json"* ]]; then
   exit 0
 fi
 
-# === (a): manifest status-transition SUBSTANCE branch (A-07) ==
+# === manifest status-transition SUBSTANCE branch ==
 # Write-time substance-verifying guard. Matcher Edit|Write + if: on
 # **/manifest.json (plan-tree manifests). Verifies FACTS, not the label string:
 #   - a status -> closed flip requires status==verified (the load-bearing
 #     closed-requires-verified guard, §Decision; layer (a)) AND
 #     the close-conditional artifacts present (the plan quartet);
 #   - a status -> verified flip requires a fresh harness_validated[]
-#     verdict-pass entry (; the stamper's home is the S2/
+#     verdict-pass entry (the stamper's home is the S2/
 #     dogfood-harness, NOT this hook — this branch only GUARDS the transition).
 # Cross-file invariants (R-61/R-62/R-63) live in the librarian reconciler
-# ((b),), NEVER in this blocking write-time path.
+# ((b)), NEVER in this blocking write-time path.
 # Rollout (§Decision): launch as `ask`, promote to `deny` once FP-rate
 # is low. v1.0.0 default = ask; MANIFEST_SUBSTANCE_ROLLOUT env overrides for
 # test/CI (`deny` to exercise the strict path). Escape hatch:
@@ -857,7 +857,7 @@ PYEOF
     if [[ "$MEM_LONG_LINES" -gt 0 ]]; then
       MEM_BREACHES="${MEM_BREACHES}\n- ${MEM_LONG_LINES} line(s) exceed 200-char limit"
     fi
-    # --- G1 (/ ordinal_position_check): per-entry below-fold
+    # --- G1 (ordinal_position_check): per-entry below-fold
     # placement sub-check. A vault-pointer-shaped line whose START sits past
     # line 200 OR past MEM_BYTE_CAP (the byte cap governs per) loads
     # invisibly — the harness truncates the index at the fold and the pointer
@@ -896,7 +896,7 @@ PYEOF
       MEM_BREACHES="${MEM_BREACHES}\n- a vault-pointer entry starts at line ${MEM_G1_LINE}, past the 200-line/${MEM_BYTE_CAP}-byte fold [POINTER PLACEMENT ADVISORY — G1/R-59]: it loads invisibly — move it above the fold (the TOP of its section)"
     fi
     if [[ -n "$MEM_BREACHES" ]]; then
-      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25KB (whichever first) of MEMORY.md at session start (documented at code.claude.com/docs/en/memory). Entries past the cap silently drop from context — the bottom of your index never reaches the model. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. Per [[feedback_manifests_as_read_replicas]] MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data per-."
+      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25KB (whichever first) of MEMORY.md at session start (documented at code.claude.com/docs/en/memory). Entries past the cap silently drop from context — the bottom of your index never reaches the model. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. Per [[feedback_manifests_as_read_replicas]] MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
       exit 0
     fi
   fi
@@ -1157,7 +1157,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ -n "$BUNDLE_JSON" ]]; then
       )
   ' <<<"$BUNDLE_JSON" 2>/dev/null || true)
   if [[ -n "$DEP_MATCH" ]]; then
-    DOC_DEP_CTX="[DOC-DEPENDENCY CASCADE] This write touches a registered documentation dependency:\n${DEP_MATCH}\n\nReview the mirrors in this same session, OR file a waiver via the canonical writer:\n  source ~/.claude/hooks/lib/cascade-waiver.sh && cascade_waiver_write <entry_id> \"<reason>\"\n(Do NOT write cascade-waivers.json directly — drifted shapes have accumulated across 24 sessions. T-1 audit 2026-04-20.)\nLibrarian session-close Step 2c will block otherwise."
+    DOC_DEP_CTX="[DOC-DEPENDENCY CASCADE] This write touches a registered documentation dependency:\n${DEP_MATCH}\n\nReview the mirrors in this same session, OR file a waiver via the canonical writer:\n  source ~/.claude/hooks/cascade-waiver.sh && cascade_waiver_write <entry_id> \"<reason>\"\n(Do NOT write cascade-waivers.json directly — drifted shapes have accumulated across 24 sessions. T-1 audit 2026-04-20.)\nLibrarian session-close Step 2c will block otherwise."
   fi
 fi
 
@@ -1171,7 +1171,7 @@ fi
 # + Branch #5 hard-constraints live in pre-asq-guard.sh (AskUserQuestion
 # matcher).
 
-# === Branch #1 Classes A/B/C: vault propose-and-validate (T-4;) ===
+# === Branch #1 Classes A/B/C: vault propose-and-validate (T-4) ===
 # PAUSE-AND-PROPOSE on:
 #   Class A — new top-level folder
 #   Class B — new vault-root file
@@ -1245,7 +1245,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
           (.frontmatter.r32_type_aliases // {} | keys[]?)
         ' <<<"$UNION_JSON" 2>/dev/null | LC_ALL=C sort -u)
         if [[ -n "$B1_KNOWN_TYPES" ]] && ! printf '%s\n' "$B1_KNOWN_TYPES" | grep -Fxq "$B1_C_TYPE"; then
-          B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class C /] You are creating a file with type: '${B1_C_TYPE}' not in foundation-master.frontmatter.types or overlay-master.frontmatter.types. This declares a new semantic extension. Suggested: run \`/govern register --kind file-type --name ${B1_C_TYPE} --contract <path>\` to author the type contract (frontmatter required/optional + body shape + path_routing if subfolder semantic divergence per), OR dismiss to proceed (logged as \`unregistered: true\`, proposed_by: hook-class-c). Soft-mandate; frictionless skip available."
+          B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class C /] You are creating a file with type: '${B1_C_TYPE}' not in foundation-master.frontmatter.types or overlay-master.frontmatter.types. This declares a new semantic extension. Suggested: run \`/govern register --kind file-type --name ${B1_C_TYPE} --contract <path>\` to author the type contract (frontmatter required/optional + body shape + path_routing if subfolder semantic divergence), OR dismiss to proceed (logged as \`unregistered: true\`, proposed_by: hook-class-c). Soft-mandate; frictionless skip available."
         fi
       fi
     fi
@@ -1281,7 +1281,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   fi
   B2_TODAY=$(TZ="$B2_TZ" date +%F 2>/dev/null || date +%F)
 
-  # Pillar 7 universal default (slim field per +) sourced from
+  # Pillar 7 universal default (slim field per) sourced from
   # union view at .vault_writers.historical_data_warning_default. Foundation-
   # composed pillar always present unless bundle invalid; overlay-extended
   # value (via /govern register --kind writer or equivalent) wins on collision
@@ -1317,7 +1317,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
       # Extract leading YYYY-MM-DD date portion if present.
       B2_PARSED_DATE=$(printf '%s\n' "$B2_BASENAME" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
       if [[ -n "$B2_PARSED_DATE" ]] && [[ "$B2_PARSED_DATE" < "$B2_TODAY" ]]; then
-        B2_CTX="[Historical Data Warning — Branch #2 /-] This file's basename indicates a past date (${B2_PARSED_DATE} < ${B2_TODAY} in ${B2_TZ}). Are you intentionally modifying historical content? If you're capturing a correction or addendum, consider creating a new dated file referencing the original instead. (Advisory only — write proceeds.) Source pattern: $([ -n "$B2_TYPE" ] && echo "file-type-contracts/${B2_TYPE}.md.json :: historical_data_warning_pattern" || echo "vault-writers-rules.json :: historical_data_warning_default")."
+        B2_CTX="[Historical Data Warning] This file's basename indicates a past date (${B2_PARSED_DATE} < ${B2_TODAY} in ${B2_TZ}). Are you intentionally modifying historical content? If you're capturing a correction or addendum, consider creating a new dated file referencing the original instead. (Advisory only — write proceeds.) Source pattern: $([ -n "$B2_TYPE" ] && echo "file-type-contracts/${B2_TYPE}.md.json :: historical_data_warning_pattern" || echo "vault-writers-rules.json :: historical_data_warning_default")."
         format_output_allow "PreToolUse" "$B2_CTX"
         exit 0
       fi
@@ -1326,7 +1326,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
 fi
 # === end Branch #2 ================================================
 
-# === Branch #3: vault-writers-writer-reference-only (T-6;) ===
+# === Branch #3: vault-writers-writer-reference-only (T-6) ===
 # Validates
 # Vault Writers/<writer>.md frontmatter against governance/file-type-
 # contracts/vault-writer.md.json (pillar 6 SHAPE) + governance/vault-
@@ -1723,10 +1723,27 @@ print(content, end='')
         if [[ -n "$CONTENT" ]]; then
           R48_TMP=$(mktemp -t r48content.XXXXXX)
           printf '%s' "$CONTENT" > "$R48_TMP"
-          R48_BROKEN=$(python3 - "$VAULT_ROOT" "$R48_TMP" <<'PYEOF' 2>/dev/null || true
+          R48_BROKEN=$(python3 - "$VAULT_ROOT" "$R48_TMP" "${PLANS_DIR:-}" <<'PYEOF' 2>/dev/null || true
 import sys, os, re
 
 vault_root = sys.argv[1]
+# R-48 resolution: the library + binder surfaces (_library/, _projects/)
+# live under the plans root and are reached from the vault only via the Plans/
+# symlink. os.walk(vault_root) uses the Python default followlinks=False, so it
+# does NOT descend the Plans/-symlinked tree (verified empirically). Rather than
+# enable followlinks=True vault-wide — which would chase EVERY symlink (the
+# _projects/<spoke>/research/<plan-slug>/ dir-symlink farm points back into the
+# plans tree; os.walk has no symlink-loop protection and would hang on a user
+# vault) — index the two REAL surface homes DIRECTLY with followlinks=False. This
+# makes library articles + binder files resolvable to the wikilink-existence check
+# without unleashing the symlink-loop hazard. (Resolution (b).)
+plans_dir = sys.argv[3] if len(sys.argv) > 3 else ""
+extra_roots = []
+if plans_dir:
+    for sub in ("_library", "_projects"):
+        p = os.path.join(plans_dir, sub)
+        if os.path.isdir(p):
+            extra_roots.append(p)
 with open(sys.argv[2]) as f:
     content = f.read()
 
@@ -1749,19 +1766,28 @@ for m in pattern.finditer(content):
 if not targets:
     sys.exit(0)
 
-# Build a lightweight index of vault basenames (case-insensitive) and full rel paths
+# Build a lightweight index of vault basenames (case-insensitive) and full rel paths.
+# Walk vault_root with the Python default followlinks=False (Plans/ symlink NOT
+# descended), then additionally index the real _library/_projects homes directly
+# (also followlinks=False) so library/binder wikilink targets resolve.
 existing_basenames = set()
 existing_paths = set()
-for dirpath, dirnames, filenames in os.walk(vault_root):
-    dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in ('_test',)]
-    for fn in filenames:
-        if fn.endswith('.md'):
-            existing_basenames.add(fn[:-3].lower())
-            existing_basenames.add(fn.lower())
-        rel = os.path.relpath(os.path.join(dirpath, fn), vault_root)
-        existing_paths.add(rel.lower())
-        if rel.endswith('.md'):
-            existing_paths.add(rel[:-3].lower())
+def _index(walk_root, rel_base):
+    for dirpath, dirnames, filenames in os.walk(walk_root):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in ('_test',)]
+        for fn in filenames:
+            if fn.endswith('.md'):
+                existing_basenames.add(fn[:-3].lower())
+                existing_basenames.add(fn.lower())
+            rel = os.path.relpath(os.path.join(dirpath, fn), rel_base)
+            existing_paths.add(rel.lower())
+            if rel.endswith('.md'):
+                existing_paths.add(rel[:-3].lower())
+_index(vault_root, vault_root)
+for r in extra_roots:
+    # rel paths are computed against the surface home's PARENT so wikilink forms
+    # like [[_library/topic/article]] resolve against the indexed rel path.
+    _index(r, os.path.dirname(r))
 
 broken = []
 for t in sorted(targets):

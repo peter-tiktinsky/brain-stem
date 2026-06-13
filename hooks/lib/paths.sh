@@ -4,7 +4,7 @@
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 # brain-stem. This is the SOLE canonical paths.sh body — there is no
 # top-level lib/paths.sh 1-line sourcing shim. All hook bodies source THIS
-# path directly. (/ paths.sh dedup PRIMARY OWNER.)
+# path directly. (paths.sh dedup PRIMARY OWNER.)
 # Resolution order for each path:
 #   1. Caller-set environment variable wins (test/CI overrides).
 #   2. Field in user-manifest.json (when file exists, jq present, key non-empty).
@@ -57,9 +57,15 @@ export CLAUDE_STATE_ROOT
 
 # Coordination directory (machine-local ephemeral): the session
 # registry + the four lockf locks live here. registry.sh consumes COORD_DIR
-# from this file. Re-pointed off the's in-vault
-# $VAULT_LOGS/.coordination to machine-local ephemeral state.
+# from this file. Resolved to machine-local ephemeral state rather than an
+# in-vault $VAULT_LOGS/.coordination location.
 export COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
+
+# Workshop home (R-ARCH-1a): the three-surface ephemeral staging root. Resolves
+# off CLAUDE_STATE_ROOT (the XDG ephemeral tier) so it is wipe-safe and never a
+# hardcoded literal. Every consumer (the install-time scaffold + future workshop
+# writers) reads CLAUDE_WORKSHOP_DIR from here so the home is single-sourced.
+export CLAUDE_WORKSHOP_DIR="${CLAUDE_WORKSHOP_DIR:-$CLAUDE_STATE_ROOT/workshop}"
 
 # --- hooks runtime state ---
 if [ -z "${HOOKS_STATE:-}" ]; then

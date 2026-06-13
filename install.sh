@@ -188,7 +188,7 @@ SENTINEL_ARG=0
 #   assertion "fail if this is actually a fresh install" (resolved behavior:
 #   `install.sh --upgrade --apply` asserts an installed version exists).
 # MIGRATE_MAJOR (--migrate-major): the explicit ack required to cross a major
-#   version boundary on the --apply lane (: a major bump refuses silent
+#   version boundary on the --apply lane (a major bump refuses silent
 #   auto-upgrade and routes through the EXISTING I-UNDERSTAND-OVERWRITE-RISK
 #   sentinel ceremony — reuse the existing sentinel, don't reinvent).
 UPGRADE_MODE=0
@@ -1226,7 +1226,7 @@ EOF
   #     diff to surface the USER-PRESERVE class explicitly —
   #       {path:"MEMORY.md", class:"USER-PRESERVE", disposition:"untouched"}
   #     — so an operator SEES that her copied-once surfaces are structurally NOT
- # written (: anything not in files[] is unmanaged + never touched; the
+ # written (anything not in files[] is unmanaged + never touched; the
   #     apply walk records `user-preserve-skip`). These are informational, no-
   #     action entries.
  #
@@ -1369,8 +1369,8 @@ if [ "$APPLY_MODE" != "1" ]; then
  # DJ: "G7" is REMOVED from guards_passed — G7 is the
   # settings.json silent-key-deletion gate that runs only at Step 12 (~:1102),
   # AFTER this dry-run exit 0, so it was a false attestation. Every guard now in
-  # guards_passed has a fire-site BEFORE this emit: G8 (:176), G1-pre (:185),
-  # G5 (:236), G1-main (:270), G4 (:318), G2 (:375), G3 (:601). G7 remains a
+  # guards_passed has a fire-site BEFORE this emit: G8 (176), G1-pre (185),
+  # G5 (236), G1-main (270), G4 (318), G2 (375), G3 (601). G7 remains a
   # PLANNED action under actions[].step 12.
  # posture discriminator: an install WITH a .installed-state.json
   # stamp and a target>installed delta is the UPGRADE lane — its dry-run is the
@@ -2303,7 +2303,7 @@ for f in "$SOURCE_REPO/hooks"/*.sh "$SOURCE_REPO/hooks"/*.md "$SOURCE_REPO/hooks
   upgrade_foundation_file "$f" "$CLAUDE_HOME/hooks/${f##*/}"
 done
 
-# Step 3 / 3.5: hooks/lib/ → hooks/lib/  (: top-level lib/ does NOT exist in
+# Step 3 / 3.5: hooks/lib/ → hooks/lib/  (top-level lib/ does NOT exist in
 # brain-stem — hooks/lib/ is the SOLE lib/ surface; no lib/→hooks/lib/ translation).
 # Ships *.sh + *.json + *.sql from the source hooks/lib/ (paths.sh, registry.sh,
 # the govern read/write libs, merge-strategy-registry.json, lockf.sh, the
@@ -2401,7 +2401,7 @@ fi
 
 # Step 8.2: installer/migrations/ → $CLAUDE_HOME/migrations/
 # The forward-only migration runner + NNNN-slug.sh files ship FLAT into
-# $CLAUDE_HOME/migrations/ (: "shipped to
+# $CLAUDE_HOME/migrations/ ("shipped to
 # $CLAUDE_HOME/migrations/ so the adopter has the runner locally for audit").
 # These are FOUNDATION-REPLACE managed files (in foundation-manifest.json::files[]);
 # the bare cp here is the ship — the post-Step-13.5 runner invocation below runs
@@ -2516,6 +2516,11 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   upgrade_foundation_file "$SOURCE_REPO/governance/foundation-manifest.json" "$CLAUDE_HOME/governance/foundation-manifest.json"   # foundation-replace disposition
   # R-05 system-utility canonicality registry
   upgrade_foundation_file "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/log-subtype-registry.json"   # foundation-replace disposition
+  # Anchored-spoke registry (R-ARCH-13/14): cwd→spoke-key map read at
+  # plan-creation time by new-plan.sh / promote-from-inbox.sh. Standalone runtime
+  # registry, same ship-class as log-subtype-registry.json (read standalone, NOT
+  # composed into foundation-master.json).
+  upgrade_foundation_file "$SOURCE_REPO/governance/anchored-spoke-registry.json" "$CLAUDE_HOME/governance/anchored-spoke-registry.json"
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
   # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
   # File-type contracts subdir (k8s paramKind shape) — the 13 contract members.
@@ -2689,7 +2694,7 @@ done
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
 # MIGRATE-STATE surface), a distinct path the templates walk never touches.
-for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md updates-template.md prd-template.md context-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md; do
+for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md updates-template.md prd-template.md context-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md hub-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
   upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition
@@ -2849,6 +2854,92 @@ else
   info "rules/README.md seeded at $rules_readme_target"
 fi
 
+# Step 11.7a: the two generic three-surface rules/ entries (R-ARCH-RULES).
+# Exactly TWO generic, cwd-parameterized, always-on entries live in
+# $CLAUDE_HOME/rules/: a binder pointer and a pre-research library-check fallback.
+# Both are UNSCOPED (no `paths:` key) so they load every session — the #21858
+# user-scope `paths:`-glob limitation makes glob-scoping unreliable here.
+# These are installed by install.sh (R-ARCH-5 reconcile: install.sh runs outside
+# the Edit-blocking sensitive-file gate), on BOTH paths in this same Step 11.7
+# section: fresh = mkdir + atomic-mv; existing-adopter = no-clobber preserve.
+# Generic-only: NO per-project entries are ever written.
+rules_dir="$CLAUDE_HOME/rules"   # (already set above; restated for locality)
+seed_rules_entry() {
+  # $1 = entry filename (under rules/), $2 = entry body (already rendered)
+  local fname="$1" body="$2" target="$rules_dir/$1" tmp
+  if [ -f "$target" ]; then
+    info "rules/$fname exists at $target — preserving (no clobber)"
+    return 0
+  fi
+  if ! mkdir -p "$rules_dir"; then
+    diag "rules/$fname seed: mkdir failed: $rules_dir"
+    exit 11
+  fi
+  tmp="$target.tmp.$$"
+  if ! printf '%s' "$body" > "$tmp"; then
+    diag "rules/$fname seed: write failed: $tmp"
+    rm -f "$tmp"
+    exit 11
+  fi
+  if ! mv -f "$tmp" "$target"; then
+    diag "rules/$fname seed: atomic mv failed: $target"
+    rm -f "$tmp"
+    exit 11
+  fi
+  info "rules/$fname seeded at $target"
+}
+
+# Entry 1 — binder pointer (R-ARCH-RULES #1). Cwd-parameterized: resolves the
+# CURRENT spoke's _projects/<spoke>/hub.md (the only eager binder surface). Generic
+# — never names a specific spoke; the launch directory selects the spoke at read
+# time. hub.md is @imported by the spoke project CLAUDE.md, never re-dumped here.
+read -r -d '' rules_binder_pointer <<'RULE_BINDER' || true
+# Project binder — read the spoke hub first
+
+When working inside a registered project spoke, the spoke's project binder hub is
+the eager project-context surface. Read it before research or planning so prior
+decisions, active research, and library references are in view:
+
+  Read `~/.claude-plans/_projects/<spoke>/hub.md` (where `<spoke>` is the
+  current launch-directory's registered spoke key — `home` for the home anchor)
+  BEFORE starting project work, because it pointer-links the spoke's
+  research-index, decision-log, handoff-chronicle, and library references.
+
+The hub is pointer-only (the project CLAUDE.md `@import`s it); follow its pointers
+on demand rather than loading every binder index up front. If no binder exists for
+the current spoke yet, run `librarian plan-research-index` (and the binder
+capabilities) to generate it. This entry is generic and cwd-parameterized — it
+never names a specific project.
+RULE_BINDER
+seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
+
+# Entry 2 — pre-research library-check fallback (R-ARCH-RULES #2). The portable
+# DEGRADED layer that backs the pre-research hook (hooks/pre-research-check.sh):
+# it operates when that hook is unavailable, so library coverage is surfaced even
+# pre-hook. Generic + always-on; advisory-only (mirrors the hook's never-block
+# posture).
+read -r -d '' rules_library_check <<'RULE_LIBCHECK' || true
+# Before researching — check the library first
+
+Before starting a research-class task (investigating, surveying, gathering
+sources, building up knowledge on a topic), check whether the cross-project
+library already covers it, so the work is not duplicated:
+
+  Read `~/.claude-plans/_library/_index.md` (the topic roster + staleness) and
+  scan it for the topic. If a matching topic exists, open its
+  `~/.claude-plans/_library/<topic>/_index.md` and the relevant article BEFORE
+  researching fresh. If coverage is stale, choose: validate / use-as-is /
+  research-fresh.
+
+This is the portable degraded layer behind the `pre-research-check`
+UserPromptSubmit hook: when that hook is installed it injects a compressed
+coverage signal automatically at detected research intent; when it is absent (or
+the library has no coverage) this always-on rule keeps the library-first check in
+view. Advisory only — it never blocks. If `_library/` does not exist yet, there is
+nothing to check; proceed.
+RULE_LIBCHECK
+seed_rules_entry "10-pre-research-library-check.md" "$rules_library_check"
+
 # Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
 # Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat
 # memory dir. The orphan-adder globs the FLAT memory dir and would keep indexing every legacy
@@ -2906,6 +2997,48 @@ if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
     info "legacy episode_*.md migration: moved $episode_mig_moved file(s) to memory/episodic-legacy/ (supersede-don't-delete; out of the orphan-adder flat glob)"
   else
     info "legacy episode_*.md migration: no flat episode_*.md found (fresh upgrade or already migrated) — no-op"
+  fi
+fi
+
+# Step 11.7c: project:-field identity migration (R-ARCH-PID).
+# UPGRADE-LANE ONLY + idempotent. Existing adopter plan manifests carry the legacy
+# title-valued `project:` field; this migration repurposes it into the cwd-keyed
+# spoke key (the field-triad: title := old project display name, project := the
+# resolved spoke key). The corrected writers (new-plan.sh, promote-from-inbox.sh)
+# already stamp correct semantics for fresh plans, so a fresh install never needs
+# this; only existing adopters with legacy manifests do. The git-hook fallback
+# fixes (post-commit-harness-invalidate.sh / pre-commit-harness-validated.sh, which
+# no longer mis-consume project: as a plan identifier) ship in the same install
+# pass via the Step-10 file-delivery loops — this step migrates the on-disk data.
+#
+# IDEMPOTENT: a second run finds zero manifests with a title-valued project: and
+# rewrites nothing (the migration's own residue assertion). Malformed manifests
+# are skipped with a diagnostic, never half-written. The plans tree is git-tracked,
+# so the migration is diff-reviewable and reversible.
+#
+# Resolves the migration script. tools/ is NOT part of the installed $CLAUDE_HOME
+# surface (it is a repo-transparency artifact, not a foundation-manifest files[]
+# member), so the $CLAUDE_HOME/tools/ candidate only resolves if a prior install
+# happened to stage it; the load-bearing resolution is the $SOURCE_REPO/tools/
+# fallback (the migration script is shipped in the public repo and run from there).
+if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
+  pid_migrate_script=""
+  for _cand in "$CLAUDE_HOME/tools/migrate-project-identity.sh" \
+               "$SOURCE_REPO/tools/migrate-project-identity.sh"; do
+    [ -f "$_cand" ] && { pid_migrate_script="$_cand"; break; }
+  done
+  if [ -n "$pid_migrate_script" ] && [ -d "$PLANS_HOME" ]; then
+    if FOUNDATION_REPO="$CLAUDE_HOME" PLANS_ROOT="$PLANS_HOME" \
+         bash "$pid_migrate_script" --plans-root "$PLANS_HOME" >/dev/null 2>"$CLAUDE_HOME/.pid-migrate.log"; then
+      info "project:-field identity migration: applied (R-ARCH-PID field-triad; idempotent)"
+    else
+      # Non-fatal: the migration self-asserts and reverts is the caller's job; on
+      # a residue/collision failure we warn and leave the tree as-is (git-reversible).
+      warn "project:-field identity migration: did not complete cleanly — see $CLAUDE_HOME/.pid-migrate.log (plans tree is git-reversible)"
+    fi
+    rm -f "$CLAUDE_HOME/.pid-migrate.log"
+  else
+    info "project:-field identity migration: script or plans tree absent — no-op"
   fi
 fi
 

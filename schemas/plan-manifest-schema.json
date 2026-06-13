@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brain-stem.example/schemas/plan-manifest/v2.json",
   "title": "Plan Manifest (orchestrator + plan-tree superset; canonical 8-state status)",
-  "description": "Plan manifest with the canonical 8-state `status` (retiring top_level_status), `sub_plans[]` aggregate + `graduation_timestamp` + `dependencies.{parallel_ok, blocks}` + `paused_reason`, `rejected` in decision_records[].status, and the if/then type-binding. additionalProperties:true permits forward-compatible field additions.",
+  "description": "Defines the ONE canonical 8-state `status` (retiring the legacy top_level_status field), the `sub_plans[]` master/sub aggregate, `graduation_timestamp`, `dependencies.{parallel_ok, blocks}`, and `paused_reason`; allows `rejected` in decision_records[].status; and carries the if/then type-binding (plan/master/sub-plan required-field shapes). additionalProperties:true permits forward-compatible field additions.",
   "type": "object",
   "required": [
     "schema_version",
@@ -22,9 +22,13 @@
       ],
       "description": "Schema version. v1 accepts both `\"1.0.0\"` (legacy orchestrator manifests) and `1` (plan-tree manifests)."
     },
+    "title": {
+      "type": "string",
+      "description": "Human display name of the initiative — what a reader sees in rosters and indexes. Optional; readers fall back to `project` then the plan slug when absent."
+    },
     "project": {
       "type": "string",
-      "description": "Initiative name (matches plan title)"
+      "description": "Owning-spoke machine identity: the cwd-keyed spoke key (resolved through the anchored-spoke registry), used by robots to group, file, and drift-check plans. NOT the human display name — that is `title`. The home anchor resolves to the literal `home`."
     },
     "spec_path": {
       "type": "string",
@@ -50,7 +54,7 @@
         "archived",
         "superseded"
       ],
-      "description": "The ONE canonical 8-state plan status. Vocabulary: researching -> planned -> in-progress <-> paused -> completed -> verified -> closed -> archived, with superseded terminal from any non-archived state. completed = user's claim; verified = MACHINE-stamped, reachable only through an actual validation pass (the verdict gate). A write-time guard FORBIDS closed unless status==verified (the closed-requires-verified guard, enforced in hooks/pre-write-guard.sh). closed -> archived is volume/cooldown-gated, NOT calendar. Required on both type:plan and type:sub-plan manifests per the if/then binding below."
+      "description": "The ONE canonical 8-state plan status. Vocabulary: researching -> planned -> in-progress <-> paused -> completed -> verified -> closed -> archived, with superseded terminal from any non-archived state. completed = human's claim; verified = MACHINE-stamped, reachable only through an actual validation pass (the verdict gate; written only by the dogfood-harness seam, never by hand). A write-time guard FORBIDS closed unless status==verified (the load-bearing closed-requires-verified guard, enforced in hooks/pre-write-guard.sh). closed -> archived is volume/cooldown-gated, NOT calendar. Required on both type:plan and type:sub-plan manifests per the if/then binding below."
     },
     "type": {
       "type": "string",
@@ -149,7 +153,7 @@
     },
     "dependencies": {
       "type": "object",
-      "description": "Plan-level dependency declarations: parallel_ok and blocks define the master/sub DAG alongside predecessor/prereq fields.",
+      "description": "Plan-level dependency declarations. dependencies.{parallel_ok, blocks} express the first-class master/sub DAG alongside the predecessor/prereq fields.",
       "additionalProperties": true,
       "properties": {
         "predecessor_closed": {
@@ -187,14 +191,14 @@
           "items": {
             "type": "string"
           },
-          "description": "Sub-plan slugs that may run in parallel with this plan (no ordering constraint). Walked by the plan-runner DAG-walker."
+          "description": "Sub-plan slugs that may run in PARALLEL with this (sub-)plan (no ordering constraint). Walked by the plan-runner DAG-walker."
         },
         "blocks": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Sub-plan slugs this plan blocks (they cannot start until this one reaches its gate). Walked by the plan-runner DAG-walker. NOTE R-63: a sub-plan must not declare a dependencies edge to a sibling sub — route cross-sub ordering through the master (sub-peer-isolation)."
+          "description": "Sub-plan slugs this (sub-)plan BLOCKS (they cannot start until this one reaches its gate). Walked by the plan-runner DAG-walker. NOTE R-63: a sub-plan must not declare a dependencies edge to a SIBLING sub — route cross-sub ordering through the master (sub-peer-isolation, advisory reconciler finding)."
         }
       }
     },
@@ -222,7 +226,7 @@
     },
     "git_tag_published": {
       "type": "object",
-      "description": "Per-tag publication record for foundation-repo distribution. Helper reads this object to evaluate R-55 sunset trigger conditions WITHOUT shelling to `git tag --list` (deterministic + fast).",
+      "description": "PLAN-TREE FIELD. Per-tag publication record for foundation-repo distribution. Helper reads this object to evaluate R-55 sunset trigger conditions WITHOUT shelling to `git tag --list` (deterministic + fast).",
       "patternProperties": {
         "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.-]+)?$": {
           "type": "object",
@@ -249,7 +253,7 @@
     },
     "live_mutation_scope": {
       "type": "object",
-      "description": "Declares plan-scoped live-mutation gate. Plan-lifetime; retires when plan closes via three-phase sequence (Phase A parallel-run → Phase B helper retires → Phase C manifest entry retires).",
+      "description": "Plan-tree field. Declares a plan-scoped live-mutation gate. Plan-lifetime; retires when the plan closes via the three-phase sequence (Phase A parallel-run → Phase B helper retires → Phase C manifest entry retires).",
       "additionalProperties": true,
       "properties": {
         "enabled": {
@@ -280,7 +284,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Post-detection carve-outs. Sub-plan can extend, NOT subtract. Generalizes the hardcoded ~/.claude/projects/** carve-out."
+          "description": "Post-detection carve-outs. Sub-plan can extend, NOT subtract. Generalizes the historical hardcoded ~/.claude/projects/** carve-out."
         },
         "detection_signals": {
           "type": "object",
@@ -310,7 +314,7 @@
                 "string",
                 "null"
               ],
-              "description": "Tier-3 fallback. OPT-IN ONLY. Locked to $CLAUDE_SESSION_ID at runtime (NOT find-mtime) to avoid stochastic detection."
+              "description": "Tier-3 fallback. OPT-IN ONLY. Locked to $CLAUDE_SESSION_ID at runtime (NOT find-mtime), so checkpoint resolution is deterministic rather than dependent on filesystem mtimes."
             },
             "deterministic_only": {
               "type": "boolean",
@@ -356,7 +360,7 @@
         },
         "layer_3": {
           "type": "object",
-          "description": "L3 writer-pause declarations consumed by l3-pause-helper.sh. Lint at manifest-author time validates against l3-writer-registry.json.",
+          "description": "L3 writer-pause declarations consumed by l3-pause-helper.sh (T-4). Lint at manifest-author time validates against l3-writer-registry.json (T-10).",
           "additionalProperties": false,
           "properties": {
             "enabled": {
@@ -471,7 +475,7 @@
               "additionalProperties": true,
               "properties": {
                 "master_status_in": {
-                  "description": "Master-plan canonical `status` must be in this set for retirement eligibility (uses the canonical status vocabulary).",
+                  "description": "The canonical status vocabulary a master-plan `status` must be in to be retirement-eligible (the legacy top_level_status field is retired).",
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -606,7 +610,7 @@
                 "RETIRED-HELPER",
                 "RETIRED-FULL"
               ],
-              "description": "Coarse retirement marker for human-readable status. Inherits r55_sunset.teardown_status semantics."
+              "description": "Coarse retirement marker for human-readable status. Inherits the r55_sunset.teardown_status semantics."
             }
           }
         }
@@ -614,7 +618,7 @@
     },
     "harness_validated": {
       "type": "array",
-      "description": "Verdict-pass entries (validation evidence). Canonical gate (foundation-repo .git/hooks/pre-commit) refuses sub-plan status flip from in-progress → completed unless a matching verdict-pass entry exists at current foundation-repo HEAD within last 7 days. Cross-sub-plan invalidation via post-commit hook when sister sub-plan modifies files in validated sub-plan's live_mutation_scope.scope_paths.",
+      "description": "PLAN-TREE FIELD. Verdict-pass entries from the dogfood-harness. The verdict gate (foundation-repo .git/hooks/pre-commit) refuses a sub-plan canonical status flip from in-progress → completed unless a matching verdict-pass entry exists at current foundation-repo HEAD within last 7 days. Cross-sub-plan invalidation via post-commit hook when a sister sub-plan modifies files in a validated sub-plan's live_mutation_scope.scope_paths.",
       "items": {
         "type": "object",
         "required": [
@@ -633,7 +637,7 @@
         "properties": {
           "harness_id": {
             "type": "string",
-            "description": "Harness fixture identifier (e.g., manifest_mechanism_extensibility, live_guard_root_resolution_determinism)."
+            "description": "Dogfood-harness fixture identifier (e.g., manifest_mechanism_extensibility, live_guard_root_resolution_determinism)."
           },
           "sub_plan_id": {
             "type": "string",
@@ -707,7 +711,7 @@
               "stale-30d",
               "invalidated"
             ],
-            "description": "Freshness band relative to current foundation-repo HEAD. Canonical gate accepts only `fresh` for the status flip."
+            "description": "Freshness band relative to current foundation-repo HEAD. The verdict gate accepts only `fresh` for the canonical status flip."
           },
           "schema_version": {
             "type": "integer",
@@ -718,7 +722,7 @@
     },
     "decision_records": {
       "type": "array",
-      "description": "Pointer array to the plan's ADR ledger at <plan>/decisions/ADR-NN-<slug>.md. Optional — absent on plans with no recorded decisions; existing manifests remain valid (not required; additionalProperties:true). Body-structure contract: governance/file-type-contracts/adr.md.json. Convention: governance/plans-rules.json :: decision_records. Status enum follows MADR-canonical convention (including `rejected`), paired with the plans-rules.json :: decision_records convention + governance/file-type-contracts/adr.md.json under R-37 documentary lockstep. Agent-reload contract: on plan resume, load non-superseded ADRs via this manifest.decision_records[] pointer.",
+      "description": "PLAN-TREE FIELD. Pointer array to the plan's ADR ledger at <plan>/decisions/ADR-NN-<slug>.md. Optional — absent on plans with no recorded decisions; existing manifests remain valid (not required; additionalProperties:true). Body-structure contract: governance/file-type-contracts/adr.md.json. Convention: governance/plans-rules.json :: decision_records. The status enum is reconciled to the MADR-canonical set with `rejected` added; paired with the plans-rules.json :: decision_records convention + governance/file-type-contracts/adr.md.json under R-37 documentary lockstep. Agent-reload contract: on plan resume, load non-superseded ADRs via this manifest.decision_records[] pointer.",
       "items": {
         "type": "object",
         "required": [
@@ -732,7 +736,7 @@
           "id": {
             "type": "string",
             "pattern": "^ADR-[0-9]{2,}$",
-            "description": "ADR ordinal (e.g., ADR-01, ADR-02). Immutable once published."
+            "description": "ADR ordinal identifier. Matches the id pattern; immutable once published."
           },
           "title": {
             "type": "string"
@@ -746,7 +750,7 @@
               "deprecated",
               "superseded"
             ],
-            "description": "Bare lifecycle token (MADR-canonical {proposed, accepted, rejected, deprecated} + superseded). The ADR file's **Status:** line carries the concrete superseded-by-ADR-NN form; the pointer's superseded_by field carries the target."
+            "description": "Bare lifecycle token (MADR-canonical {proposed, accepted, rejected, deprecated} + superseded). `rejected` is included beyond the base MADR set. The ADR file's **Status:** line carries the concrete superseded-by-ADR-NN form; the pointer's superseded_by field carries the target."
           },
           "path": {
             "type": "string",
@@ -767,8 +771,58 @@
         }
       }
     },
+    "research_artifacts": {
+      "type": "array",
+      "description": "PLAN-TREE FIELD. Pointer array to the plan's declared research SoT — one entry per durable research artifact a plan produces (landing under <plan>/_research/). Optional — absent on plans with no recorded research; existing manifests remain valid (not required; additionalProperties:true). This is the declared-artifact roster the project-wide research-index binder consumes: each entry projects to one research-index row (path / type / status / plan-origin / one-liner) plus a Library column derived from library_refs. Declaration is the selectivity gate — only declared artifacts earn a row. Body-structure contract: governance/file-type-contracts/library-article.md.json. Consumers MUST treat a missing field as empty, never an error (legacy manifests carry none).",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "path"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable artifact identifier within the plan (e.g., RA-01, RA-02, ...)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "finalized",
+              "deferred"
+            ],
+            "description": "Lifecycle token. `active` = in progress; `finalized` = settled, eligible for library promotion; `deferred` = paused/parked."
+          },
+          "path": {
+            "type": "string",
+            "description": "Plan-relative or absolute path to the research artifact (e.g., _research/memory-survey.md)."
+          },
+          "session": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Session number/identifier that produced or last touched this artifact."
+          },
+          "library_refs": {
+            "type": "array",
+            "description": "Library articles this research promoted into, in <topic>/<article> form (the bidirectional stamp partner of the article's originating_plan back-pointer). Drives the research-index Library column. Empty/absent until promotion.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "_top_level_status_retired": {
-      "_note": "The 5-state top_level_status field [aligned, in_progress, complete, closed, superseded] is RETIRED and replaced by the single canonical `status` field above. Consumers re-point top_level_status -> status. harness_validated[] descriptions referencing top_level_status flips are read as `status` flips post-retirement."
+      "_note": "The legacy 5-state top_level_status field [aligned, in_progress, complete, closed, superseded] is RETIRED and replaced by the single canonical `status` field above. Consumers re-point top_level_status -> status (the verdict gate, active-gates-rebuild, and spec-context-inject, which re-keys on status==in-progress). harness_validated[] descriptions referencing top_level_status flips are read as `status` flips post-retirement."
     },
     "paused_reason": {
       "type": "string",
@@ -787,7 +841,7 @@
         "null"
       ],
       "format": "date-time",
-      "description": "The timestamp stamped when this plan transitions to `closed`; the librarian reconciler READS it into the master sub_plans[] aggregate (sub-publishes-upward, R-62). Written by the status:closed transition; null until then."
+      "description": "The timestamp stamped when this (sub-)plan transitions to `closed`; the librarian reconciler READS it into the master sub_plans[] aggregate (sub-publishes-upward, R-62). Written by the status:closed transition; null until then."
     },
     "sub_plans": {
       "type": "array",
@@ -822,7 +876,7 @@
               "archived",
               "superseded"
             ],
-            "description": "The sub-plan's published canonical 8-state status (by-copy; keyed on coarse buckets active/done/verified/closed by the master display). The master NEVER overwrites a sub's status; only the librarian aggregator reads it."
+            "description": "The sub-plan's published canonical 8-state status (by-copy; keyed on coarse buckets active/done/verified/closed by the master display logic). The master NEVER overwrites a sub's status; only the librarian aggregator reads it."
           },
           "graduation_timestamp": {
             "type": [

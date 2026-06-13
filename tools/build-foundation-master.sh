@@ -19,7 +19,7 @@
 #   - gate-config.json is absent in the clean-room (dropped); the r32/r47
 #     gate-config absorption guards already default gracefully ({}, [], 25).
 # Inputs (read-only):
-#   governance/frontmatter-rules.json       (; carries types + tier_compliance)
+#   governance/frontmatter-rules.json       (carries types + tier_compliance)
 #   governance/tagging-rules.json           (canonical taxonomy; R-47 in _rules)
 #   governance/naming-rules.json
 #   governance/mandatory-files-rules.json

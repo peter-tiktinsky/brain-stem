@@ -1,9 +1,7 @@
 #!/bin/bash
 # stale-detect — Identify files that may need attention based on age or missing processing.
-#
 # Sources `lib/manifest.sh`, `lib/plan-path.sh`, `lib/findings.sh`.
-#
-# 8 staleness rules per SKILL.md:
+# 9 staleness rules per SKILL.md:
 #   1. Daily notes — processed: false AND older than 2 days
 #   2. People files — <!-- TODO: enrich context --> marker present
 #   3. People files — no Timeline entry in last 30 days (active engagement only)
@@ -16,18 +14,25 @@
 #   8. Plan trinity lag — manifest.status == "complete" but any tasks.md T-N
 #      **Status:** lags (not-started | in-progress | blocked | pending | planned).
 #      Finding category: `trinity-lag`.
-#
+#   9. Binder freshness (R-FLOW-MAINT-1) — a per-spoke binder surface
+#      (_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md) whose
+#      `updated:` regen date lags the newest constituent-plan activity (the max
+#      manifest.json/handoff.md mtime across the plans whose manifest project:
+#      matches the spoke) by more than 14 days. Finding category: `binder-stale`,
+#      severity: `warn`. WARN-ONLY family (rules #4/#7/#8): degraded-utility with a
+#      one-command repair (re-run the binder generator), NO Stop/exit-2 escalation.
+#      A binder with no `updated:` date or no contributing plans, or an absent
+#      binder (adopter never ran the generators — first-run state, not staleness),
+#      yields no finding.
 # Verification evidence for plans (any-of-three):
 #   a. last_verified: <ISO date> frontmatter within 14 days
 #   b. **Last Verified:** <ISO date> header bullet within 14 days
 #   c. sibling handoff.md with non-empty acceptance-criteria section
-#
 # CLI:
 #   stale-detect.sh                    # emit findings to $FINDINGS_OUTPUT or stdout
 #   stale-detect.sh --scope <path>     # limit to a vault subtree
 #   stale-detect.sh --recent           # files touched in last 7 days only
 #   stale-detect.sh --dry-run          # summary counts, no emission
-#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -141,7 +146,7 @@ EXEMPT_DIRS = tuple(EXEMPT_DIRS)
 # Logs/ allowed patterns (exempt from stale-age check). Generic foundation set.
 LOGS_EXEMPT_PATTERNS = re.compile(r"(?:ideation-brief-|reconcile-)")
 
-counts = {"stale": 0, "todo": 0, "archive-candidate": 0, "stale-status": 0, "trinity-lag": 0}
+counts = {"stale": 0, "todo": 0, "archive-candidate": 0, "stale-status": 0, "trinity-lag": 0, "binder-stale": 0}
 scanned = 0
 
 # ---------- vault walk (rules 1-6) ----------
@@ -382,6 +387,103 @@ for plan_dir in walk_plan_dirs(plans_scope):
           "resolution_hint": "flip lagging T-N **Status:** to `done` if work is actually complete, OR revert manifest.status to in-progress if work remains"})
     counts["trinity-lag"] += 1
 
+# ---------- binder freshness (rule #9 — R-FLOW-MAINT-1) ----------
+# Per-spoke binders live at <plans>/_projects/<spoke>/{research-index,decision-log,
+# handoff-chronicle}.md (the T-3/4/5 generator outputs). Each carries a generated
+# `updated: <ISO date>` frontmatter — the binder regen timestamp. The "max
+# constituent-plan activity" is the newest manifest.json/handoff.md mtime among the
+# plans whose manifest project: matches the spoke (the SAME spoke-attribution the
+# generators use: a plan contributes iff its manifest project: == <spoke>). When the
+# regen date lags that activity by more than BINDER_STALE_DAYS, emit a severity:warn
+# `binder-stale` finding. WARN-ONLY (rules #4/#7/#8 family): one re-run of the
+# generator repairs it; no Stop/exit-2 escalation (binder staleness is degraded-but-
+# usable, not the lost-in-flight-state class). An absent binder is first-run state,
+# NOT staleness — no finding. Threshold mirrors rule #4 (the project-freshness rule;
+# D4 R-FLOW-MAINT-1 names no numeric threshold, so the shipped staleness-family
+# convention governs).
+BINDER_STALE_DAYS = 14
+BINDER_BASENAMES = ("research-index.md", "decision-log.md", "handoff-chronicle.md")
+BINDER_UPDATED_RE = re.compile(r"^updated:\s*(20\d{2}-\d{2}-\d{2})\s*$", re.MULTILINE)
+
+projects_root = os.path.join(plans_scope, "_projects")
+if os.path.isdir(projects_root):
+    # Map spoke -> newest constituent-plan activity (max manifest/handoff mtime).
+    # Walk every manifest under the plans tree; attribute to its project: spoke.
+    spoke_activity = {}
+    for dp, dns, fns in os.walk(plans_scope):
+        dns[:] = [d for d in dns if not d.startswith(".")]
+        # never descend into the binder home itself (binder mtimes are NOT plan activity)
+        if os.path.abspath(dp) == os.path.abspath(projects_root):
+            dns[:] = []
+            continue
+        if "manifest.json" not in fns:
+            continue
+        mp = os.path.join(dp, "manifest.json")
+        try:
+            mdata = json.loads(open(mp).read())
+        except Exception:
+            continue
+        if not isinstance(mdata, dict):
+            continue
+        spoke = str(mdata.get("project", "") or "").strip()
+        if not spoke:
+            continue
+        newest = os.path.getmtime(mp)
+        hp = os.path.join(dp, "handoff.md")
+        if os.path.isfile(hp):
+            try:
+                newest = max(newest, os.path.getmtime(hp))
+            except Exception:
+                pass
+        prev = spoke_activity.get(spoke)
+        if prev is None or newest > prev:
+            spoke_activity[spoke] = newest
+
+    try:
+        spoke_dirs = sorted(os.listdir(projects_root))
+    except Exception:
+        spoke_dirs = []
+    for spoke in spoke_dirs:
+        binder_home = os.path.join(projects_root, spoke)
+        if not os.path.isdir(binder_home):
+            continue
+        activity = spoke_activity.get(spoke)
+        if activity is None:
+            # no contributing plans -> not staleness
+            continue
+        for base in BINDER_BASENAMES:
+            bp = os.path.join(binder_home, base)
+            if not os.path.isfile(bp):
+                # absent binder surface = first-run state, not staleness
+                continue
+            try:
+                btext = open(bp).read()
+            except Exception:
+                continue
+            m = BINDER_UPDATED_RE.search(btext)
+            if not m:
+                # no regen date to compare against -> no finding
+                continue
+            try:
+                regen_dt = datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            regen_epoch = regen_dt.timestamp()
+            lag_days = (activity - regen_epoch) / 86400.0
+            if lag_days > BINDER_STALE_DAYS:
+                rel = os.path.relpath(bp, plans_scope)
+                emit({"finding": "stale-status", "file": rel,
+                      "category": "binder-stale", "severity": "warn",
+                      "spoke": spoke,
+                      "binder_updated": m.group(1),
+                      "constituent_activity_lag_days": round(lag_days, 1),
+                      "reason": "binder regen lags max constituent-plan activity by "
+                                "%dd (>%dd) — binder is stale (R-FLOW-MAINT-1)" % (int(lag_days), BINDER_STALE_DAYS),
+                      "resolution_hint": "re-run the owning librarian binder generator "
+                                         "(plan-research-index / plan-decision-log / plan-handoff-index) "
+                                         "for spoke '%s' to refresh it" % spoke})
+                counts["binder-stale"] += 1
+
 if dry_run:
     total = sum(counts.values())
     print("stale-detect: scanned=%d total=%d counts=%s" % (scanned, total, dict(counts)))
@@ -402,7 +504,7 @@ PY
 
 # Persist the stale summary subtree to the librarian-manifest. This makes the
 # registry's declared writes_manifest_subtree: "drift_findings.stale" real
-# (fix), mirroring xref-check.sh's manifest_set.
+# (3-notwired-swallowed-2 fix), mirroring xref-check.sh's manifest_set.
 # Review-hardening (empty-VAULT_LOGS contract): with empty VAULT_LOGS the
 # manifest_set lockfile resolves to '/.coordination/manifest.lock' (uncreatable)
 # and raises under set -e, which a no-vault fresh adopter's session-close logs as

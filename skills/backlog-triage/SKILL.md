@@ -32,7 +32,7 @@ idea note's funnel `status` + `disposition` frontmatter; the next
 
 Capture does NOT render the idea-note template itself — it delegates to the landed
 R-34 mechanical helper `skills/new-plan/lib/promote-from-inbox.sh --capture <slug>`
-(the ONE mechanical-mutation home for the funnel). The inbox contract
+(the ONE mechanical-mutation home for the funnel; ). The inbox contract
 (`dir`, `slug_pattern`, `note_frontmatter`, `funnel_status_enum`) is read from
 `governance/plans-rules.json :: inbox`.
 
@@ -56,7 +56,7 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
 - Plan manifests — triage operates on the pre-plan inbox surface only. Status/disposition
   changes on a manifested plan are `/backlog-research`'s job.
 - No vault `Logs/` satellite and no symlink — the idea note body carries the triage
-  rationale (the per-plan progress satellite is RETIRED entirely).
+  rationale (: the per-plan progress satellite is RETIRED entirely).
 
 **Schema:** idea-note frontmatter validated against
 `governance/plans-rules.json :: inbox.note_frontmatter` before write — `type: idea`;
@@ -64,7 +64,7 @@ required `{title, type, status, created}`; `status ∈ inbox.funnel_status_enum`
 (`new / triaged / briefed`); `disposition ∈ backlog_row.disposition_enum`
 (`FIX NOW / ABSORB / STANDALONE / DEFERRED`) when set. The note is NOT a
 `frontmatter-rules.json#types` vault type — it lives in the plans tree, hook-unblocked
-(`lib/plan-path.sh::classify_plan_path` returns `is_plan=0`).
+(`hooks/lib/plan-path.sh::classify_plan_path` returns `is_plan=0`).
 
 **Pre-write validation:**
 1. Read the unified `_backlog.md` view + every `_inbox/*.md` note + every

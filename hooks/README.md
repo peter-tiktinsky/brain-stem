@@ -62,9 +62,9 @@ The installer never strips entries from the default `templates/settings.json`; f
 ## State and config
 
 - `hooks/state/` — runtime state (`hook-audit.log`, `tripwire.log`, the review queue, etc.). Created lazily; ships empty.
-- `hooks/config/` — hand-editable allowlists:
-  - `doc-dependencies.json` — registered documentation cascade primaries and mirrors. Read by `pre-write-guard.sh`.
-  - `drift-allowlist.json` — `provides:` overlap exemptions used by the librarian.
+- `hooks/drift-allowlist.json` — hand-editable `provides:` overlap allowlist (`provides_overlap[]` for deliberate co-canonical pairs); read by the librarian frontmatter-coverage-audit. Created lazily; optional.
+
+Documentation-cascade dependencies are no longer a hand-edited `hooks/config/` file — they live in `governance/doc-dependencies.json`, composed into `foundation-master.json#doc_dependencies` and read from that bundle by `pre-write-guard.sh`.
 
 ## Manifest-driven posture
 
