@@ -1126,6 +1126,28 @@ $_mig_id"
       if [ -f "$_ondisk" ]; then
         _disksha="$(shasum -a 256 "$_ondisk" 2>/dev/null | awk '{print $1}')"
         if [ -n "$_disksha" ] && [ "$_disksha" != "$_newsha" ]; then
+          # Step 11.8: the installed .gitignore is a THREE-WAY-MERGE surface, NOT a
+          # replace/sidecar one — --apply appends the managed block behind the
+          # `# brain-stem: managed secret-exclusions` sentinel (preserving the adopter's own
+          # ignore rules) or no-ops when the sentinel is already present; it NEVER take-news /
+          # sidecars .gitignore. Sha-compare to the pinned pristine-template sha is the wrong
+          # convergence signal for it (it diverges by design for any adopter with own rules, or
+          # whenever the template changed across versions and the idempotent guard no-ops the
+          # re-append). Model the apply path instead, mirroring the Step 13.6 delivery-gate
+          # three-way-merge EXEMPT_KIND:
+          #   - sentinel present => the managed block is already merged => a re-apply is the
+          #     Step 11.8 idempotent no-op => CONVERGED (emit no disposition, exempt).
+          #   - sentinel absent  => --apply WOULD append the managed block => surface the
+          #     actionable, non-destructive `three-way-merge` disposition (what the apply path
+          #     records at Step 11.8), NOT a replace/sidecar clobber.
+          if [ "$_rel" = ".gitignore" ]; then
+            if grep -qF '# brain-stem: managed secret-exclusions' "$_ondisk" 2>/dev/null; then
+              continue
+            fi
+            upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	three-way-merge
+"
+            continue
+          fi
           # would-mutate. Three-state disambiguation via the frozen baseline.
           _disp="replace"
           if [ "$_have_base" = "1" ]; then
@@ -1464,6 +1486,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     | (if   $d == "reconcile-hooks"     then {"class":"THREE-WAY-MERGE", "reason":"missing foundation hook tuple(s) appended (reconciler)", "added_hooks":["see settings-required-hooks.json"]}
        elif $d == "skeleton-merge"      then {"class":"THREE-WAY-MERGE", "reason":"overlay-wins skeleton-merge (adopter registrations preserved, new foundation pillars added)"}
        elif $d == "skeleton-merge-skip" then {"class":"THREE-WAY-MERGE", "reason":"skeleton-merge skipped (merge failed; adopter overlay untouched)"}
+       elif $d == "three-way-merge"     then {"class":"THREE-WAY-MERGE", "reason":"installed .gitignore managed-block append (Step 11.8 sentinel; adopter ignore rules preserved, never take-new/sidecar)"}
        elif $d == "new-ship"            then {"class":"FOUNDATION-REPLACE", "reason":"absent on disk; staged into place (NEW-SHIP)"}
        elif $d == "replace"             then {"class":"FOUNDATION-REPLACE", "reason":"on-disk == baseline (adopter unmodified); take-new (upstream fix lands)"}
        elif $d == "sidecar"             then {"class":"FOUNDATION-REPLACE", "reason":"on-disk != baseline (adopter edited owned code); take-new + snapshot her bytes to <path>.foundation-local (conflict→sidecar)"}
@@ -2230,8 +2253,14 @@ mkdir -p "$PLANS_HOME" || { diag "plans-home mkdir failed: $PLANS_HOME"; exit 11
 #   EPHEMERAL $CLAUDE_STATE_ROOT (~/.local/state/brain-stem)
 #            + vault-staging/_archive/ + .coordination/ (machine-local
 #            multi-session registry + the four lockf locks) + sessions/
-#            (per-session checkpoint dirs consumed by registry.sh / paths.sh).
-state_tier_dirs="$VAULT_WRITER_STATE_ROOT $VAULT_WRITER_STATE_ROOT/daily-processing $VAULT_WRITER_STATE_ROOT/raw $VAULT_WRITER_STATE_ROOT/staging $CLAUDE_STATE_ROOT $CLAUDE_STATE_ROOT/vault-staging $CLAUDE_STATE_ROOT/vault-staging/_archive $CLAUDE_STATE_ROOT/.coordination $CLAUDE_STATE_ROOT/sessions"
+#            (per-session checkpoint dirs consumed by registry.sh / paths.sh)
+#            + logs/ (+ logs/archive/) + manifests/ + hooks-state/ — the
+#            cron/orchestrator run-logs, the retention archive bucket, the
+#            librarian-manifest home, and the hooks-runtime state on the XDG
+#            state tier (audit/ + runtime/ are created on-demand by their
+#            writers). A fresh install provisions these so the paths.sh
+#            defaults resolve to real dirs.
+state_tier_dirs="$VAULT_WRITER_STATE_ROOT $VAULT_WRITER_STATE_ROOT/daily-processing $VAULT_WRITER_STATE_ROOT/raw $VAULT_WRITER_STATE_ROOT/staging $CLAUDE_STATE_ROOT $CLAUDE_STATE_ROOT/vault-staging $CLAUDE_STATE_ROOT/vault-staging/_archive $CLAUDE_STATE_ROOT/.coordination $CLAUDE_STATE_ROOT/sessions $CLAUDE_STATE_ROOT/logs $CLAUDE_STATE_ROOT/logs/archive $CLAUDE_STATE_ROOT/manifests $CLAUDE_STATE_ROOT/hooks-state"
 for d in $state_tier_dirs; do
   mkdir -p "$d" || { diag "state-tier mkdir failed: $d"; exit 11; }
 done

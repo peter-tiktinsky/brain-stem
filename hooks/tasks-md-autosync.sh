@@ -1,18 +1,16 @@
 #!/bin/bash
 # Hook: tasks-md-autosync — PostToolUse Edit|Write — the WRITE-side consumer of
 # the canonical `<!-- task-done: NN/T-M -->` completion marker, re-pointed to the
-# manifest SoT.
-#
+# manifest SoT (;, T-05).
 # Re-point (NOT the retired satellite behavior): the legacy hook flipped the
-# generated tasks.md `**Status:**` line directly off per-plan progress satellites.
-# That satellite is retired and editing the generated view is the named
+# generated tasks.md `**Status:**` line directly off backlog-progress satellites.
+# That satellite is retired (0) and editing the generated view is the named
 # anti-pattern. The CORRECT target — SAME trigger, correct sink — is:
 #   1. a task-done marker lands in a plan's handoff.md (PostToolUse Edit|Write),
 #   2. this hook writes manifest.tasks[].status='done' (the task-state SoT), then
 #   3. invokes librarian:tasks-render so tasks.md re-renders with strike-through.
 # The marker grammar is preserved: `<!-- task-done: NN/T-M -->` (sub-plan form) or
 # `<!-- task-done: T-M -->` (plan-root form), one marker per completed task.
-#
 # ============================ OUTPUT CONTRACT =================================
 # Files written:
 #   <plan-dir>/manifest.json  — the matching tasks[].status flipped to "done"
@@ -32,8 +30,6 @@
 #   resolved + schema-valid path; tasks.md is touched ONLY by tasks-render.
 # Non-mutating signals: keys on the written file path being a handoff.md carrying
 #   >=1 task-done marker; no-op otherwise.
-# =============================================================================
-#
 # Bash 3.2 clean (R-23). Argv-based Python heredoc (R-24 — data passed via argv,
 # never piped to the heredoc). Honors HOOKS_STATE_OVERRIDE for test isolation.
 set -uo pipefail
@@ -42,7 +38,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Audit log (test-isolatable). HOOKS_STATE_OVERRIDE wins so harnesses never touch
 # the live runtime state dir.
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-$SCRIPT_DIR/state}}"
+STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
 LOG="$STATE_DIR/tasks-md-autosync.log"
 
 log() {

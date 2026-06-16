@@ -4,52 +4,48 @@
 # Only does auto-fix checks: staleness (read-only flag), orphans, dead refs,
 # temporal hygiene, index-dedup, budget. Manual checks (overlap, status
 # verification, conflicts, supersession adjudication) stay in /librarian.
-#
-# Two behaviors of note:
-#   (1) orphan section-map reads the schema ENUM retrieval-type sections
+#   (1) orphan section-map now reads the schema ENUM retrieval-type sections
 #       (## Semantic / ## Procedural / ## Episodic), mapping the `type:`
 #       frontmatter value to its section, instead of the old top-level
-#       provenance sections (## User/## Feedback/...).
+#       provenance sections (## User/## Feedback/...) that match nothing
+#       post-reorg (.6).
 #   (2) cap-count computes raw wc -l AND byte count AND char-line count, with a
-#       comment-stripped raw count, and gates on the LARGER instead of raw
-#       wc -l only.
+#       comment-stripped raw count, and gates on the LARGER (
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/lockf.sh"
-# The revalidation-enqueue producer feeds the review-queue drain (primitives
-# confirm_item/reject_item/defer_item/suppress_item).
+# drain (primitives confirm_item/reject_item/defer_item/suppress_item).
 # Source review-queue.sh for enqueue_item; degrade gracefully if absent.
 [ -r "$SCRIPT_DIR/lib/review-queue.sh" ] && source "$SCRIPT_DIR/lib/review-queue.sh"
 MEMORY_DIR="$(resolve_memory_dir)"
 STATE_FILE="$MEMORY_DIR/.consolidation-state.json"
 LOCK_FILE="$MEMORY_DIR/.consolidation.lock"
-LOG_FILE="$MEMORY_DIR/.consolidation-log.md"
+LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state+lock STAY in MEMORY_DIR
 INDEX_FILE="$MEMORY_DIR/MEMORY.md"
 
-# Single-instance guard via lockf — replaces the
 # hand-rolled PID-lock TOCTOU window. The outer call re-execs this script under
 # /usr/bin/lockf -k -t 0; on contention (another consolidation running) it skips
 # cleanly. The kernel releases the advisory lock on process death — no stale
 # lock to reap. The inner (re-execed) invocation returns and proceeds below.
 mkdir -p "$MEMORY_DIR"
-export LOG_DIR="${LOG_DIR:-$MEMORY_DIR}"
+mkdir -p "$(dirname "$LOG_FILE")"
 claude_lockf_reexec "$LOCK_FILE" "$@"
 
 # Single 180-day re-validation interval. Honored if exported by the
-# spawning check.sh; falls back to the default otherwise.
+# spawning check.sh; falls back to the canonical default otherwise.
 STALE_DAYS="${STALE_DAYS:-180}"
 EXPIRED_DAYS="${EXPIRED_DAYS:-360}"
 
-# R-59 load-guard thresholds (the byte cap is the governing trigger). Read from
-# the SHIPPED foundation-master.json bundle slot
-# (.mandatory_files.mandates._memory_md_cap.thresholds.*), NOT the
+# R-59 load-guard thresholds (.5; the byte cap is the governing
+# trigger). (T-08): read from the SHIPPED foundation-master.json
+# bundle slot (.mandatory_files.mandates._memory_md_cap.thresholds.*), NOT the
 # repo-only pillar mandatory-files-rules.json — the bundle is what adopters get
 # (the repo-only pillar is absent on an adopter, so the old read fell back to
 # the baked-in defaults). Routes through hooks/lib/foundation-overlay-load.sh
 # (the same R-52 loader the read-layer fix uses); falls back to the
-# documented defaults when the bundle is unreachable (fail-open).
+# documented defaults when the bundle is unreachable (fail-open per).
 CAP_LINES=200
 CAP_BYTES=25600
 CAP_CHAR_LINE=200
@@ -67,7 +63,6 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-# Opt-out toggle: short-circuit when user opted out via /onboard.
 # Default-enabled; opt-out is explicit `false`. Audit log entry written to
 # $LOG_FILE before exit so absence-of-runs is observable.
 hook_enabled="$(_manifest_get .behavioral.hook_preferences.memory_consolidation_enabled 2>/dev/null || true)"
@@ -106,11 +101,10 @@ type_to_section() {
   esac
 }
 
-# Revalidation-enqueue producer. For each STALE (≥180d) or
 # EXPIRED (≥360d) non-episodic memory file, enqueue a review-queue item of
 # class='revalidation' so review_queue_revalidation_count > 0 and the single
 # aggregated banner line ("N memories due for revalidation") surfaces. STALE =
-# low-severity (suppress-EXEMPT); EXPIRED escalates to
+# low-severity (suppress-EXEMPT per.7); EXPIRED escalates to
 # medium-severity itemized {revalidate|supersede|archive}. The id is a stable
 # dedupe key (memory-basename) so a re-scan does NOT double-enqueue (enqueue_item
 # is idempotent on id — block-and-log). No-op when review-queue.sh is absent
@@ -154,7 +148,6 @@ enqueue_revalidation() {
 }
 
 # --- Check 1: Staleness scan (read-only flag; propose-only states) ---
-# Decay model: last_validated is the SOLE decay input
 # (required per schema 2.0.0). A SINGLE 180-day interval applies to all
 # non-episodic memory; episodic NEVER decays. States:
 #   FRESH (<180d) → no action
@@ -162,7 +155,7 @@ enqueue_revalidation() {
 #   EXPIRED (≥360d) → propose {revalidate|supersede|archive} (flagged)
 # ALL propose-only — this scan NEVER deletes/archives; it only counts flags for
 # the audit log. The actual revalidation surfacing is the review-queue/banner
-# `updated` does NOT reset the clock.
+#. `updated` does NOT reset the clock.
 for f in "$MEMORY_DIR"/*.md; do
   [[ "$(basename "$f")" == "MEMORY.md" ]] && continue
   [[ ! -f "$f" ]] && continue
@@ -319,7 +312,7 @@ done
 # --- Check 8: Budget monitor (defect 2: byte-first, both-raw-and-stripped) ---
 # Compute RAW line count, BYTE count, char-line count, and a comment-stripped
 # raw line count; gate on the LARGER ratio. The byte cap is the governing
-# trigger.
+# trigger (.5/#3).
 LINE_COUNT=0
 STRIPPED_LINE_COUNT=0
 BYTE_COUNT=0
@@ -331,7 +324,7 @@ if [[ -f "$INDEX_FILE" ]]; then
   # Comment-stripped raw line count: drop HTML-comment blocks (<!-- ... -->),
   # then count remaining lines. Gate on the LARGER of raw vs stripped (the
   # stripped count may be smaller; we keep the larger so comments never buy
-  # unlimited headroom — "gate on the larger").
+  # unlimited headroom —.5 "gate on the larger").
   STRIPPED_LINE_COUNT=$(awk '
     /<!--/ { inc=1 }
     inc==0 { print }

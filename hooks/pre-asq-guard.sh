@@ -2,17 +2,17 @@
 # Hook: PreToolUse (AskUserQuestion) — Session-decision-guard for option-shape
 # decisions. Matcher-split discipline:
 # AskUserQuestion lives here; Edit|Write lives in pre-write-guard.sh.
-#
-# Branches (modular composition — each branch is an independent
+# Branches (modular composition per — each branch is an independent
 # function that emits a text fragment or empty; composer concatenates):
-#   decision_quality_branch()   — Decision-Quality advisory + telemetry/
+#   decision_quality_branch()   — advisory + telemetry/
 #                                 annotation grammar + Phase 1/2 env-var-flip.
-#   hard_constraints_branch()   — Hard-Constraints-Override-Spec reminder.
-#                                 Fires when a substantive option set is
-#                                 detected.
+#                                 Ported from live pre-write-guard.sh:40-184
+#                                 per T-2 (port-first discipline).
+#   hard_constraints_branch()   — Hard-Constraints-Override-Spec reminder
+#                                 (branch #5). Fires when substantive
+#                                 option set is detected.
 #   compose_additional_context() — concatenates non-empty fragments into a
 #                                  single additionalContext payload.
-#
 # Phase 2 deny takes priority over fragment composition: when
 # decision_quality_branch() flips to deny under PRE_ASQ_GUARD_DQ_PHASE=2-blocking
 # (alias PRE_WRITE_GUARD_DQ_PHASE preserved for back-compat), the hook emits
@@ -20,8 +20,7 @@
 # transparency.
 set -euo pipefail
 
-# Hook-portability — source lib via $SCRIPT_DIR, not a
-# hardcoded install-path literal.
+# hardcoded install-path literal ([DRIFT] 3; AC).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/registry.sh"
@@ -31,7 +30,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 
 # Matcher-split guard: only act on AskUserQuestion. Other matchers shouldn't
 # reach this hook per settings.json, but guard defensively in case the matcher
-# config is mis-wired during install or fixture setup.
+# config is mis-wired during install or fixture setup (T-18).
 if [[ "$TOOL_NAME" != "AskUserQuestion" ]]; then
   exit 0
 fi
@@ -42,30 +41,31 @@ DQP_FRAGMENT=""
 HC_FRAGMENT=""
 
 # === decision_quality_branch() ============================================
-# Preserves:
+# PORTED from live ~/.claude/hooks/pre-write-guard.sh:40-184 per T-2
+# (port-first discipline). Preserves+:
 #   - Substantive-shape heuristic (option count ≥ 2 + description > 50 chars
 #     OR keyword match in question text)
 #   - Skip-conditions (yes/no canonical labels; no signals)
-#   - Annotation grammar (`\bresearch_complete:\s*\S+`)
+#   - annotation grammar (`\bresearch_complete:\s*\S+`)
 #   - Phase 1 (1-advisory): substantive + no annotation → nudge
 #   - Phase 2 (2-blocking): substantive + no annotation → deny
 #   - JSONL telemetry row per fire to $DQ_EVENTS_PATH (fixture-overridable)
-#
 # Sets DQP_DECISION ∈ {allow, deny} + DQP_FRAGMENT (text or empty).
 decision_quality_branch() {
   local aq_input_file aq_telemetry_path aq_phase aq_decision
   aq_input_file=$(mktemp "${TMPDIR:-/tmp}/sp01-aq-input.XXXXXX")
   printf '%s' "$INPUT" > "$aq_input_file"
   # Telemetry path overridable via $DQ_EVENTS_PATH for fixture isolation.
-  aq_telemetry_path="${DQ_EVENTS_PATH:-$CLAUDE_HOME/orchestrator/state/decision-quality-events.jsonl}"
+  aq_telemetry_path="${DQ_EVENTS_PATH:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime/decision-quality-events.jsonl}"
   mkdir -p "$(dirname "$aq_telemetry_path")" 2>/dev/null || true
   # Phase: 1-advisory (default) or 2-blocking (env-flip; future-session promotion).
   # PRE_ASQ_GUARD_DQ_PHASE is the new canonical name; PRE_WRITE_GUARD_DQ_PHASE
   # preserved as back-compat alias since live operators may have it set.
   aq_phase="${PRE_ASQ_GUARD_DQ_PHASE:-${PRE_WRITE_GUARD_DQ_PHASE:-1-advisory}}"
   # NOTE: pass file-path via argv (NOT stdin). python3 - <<EOF consumes the
-  # heredoc as stdin, so a piped JSON would be silently ignored.
-  # The heredoc IS the script source; data flows in through argv[1..3].
+  # heredoc as stdin, so a piped JSON would be silently ignored
+  # (feedback_python_heredoc_argv.md). The heredoc IS the script source;
+  # data flows in through argv[1..3].
   aq_decision=$(python3 - "$aq_input_file" "$aq_telemetry_path" "$aq_phase" "${CLAUDE_SESSION_ID:-unknown}" <<'PYEOF' 2>/dev/null || echo "allow"
 import sys, json, re, datetime, os
 KEYWORDS = re.compile(r'\b(approach|option|(?:which|code|execution|happy|critical|decision) path|strategy|direction|which way|should we)\b', re.I)
@@ -99,7 +99,7 @@ for q in questions:
             continue
         if ANNOTATION.search((o.get('label', '') or '')) or ANNOTATION.search((o.get('description', '') or '')):
             annotation_present = True
-    # substantive-shape detection heuristic
+    # substantive-shape detection (heuristic)
     if substantive:
         continue
     if KEYWORDS.search(qtext):
@@ -151,7 +151,7 @@ PYEOF
 
   case "$aq_decision" in
     nudge)
-      DQP_FRAGMENT="[Decision-Quality Protocol] You are presenting a substantive option set. Run the 4-element research pass BEFORE publishing:
+      DQP_FRAGMENT="[Decision-Quality Protocol —/] You are presenting a substantive option set. Run the 4-element research pass BEFORE publishing:
 
 1. Project goals — re-read the active plan's spec, manifest, recent handoff.
 2. Inter-project deps — check adjacent plans (predecessor, in-flight, coordinate-with) for conflicts/synergies.
@@ -173,14 +173,12 @@ Then re-rank, recommend, and surface trade-offs. After running the pass, re-issu
 }
 
 # === hard_constraints_branch() ============================================
-# Emits a Hard-Constraints-Override-Spec reminder when a substantive option
-# set is detected. Mirrors the rule stated in the global CLAUDE.md §
-# "Hard Constraints Override Spec Text".
-#
-# Reuses the substantive-shape detection logic (replicated, not shared, for
-# modular independence). Fires regardless of annotation —
+# Per +: emits Hard-Constraints-Override-Spec reminder when a
+# substantive option set is detected. Replaces the rule formerly stated in
+# the user's live global CLAUDE.md § "Hard Constraints Override Spec Text".
+# Reuses the substantive-shape detection logic (replicated, not shared,
+# per modular-independence principle). Fires regardless of annotation —
 # the constraint check is orthogonal to research-completeness.
-#
 # Sets HC_FRAGMENT (text or empty). Never denies.
 hard_constraints_branch() {
   local hc_input_file hc_substantive
@@ -228,9 +226,9 @@ PYEOF
 
 # === compose_additional_context() =========================================
 # Concatenates non-empty fragments with a blank-line separator. Returns the
-# combined text on stdout (empty string if no fragments). The hook
+# combined text on stdout (empty string if no fragments). Per: "Hook
 # concatenates fragments into a single additionalContext and emits one
-# allow decision.
+# allow decision."
 compose_additional_context() {
   local combined=""
   if [[ -n "$DQP_FRAGMENT" ]]; then

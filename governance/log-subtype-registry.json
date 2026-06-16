@@ -53,7 +53,7 @@
       "owner_skill": "librarian",
       "owner_cron": "com.logs-audit",
       "first_registered_at": "2026-05-12",
-      "description": "Output emitted by the log-archive librarian capability. Documents which files were rotated to Archive/Logs/."
+      "description": "Output emitted by the log-archive librarian capability. Documents which files were rotated to state/logs/archive/."
     },
     {
       "subtype": "build",

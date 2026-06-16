@@ -1,25 +1,22 @@
 #!/bin/bash
-# log-archive — Archive old log files from Vault/Logs/ per retention thresholds.
-#
-# Sources `lib/paths.sh` + `lib/findings.sh` + `lib/dates.sh`.
-#
+# log-archive — Archive old log files from the state/logs/ run-log dir per
+# retention thresholds (G7, plan 110: the rotation home moved off the indexed
+# vault Logs/ to the XDG state tier $CLAUDE_LOG_DIR).
+# Landed: Sub-plan 02 T-1 (2026-04-21). Extracted from SKILL.md
+# `lib/dates.sh` (co-shipped in this commit).
 # Thresholds per SKILL.md:
 #   - Dashboard-sync logs: older than 3 days
 #   - General logs:        older than 7 days
-#
-# Target path: Archive/Logs/{YYYY}-W{WW}/ where YYYY-WW is ISO year+week
-# computed from the filename's leading date.
-#
+# Target path: $CLAUDE_LOG_DIR/archive/{YYYY}-W{WW}/ where YYYY-WW is ISO
+# year+week computed from the filename's leading date.
 # CLI:
 #   log-archive.sh            # dry-run (default per SKILL.md)
 #   log-archive.sh --dry-run  # preview only
 #   log-archive.sh --execute  # actually move files
 #   log-archive.sh --help     # usage
-#
 # Env overrides (testing):
-#   LOG_ARCHIVE_SOURCE   — override source dir (default $VAULT_LOGS)
-#   LOG_ARCHIVE_TARGET   — override archive root (default $VAULT_ROOT/Archive/Logs)
-#
+#   LOG_ARCHIVE_SOURCE   — override source dir (default $CLAUDE_LOG_DIR)
+#   LOG_ARCHIVE_TARGET   — override archive root (default $CLAUDE_LOG_DIR/archive)
 # Scope rules:
 #   - Top-level *.md files in $LOG_ARCHIVE_SOURCE only (subdirs preserved).
 #   - Symlinks skipped entirely (ideation-brief-*.md symlinks point to
@@ -28,7 +25,6 @@
 #     archived and not flagged — non-dated content in Logs/ is a
 #     placement-validate concern, not a log-archive concern).
 #   - Dashboard-sync detection: filename contains "dashboard-sync".
-#
 # Bash 3.2 clean per R-23. Never deletes files — only `mv`.
 
 set -euo pipefail
@@ -36,7 +32,7 @@ set -euo pipefail
 CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 _REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
 
-if [[ -z "${VAULT_LOGS:-}" ]]; then
+if [[ -z "${CLAUDE_LOG_DIR:-}" ]]; then
   # shellcheck source=/dev/null
   { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
     || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; }
@@ -59,8 +55,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LOGS_ROOT="${LOG_ARCHIVE_SOURCE:-$VAULT_LOGS}"
-ARCHIVE_ROOT="${LOG_ARCHIVE_TARGET:-$VAULT_ROOT/Archive/Logs}"
+# G7 (plan 110): rotate the XDG state-tier run-log dir, not the indexed vault Logs/.
+LOGS_ROOT="${LOG_ARCHIVE_SOURCE:-$CLAUDE_LOG_DIR}"
+ARCHIVE_ROOT="${LOG_ARCHIVE_TARGET:-$CLAUDE_LOG_DIR/archive}"
 DASHBOARD_THRESHOLD=3
 GENERAL_THRESHOLD=7
 
@@ -126,21 +123,21 @@ for file in "$LOGS_ROOT"/*.md; do
   if [[ "$MODE" == "execute" ]]; then
     if [[ ! -d "$target_dir" ]]; then
       mkdir -p "$target_dir"
-      folders_created="${folders_created}  - Archive/Logs/${target_subdir}/"$'\n'
+      folders_created="${folders_created}  - logs/archive/${target_subdir}/"$'\n'
     fi
     mv "$file" "$target_dir/"
   else
     # Dry-run — track whether this folder would be created
     if [[ ! -d "$target_dir" ]]; then
       case "$folders_created" in
-        *"Archive/Logs/${target_subdir}/"*) : ;;
-        *) folders_created="${folders_created}  - Archive/Logs/${target_subdir}/"$'\n' ;;
+        *"logs/archive/${target_subdir}/"*) : ;;
+        *) folders_created="${folders_created}  - logs/archive/${target_subdir}/"$'\n' ;;
       esac
     fi
   fi
 
   archived=$((archived + 1))
-  moved_lines="${moved_lines}  - ${fn} → Archive/Logs/${target_subdir}/"$'\n'
+  moved_lines="${moved_lines}  - ${fn} → logs/archive/${target_subdir}/"$'\n'
 done
 shopt -u nullglob
 
@@ -152,7 +149,7 @@ fi
 
 printf "## Logs (%d archived, %d remaining) %s\n\n" "$archived" "$remaining" "$prefix"
 if [[ "$archived" -gt 0 ]]; then
-  printf '%s\n' "- Moved $archived files to Archive/Logs/"
+  printf '%s\n' "- Moved $archived files to logs/archive/"
   if [[ -n "$folders_created" ]]; then
     printf '%s\n%s' "- Created folders:" "$folders_created"
   fi
@@ -162,4 +159,4 @@ if [[ "$archived" -gt 0 ]]; then
 else
   printf '%s\n' "- No files to archive"
 fi
-printf '%s\n' "- Remaining in Logs/: $remaining files (within retention window)"
+printf '%s\n' "- Remaining in logs/: $remaining files (within retention window)"

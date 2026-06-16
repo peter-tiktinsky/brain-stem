@@ -20,13 +20,12 @@ The runtime contract is composed from the two artifacts that ship in `governance
 
 Files at the top of your vault must either live in a documented root folder or be one of a small set of exempt single files. The intent is to keep the vault's first-level shape readable and walker-discoverable.
 
-**Foundation-shipped root folders.** Eight directories ship as documented roots:
+**Foundation-shipped root folders.** Seven directories ship as documented roots:
 
 | Folder | Purpose |
 |---|---|
 | `Archive/` | Past-tense content the active vault no longer needs in view. |
 | `Daily/` | Daily-cadence notes if you keep that practice. |
-| `Logs/` | Operational logs from skills, scripts, and audit runs. |
 | `Meetings/` | Meeting notes emitted by the meeting processor and manual capture. |
 | `Plans/` | A window into your plan tree (`~/.claude-plans/`) — initiatives, backlog, and ideas. |
 | `Skills/` | Adopter-authored skill content and assets. |

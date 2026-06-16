@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "description": "Documentation dependency registry. Hand-editable source of truth. Read by pre-write-guard.sh and librarian session-close. Mirrored into Logs/librarian-manifest.json -> doc_dependencies on each /librarian full run. Cascade registry consumed by pre-write-guard.sh + librarian session-close. The entities{} block is a declarative entity-mirror registry; per-type parity is enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
+  "description": "Documentation dependency registry. Hand-editable source of truth. Read by pre-write-guard.sh and librarian session-close. Mirrored into state/manifests/librarian-manifest.json -> doc_dependencies on each /librarian full run. Cascade registry consumed by pre-write-guard.sh + librarian session-close. The entities{} block is a declarative entity-mirror registry; per-type parity is enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
   "_path_placeholders": {
     "_description": "Path placeholders are substituted at install time. Foundation-repo ships paths in this parameterized form; install.sh resolves each placeholder against the adopter's environment.",
     "{hooks_root}": "Adopter's hooks directory (typical: $CLAUDE_HOME/hooks)",

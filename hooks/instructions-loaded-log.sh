@@ -1,23 +1,23 @@
 #!/bin/bash
 # Hook: InstructionsLoaded — memory-reaching-model diagnostic logger.
-#
-# Records that instructions (CLAUDE.md / MEMORY.md / rules) reached the model
-# for a session — the diagnostic signal used to verify the curated memory tier
-# is actually loading.
-#
+# C5-owned body in a C2 slot (canonical/InstructionsLoaded ->
+# instructions-loaded-log.sh;.12: memory-reaching-model
+# diagnostic at the C2<->C5 boundary). Records that instructions (CLAUDE.md /
+# MEMORY.md / rules) reached the model for a session — the diagnostic signal
+# used to verify the curated memory tier is actually loading.
 # Side-effect contract: writes ONE diagnostic row to the state-root diagnostic
 # log and nothing else. No additionalContext, no registry mutation, no vault
 # write. Exits 0 silently. NEVER fail-hard.
 set -uo pipefail
 
-# Portability: resolve libs via $SCRIPT_DIR.
+# Portability (LOCK): resolve libs via $SCRIPT_DIR.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || exit 0
 
 # Diagnostic log path under the hooks-state root (HOOKS_STATE_OVERRIDE wins for
 # test isolation). The diagnostic is machine-local ephemeral state, not a vault
 # artifact — it never reaches Logs/.
-STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/state}}"
+STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
 DIAG_LOG="$STATE_DIR/instructions-loaded.log"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0

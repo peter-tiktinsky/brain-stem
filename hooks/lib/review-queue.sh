@@ -35,7 +35,9 @@ _rq_queue_file() {
 }
 
 _rq_log_file() {
-  echo "$(_rq_memory_dir)/.review-queue-log.md"
+  # G6: the review-queue LOG relocates to the XDG state log tier (state/logs/);
+  # the queue + state JSON stay co-located with the memory dir (they bind it).
+  echo "${CLAUDE_LOG_DIR:-$(_rq_memory_dir)}/.review-queue-log.md"
 }
 
 _rq_schema_path() {
@@ -148,7 +150,7 @@ if errs:
   return 0
 }
 
-# --- queue-drain state-transition primitives (lib side,) --------
+# --- queue-drain state-transition primitives (lib side) --------
 # The converse of enqueue_item: without these, queued items can never leave the
 # OPEN set (the.7 surfacing mechanism is non-terminating). Each
 # is a jq read-modify-write of the matching .id ($qf.tmp -> mv, mirroring
@@ -281,7 +283,7 @@ review_queue_has_high_severity_conflict() {
 # review_queue_has_aged_or_deferred — true when an open high-severity item has
 # been pending > N days OR carries defer_count >= defer_cap (the re-firing mandate
 # trigger). Thresholds resolved env > user-manifest.json :: hooks.memory_review >
-# default (: _rq_high_sev_days / _rq_defer_cap).
+# default (_rq_high_sev_days / _rq_defer_cap).
 review_queue_has_aged_or_deferred() {
   local qf days_cap defer_cap n
   qf="$(_rq_queue_file)"

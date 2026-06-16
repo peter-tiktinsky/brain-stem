@@ -14,12 +14,10 @@
 #   5. Cluster root: standard files + CLAUDE.md + _index.md + File-Index.md (cluster-parameterized;
 #      skipped when cluster_folder is unset)
 #   6. Reference/ (Tier 1): no engagement-specific files
-#   7. Logs/ allowed patterns: dated logs + build-* + ideation-brief-* symlinks
-#      (frontmatter-enforce must skip ideation-brief-*.md)
+#   (rule 7, Logs/ allowed patterns, retired at G3 — vault Logs/ no longer ships)
 # Index File Convention (always allowed):
 #   - _index.md at any directory root
 #   - File-Index.md at cluster + project roots
-#   - Logs/ideation-brief-*.md (symlinks to plan-tree ideation briefs)
 # CLI:
 #   placement-validate.sh                     # emit findings
 #   placement-validate.sh --scope <path>      # narrow scope
@@ -59,12 +57,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCOPE_ROOT="${SCOPE:-$VAULT_ROOT}"
-
-# Read user-extension Logs/ subdirectory whitelist from manifest. Foundation
-# ships an empty list; users append the operationally-meaningful subdirectories
-# their librarian instances emit into Logs/ (e.g. backlog-progress/, etc.).
-LOGS_WHITELIST_SUBDIRS=$(umr_get_array '.vault.logs_whitelist_subdirs' | tr '\n' '|')
-export LOGS_WHITELIST_SUBDIRS
 
 # Read cluster folder from user-manifest (vault.cluster_folder); fall through
 # when unset — cluster-specific placement rules skip cleanly when CLUSTER_DIR is empty.
@@ -115,31 +107,6 @@ CLUSTER_STANDARD = re.compile(r"^(CLAUDE\.md|_index\.md|File-Index\.md|.+ - (Ove
 
 # Project-folder allowlist — pattern-based
 PROJECT_ALLOWLIST = re.compile(r"^(_index\.md|File-Index\.md|.+ - .+\.md)$")
-
-# Logs/ allowed patterns. Two arms:
-#   1. Explicit category prefixes (early-match performance — extend as needed).
-#   2. Date-bearing suffix anywhere before .md (catch-all for any well-formed
-#      dated log filename).
-LOGS_PATTERNS = re.compile(
-    r"^(?:"
-    r"(digest-|session-|librarian-|build-|ideation-brief-|"
-    r"manifest-staleness-|drift-sweep-|tag-coverage-audit-|"
-    r"wikilink-repair-|reconcile-|audit-|2026-|2025-|2024-)"
-    r"|"
-    # Date-bearing suffix anywhere before .md:
-    # -YYYY-MM-DD, -YYYYMMDD, -YYYYMMDD-HHMMSS, -YYYY-MM-DDTHH...
-    r".+-(?:20\d{2}-\d{2}-\d{2}|20\d{6})(?:[T-]\d[^/]*)?\.md$"
-    r")"
-)
-
-# Logs/ sub-directories that are whitelisted infrastructure. Sourced from
-# manifest.vault.logs_whitelist_subdirs[] (pipe-separated via env). Foundation
-# ships empty.
-_w = os.environ.get("LOGS_WHITELIST_SUBDIRS", "").rstrip("|")
-LOGS_WHITELIST_DIRS = tuple(
-    (s if s.endswith("/") else s + "/") for s in _w.split("|") if s
-)
-LOGS_WHITELIST_BASENAME_PREFIXES = ("_session-",)
 
 # Directories to skip entirely
 SKIP_DIRS = ("Archive", ".git", ".claude", ".obsidian", "_test")
@@ -222,25 +189,8 @@ for dirpath, dirnames, filenames in os.walk(scope_root):
                 findings_count += 1
                 continue
 
-        # --- Rule 7: Logs/ allowed patterns
-        if rel_dir == "Logs" or rel_dir.startswith("Logs/"):
-            # Allow _index.md, File-Index.md, and patterns above
-            if fn in ("_index.md", "File-Index.md"):
-                continue
-            # Whitelisted sub-directories — legitimate infrastructure.
-            sub = rel_dir[len("Logs/"):] + "/" if rel_dir.startswith("Logs/") else ""
-            if any(sub.startswith(p) for p in LOGS_WHITELIST_DIRS):
-                continue
-            # Whitelisted basename prefixes (e.g. _session-* inventory files).
-            if any(fn.startswith(p) for p in LOGS_WHITELIST_BASENAME_PREFIXES):
-                continue
-            if not LOGS_PATTERNS.match(fn):
-                emit({"finding": "placement-violation", "file": rel,
-                      "issue": "Non-dated / non-pattern file in Logs/",
-                      "suggested_location": "Rename to match {log-type}-{date}-*.md pattern or move out of Logs/",
-                      "classification": "manual"})
-                findings_count += 1
-                continue
+        # Rule 7 (Logs/ allowed patterns) retired at G3 — vault Logs/ no longer
+        # ships; the run-log home relocated to $CLAUDE_LOG_DIR (G4/G7).
 
 if dry_run:
     print("placement-validate: scanned=%d findings=%d" % (scanned, findings_count))
@@ -265,9 +215,10 @@ PY
 # configured vault — with empty VAULT_LOGS the manifest_set lockfile resolves to
 # '/.coordination/manifest.lock' (uncreatable) and the helper raises under set -e,
 # which a no-vault fresh adopter's session-close logs as a spurious capability
-# error. Gate the persist on a non-empty VAULT_LOGS (the parity AC sets it, so the
-# genuine-writer contract still holds).
-if [[ -n "${VAULT_LOGS:-}" && -s "$MANIFEST_SUBTREE_OUT" ]]; then
+# error — but G2 (plan 110) moved the manifest under $CLAUDE_STATE_ROOT/manifests and
+# its lock under $COORD_DIR (both always creatable), so the persist no longer needs a
+# non-empty VAULT_LOGS. Gate only on having a finding subtree to write.
+if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then
   manifest_set '.drift_findings.placement' "$(cat "$MANIFEST_SUBTREE_OUT")"
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"

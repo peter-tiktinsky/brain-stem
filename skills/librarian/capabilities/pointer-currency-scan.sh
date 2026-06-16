@@ -122,6 +122,19 @@ RULES_DIR_RES="${RULES_DIR:-$CLAUDE_HOME_RES/rules}"
 STATE_HOME="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-$CLAUDE_HOME_RES/hooks/state}}"
 STATE_FILE="$STATE_HOME/pointer-currency-scan.cache"
 
+# G5/D3 (plan 110 T-63): transitional new-first/old-fallback for the change-gate
+# cache — ONE release (v1.3.0). If the cache is absent at the new HOOKS_STATE home
+# but present at the OLD $CLAUDE_HOME/hooks/state, seed the new location from it so
+# the content-hash gate does not spuriously re-fire mid-upgrade (alert-fatigue).
+# Reads/writes thereafter target the new STATE_FILE. Skipped under
+# HOOKS_STATE_OVERRIDE (test isolation). Removed in v1.4.0 (T-60).
+_old_state_file="$CLAUDE_HOME_RES/hooks/state/pointer-currency-scan.cache"
+if [[ -z "${HOOKS_STATE_OVERRIDE:-}" && ! -f "$STATE_FILE" \
+      && -f "$_old_state_file" && "$_old_state_file" != "$STATE_FILE" ]]; then
+  mkdir -p "$STATE_HOME" 2>/dev/null || true
+  cp -p "$_old_state_file" "$STATE_FILE" 2>/dev/null || true
+fi
+
 if [[ "$PRINT_STATE" == "true" ]]; then
   echo "$STATE_FILE"
   exit 0

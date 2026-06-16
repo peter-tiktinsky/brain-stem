@@ -24,7 +24,6 @@
 ├── System Governance/           [F]  → narrative spokes for 6 governance pillars
 ├── Plans/                        [F]  → symlink to {{PLANS_HOME}}
 ├── Vault Writers/                [F]  → writer-references for vault-writing systems
-├── Logs/                         [F]  → Claude's scratch space; cold storage at Logs/Archive/
 ├── Meetings/                     [F]  → date-prefixed meeting notes
 ├── Skills/                       [F]  → symlink to {{CLAUDE_HOME}}/skills/
 ├── {{VAULT_TOP_LEVEL_FOLDER}}/        → user-defined cluster (e.g., client work)

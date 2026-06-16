@@ -8,10 +8,9 @@
 #   R-03  System Governance.md size guard             — line 39+ (SG_MAX_LINES from governance/file-type-contracts/System Governance.md.json; fallback 400)
 #   R-04  vault-root allowlist                        — line ~532
 #   R-54  doc-dependency cascade                      — line ~495
-#   R-09  Logs/ governance — NOT a deny in this hook. Logs/ writes are
-#         free-write scratch; governance (frontmatter + findability) is
-#         auto-applied by the post-write-verify.sh autogovern branch
-#         (landed/), not enforced as a deny/soft-warn here.
+#   R-09  RETIRED (G3) — vault Logs/ no longer ships; the Logs/ autogovern tier
+#         and the post-write-verify.sh autogovern branch were removed. Tombstoned
+#         at governance/mandatory-files-rules.json :: _retired_tombstones.
 #   R-23  cron wrapper bash 3.2 compatibility         — line 39+
 #   R-24  claude-mem SessionEnd protection            — line 78+
 #   R-27  plan naming + status enforcement            — line 123+
@@ -1116,7 +1115,7 @@ fi
 # from foundation-master.json#doc_dependencies instead of legacy
 # ~/.claude/hooks/doc-dependencies.json)
 #   - primary / mirror touches → cascade-review reminder
-#   - Logs/ directory-write-constraint violation → deliverable-type soft-warn
+#   - directory-write-constraint violation → deliverable-type soft-warn
 # Never denies — librarian session-close Step 2c is the blocking backstop.
 # DOC_DEP_CTX is merged into the Tier 1/3 emit below, OR emitted standalone
 # at the tail of the hook if no other block fires.
@@ -1209,7 +1208,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class A: new top-level folder (depth ≥ 1).
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH" -ge "1" ]]; then
     # Foundation system folders.
-    B1_FOUNDATION_FOLDERS=$'Archive\nLogs\nMeetings\nPlans\nSkills\nSystem Governance\nVault Writers'
+    B1_FOUNDATION_FOLDERS=$'Archive\nMeetings\nPlans\nSkills\nSystem Governance\nVault Writers'
     # view. Single jq pass over UNION_JSON captures BOTH the foundation-side
     # top-level `.path_routing` (legacy denorm slot; retires in T-6) AND the
     # pillar-nested `.frontmatter.path_routing` (overlay-extended path).
@@ -1225,7 +1224,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
     fi
     B1_KNOWN_TOPS=$(printf '%s\n%s\n' "$B1_FOUNDATION_FOLDERS" "$B1_KNOWN_ROUTING" | LC_ALL=C sort -u)
     if ! printf '%s\n' "$B1_KNOWN_TOPS" | grep -Fxq "$B1_TOP"; then
-      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Logs, Meetings, System Governance, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Meetings, System Governance, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
     fi
   fi
 
@@ -1926,7 +1925,6 @@ PYEOF
           _KNOWN_ROOTS="Archive
 Daily
 Inbox
-Logs
 Meetings
 Plans
 Skills

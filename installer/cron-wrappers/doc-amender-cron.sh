@@ -1,20 +1,15 @@
 #!/bin/bash
 # installer/cron-wrappers/doc-amender-cron.sh — launchd entry-point for the
 # doc-amender LLM lane (WatchPaths-only; event-driven on packet-land).
-#
 # Invoked by the doc-amender launchd job (templates/launchd/
 # doc-amender.plist.tmpl: WatchPaths only — no StartInterval). Resolves the
-# SINGLE canonical ephemeral staging root ($CLAUDE_STATE_ROOT/vault-staging)
-# and invokes $CLAUDE_HOME/skills/doc-amender/process.sh
+# SINGLE canonical ephemeral staging root ($CLAUDE_STATE_ROOT/vault-staging,
 # once per fire. doc-amender NEVER writes the destination (R-34 boundary); it
 # round-trips amender-replacement packets back to staging.
-#
-# Mirrors the writer-reconciler-cron.sh pattern
 # (sources paths.sh + lockf.sh, sets PATH, logs under $CLAUDE_LOG_DIR,
 # lock-protects the tick). doc-amender's own in-process lockf single-instance
 # guard ($STAGING_ROOT/.doc-amender.lock) is the real concurrency boundary;
 # this wrapper-level lock is belt-and-suspenders against duplicate fires.
-#
 # Bash 3.2 compatible (R-23). jq not required by this wrapper.
 
 set -uo pipefail
@@ -33,9 +28,9 @@ fi
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 CH="${CLAUDE_HOME:-$HOME/.claude}"
-LOG_DIR="${CLAUDE_LOG_DIR:-$CH/logs}"
+LOG_DIR="${CLAUDE_LOG_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/logs}"
 LOG_FILE="$LOG_DIR/doc-amender-$(date +%Y%m%d-%H%M%S).log"
-STATE_DIR="${HOOKS_STATE:-$CH/hooks/state}"
+STATE_DIR="${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}"
 LOCK_FILE="$STATE_DIR/doc-amender-cron.lock"
 
 mkdir -p "$LOG_DIR" "$STATE_DIR" 2>/dev/null || true
@@ -46,7 +41,7 @@ if command -v claude_lockf_reexec >/dev/null 2>&1; then
   claude_lockf_reexec "$LOCK_FILE" "$@"
 fi
 
-# The SINGLE canonical ephemeral staging root, same value
+# The SINGLE canonical ephemeral staging root (.2:74), same value
 # the plist's WatchPaths fires on and process.sh defaults to.
 STAGING_ROOT="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/vault-staging"
 

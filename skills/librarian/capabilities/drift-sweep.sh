@@ -134,7 +134,6 @@ set +o pipefail
 while IFS= read -r -d '' file; do
   SCAN_COUNT=$((SCAN_COUNT + 1))
   REL="${file#$VAULT_ROOT/}"
-  [[ "$REL" == "Logs/librarian-manifest"* ]] && continue
   [[ "$REL" == "Logs/.coordination/"* ]] && continue
   [[ "$REL" == "CLAUDE.md" ]] && continue
   [[ "$REL" == .claude/projects/* ]] && continue

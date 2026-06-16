@@ -1,40 +1,36 @@
 #!/usr/bin/env bash
-# pre-dispatch-scoping.sh — Pre-dispatch scoping protocol
+# pre-dispatch-scoping.sh — T-2 — Pre-dispatch scoping protocol
 # + 6 refusal filters (extracted standalone module).
-#
-# EXTRACTED from the inline dispatch.sh scoping block into a clean standalone
-# module. dispatch.sh wires this in at the --job boundary. Decoupled from the
-# governance surfaces (caps, mechanical-only-retry, the verifier ENHANCEMENT) —
-# this module sources NO project .sh lib; it shells out to brief-meta.py + jq only.
-#
+# EXTRACTED from the live dispatch.sh inline scoping block into a clean
+# standalone module (fork-1(a) clean-modules + fork-2
+# orchestrator/lib home). dispatch.sh wires this in at the --job boundary
+# (T-06). Decoupled from the 3 DEFER surfaces (governance.sh caps,
+# retry-dispatch.sh mechanical-only-retry, the verifier ENHANCEMENT) — this
+# module sources NO project .sh lib; it shells out to brief-meta.py + jq only.
 # When the brief declares any of scope_summary / team_topology /
 # dispatch_decision:
 #   1. Write a human-readable scope packet to
 #      $ORCHESTRATOR_STATE_DIR/dispatches/<dispatch-id>/scope-packet.md
 #   2. Check the refusal-filter cross-validation: decision=dispatch-multi
 #      AND any of the 6 filters=fail → filter_check_failed
-#   3. Advisory by default (first-wave rollout); blocking when
-#      ORCHESTRATOR_SP04_T2_BLOCKING=1 (exit code 12)
-# Legacy briefs (no scoping fields) skip entirely — backwards-compatible.
-#
+#   3. Advisory by default (OQ-A first-wave rollout); blocking when
+#      ORCHESTRATOR_SP04_T2_BLOCKING=1 (exit code 12, marker "T-2")
+# Legacy briefs (no T-2 fields) skip entirely — backwards-compatible.
 # The 6 canonical refusal-filter keys (the scoping SHAPE) live in
 # brief-meta.py SP04_FILTER_KEYS: sequential_edges, shared_global_context,
 # token_value_asymmetry, decomposition_ambiguity, depth_signal,
 # verifier_coupling.
-#
 # Usage:
 #   pre-dispatch-scoping.sh <brief-path> <target-name>
-#
 # Env vars:
 #   ORCHESTRATOR_SP04_T2_BLOCKING   — "1" to block (exit 12) on filter-fail;
 #                                      unset/empty = advisory (default; proceed)
 #   ORCHESTRATOR_STATE_DIR          — state dir override
-#                                      (default: ${CLAUDE_HOME:-~/.claude}/orchestrator/state)
+#                                      (default: $CLAUDE_STATE_ROOT/runtime)
 #   CLAUDE_HOME                     — install root (default: ~/.claude)
-#
 # Exit codes:
 #   0   — advisory pass / legacy-skip / brief-meta degraded (graceful)
-#   12  — BLOCKING mode + dispatch-multi + filter-fail
+#   12  — BLOCKING mode + dispatch-multi + filter-fail (marker "T-2")
 
 set -uo pipefail
 
@@ -48,16 +44,16 @@ if [[ -z "$BRIEF" ]] || [[ -z "$TARGET" ]]; then
   exit 0
 fi
 if [[ ! -f "$BRIEF" ]]; then
-  echo "[scoping] brief not found: $BRIEF (advisory; not blocking)" >&2
+  echo "[T-2] brief not found: $BRIEF (advisory; not blocking)" >&2
   exit 0
 fi
 if [[ ! -f "$BRIEF_META" ]]; then
-  echo "[scoping] brief-meta.py not found: $BRIEF_META (advisory; skipping scoping)" >&2
+  echo "[T-2] brief-meta.py not found: $BRIEF_META (advisory; skipping scoping)" >&2
   exit 0
 fi
 
 # --- Locations ---
-SP04_STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/orchestrator/state}"
+SP04_STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime}"
 SP04_DISPATCHES_DIR="$SP04_STATE_DIR/dispatches"
 
 # --- Utility: derive slug from name (mirrors dispatch.sh to_slug) ---
@@ -71,18 +67,18 @@ to_slug() {
 _SP04_JSON=$(python3 "$BRIEF_META" scoping "$BRIEF" 2>/dev/null || echo '{}')
 _SP04_FIELDS_PRESENT=$(echo "$_SP04_JSON" | jq -r 'if (. == {}) then "no" else "yes" end' 2>/dev/null || echo "no")
 if [[ "$_SP04_FIELDS_PRESENT" != "yes" ]]; then
-  # Legacy brief (no scoping fields) — skip entirely (backwards-compatible).
+  # Legacy brief (no T-2 fields) — skip entirely (backwards-compatible).
   exit 0
 fi
 
 _SP04_SHAPE_ERR=$(echo "$_SP04_JSON" | jq -r '._shape_error // ""' 2>/dev/null || echo "")
 if [[ -n "$_SP04_SHAPE_ERR" ]]; then
-  # cmd_check (the dispatch.sh validation gate) already returned 12 upstream;
-  # this branch is defensive.
+  # cmd_check (the dispatch.sh T-4 gate) already returned 12 upstream; this
+  # branch is defensive.
   {
     echo ""
     echo "================================================================"
-    echo "Pre-dispatch scoping: shape error reached pre-flight gate."
+    echo "T-2: scoping shape error reached pre-flight gate."
     echo "Brief: $BRIEF"
     echo "Detail: $_SP04_SHAPE_ERR"
     echo "================================================================"
@@ -102,7 +98,7 @@ _SP04_PACKET="$_SP04_DIR/scope-packet.md"
   echo "**Dispatch ID:** \`$_SP04_DISPATCH_ID\`"
   echo "**Brief:** \`$BRIEF\`"
   echo "**Dispatched at:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  echo "**Pre-Dispatch Scoping Protocol**"
+  echo "**T-2** (Pre-Dispatch Scoping Protocol)"
   echo ""
   _SP04_SS=$(echo "$_SP04_JSON" | jq -r '.scope_summary // ""')
   if [[ -n "$_SP04_SS" ]]; then
@@ -162,7 +158,7 @@ _SP04_PACKET="$_SP04_DIR/scope-packet.md"
     echo "- failed filters: $(echo "$_SP04_JSON" | jq -r '.filter_fail_reasons | join(", ")')"
   fi
 } > "$_SP04_PACKET"
-echo "[scoping] scope packet written: $_SP04_PACKET" >&2
+echo "[T-2] scope packet written: $_SP04_PACKET" >&2
 
 # Cross-validation gate (advisory vs blocking).
 _SP04_FCF=$(echo "$_SP04_JSON" | jq -r '.filter_check_failed // false')
@@ -172,7 +168,7 @@ if [[ "$_SP04_FCF" == "true" ]]; then
     {
       echo ""
       echo "================================================================"
-      echo "Pre-dispatch scoping: dispatch refused (BLOCKING mode)"
+      echo "T-2: dispatch refused (BLOCKING mode)"
       echo "Brief: $BRIEF"
       echo "Decision: dispatch-multi"
       echo "Failed refusal filters: $_SP04_REASONS"
@@ -187,7 +183,7 @@ if [[ "$_SP04_FCF" == "true" ]]; then
     {
       echo ""
       echo "================================================================"
-      echo "[scoping ADVISORY] dispatch-multi + filter-fail detected — proceeding"
+      echo "[T-2 ADVISORY] dispatch-multi + filter-fail detected — proceeding"
       echo "Brief: $BRIEF"
       echo "Failed filters: $_SP04_REASONS"
       echo "(set ORCHESTRATOR_SP04_T2_BLOCKING=1 to reject this class)"

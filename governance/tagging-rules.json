@@ -58,12 +58,8 @@
       "rule_text": "Every non-exempt vault write MUST carry a non-empty `tags:` array in its frontmatter. Pre-write-guard emits a Tier 1 advisory ([R-47 TAG PRESENCE]) when the field is missing or empty (tags: []). Distinguishes 'missing' (no tags: line) vs 'empty' (line present, no items). Exempt paths are enumerated in this rule's `r47_exempt_paths` array — they cover archive surfaces, ideation-brief symlinks, machine-emitted scratch/build zones, and system infrastructure paths whose tag-absence is structurally legitimate. The librarian tag-coverage-audit walks the vault at audit time and surfaces longer-running orphans + near-miss patterns (#scope/decisions vs #scope/decision — one is likely a typo) as advisory findings the operator triages.",
       "r47_exempt_paths": [
         "Archive/**",
-        "Logs/foundations-essays/**",
         ".claude/**",
-        "Logs/ideation-brief-*.md",
-        ".claude/hooks/state/**",
-        ".claude/hooks/lib/**",
-        "Logs/build-*"
+        ".claude/hooks/lib/**"
       ],
       "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + the narrative spoke (System Governance - Tagging.md) + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited).",
       "seed_taxonomy_exempt_paths": [

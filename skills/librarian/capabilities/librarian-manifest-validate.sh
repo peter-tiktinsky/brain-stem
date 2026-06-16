@@ -2,20 +2,20 @@
 # librarian-manifest-validate — Validate a staged librarian-manifest.json write
 # against schemas/librarian-manifest-schema.json. Mechanical-tier; runtime gate
 # for capabilities that emit writes_manifest_subtree.
-#
+# Landed: T-9a (2026-04-29). Closes audit-05 (T-7.5
+# explicit consumer mandate). See spec.md "Capability-Registry Schema"
+# §writes_manifest_subtree consumer mandate.
 # Invocation:
 #   librarian-manifest-validate.sh                       # validate live manifest
 #   librarian-manifest-validate.sh --file <path>         # validate <path>
 #   librarian-manifest-validate.sh --stdin               # read JSON from stdin
 #   librarian-manifest-validate.sh --schema-file <path>  # override schema
 #   librarian-manifest-validate.sh --dry-run             # report-only, no log
-#
 # Validator tier selection (auto, override via MANIFEST_VALIDATOR):
 #   - tier-1 ajv   — preferred if `ajv` binary in $PATH (full draft 2020-12)
 #   - tier-2 python-jsonschema — fallback if `python3 -m jsonschema` works
 #   - tier-3 minimal — ALWAYS available; verifies JSON parses + top-level
 #                       required[] keys present + schema_version matches const
-#
 # Block-and-log semantics:
 #   - schema-valid input: exit 0 silent (no findings emitted)
 #   - schema-invalid input: emit finding to FINDINGS_OUTPUT/stdout + log
@@ -23,20 +23,17 @@
 #                           + exit 1 (DENY)
 #   - missing schema file: graceful skip with advisory finding + exit 0
 #   - no validator available + tier-3 unreachable (Python broken): advisory + 0
-#
 # Env overrides (testing):
 #   MANIFEST_VALIDATOR    — force tier selection: ajv | python-jsonschema | minimal
 #   SCHEMAS_DIR           — relocate schemas/ root (default: $CLAUDE_HOME/schemas)
 #   MANIFEST_PATH         — override target manifest path (default: live manifest)
 #   FINDINGS_OUTPUT       — append findings to this file instead of stdout
 #   ERROR_LOG_DIR         — override $CLAUDE_HOME/logs/librarian-errors/
-#
 # Exit codes:
 #   0 — validation passed OR graceful skip (advisory emitted)
 #   1 — validation failed (DENY; finding + diagnostic written)
 #   2 — unknown flag
 #   3 — payload file missing or unreadable
-#
 # Bash 3.2 clean per R-23.
 
 set -uo pipefail
@@ -77,7 +74,7 @@ source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" 2>/dev/null \
 
 SCHEMAS_DIR_RES="${SCHEMAS_DIR:-$CLAUDE_HOME_RES/schemas}"
 SCHEMA_FILE="$SCHEMAS_DIR_RES/librarian-manifest-schema.json"
-ERROR_LOG_DIR_RES="${ERROR_LOG_DIR:-$CLAUDE_HOME_RES/logs/librarian-errors}"
+ERROR_LOG_DIR_RES="${ERROR_LOG_DIR:-${CLAUDE_LOG_DIR:-$CLAUDE_HOME_RES/logs}/librarian-errors}"
 
 MODE="check"
 INPUT_MODE="live"
@@ -104,7 +101,10 @@ trap cleanup EXIT
 
 case "$INPUT_MODE" in
   live)
-    PAYLOAD_FILE="${MANIFEST_PATH:-${VAULT_LOGS:-}/librarian-manifest.json}"
+    # G2/D3 (plan 110 T-62): resolve via the manifest.sh new-first/old-fallback
+    # READ resolver (state/manifests/ first, vault Logs/ for one release; honors
+    # a caller MANIFEST_PATH override). Removed in v1.4.0 (T-60).
+    PAYLOAD_FILE="$(_manifest_read_path)"
     PAYLOAD_LABEL="$PAYLOAD_FILE"
     ;;
   file)
@@ -126,9 +126,7 @@ if [[ ! -f "$PAYLOAD_FILE" ]]; then
   exit 3
 fi
 
-# ---------------------------------------------------------------------------
 # Schema availability check (graceful skip if missing).
-# ---------------------------------------------------------------------------
 if [[ ! -f "$SCHEMA_FILE" ]]; then
   if [[ "$MODE" != "dry-run" ]]; then
     emit_finding "manifest-validate-schema-missing" "$PAYLOAD_LABEL" \
@@ -142,11 +140,9 @@ if [[ ! -f "$SCHEMA_FILE" ]]; then
   exit 0
 fi
 
-# ---------------------------------------------------------------------------
 # Validator tier selection.
 #   Force via MANIFEST_VALIDATOR env (ajv | python-jsonschema | minimal).
 #   Auto: ajv > python-jsonschema > minimal.
-# ---------------------------------------------------------------------------
 detect_validator() {
   local forced="${MANIFEST_VALIDATOR:-}"
   if [[ -n "$forced" ]]; then
@@ -167,11 +163,9 @@ detect_validator() {
 
 VALIDATOR=$(detect_validator)
 
-# ---------------------------------------------------------------------------
 # Validation dispatch.
 # Returns (via stdout): { "ok": bool, "errors": ["..."], "tier": "..." }
 # Returns exit 0 always (errors carried in JSON payload). Caller decides DENY.
-# ---------------------------------------------------------------------------
 validate_ajv() {
   local out
   out=$(ajv validate -s "$SCHEMA_FILE" -d "$PAYLOAD_FILE" --strict=false 2>&1) || true
@@ -255,9 +249,7 @@ OK=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; d=json.load(sys.stdin)
 TIER=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tier",""))' 2>/dev/null || echo "$VALIDATOR")
 ERR_COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("errors",[])))' 2>/dev/null || echo "0")
 
-# ---------------------------------------------------------------------------
 # Result handling.
-# ---------------------------------------------------------------------------
 if [[ "$OK" == "true" ]]; then
   echo "## Librarian Manifest Validate (PASS via $TIER)"
   echo ""

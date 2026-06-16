@@ -2,7 +2,6 @@
 # dispatch.sh — Unified entry point for on-demand and scheduled execution.
 # Routes to plan-runner.sh or job-runner.sh based on job type.
 # Adds trigger metadata to all logs.
-#
 # Usage:
 #   dispatch.sh --plan <slug> [--immediate|--overnight|--delay <spec>]
 #   dispatch.sh --job <name> [--immediate|--overnight|--delay <spec>]
@@ -15,7 +14,6 @@
 #   dispatch.sh --queue-status
 #   dispatch.sh --circuit-breaker-status         (F0)
 #   dispatch.sh --clear-circuit-breaker          (F0)
-#
 # Options:
 #   --model <model>      Override model (default: sonnet)
 #   --timeout <seconds>  Override timeout
@@ -37,7 +35,6 @@ QUEUE_LIB="$HOOKS_DIR/lib/execution-queue.sh"
 PENDING_FILE="$HOOKS_STATE/pending-dispatch.json"
 PLAN_RUNNER="$SCRIPT_DIR/plan-runner.sh"
 JOB_RUNNER="$SCRIPT_DIR/job-runner.sh"
-BACKLOG="$VAULT_ROOT/System Backlog.md"
 
 # --- Source queue library ---
 source "$QUEUE_LIB"
@@ -63,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     --hold)     MODE="hold"; TARGET="$2"; shift 2 ;;
     --unhold)   MODE="unhold"; TARGET="$2"; shift 2 ;;
     --queue-status) MODE="queue-status"; shift ;;
-    --circuit-breaker-status) MODE="circuit-breaker-status"; shift ;;  # F0
-    --clear-circuit-breaker) MODE="clear-circuit-breaker"; shift ;;    # F0
+    --circuit-breaker-status) MODE="circuit-breaker-status"; shift ;;  # F0 ()
+    --clear-circuit-breaker) MODE="clear-circuit-breaker"; shift ;;    # F0 ()
     --immediate)   TIMING="immediate"; shift ;;
     --overnight)   TIMING="overnight"; shift ;;
     --delay)       TIMING="delay"; DELAY_SPEC="$2"; shift 2 ;;
@@ -335,17 +332,16 @@ PLIST
   fi
 }
 
-# ============================================================
-# F0 Circuit-breaker pre-flight (INLINE)
+# F0 Circuit-breaker pre-flight (T-0 — INLINE)
 # Refuse new dispatches when sentinel is present. job-runner.sh writes
 # the sentinel after N=2 consecutive FALSE-SUCCESS-NO-MUTATIONS (the BASE
-# verifier's silent-failure verdict). Skipped for non-dispatch
+# verifier's silent-failure verdict; T-12). Skipped for non-dispatch
 # modes (status / list / hold / unhold / cancel / clear-circuit-breaker —
-# they don't initiate new work). Reads ONLY the sentinel file. The F0
+# they don't initiate new work). Reads ONLY the sentinel file — no DEFER
+# governance.sh / retry-dispatch.sh linkage (fork-1). The F0
 # pre-flight gates plan|job|cron|batch INCLUDING --plan, so the
-# plan-runner dispatch path is governed end-to-end.
-# ============================================================
-F0_STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/orchestrator/state}"
+# plan-runner dispatch path is governed end-to-end (T-06).
+F0_STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime}"
 F0_SENTINEL="$F0_STATE_DIR/dispatch-halted.sentinel"
 F0_VERDICTS_LOG="$F0_STATE_DIR/recent-verdicts.jsonl"
 case "$MODE" in
@@ -363,16 +359,13 @@ case "$MODE" in
     ;;
 esac
 
-# ============================================================
-# Pre-dispatch scoping wire-in (extracted module)
 # Invokes the standalone orchestrator/lib/pre-dispatch-scoping.sh at the
 # --job boundary. Advisory by default; blocks (exit 12) only when
 # ORCHESTRATOR_SP04_T2_BLOCKING=1. Scoped to --job mode only (--plan uses
 # manifests, --cron uses wrappers, --batch recurses through dispatch.sh —
-# per-job enforcement happens at recursion). Legacy briefs (no scoping
+# per-job enforcement happens at recursion). Legacy briefs (no T-2
 # fields) skip entirely inside the module (backwards-compatible). The 6-filter
-# scoping SHAPE lives in lib/brief-meta.py.
-# ============================================================
+# scoping SHAPE lives in lib/brief-meta.py (fork-2).
 SCOPING="$SCRIPT_DIR/lib/pre-dispatch-scoping.sh"
 case "$MODE" in
   job)
@@ -380,7 +373,7 @@ case "$MODE" in
       _SCOPE_BRIEF=$(resolve_job "$TARGET") || exit 1
       bash "$SCOPING" "$_SCOPE_BRIEF" "$TARGET"
       _SCOPE_RC=$?
-      # exit 12 = BLOCKING-mode filter-fail refusal;
+      # exit 12 = BLOCKING-mode filter-fail refusal (marker "T-2");
       # any other rc is advisory/legacy-skip — proceed.
       if (( _SCOPE_RC == 12 )); then
         exit 12
@@ -389,15 +382,12 @@ case "$MODE" in
     ;;
 esac
 
-# ============================================================
-# Brief-quality lint wire-in (advisory)
 # Pre-dispatch Haiku call scores brief quality across 5 failure modes.
-# Advisory ONLY — never blocks dispatch. Gated by
-# ORCHESTRATOR_BRIEF_LINT=1 env (default OFF). Cost log
+# Advisory ONLY — never blocks dispatch (A1). Gated by
+# ORCHESTRATOR_BRIEF_LINT=1 env (default OFF first wave per). Cost log
 # at $ORCHESTRATOR_STATE_DIR/governance/brief-lint-cost.jsonl. Scoped to
 # --job mode (plan/cron/batch don't read a single brief file). brief-lint.sh
 # exits 0 on all paths including API failure (graceful degradation).
-# ============================================================
 BRIEF_LINT="$SCRIPT_DIR/lib/brief-lint.sh"
 case "$MODE" in
   job)
@@ -408,9 +398,7 @@ case "$MODE" in
     ;;
 esac
 
-# ============================================================
 # Main dispatch
-# ============================================================
 
 case "$MODE" in
   plan|job)
@@ -514,7 +502,6 @@ case "$MODE" in
     ;;
 
   circuit-breaker-status)
-    # F0 — show sentinel state + last 5 verdicts
     if [[ -f "$F0_SENTINEL" ]]; then
       echo "=== F0 CIRCUIT-BREAKER: ENGAGED ==="
       cat "$F0_SENTINEL"
@@ -534,7 +521,6 @@ case "$MODE" in
     ;;
 
   clear-circuit-breaker)
-    # F0 — clear the sentinel. The flag itself is the explicit
     # operator-intervention confirmation; no y/N prompt to avoid TTY issues
     # in scripted use.
     if [[ -f "$F0_SENTINEL" ]]; then

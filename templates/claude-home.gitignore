@@ -1,17 +1,13 @@
 # brain-stem: managed secret-exclusions
-# Seeded into $CLAUDE_HOME/.gitignore by install.sh at install time.
-# Deny-list-at-the-VCS-boundary: these surfaces NEVER enter the
-# git index, so the backup wrapper (skills/librarian/capabilities/backup.sh)
-# cannot exfiltrate them to a remote. Belt-and-suspenders with the staged-
-# diff token scanner.
-#
+# Seeded into $CLAUDE_HOME/.gitignore at install time (install.sh Step 11.8).
+# Deny-list-at-the-VCS-boundary: these surfaces NEVER enter the git index, so the
+# backup wrapper (skills/librarian/capabilities/backup.sh) cannot exfiltrate them
+# to a remote. Belt-and-suspenders with the staged-diff token scanner.
 # Secret-bearing surfaces:
 settings.local.json
 .pre-uninstall-*/
 projects/
-#
 # Runtime state + always-noise:
-hooks/state/
 *.key
 *.pem
 *.registry

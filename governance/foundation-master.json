@@ -392,7 +392,6 @@
           "governance/foundation-master.json (forward)"
         ],
         "rule_id_range": [
-          "R-09",
           "R-44",
           "R-58",
           "R-59"
@@ -510,18 +509,18 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-10T21:12:54Z",
-    "bundle_version": "14c7572b407b572df2dc7207aecfde749baf995f230827684df7526a9fd0302f",
+    "built_at": "2026-06-13T04:52:51Z",
+    "bundle_version": "68d48fc58d9edb5bb0cae204c7e08dacda670be3802884be2814016f58ab328b",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-06-08T16:13:08Z",
+      "governance/_index.json": "2026-06-13T04:52:51Z",
       "governance/doc-dependencies.json": "2026-06-08T16:13:08Z",
-      "governance/frontmatter-rules.json": "2026-06-08T16:13:08Z",
+      "governance/frontmatter-rules.json": "2026-06-13T04:52:51Z",
       "governance/mandatory-files-rules.json": "2026-06-10T21:12:54Z",
       "governance/naming-rules.json": "2026-06-08T16:13:08Z",
-      "governance/plans-rules.json": "2026-06-08T16:13:08Z",
+      "governance/plans-rules.json": "2026-06-13T04:52:51Z",
       "governance/tagging-rules.json": "2026-06-08T16:13:08Z",
-      "governance/vault-writers-rules.json": "2026-06-08T16:13:08Z"
+      "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
     "source_files_count": 8
   },
@@ -565,7 +564,7 @@
         "tier": "advisory"
       }
     ],
-    "description": "Documentation dependency registry. Hand-editable source of truth. Read by pre-write-guard.sh and librarian session-close. Mirrored into Logs/librarian-manifest.json -> doc_dependencies on each /librarian full run. Cascade registry consumed by pre-write-guard.sh + librarian session-close. The entities{} block is a declarative entity-mirror registry; per-type parity is enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
+    "description": "Documentation dependency registry. Hand-editable source of truth. Read by pre-write-guard.sh and librarian session-close. Mirrored into state/manifests/librarian-manifest.json -> doc_dependencies on each /librarian full run. Cascade registry consumed by pre-write-guard.sh + librarian session-close. The entities{} block is a declarative entity-mirror registry; per-type parity is enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
     "entities": {
       "_comment": "Entity parity registry. Each entity declares a canonical source path template with {name} placeholder, an instance-enumerator (glob/file-list/directory-index), the canonical field to compare, and mirrors with strict/presence-only flags. Declarative entity-mirror registry; per-type parity enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
       "memory-file": {
@@ -1767,7 +1766,6 @@
         "exemptions": [
           "Archive/** — archived content; provides-declaration is structurally unnecessary",
           "Daily/** — daily notes are temporally-scoped, not capability-scoped",
-          "Logs/** — machine-emitted log surfaces; lifecycle is closed at write-time",
           "Inbox/** — aggregation surfaces; provides lives at the canonical destination, not the staging copy"
         ],
         "failure_mode": "Long-form files (>200 lines) without a `provides:` declaration become opaque to consumers that route by capability rather than by path. The router cannot determine what concepts the file is canonical for; the librarian cannot detect provides-canonicality drift (R-40) because there is no claim to compare against; downstream agents loading the file have no fast way to decide whether the content is relevant. The advisory surfaces the omission at write-time so the author either declares `provides:` deliberately or accepts the file as content-only.",
@@ -1945,16 +1943,6 @@
       },
       "log": {
         "canonical_scope": false,
-        "expected_path": [
-          {
-            "label": "Logs/",
-            "pattern": "Logs/*"
-          },
-          {
-            "label": "Archive/Logs/",
-            "pattern": "Archive/Logs/*"
-          }
-        ],
         "optional": [
           "tags"
         ],
@@ -2081,6 +2069,22 @@
       "evolution_protocol": "R-37 documentary lockstep — this pillar + System Governance - Mandatory-Files.md + governance/file-type-contracts/<file>.json + hooks move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit).",
       "lockstep_pair": "System Governance - Mandatory-Files.md (narrative spoke) + governance/file-type-contracts/{_index.md,vault-writer.md}.json + hooks/post-write-verify.sh"
     },
+    "_retired_tombstones": [
+      {
+        "category": "C1",
+        "enforcement_layer": [],
+        "failure_mode": "n/a (retired tombstone)",
+        "home": "mandatory-files",
+        "id": "R-09",
+        "retired_at": "2026-06-15",
+        "retired_reason": "Logs/ retired as a vault root — the adopter vault ships ZERO Logs/, so the autogovern tier loses its only adopter target. The post-write-verify.sh Logs/ auto-govern branch is removed and machine exhaust relocates to the XDG state tier (~/.local/state/brain-stem). Superseded by a later governance decision.",
+        "rule_text": "[RETIRED] Logs/ auto-govern rule (was tier autogovern, category C1: a Logs/ write was never denied — post-write-verify.sh auto-applied frontmatter/tagging governance, librarian reconciled at audit-time). Tombstone — declared for provenance, never fires; renders only in the rules-index retired section.",
+        "source": "governance/mandatory-files-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
+        "status": "retired",
+        "surface": "Logs",
+        "tier": "autogovern"
+      }
+    ],
     "_rules": [
       {
         "body_structure_contract": "governance/file-type-contracts/vault-writer.md.json",
@@ -2136,22 +2140,6 @@
         "source": "governance/mandatory-files-rules.json :: mandates._index_md",
         "status": "active",
         "tier": "mandate"
-      },
-      {
-        "_lockstep": "The enforcement_layer body this declaration names is the post-write-verify.sh Logs/ auto-govern branch. R-37 documentary lockstep: pillar _rules[] + hook header + enforcement body + bundle mirror.",
-        "category": "C1",
-        "enforcement_layer": [
-          "hook (post-write-verify.sh Logs/ auto-govern branch)",
-          "librarian (frontmatter-enforce, audit-time)"
-        ],
-        "failure_mode": "Without the auto-govern branch, a Logs/ scratch write either lands ungoverned (orphan in graph view, missing tags) or — under the retired deny framing — gets wrongly blocked, defeating the free-write-scratch-sink contract. Auto-govern: the write always proceeds and the governance is applied for the author.",
-        "home": "mandatory-files",
-        "id": "R-09",
-        "rule_text": "Logs/ is a free-write scratch sink; write-time governance is AUTO-APPLIED (never denied, never propose-and-confirm). A file landing under Logs/ is not blocked and is not surfaced for confirmation — the post-write-verify.sh Logs/ auto-govern branch applies the required frontmatter/tagging governance automatically, and the librarian frontmatter-enforce capability reconciles at audit-time. R-09 is the Logs/ auto-govern rule (tier autogovern), home mandatory-files, category C1.",
-        "source": "governance/mandatory-files-rules.json :: _rules",
-        "status": "active",
-        "surface": "Logs",
-        "tier": "autogovern"
       }
     ],
     "mandates": {
@@ -2164,11 +2152,9 @@
         ],
         "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
         "exemption_categories": [
-          "date-prefixed sequence folders (Meetings/)",
-          "scratch-space emissions (Logs/)"
+          "date-prefixed sequence folders (Meetings/)"
         ],
         "exemption_paths": [
-          "Logs/**",
           "Meetings/**"
         ],
         "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
@@ -2257,7 +2243,6 @@
         "known_roots": [
           "Archive",
           "Daily",
-          "Logs",
           "Meetings",
           "Plans",
           "Skills",
@@ -2814,11 +2799,7 @@
   "r47_exempt_paths_composed": [
     ".claude/**",
     ".claude/hooks/lib/**",
-    ".claude/hooks/state/**",
-    "Archive/**",
-    "Logs/build-*",
-    "Logs/foundations-essays/**",
-    "Logs/ideation-brief-*.md"
+    "Archive/**"
   ],
   "r47_tag_cap": 25,
   "schema_version": "1.2.0",
@@ -2863,12 +2844,8 @@
         "id": "R-47",
         "r47_exempt_paths": [
           "Archive/**",
-          "Logs/foundations-essays/**",
           ".claude/**",
-          "Logs/ideation-brief-*.md",
-          ".claude/hooks/state/**",
-          ".claude/hooks/lib/**",
-          "Logs/build-*"
+          ".claude/hooks/lib/**"
         ],
         "rule_text": "Every non-exempt vault write MUST carry a non-empty `tags:` array in its frontmatter. Pre-write-guard emits a Tier 1 advisory ([R-47 TAG PRESENCE]) when the field is missing or empty (tags: []). Distinguishes 'missing' (no tags: line) vs 'empty' (line present, no items). Exempt paths are enumerated in this rule's `r47_exempt_paths` array — they cover archive surfaces, ideation-brief symlinks, machine-emitted scratch/build zones, and system infrastructure paths whose tag-absence is structurally legitimate. The librarian tag-coverage-audit walks the vault at audit time and surfaces longer-running orphans + near-miss patterns (#scope/decisions vs #scope/decision — one is likely a typo) as advisory findings the operator triages.",
         "seed_taxonomy_exempt_paths": [

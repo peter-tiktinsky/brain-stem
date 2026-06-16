@@ -40,7 +40,7 @@ Foundation ships a small set of types — only those that have a foundation cons
 | `system-governance-spoke` | Strict | `type`, `title`, `mirrors_pillar` | `System Governance/` |
 | `meeting-note` | Strict | `type`, `date`, `meeting_title`, `attendees`, `tags`, `processed`, `updated` | `Meetings/` |
 | `vault-writer` | Strict | `type`, `writer_name`, `writer_kind`, `writer_skill`, `destinations`, `status`, `created`, `updated`, `tags` | `Vault Writers/` |
-| `log` | Strict | `type`, `log-type`, `date`, `timestamp` | `Logs/` (and `Archive/Logs/`) |
+| `log` | Strict | `type`, `log-type`, `date`, `timestamp` | — (machine logs write off-vault to the XDG state tier) |
 | `ideation-brief` | Strict | `type`, `title`, `created`, `updated` | plan-tree (`~/.claude-plans/<plan>/00-ideation-brief.md`) |
 | `reference` | Strict | `type`, `tags`, `updated`, `routing`, `sources`, `originating_plan` | `_library/` |
 

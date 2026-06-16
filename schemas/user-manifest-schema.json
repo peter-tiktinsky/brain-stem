@@ -53,7 +53,11 @@
         },
         "hooks_state": {
           "type": ["string", "null"],
-          "description": "Override for $HOOKS_STATE — the hooks runtime state dir; default $CLAUDE_HOME/hooks/state. Read by hooks/lib/paths.sh."
+          "description": "Override for $HOOKS_STATE — the hooks runtime state dir; default $CLAUDE_STATE_ROOT/hooks-state. Read by hooks/lib/paths.sh."
+        },
+        "log_dir": {
+          "type": ["string", "null"],
+          "description": "Override for $CLAUDE_LOG_DIR — the cron + orchestrator run-log dir; default $CLAUDE_STATE_ROOT/logs (the XDG state log tier). Read by hooks/lib/paths.sh."
         },
         "backups_dir": {
           "type": ["string", "null"],
@@ -82,11 +86,6 @@
         "engagement_aliases": {
           "type": ["object", "null"],
           "description": "Engagement-name alias map. Read by skills/librarian/capabilities/frontmatter-enforce.sh (umr_get_object)."
-        },
-        "logs_whitelist_subdirs": {
-          "type": ["array", "null"],
-          "items": { "type": "string" },
-          "description": "Additional Logs/ subdirs exempt from placement/stale checks. Read by placement-validate.sh + stale-detect.sh (umr_get_array)."
         },
         "projects_root_dirname": {
           "type": ["string", "null"],

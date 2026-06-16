@@ -257,10 +257,9 @@ print("wikilink-repair: scanned=%d broken=%d proposed_repairs=%d applied=%d unre
     len(md_files), broken_count, proposed, applied, unresolved), file=sys.stderr)
 
 if report_path:
-    # self-stamp the COMPLETE log contract so a
-    # Logs/ audit report is findable (R-47 #log/<subtype> tag) + non-orphan,
-    # rather than relying on the post-write-verify.sh autogovern backfill. The
-    # log contract = type + log-type + date + timestamp + the R-47 tag.
+    # self-stamp the COMPLETE log contract so the audit report is findable
+    # (R-47 #log/<subtype> tag) + non-orphan. The log contract = type +
+    # log-type + date + timestamp + the R-47 tag.
     _now = datetime.now(timezone.utc).astimezone()
     lines = []
     lines.append("---")

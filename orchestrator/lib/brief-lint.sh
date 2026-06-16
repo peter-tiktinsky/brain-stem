@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# brief-lint.sh — Pre-dispatch brief-quality lint (advisory).
-#
+# brief-lint.sh — T-1 — Pre-dispatch brief-quality lint (advisory).
 # Invoked from dispatch.sh pre-flight, post-brief-meta validation. Calls Haiku
 # 4.5 via `claude -p` to score brief quality across five dimensions:
 #   - vague objectives (no concrete deliverable shape)
@@ -8,32 +7,25 @@
 #   - missing acceptance criteria shape
 #   - token-asymmetric scope (one task >>> sibling tasks)
 #   - inconsistent themes
-#
 # Output is advisory ONLY — never blocks dispatch. Exit 0 always.
-#
 # Self-contained: sources NO project .sh lib; shells out to claude / jq /
 # python3 only (each graceful-degrades). Decoupled from the 3 DEFER surfaces
 # (governance.sh caps, retry-dispatch.sh, the verifier ENHANCEMENT).
-#
 # Usage:
 #   brief-lint.sh <brief-path>
-#
 # Env vars:
-#   ORCHESTRATOR_BRIEF_LINT         — "1" to enable; unset/empty = OFF (default OFF)
+#   ORCHESTRATOR_BRIEF_LINT         — "1" to enable; unset/empty = OFF (default OFF per rollout)
 #   ORCHESTRATOR_BRIEF_LINT_MODEL   — model name (default: claude-haiku-4-5)
 #   ORCHESTRATOR_BRIEF_LINT_BUDGET  — claude -p --max-budget-usd ceiling (default: 0.25)
-#   ORCHESTRATOR_STATE_DIR          — state dir override (default: ${CLAUDE_HOME:-~/.claude}/orchestrator/state)
+#   ORCHESTRATOR_STATE_DIR          — state dir override (default: $CLAUDE_STATE_ROOT/runtime)
 #   CLAUDE_HOME                     — install root (default: ~/.claude)
 #   CLAUDE_BIN                      — claude binary override (default: claude on PATH)
-#
 # Cost log (append-only JSONL):
 #   $ORCHESTRATOR_STATE_DIR/governance/brief-lint-cost.jsonl
-#
 # 5-dispatch sample validation gate:
 #   Sum of last 5 cost entries divided by 5 must be ≤ $0.005/dispatch.
 #   Query post-hoc:
 #     tail -n 5 .../brief-lint-cost.jsonl | jq -s 'map(.cost) | add / length'
-#
 # Exit codes:
 #   0   — always (advisory; including degraded-API and feature-flag-OFF cases)
 
@@ -57,7 +49,7 @@ if [[ "${ORCHESTRATOR_BRIEF_LINT:-}" != "1" ]]; then
 fi
 
 # --- Locations + defaults ---
-STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/orchestrator/state}"
+STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime}"
 GOVERNANCE_DIR="$STATE_DIR/governance"
 COST_LOG="$GOVERNANCE_DIR/brief-lint-cost.jsonl"
 MODEL="${ORCHESTRATOR_BRIEF_LINT_MODEL:-claude-haiku-4-5}"
@@ -167,7 +159,7 @@ printf '%s\n' "$COST_ENTRY" >> "$COST_LOG"
 # --- Emit advisory ---
 echo ""
 echo "================================================================"
-echo "[brief-lint] brief-quality advisory ($(basename "$BRIEF"))"
+echo "[brief-lint] T-1 — brief-quality advisory ($(basename "$BRIEF"))"
 echo "================================================================"
 if (( CLAUDE_RC != 0 )); then
   echo "[brief-lint] claude -p exited rc=$CLAUDE_RC; degraded — proceeding with dispatch (advisory only)"

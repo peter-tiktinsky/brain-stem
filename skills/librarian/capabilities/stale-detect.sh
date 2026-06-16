@@ -1,13 +1,14 @@
 #!/bin/bash
 # stale-detect — Identify files that may need attention based on age or missing processing.
 # Sources `lib/manifest.sh`, `lib/plan-path.sh`, `lib/findings.sh`.
-# 9 staleness rules per SKILL.md:
+# 8 staleness rules per SKILL.md (rule 6 retired at G3 — vault Logs/ no longer ships):
 #   1. Daily notes — processed: false AND older than 2 days
 #   2. People files — <!-- TODO: enrich context --> marker present
 #   3. People files — no Timeline entry in last 30 days (active engagement only)
 #   4. Project files — updated older than 14 days (active only)
 #   5. Meeting notes — processed: false
-#   6. Logs — older than 7 days (exclude exempt Logs/ patterns)
+#   6. (retired) Residual vault Logs/ — the vault no longer ships a Logs/ folder
+#      (operational-exhaust relocation, G3); the run-log home is $CLAUDE_LOG_DIR.
 #   7. Plan files — completion marker without verification evidence (R-16)
 #      Scope: plan-root files ONLY (flat *.md, */spec.md, */00-ideation-brief.md,
 #      */README.md, */manifest.json). Sub-task files (depth ≥ 2) excluded.
@@ -75,12 +76,6 @@ done
 VAULT_SCOPE="${SCOPE:-$VAULT_ROOT}"
 PLANS_SCOPE="${PLANS_DIR:-$HOME/.claude-plans}"
 
-# Read user-extension Logs/ subdirectory whitelist from manifest. Foundation
-# ships an empty list; users append their operationally-meaningful Logs/
-# subdirectories (e.g. backlog-progress/, etc.). Shared with placement-validate.
-LOGS_WHITELIST_SUBDIRS=$(umr_get_array '.vault.logs_whitelist_subdirs' | tr '\n' '|')
-export LOGS_WHITELIST_SUBDIRS
-
 # Capture a machine-readable summary subtree the bash layer persists to the
 # manifest (drift_findings.stale) via manifest_set — see MANIFEST_SUBTREE_OUT
 # below. Kept off stdout so the NDJSON findings stream is never polluted.
@@ -132,21 +127,9 @@ def parse_fm(path):
     return fm, body
 
 # Structural exempt-dir defaults (always exempt; not user-configurable).
-EXEMPT_DIRS = ["/Archive/", "/.git/", "/.claude/projects/", "/_test"]
-# User-extension Logs/ subdirs from manifest.vault.logs_whitelist_subdirs[]
-# (shared with placement-validate). Each entry becomes "/Logs/<sub>/".
-_w = os.environ.get("LOGS_WHITELIST_SUBDIRS", "").rstrip("|")
-for sub in _w.split("|"):
-    if not sub:
-        continue
-    sub = sub.strip("/")
-    EXEMPT_DIRS.append(f"/Logs/{sub}/")
-EXEMPT_DIRS = tuple(EXEMPT_DIRS)
+EXEMPT_DIRS = ("/Archive/", "/.git/", "/.claude/projects/", "/_test")
 
-# Logs/ allowed patterns (exempt from stale-age check). Generic foundation set.
-LOGS_EXEMPT_PATTERNS = re.compile(r"(?:ideation-brief-|reconcile-)")
-
-counts = {"stale": 0, "todo": 0, "archive-candidate": 0, "stale-status": 0, "trinity-lag": 0, "binder-stale": 0}
+counts = {"stale": 0, "todo": 0, "stale-status": 0, "trinity-lag": 0, "binder-stale": 0}
 scanned = 0
 
 # ---------- vault walk (rules 1-6) ----------
@@ -217,13 +200,8 @@ for dirpath, dirnames, filenames in os.walk(vault_scope):
                   "category": "stale", "reason": "Meeting note processed: false"})
             counts["stale"] += 1
 
-        # Rule 6: Logs older than 7 days (excluding exempt patterns)
-        if rel.startswith("Logs/") and not LOGS_EXEMPT_PATTERNS.search(fn):
-            if days_since_mtime(full) > 7:
-                emit({"finding": "stale", "file": rel,
-                      "category": "archive-candidate",
-                      "reason": f"Log file, {int(days_since_mtime(full))}d old"})
-                counts["archive-candidate"] += 1
+        # Rule 6 (retired at G3): residual vault Logs/ — the vault no longer ships
+        # a Logs/ folder; the run-log home is $CLAUDE_LOG_DIR (relocated, G4/G7).
 
 # ---------- plans walk (rule 7) ----------
 COMPLETION_FM = re.compile(r"^status:\s*(complete|completed|implemented|done)\s*$", re.IGNORECASE | re.MULTILINE)
@@ -508,9 +486,10 @@ PY
 # Review-hardening (empty-VAULT_LOGS contract): with empty VAULT_LOGS the
 # manifest_set lockfile resolves to '/.coordination/manifest.lock' (uncreatable)
 # and raises under set -e, which a no-vault fresh adopter's session-close logs as
-# a spurious capability error. Gate the persist on a non-empty VAULT_LOGS (the
-# parity AC sets it, so the genuine-writer contract still holds).
-if [[ -n "${VAULT_LOGS:-}" && -s "$MANIFEST_SUBTREE_OUT" ]]; then
+# a spurious capability error — but G2 (plan 110) moved the manifest under
+# $CLAUDE_STATE_ROOT/manifests and its lock under $COORD_DIR (always creatable), so
+# the persist no longer needs a non-empty VAULT_LOGS. Gate only on content.
+if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then
   manifest_set '.drift_findings.stale' "$(cat "$MANIFEST_SUBTREE_OUT")"
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"

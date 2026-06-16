@@ -67,10 +67,15 @@ export COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
 # writers) reads CLAUDE_WORKSHOP_DIR from here so the home is single-sourced.
 export CLAUDE_WORKSHOP_DIR="${CLAUDE_WORKSHOP_DIR:-$CLAUDE_STATE_ROOT/workshop}"
 
-# --- hooks runtime state ---
+# --- hooks runtime state (XDG state tier) ---
+# G5: the hooks runtime state dir is machine exhaust, so the default roots under
+# the XDG ephemeral state tier ($CLAUDE_STATE_ROOT/hooks-state), NOT $CLAUDE_HOME.
+# Note: there is NO HOOKS_STATE_OVERRIDE branch here (only SESSION_STATE_ROOT below
+# has one) — test isolation of HOOKS_STATE writes requires an explicit HOOKS_STATE=
+# export plus a scratch CLAUDE_STATE_ROOT, not HOOKS_STATE_OVERRIDE.
 if [ -z "${HOOKS_STATE:-}" ]; then
   _v="$(_manifest_get .paths.hooks_state)"
-  if [ -n "$_v" ]; then HOOKS_STATE="$_v"; else HOOKS_STATE="$HOOKS_DIR/state"; fi
+  if [ -n "$_v" ]; then HOOKS_STATE="$_v"; else HOOKS_STATE="$CLAUDE_STATE_ROOT/hooks-state"; fi
   unset _v
 fi
 export HOOKS_STATE
@@ -124,8 +129,18 @@ export VAULT_LOGS
 # --- cron wrappers (install-convention) ---
 export CRON_WRAPPERS="${CRON_WRAPPERS:-$CLAUDE_HOME/installer/cron-wrappers}"
 
-# --- log dir (install-convention) ---
-export CLAUDE_LOG_DIR="${CLAUDE_LOG_DIR:-$CLAUDE_HOME/logs}"
+# --- log dir (XDG state tier) ---
+# Resolution: env CLAUDE_LOG_DIR > .paths.log_dir (manifest) > install default.
+# Cron + orchestrator run-logs are machine exhaust, so the default roots under the
+# XDG ephemeral state tier ($CLAUDE_STATE_ROOT/logs) — NOT the config-home. The
+# .paths.log_dir manifest seam mirrors HOOKS_STATE above. CLAUDE_STATE_ROOT is
+# resolved earlier in this file, so the default is always well-formed here.
+if [ -z "${CLAUDE_LOG_DIR:-}" ]; then
+  _v="$(_manifest_get .paths.log_dir)"
+  if [ -n "$_v" ]; then CLAUDE_LOG_DIR="$_v"; else CLAUDE_LOG_DIR="$CLAUDE_STATE_ROOT/logs"; fi
+  unset _v
+fi
+export CLAUDE_LOG_DIR
 
 # --- orchestration manifest (install-convention) ---
 export ORCHESTRATION_JSON="${ORCHESTRATION_JSON:-$CLAUDE_HOME/orchestration.json}"

@@ -5,7 +5,7 @@
 #   1. Per-file validation — walks scope, checks required fields per 26-row type
 #      table, empty optionals, tag taxonomy. Emits `frontmatter-*` findings via
 #      emit_finding (stdout / FINDINGS_OUTPUT).
-#   2. Drift audits (vault-wide, unless --scope or --logs-only):
+#   2. Drift audits (vault-wide, unless --scope):
 #        (a) provides-canonicality-drift    — DC-NNN
 #        (b) size-warning-{soft,strong} + size-guard-violation — SM-NNN
 #        (c) Hub-spoke recommendation engine — attached to (b) severity >= warning
@@ -20,8 +20,6 @@
 #   frontmatter-enforce.sh --scope <path>      # narrow scope (skips drift audits)
 #   frontmatter-enforce.sh --fix               # auto-apply auto-fix class
 #   frontmatter-enforce.sh --dry-run           # summary counts only
-#   frontmatter-enforce.sh --logs-only         # $VAULT_LOGS subset + deliverable
-#                                              # detection only (Module 16-C)
 # Scope exemptions:
 #   $VAULT_ROOT/.claude/, .obsidian/, .git/, .claude/projects/, _test*
 #   <projects_root>/*/CLAUDE.md (no frontmatter required; projects_root
@@ -63,7 +61,6 @@ SCOPE=""
 MODE="check"         # check | fix
 WALK="recent"        # recent | full | scope
 DRY_RUN="false"
-LOGS_ONLY="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,8 +70,7 @@ while [[ $# -gt 0 ]]; do
     --check)     MODE="check"; shift ;;
     --fix)       MODE="fix"; shift ;;
     --dry-run)   DRY_RUN="true"; shift ;;
-    --logs-only) LOGS_ONLY="true"; shift ;;
-    -h|--help)   sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)   sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "frontmatter-enforce: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -131,7 +127,6 @@ export FM_STRATEGIC_DIRNAME="${FM_STRATEGIC_DIRNAME_RAW:-Strategic}"
 FM_PLANNING_DIRNAME_RAW="$(umr_get_string '.vault.planning_dirname' 2>/dev/null || true)"
 export FM_PLANNING_DIRNAME="${FM_PLANNING_DIRNAME_RAW:-Planning}"
 export FM_VAULT_ROOT="$VAULT_ROOT"
-export FM_VAULT_LOGS="$VAULT_LOGS"
 
 # --- Missing-vault guard ---
 # paths.sh leaves VAULT_ROOT empty on a fresh manifest-less adopter (paths.sh:17-19
@@ -153,13 +148,12 @@ fi
 DRIFT_OUT="$(mktemp -t fm-enforce-drift.XXXXXX)"
 trap 'rm -f "$DRIFT_OUT" ${_FM_UNION:+"$_FM_UNION"}' EXIT
 
-python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$LOGS_ONLY" "$DRIFT_OUT" <<'PY'
+python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$DRIFT_OUT" <<'PY'
 import json, os, re, sys, time, fnmatch
 from datetime import datetime, timezone
 
-vault_scope, walk, mode, dry_run_s, logs_only_s, drift_out_path = sys.argv[1:7]
+vault_scope, walk, mode, dry_run_s, drift_out_path = sys.argv[1:6]
 dry_run = (dry_run_s == "true")
-logs_only = (logs_only_s == "true")
 fix_mode = (mode == "fix")
 
 # Read from FM_PROJECTS_ROOT_DIRNAME env (set from .vault.projects_root_dirname
@@ -180,7 +174,6 @@ PD_STRATEGIC = re.escape(STRATEGIC_DIR)
 PD_PLANNING = re.escape(PLANNING_DIR)
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
 vault_root = os.environ["FM_VAULT_ROOT"]
-vault_logs = os.environ["FM_VAULT_LOGS"]
 now = time.time()
 today_iso = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
 today_date = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
@@ -416,8 +409,6 @@ def infer_tags(rel):
 def build_scope():
     files = []
     root = vault_scope if walk != "scope" else vault_scope
-    if logs_only:
-        root = vault_logs
     # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
     if not root or not os.path.isdir(root):
         return files
@@ -597,7 +588,7 @@ def _render_key(k, v):
         return out
     return [f"{k}: {v}"]
 
-# ---------- drift audits (only run on vault-wide, non --logs-only) ----------
+# ---------- drift audits (only run on vault-wide / non-scoped) ----------
 
 def load_json(path):
     try:
@@ -870,41 +861,12 @@ def reconcile(section, existing_list, new_findings, match_keys, id_prefix):
     # Resolved rows dropped (rows in existing_by_key but not in seen_keys).
     return merged
 
-# ---------- logs-only mode: deliverable detection only ----------
-def logs_only_deliverable_detect():
-    count = 0
-    for dirpath, dirnames, filenames in os.walk(vault_logs):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        for fn in filenames:
-            if not fn.endswith(".md"):
-                continue
-            full = os.path.join(dirpath, fn)
-            rel = os.path.relpath(full, vault_root)
-            fm, body, _ = parse_frontmatter(full)
-            # Deliverable signals in a Logs/ file: deliverable: true / output-file: / deliverable-path:
-            if (fm.get("deliverable") == "true" or fm.get("deliverable") == True
-                or fm.get("deliverable-path") or fm.get("output-file")):
-                emit({"finding": "logs-deliverable-detected", "file": rel,
-                      "reason": "Log file carries deliverable signal; move to canonical destination",
-                      "classification": "manual"})
-                count += 1
-    return count
-
 # ---------- orchestrate ----------
 existing_drift = {}
 try:
     existing_drift = json.loads(os.environ.get("FM_EXISTING_DRIFT") or "{}")
 except Exception:
     existing_drift = {}
-
-if logs_only:
-    n = logs_only_deliverable_detect()
-    if dry_run:
-        print(f"frontmatter-enforce: logs-only deliverable findings={n}")
-    # Write empty drift out to signal no drift updates
-    with open(drift_out_path, "w") as f:
-        json.dump({"skip_drift": True}, f)
-    sys.exit(0)
 
 files = build_scope()
 pf_count, fixed_count, manual_count, fixed_files = run_per_file(files)

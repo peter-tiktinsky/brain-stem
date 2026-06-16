@@ -10,8 +10,7 @@
 # OUTPUT CONTRACT (R-43):
 #   Files written (under the resolved vault root):
 #     - <vault>/  + the vault-init/ tree (System Governance/ 6 spokes + _index.md,
-#       Vault Writers/ + _index.md, Logs/ + Logs/Archive/,
-#       Meetings/)
+#       Vault Writers/ + _index.md, Meetings/)
 #     - <vault>/Plans    -> symlink to plans_root (// ~/.claude-plans)
 #     - <vault>/Skills   -> symlink to $CLAUDE_HOME/skills/
 #     - <vault>/Wiki     -> symlink to plans_root/_library/   (R-ARCH-SYMLINK)
@@ -133,7 +132,7 @@ build-brain-vault: dry-run summary
   plans_home:   $PLANS_HOME
   skills_dir:   $SKILLS_DIR
   identity:     $NAME
-  would_seed:   vault-init/ tree (System Governance/ + Vault Writers/ + Logs/{,Archive}/ + Meetings/)
+  would_seed:   vault-init/ tree (System Governance/ + Vault Writers/ + Meetings/)
   would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop}
   would_link:   $VAULT_ROOT/Plans -> $PLANS_HOME ; $VAULT_ROOT/Skills -> $SKILLS_DIR
                 $VAULT_ROOT/Wiki -> $PLANS_HOME/_library ; $VAULT_ROOT/Projects -> $PLANS_HOME/_projects
@@ -274,7 +273,6 @@ cat <<EOF
   Seeded in the vault:
     System Governance/   how Claude keeps the vault consistent (6 reference spokes)
     Vault Writers/       catalog of any system that writes into the vault
-    Logs/                Claude's scratch space (cold storage at Logs/Archive/)
     Meetings/            date-prefixed meeting notes
     Plans/    -> $PLANS_HOME
     Skills/   -> $SKILLS_DIR

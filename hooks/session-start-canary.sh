@@ -1,30 +1,26 @@
 #!/bin/bash
-# SessionStart hook: legacy plans-dir tripwire + active-plans.txt writer.
-#
+# SessionStart hook: legacy plans-dir tripwire + active-plans.txt writer (T-12).
 # Two responsibilities composed in one hook (matches Claude Code SessionStart
 # event-binding shape; one event → one hook):
-#
-#   (1) Plans-dir tripwire (the plans directory migration, 2026-04-13):
+#   (1) Plans-dir tripwire:
 #       Detect resurrection of ~/.claude/plans/ stub with unexpected contents.
-#       Plans dir migrated to ~/.claude-plans/ on 2026-04-13. Any non-README.md
-#       content under the legacy path is a stale-reference bug; capture
-#       forensics, log, preserve placeholder for manual investigation.
-#
-#   (2) Active-plans writer:
+#       Plans dir migrated to ~/.claude-plans/ on 2026-04-13 (per
+#       feedback_plans_dir_location). Any non-README.md content under the
+#       legacy path is a stale-reference bug; capture forensics, log,
+#       preserve placeholder for manual investigation.
+#   (2) Active-plans writer (T-12):
 #       Walk plan manifests under $PLANS_ROOT (default $HOME/.claude-plans;
-#       override via PLANS_ROOT_OVERRIDE). For each plan whose
+#       override via PLANS_ROOT_OVERRIDE per T-3.5). For each plan whose
 #       top_level_status ∈ {aligned, in_progress} OR whose live_mutation_scope
 #       is enabled-and-not-retired, emit one plan-slug line to
 #       $HOOKS_STATE/<session-id>/active-plans.txt. Tier-2 deterministic
-#       detection-signal source consumed by live-guard.sh; replaces
+#       detection-signal source consumed by live-guard.sh (T-3); replaces
 #       transcript-tail-grep as the primary content-aware detection mechanism
-#       (closes the live-mutation-detection stochasticity at the source).
-#
+#       (closes Incident δ stochasticity at the source).
 # Invocation contract (Claude Code SessionStart):
 #   stdin: JSON {session_id, source, ...}
-#   env:   HOOKS_STATE_OVERRIDE (test isolation), PLANS_ROOT_OVERRIDE,
+#   env:   HOOKS_STATE_OVERRIDE (test isolation), PLANS_ROOT_OVERRIDE (T-3.5),
 #          CLAUDE_SESSION_ID (fallback if stdin empty)
-#
 # Failure mode: best-effort. Tripwire portion is read-only forensics; writer
 # portion logs to gate-decisions audit and exits 0 even if jq/paths fail.
 # Hook MUST NOT block SessionStart on internal errors.
@@ -32,7 +28,7 @@
 set -uo pipefail
 
 # === Path resolution (foundation-repo dev: self-contained; live deploy: paths.sh-equivalent) ===
-HOOKS_STATE="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/state}}"
+HOOKS_STATE="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
 PLANS_ROOT="${PLANS_ROOT_OVERRIDE:-${PLANS_DIR:-$HOME/.claude-plans}}"
 PLANS_DIR_DEAD="${PLANS_DIR_DEAD:-${CLAUDE_HOME:-$HOME/.claude}/plans}"
 
@@ -52,9 +48,7 @@ if [[ -n "$INPUT" ]]; then
 fi
 SESSION_ID="${SESSION_ID:-no-session}"
 
-# ============================================================================
-# Part (1): Plans-dir tripwire
-# ============================================================================
+# Part (1): Plans-dir tripwire (verbatim —)
 LOG="$HOOKS_STATE/tripwire.log"
 
 UNEXPECTED=""
@@ -92,14 +86,11 @@ if [[ -n "$UNEXPECTED" ]]; then
   echo "$TS   action: NONE (manual investigation required — placeholder README preserved)" >> "$LOG"
 fi
 
-# ============================================================================
-# Part (2): Active-plans writer
-# ============================================================================
+# Part (2): Active-plans writer (T-12)
 # Tier-2 deterministic detection signal: enumerate currently-active plans at
 # SessionStart, persist to a single file under the session's state dir.
 # live-guard.sh tier-2 reads this file (single deterministic read; no mtime
 # races, no transcript-tail stochasticity).
-#
 # Active = top_level_status ∈ {aligned, in_progress} OR (live_mutation_scope
 # present, enabled=true, sunset.phase != retired). Closed/superseded/complete
 # plans are excluded — their gate (if any) is in retirement, not enforcement.
@@ -121,10 +112,10 @@ if [[ -d "$PLANS_ROOT" ]]; then
     plan_dir=$(dirname "$manifest")
     plan_slug=$(basename "$plan_dir")
 
-    # Read `.status` as the canonical PRIMARY field (one 8-state vocabulary).
-    # `.top_level_status` is RETIRED and read only as an at-most legacy fallback
-    # when `.status` is absent (NOT primary, NOT mislabeled as the canonical
-    # field).
+    # Read `.status` as the canonical PRIMARY field (one 8-state
+    # vocabulary; re-point). `.top_level_status` is RETIRED and read
+    # only as an at-most legacy fallback when `.status` is absent (NOT primary,
+    # NOT mislabeled as the canonical field).
     status_data=$(jq -r '
       {
         status: (.status // null),
@@ -160,8 +151,8 @@ if [[ -d "$PLANS_ROOT" ]]; then
     esac
 
     # Override: live_mutation_scope still enabled but sunset is in retire-helper
-    # phase. A plan between gate-teardown phases hits this — the gate entry is
-    # still active even though the plan is "closed". Include in active-plans.
+    # phase. between Phase B exit and Phase C entry hits this — gate
+    # entry is still active even though plan is "closed". Include in active-plans.
     if [[ "$lms_enabled" == "true" ]] && [[ "$sunset_phase" != "retired" ]]; then
       is_active=1
     fi

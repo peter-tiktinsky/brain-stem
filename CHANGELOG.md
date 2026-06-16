@@ -4,6 +4,20 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.3.0]
+
+Maintenance release. brain-stem now writes **zero machine files into your vault**. The assistant's operational exhaust — run logs, the session-close receipt, the librarian's working manifest, and internal hook state — moves out of the vault (and out of the `~/.claude` config home) into the standard per-user **state directory**, `~/.local/state/brain-stem`, following the XDG Base Directory specification. The vault's `Logs/` folder is retired: your vault is now 100% human knowledge, with nothing machine-emitted leaking into Obsidian search or the local graph. See the [v1.3.0 release notes](docs/release-notes-v1.3.0.md).
+
+### Changed
+
+- **The vault holds only human knowledge.** brain-stem no longer ships or writes a `Logs/` folder into your vault. The session-close receipt, the librarian's working manifest, cron and orchestrator run-logs, and live hook state now resolve under `~/.local/state/brain-stem/` (in `logs/`, `manifests/`, `hooks-state/`, and `runtime/`). Obsidian search and the local graph now see only the notes you and the assistant write — never machine output.
+
+- **Operational exhaust follows the XDG state convention.** Logs and persistent working state resolve under `$XDG_STATE_HOME` (default `~/.local/state`), the standard home for disposable per-tool state. The durable data tier (`~/.local/share/brain-stem`) and the install/uninstall record (`~/.claude/logs`) are unchanged.
+
+### Fixed
+
+- **Two internal path inconsistencies resolved.** The librarian's coordination lock and its working manifest now resolve to the same place its readers look, and the write-time audit log's writer and reader now agree on one location — closing two long-standing cases where a writer and a reader had drifted onto different paths.
+
 ## [v1.2.0]
 
 Feature release. brain-stem now has a **three-surface context library**: a shared **library** of durable, reusable knowledge that any project can draw on; per-project **binders** that gather a project's research, decisions, and hand-offs into living index pages; and a **workshop flow** that nudges you to check the library before starting fresh research. The librarian gains the capabilities that keep all three surfaces current, and a new file type governs the library articles themselves. See the [v1.2.0 release notes](docs/release-notes-v1.2.0.md).

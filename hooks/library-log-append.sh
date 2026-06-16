@@ -29,15 +29,11 @@
 #   date / timestamp        ISO file-creation date + instant (strict-tier log
 #                           required fields: [type, log-type, date, timestamp]).
 #   tags: ["#log/library-change"]   non-empty, R-47-compliant, R-05-canonical.
-# R-33 placement advisory: the shipped log type's expected_path is Logs/* +
-# Archive/Logs/*; _library/log.md is OUTSIDE those globs, so R-33 FIRES. This is
-# EXPECTED and NON-BLOCKING (the file is suppressed from vault-view via
-# R-BIND-EXCL and R-33 never blocks writes). This appender MUST NOT — and does
-# NOT — treat the R-33 advisory as a failure; it writes directly (os.replace),
-# never through the Edit/PostToolUse surface that would re-fire the guard.
-# _library/** is NOT added to the log type's expected_path (that would need a
-# full R-37 lockstep; the advisory-fires-but-expected posture is the sanctioned
-# closure).
+# R-33 placement advisory: the shipped log type no longer declares an
+# expected_path (vault Logs/ retired at G3), so R-33 does not fire for log-type
+# files. _library/log.md is suppressed from vault-view via R-BIND-EXCL. This
+# appender writes directly (os.replace), never through the Edit/PostToolUse
+# surface that would re-fire the guard.
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written:
 #     - {LIBRARY}/log.md   append-only tail (+ a one-time C-FM-LOG frontmatter

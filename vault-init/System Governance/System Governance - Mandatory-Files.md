@@ -37,11 +37,10 @@ Its body shape is governed by a file-type contract: H1 matching the folder name,
 
 ## The foundation exempt set
 
-Two folders are exempt from the `_index.md` mandate by foundation default:
+One folder is exempt from the `_index.md` mandate by foundation default:
 
 | Folder | Why it's exempt |
 |---|---|
-| `Logs/` | Machine-emitted scratch space. The contents are operational artifacts produced by skills and cron-driven routines; the folder has no per-folder navigation index because no human is browsing it. |
 | `Meetings/` | A date-prefixed sequence of meeting notes from the meeting processor. The folder's content is enumerated by date in filenames; an `_index.md` would duplicate filesystem order. |
 
 The exemption set is a positive list — only the folders enumerated above are exempt. Any other folder you create, foundation-shipped or otherwise, carries the mandate. The auto-bootstrap fires on first write to it; the librarian sweep catches folders you created but haven't written to yet.

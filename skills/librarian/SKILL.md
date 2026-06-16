@@ -246,9 +246,8 @@ Runtime: `capabilities/frontmatter-enforce.sh`.
 
 ## Capability: placement-validate
 
-Validates vault file placement against the governance placement rules (reads
-`vault.logs_whitelist_subdirs` from the user-manifest); emits placement
-findings. Ported as-is.
+Validates vault file placement against the governance placement rules; emits
+placement findings. Ported as-is.
 Runtime: `capabilities/placement-validate.sh`.
 
 ## Capability: xref-check
@@ -260,8 +259,9 @@ Runtime: `capabilities/xref-check.sh`.
 ## Capability: stale-detect
 
 Detects stale plan-root + vault files past their freshness threshold (walks
-plan roots via `hooks/lib/plan-path.sh`) — 9 staleness rules (the per-rule roster
-is the `stale-detect.sh` header block). Rule #9 (R-FLOW-MAINT-1, binder-freshness):
+plan roots via `hooks/lib/plan-path.sh`) — 8 staleness rules (the per-rule roster
+is the `stale-detect.sh` header block; rule 6, residual vault `Logs/`, retired with
+the vault `Logs/` folder at G3). Rule #9 (R-FLOW-MAINT-1, binder-freshness):
 a per-spoke binder surface (`_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md`)
 whose `updated:` regen date lags the newest constituent-plan activity (max
 manifest/handoff mtime across the spoke's plans) by >14d emits a `severity: warn`
@@ -328,8 +328,9 @@ Runtime: `capabilities/rules-hygiene.sh`.
 
 ## Capability: log-archive
 
-Archives old log files from `Vault/Logs/` per retention thresholds (dashboard
-3d / general 7d) using `hooks/lib/dates.sh`. Ported as-is.
+Archives old log files from the XDG state-tier run-log dir `$CLAUDE_LOG_DIR`
+(default `state/logs/`) to `$CLAUDE_LOG_DIR/archive/` per retention thresholds
+(dashboard 3d / general 7d) using `hooks/lib/dates.sh`.
 Runtime: `capabilities/log-archive.sh`.
 
 ## Capability: backup

@@ -6,7 +6,7 @@ set -euo pipefail
 
 # a hardcoded install-path literal. The body sourced the install lib path
 # literally, contradicting.14's "5 other C2 hooks portable" estimate;
-# the build re-grep is authoritative ([DRIFT] 3; ).
+# the build re-grep is authoritative ([DRIFT] 3).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/registry.sh"
@@ -62,7 +62,6 @@ while IFS= read -r rel_path; do
 
   [[ ! -f "$FULL" ]] && continue
   [[ "$rel_path" != *.md ]] && continue
-  [[ "$rel_path" == Logs/librarian-manifest* ]] && continue
   [[ "$rel_path" == Logs/.coordination/* ]] && continue
 
   SCANNED=$((SCANNED + 1))

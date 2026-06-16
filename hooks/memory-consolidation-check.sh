@@ -1,18 +1,15 @@
 #!/bin/bash
 # Hook: SessionEnd — Evaluate consolidation gates and spawn background runner.
 # Must complete in <100ms. Actual consolidation runs detached.
-#
-# Decay model + lock hardening.
 #   - Decay = re-validation prompt, never deletion. A SINGLE 180-day interval
-#     applies to all non-episodic memory (per-type half-lives deferred);
+#     applies to all non-episodic memory (per-type half-lives deferred to v1.1);
 #     episodic NEVER decays. last_validated is the SOLE decay input (required
 #     per schema 2.0.0); `updated` does NOT reset the clock. States are
 #     FRESH (<180d → none) / STALE (180-360d → propose revalidate) / EXPIRED
 #     (≥360d → propose {revalidate|supersede|archive}); ALL propose-only —
-#     nothing is auto-deleted/auto-archived.
+#     nothing is auto-deleted/auto-archived (.4).
 #   - The consolidation lock uses lockf (sourced from hooks/lib/lockf.sh,
-#     to guard the single-instance runner spawn, replacing the
-#     hand-rolled PID-lock TOCTOU window. The kernel
+#     hand-rolled PID-lock TOCTOU window (.6). The kernel
 #     releases the advisory lock on process death — no stale-lock class.
 #   - SessionEnd gate (≥24h AND ≥5 sessions) + audit log preserved (incl. a
 #     ## Skipped entry on opt-out so absence is observable).
@@ -23,10 +20,10 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/lockf.sh"
 MEMORY_DIR="$(resolve_memory_dir)"
 STATE_FILE="$MEMORY_DIR/.consolidation-state.json"
-LOG_FILE="$MEMORY_DIR/.consolidation-log.md"
+LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state STAYS in MEMORY_DIR
 RUNNER="$(cd "$(dirname "$0")" && pwd)/memory-consolidation-run.sh"
 
-# Single re-validation interval. All non-episodic memory
+# Single re-validation interval (.4). All non-episodic memory
 # shares one 180-day interval; episodic never decays.
 REVALIDATION_INTERVAL_DAYS=180
 STALE_DAYS=180
@@ -36,11 +33,10 @@ EXPIRED_DAYS=360
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
-# Opt-out toggle: short-circuit when user opted out via /onboard.
 # Audit log entry so absence-of-runs is observable.
 hook_enabled="$(_manifest_get .behavioral.hook_preferences.memory_consolidation_enabled 2>/dev/null || true)"
 if [ "$hook_enabled" = "false" ]; then
-  mkdir -p "$MEMORY_DIR"
+  mkdir -p "$(dirname "$LOG_FILE")"
   printf '\n## Skipped — %s\n- Reason: user-manifest hook_preferences.memory_consolidation_enabled=false\n' \
     "$(date +"%Y-%m-%d %H:%M")" >> "$LOG_FILE" 2>/dev/null || true
   exit 0
@@ -101,7 +97,6 @@ fi
 # state-tier vars are exported so the detached runner inherits the decay
 # contract.
 export REVALIDATION_INTERVAL_DAYS STALE_DAYS EXPIRED_DAYS
-export LOG_DIR="$MEMORY_DIR"
 LOCK_FILE="$MEMORY_DIR/.consolidation.lock"
 mkdir -p "$MEMORY_DIR"
 

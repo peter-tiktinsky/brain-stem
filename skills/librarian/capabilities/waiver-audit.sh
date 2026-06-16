@@ -6,7 +6,7 @@
 # Sources (paths resolve via $HOOKS_STATE / $CLAUDE_HOME / env overrides):
 #   - $HOOKS_STATE/cascade-waivers.json              (R-07 waiver log, 4-shape tolerant)
 #   - $CLAUDE_HOME/hooks/doc-dependencies.json       (entry_id registry for ad-hoc check)
-#   - $HOOK_AUDIT_LOG (defaults to $HOOKS_STATE/hook-audit.log)  (override-fire append-only log)
+#   - $HOOK_AUDIT_LOG (defaults to $CLAUDE_STATE_ROOT/audit/hook-audit.log)  (override-fire append-only log)
 # CLI:
 #   waiver-audit.sh                         # emit findings to $FINDINGS_OUTPUT or stdout
 #   waiver-audit.sh --scope waivers         # only cascade-waivers.json
@@ -29,8 +29,9 @@ set -euo pipefail
 CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 _REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
 
-# Idempotent paths.sh source guard.
-if [[ -z "${HOOKS_STATE:-}" ]]; then
+# Idempotent paths.sh source guard (CLAUDE_STATE_ROOT needed for the reconciled
+# hook-audit.log home — split-brain fix, plan 110 T-22).
+if [[ -z "${HOOKS_STATE:-}" || -z "${CLAUDE_STATE_ROOT:-}" ]]; then
   # shellcheck source=/dev/null
   { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
     || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; }
@@ -40,7 +41,15 @@ fi
   || source "$_REPO_LIB/findings.sh"
 
 CASCADE_WAIVER_PATH_EFF="${CASCADE_WAIVER_PATH:-$HOOKS_STATE/cascade-waivers.json}"
-HOOK_AUDIT_LOG_EFF="${HOOK_AUDIT_LOG:-$HOOKS_STATE/hook-audit.log}"
+HOOK_AUDIT_LOG_EFF="${HOOK_AUDIT_LOG:-$CLAUDE_STATE_ROOT/audit/hook-audit.log}"
+# G5/D3 (plan 110 T-63): transitional old-fallback READ — ONE release (v1.3.0).
+# The reader was reconciled onto $CLAUDE_STATE_ROOT/audit (split-brain fix T-22);
+# during the upgrade window a stray pre-relocation log may still sit at the OLD
+# $CLAUDE_HOME/hooks/state home. Read new-first, fall back to old if present (and
+# no explicit HOOK_AUDIT_LOG override). Removed in v1.4.0 (T-60).
+if [[ -z "${HOOK_AUDIT_LOG:-}" && ! -f "$HOOK_AUDIT_LOG_EFF" && -f "$CLAUDE_HOME_RES/hooks/state/hook-audit.log" ]]; then
+  HOOK_AUDIT_LOG_EFF="$CLAUDE_HOME_RES/hooks/state/hook-audit.log"
+fi
 DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$HOME/.claude/hooks/doc-dependencies.json}"
 
 SCOPE="all"
@@ -288,10 +297,9 @@ if dry_run:
 
 # --------- markdown report ---------
 if report_path:
-    # self-stamp the COMPLETE log contract so a
-    # Logs/ audit report is findable (R-47 #log/<subtype> tag) + non-orphan,
-    # rather than relying on the post-write-verify.sh autogovern backfill. The
-    # log contract = type + log-type + date + timestamp + the R-47 tag.
+    # self-stamp the COMPLETE log contract so the audit report is findable
+    # (R-47 #log/<subtype> tag) + non-orphan. The log contract = type +
+    # log-type + date + timestamp + the R-47 tag.
     _now = datetime.now(timezone.utc).astimezone()
     lines = []
     lines.append("---")

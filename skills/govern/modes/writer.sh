@@ -93,7 +93,7 @@ mode_propose() {
         writer_subtype: ($writer_subtype | if . == "" then null else . end),
         destinations: [
           {
-            path: "Logs/{{date}} - {{title}}.md",
+            path: "{{destination_dir}}/{{date}} - {{title}}.md",
             output_type: "markdown",
             posture: "direct"
           }
@@ -161,7 +161,7 @@ mode_propose() {
         notes: [
           "Writer registration is structurally distinct — canonical declaration is the Vault Writers/<slug>.md writer-reference file, NOT an overlay-master entry.",
           "Conditional-required fields per writer_kind have placeholder values (e.g., \"<source-identifier>\"). Operator REPLACES these with real values before commit.",
-          "destinations[] defaults to a single Logs/ entry with Mustache template. Operator extends/replaces per-flow.",
+          "destinations[] defaults to a single Mustache-templated entry; the operator MUST set {{destination_dir}} to a blessed vault folder per-flow (no foundation scratch folder ships).",
           "pre-write-guard.sh branch #3 validates the resulting frontmatter against governance/file-type-contracts/vault-writer.md.json on write; schema violation → DENY at hook time."
         ]
       }

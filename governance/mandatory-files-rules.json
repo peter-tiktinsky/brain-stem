@@ -27,13 +27,11 @@
       "body_structure_contract": "governance/file-type-contracts/_index.md.json",
       "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
       "exemption_paths": [
-        "Logs/**",
         "Meetings/**"
       ],
       "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
       "exemption_categories": [
-        "date-prefixed sequence folders (Meetings/)",
-        "scratch-space emissions (Logs/)"
+        "date-prefixed sequence folders (Meetings/)"
       ],
       "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
       "consumers": [
@@ -133,22 +131,22 @@
       "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
       "exemption_paths_source": "mandates._index_md.exemption_paths",
       "self_healing_capability": "skills/librarian/capabilities/index-maintain.sh (R-34 self-healing boundary — mutations bounded to mechanically-derivable values; semantic content flagged for review, never auto-overwritten)"
-    },
+    }
+  ],
+  "_retired_tombstones": [
     {
       "id": "R-09",
       "home": "mandatory-files",
       "category": "C1",
       "surface": "Logs",
       "tier": "autogovern",
-      "enforcement_layer": [
-        "hook (post-write-verify.sh Logs/ auto-govern branch)",
-        "librarian (frontmatter-enforce, audit-time)"
-      ],
-      "status": "active",
-      "source": "governance/mandatory-files-rules.json :: _rules",
-      "rule_text": "Logs/ is a free-write scratch sink; write-time governance is AUTO-APPLIED (never denied, never propose-and-confirm). A file landing under Logs/ is not blocked and is not surfaced for confirmation — the post-write-verify.sh Logs/ auto-govern branch applies the required frontmatter/tagging governance automatically, and the librarian frontmatter-enforce capability reconciles at audit-time. R-09 is the Logs/ auto-govern rule (tier autogovern), home mandatory-files, category C1.",
-      "failure_mode": "Without the auto-govern branch, a Logs/ scratch write either lands ungoverned (orphan in graph view, missing tags) or — under the retired deny framing — gets wrongly blocked, defeating the free-write-scratch-sink contract. Auto-govern: the write always proceeds and the governance is applied for the author.",
-      "_lockstep": "The enforcement_layer body this declaration names is the post-write-verify.sh Logs/ auto-govern branch. R-37 documentary lockstep: pillar _rules[] + hook header + enforcement body + bundle mirror."
+      "enforcement_layer": [],
+      "status": "retired",
+      "retired_at": "2026-06-15",
+      "retired_reason": "Logs/ retired as a vault root — the adopter vault ships ZERO Logs/, so the autogovern tier loses its only adopter target. The post-write-verify.sh Logs/ auto-govern branch is removed and machine exhaust relocates to the XDG state tier (~/.local/state/brain-stem). Superseded by a later governance decision.",
+      "source": "governance/mandatory-files-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
+      "rule_text": "[RETIRED] Logs/ auto-govern rule (was tier autogovern, category C1: a Logs/ write was never denied — post-write-verify.sh auto-applied frontmatter/tagging governance, librarian reconciled at audit-time). Tombstone — declared for provenance, never fires; renders only in the rules-index retired section.",
+      "failure_mode": "n/a (retired tombstone)"
     }
   ]
 }

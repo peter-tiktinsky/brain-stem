@@ -674,7 +674,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.placement subtree)",
-        "validation": "vault placement rules walked; logs_whitelist_subdirs read from user-manifest (umr_get_array); manifest write is atomic temp+rename",
+        "validation": "vault placement rules walked; manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -738,7 +738,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.stale subtree)",
-        "validation": "plan-root walk via hooks/lib/plan-path.sh; staleness thresholds; logs_whitelist_subdirs from user-manifest; manifest write is atomic temp+rename",
+        "validation": "plan-root walk via hooks/lib/plan-path.sh; staleness thresholds; manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -992,7 +992,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{VAULT_LOGS} archived log files moved to retention subdirs",
+          "{CLAUDE_LOG_DIR}/archive/ archived log files moved to retention subdirs",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
@@ -1365,7 +1365,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{VAULT_LOGS}/session-close-YYYYMMDD-HHMMSS.md"
+          "{CLAUDE_STATE_ROOT}/logs/session-close-YYYYMMDD-HHMMSS.md"
         ],
         "schema": "governance/foundation-master.json#frontmatter.types.log",
         "validation": "orchestrates the C1/C2/C3/S2 capability chain over the installed caps; stripped the 3 CUT caps (cron-log-architecture/sync-check/architect-triage — 0 disk bodies) from the dependency map so the registry↔disk bijection holds; strips the matching run_capability chain calls from session-close.sh",

@@ -49,7 +49,7 @@
 #     render identically to the refreshers' output (guaranteed by the corrected
 #     Vault Writers/_index.md seed). drift-sweep --plans --fix finds no master
 #     plans on a virgin vault, so it writes nothing there either.
-#   - Single aggregated write per run at Logs/session-close-YYYYMMDD-HHMMSS.md.
+#   - Single aggregated write per run at <state>/logs/session-close-YYYYMMDD-HHMMSS.md.
 #     Individual capabilities may write their own sub-logs per their contracts.
 # CLI:
 #   session-close.sh
@@ -66,11 +66,12 @@ set -uo pipefail
 
 # ---- paths ------------------------------------------------------------------
 
-if [[ -z "${VAULT_LOGS:-}" || -z "${COORD_DIR:-}" ]]; then
-  # Source paths.sh when EITHER var is unset: a caller that pre-exports VAULT_LOGS
+if [[ -z "${VAULT_LOGS:-}" || -z "${COORD_DIR:-}" || -z "${CLAUDE_STATE_ROOT:-}" ]]; then
+  # Source paths.sh when ANY needed var is unset: a caller that pre-exports VAULT_LOGS
   # alone (without COORD_DIR) would otherwise reach the SESSION_REGISTRY="$COORD_DIR/…"
-  # line below with COORD_DIR unbound and abort under `set -u`. paths.sh preserves
-  # an already-set VAULT_LOGS, so this only fills in the missing COORD_DIR.
+  # line below with COORD_DIR unbound and abort under `set -u`. CLAUDE_STATE_ROOT is
+  # likewise required now that the session-close receipt lands under it (G1 relocation,
+  # state/logs/). paths.sh preserves an already-set VAULT_LOGS, so this fills the gaps.
   # shellcheck source=/dev/null
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 fi
@@ -79,7 +80,7 @@ CAPS_DIR="${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities"
 RECONCILE_SESSIONS_SH="${CLAUDE_HOME:-$HOME/.claude}/hooks/reconcile-sessions.sh"
 SESSION_REGISTRY="$COORD_DIR/session-registry.json"
 
-LOG_DIR="${SESSION_CLOSE_LOG_DIR:-$VAULT_LOGS}"
+LOG_DIR="${SESSION_CLOSE_LOG_DIR:-$CLAUDE_STATE_ROOT/logs}"
 
 # ---- args -------------------------------------------------------------------
 
@@ -379,7 +380,7 @@ run_reconcile_sweep() {
   fi
 }
 
-# ---- build-dogfood detection (/ T-02 G2 reconcile) -------------
+# ---- build-dogfood detection (T-02 G2 reconcile) -------------
 # governance-parity-audit is R-37's enforcement vehicle but its 6
 # repo-only pillar inputs + unshipped narrative spokes are unsatisfiable on an
 # adopter (LOCKED G2: pre-launch INTERNAL only; gap-register-lib /

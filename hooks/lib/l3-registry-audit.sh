@@ -1,30 +1,25 @@
 #!/bin/bash
-# l3-registry-audit.sh — librarian capability.
-#
+# l3-registry-audit.sh — librarian capability (/81 T-10).
 # Walks ~/Library/LaunchAgents/com.*.plist + ~/.claude/hooks/*.sh; maintains
 # ~/.claude/hooks/lib/l3-writer-registry.json. Manifest-author-time lint
-# flags the omission class where a plan declares scope_paths
+# flags Incident-β-class omissions: when a plan declares scope_paths
 # overlapping a writer's write_paths AND the plan doesn't declare a pause
-# (or carve-out exempt_paths) for that writer, surfacing a lint error.
+# (or carve-out exempt_paths) for that writer, surface a lint error.
 # Weekly launchd cron registered to keep registry fresh.
-#
 # Subcommands:
 #   walk [--plists-root <p>] [--hooks-root <p>] [--registry <p>]
 #     Enumerate launchd plists matching com.*.plist + SessionEnd / hook scripts.
 #     Surface drift findings: writers ON DISK but NOT in registry, AND
 #     writers IN REGISTRY but ABSENT from disk.
-#
 #   lint <plan-id> [--registry <p>] [--plans-root <p>]
 #     Cross-check a plan's manifest live_mutation_scope against registry.
 #     Per registered writer, evaluate:
 #       overlap = (writer's write_paths) ∩ (plan's scope_paths) - (plan's exempt_paths)
 #       declared = (writer is in layer_3.session_end_hooks/launchd_labels/user_prompt_submit_writers)
-#     If overlap is non-empty AND declared is false → lint error.
-#
+#     If overlap is non-empty AND declared is false → Incident-β-class lint error.
 #   summary [--registry <p>]
 #     Dump current registry state: count of writers + post-tool-use advisories,
 #     coverage by trigger type.
-#
 # Test-isolation env:
 #   PLISTS_ROOT_OVERRIDE   - redirect launchd plist walk root
 #   HOOKS_DIR_OVERRIDE     - redirect hook scripts walk dir
@@ -33,10 +28,9 @@
 
 set -uo pipefail
 
-# Co-located at hooks/lib/ with the L3 live-mutation layer it audits.
-# Maintains hooks/lib/l3-writer-registry.json; consumed by
-# hooks/lib/l3-pause-helper.sh. NOT registered in capability-registry.json.
-# Install paths resolve via $CLAUDE_HOME.
+# layer it audits. Maintains hooks/lib/l3-writer-registry.json; consumed by
+# hooks/lib/l3-pause-helper.sh. NOT registered in capability-registry.json
+# (part of the 40-vs-44 drift closure). Install paths resolve via $CLAUDE_HOME.
 _CH="${CLAUDE_HOME:-$HOME/.claude}"
 DEFAULT_REGISTRY="$_CH/hooks/lib/l3-writer-registry.json"
 DEFAULT_PLISTS="$HOME/Library/LaunchAgents"
@@ -65,7 +59,11 @@ normalize_path() {
   p="${p//\$HOME/$HOME}"
   p="${p//\$VAULT_ROOT/${VAULT_ROOT:-$HOME/Documents/Obsidian Vault}}"
   p="${p//\$CLAUDE_HOME/${CLAUDE_HOME:-$HOME/.claude}}"
-  p="${p//\$HOOKS_STATE/${HOOKS_STATE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/state}}"
+  # G5 (plan 110 T-63): the inline $HOOKS_STATE-token expansion default tracks the
+  # new SoT default ($CLAUDE_STATE_ROOT/hooks-state, paths.sh:84) so the glob-overlap
+  # normalize compares against the relocated root. This is a default-correction, not
+  # a file read — a glob-string comparison takes no new-first/old-fallback probe.
+  p="${p//\$HOOKS_STATE/${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
   p="${p%/\*\*}"
   p="${p%/\*}"
   printf '%s\n' "$p"
@@ -270,7 +268,7 @@ cmd_lint() {
     fi
 
     if [[ "$is_declared" == "0" ]]; then
-      # Finding: writer's write paths reach into the plan's
+      # Incident-β-class finding: writer's write paths reach into the plan's
       # scope but plan declares neither a pause nor an exempt carve-out.
       local finding
       finding=$(jq -nc \

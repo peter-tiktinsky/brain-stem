@@ -95,7 +95,6 @@
       "exemptions": [
         "Archive/** — archived content; provides-declaration is structurally unnecessary",
         "Daily/** — daily notes are temporally-scoped, not capability-scoped",
-        "Logs/** — machine-emitted log surfaces; lifecycle is closed at write-time",
         "Inbox/** — aggregation surfaces; provides lives at the canonical destination, not the staging copy"
       ]
     },
@@ -333,17 +332,7 @@
       "optional": [
         "tags"
       ],
-      "canonical_scope": false,
-      "expected_path": [
-        {
-          "pattern": "Logs/*",
-          "label": "Logs/"
-        },
-        {
-          "pattern": "Archive/Logs/*",
-          "label": "Archive/Logs/"
-        }
-      ]
+      "canonical_scope": false
     },
     "ideation-brief": {
       "tier": "strict",

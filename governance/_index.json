@@ -83,7 +83,6 @@
       "id": "mandatory-files",
       "path": "mandatory-files-rules.json",
       "rule_id_range": [
-        "R-09",
         "R-44",
         "R-58",
         "R-59"
