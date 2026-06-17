@@ -28,7 +28,7 @@ Because the installed foundation does not change, **you do not need to upgrade f
 
 All changes are documentation; none touch the install.
 
-- **A new `SECURITY.md`** — the scope of trust (brain-stem runs locally and sends nothing over the network), the install/overwrite surface, the vault-write blast radius, and how to report a vulnerability privately.
+- **A new `SECURITY.md`** — the scope of trust (brain-stem runs locally and makes no automatic network calls; the only network activity is user-invoked, to your own destinations), the install/overwrite surface, the vault-write blast radius, and how to report a vulnerability privately.
 - **A new Reference section** — a [command reference](reference/commands.md) for every command brain-stem adds, a global [glossary](reference/glossary.md), and an [FAQ](reference/faq.md).
 - **New getting-started pages** — a five-minute [quickstart](getting-started/quickstart.md), a [version-migrations guide](getting-started/migrations.md) describing what each release moves for you automatically, a standalone [uninstall how-to](getting-started/uninstall.md), and an optional [claude-mem page](getting-started/claude-mem.md).
 - **A "[Why brain-stem](getting-started/why-brain-stem.md)" keystone** and a "[Design decisions](decisions/index.md)" overview that make the case for the system and tie each choice to durable, independently checkable evidence.

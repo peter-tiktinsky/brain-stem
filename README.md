@@ -99,7 +99,7 @@ brain-stem is a personal project that may be useful to others. Bug reports, feed
 
 ## Security
 
-brain-stem runs entirely on your machine, writes only to folders it records, and never sends data over the network. The trust boundary, the install/overwrite surface, and how to report a vulnerability are documented in **[SECURITY.md](SECURITY.md)**.
+brain-stem runs entirely on your machine, writes only to folders it records, and makes no automatic network calls — the only network activity is something you trigger (the backup capability, or onboarding's read-only GitHub check), always to a destination you control. The trust boundary, the install/overwrite surface, and how to report a vulnerability are documented in **[SECURITY.md](SECURITY.md)**.
 
 ## License
 
