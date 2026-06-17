@@ -14,6 +14,18 @@ audience: "foundation authors + adopters"
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** nothing in Claude Code requires you to run formal multi-step projects — but when projects *are* run with helper agents, the platform supplies one load-bearing rule: helper sub-agents only report results back to the main agent and never talk to each other.
+
+**The gap:** *if* you do run multi-step projects, agentic execution drifts — a checkbox in a to-do file can silently fall out of sync with reality, "done" is forgeable, and unsupervised multi-agent runs fail at high rates.
+
+**What brain-stem adds:** a plan tree where the machine-readable control file is the single source of truth (the to-do list is a generated copy), an eight-state lifecycle in which `verified` is stamped only by a real check and `closed` is forbidden without it, an idea funnel, master/sub-plan orchestration, and a human-gated runner.
+
+The reason the design lands here is worth stating plainly, because plans is the odd one out. Every other pillar of this system exists because the platform or the situation *requires* it — there is a write you must govern, a contract the software must read. Plans is the one pillar you **adopt as a methodology** rather than receive as a necessity: Claude Code never forces you to run a project this way, so the whole structure below is an *opt-in discipline*. The asterisk is only about whether you do the activity at all — once you do, the design is not a matter of taste. Each rule below converges on the same answer the rest of the field has reached independently; the rigor is convergence-grade.
+
+---
+
 ## What a plan is (and where it lives)
 
 A **plan** is a small folder of plain-text files that describes one project: its goal, its task list, and a running diary of progress. The important thing to grasp up front is that a plan is *not* a single document — it is a small set of files that work together.
@@ -156,6 +168,22 @@ The pieces:
 Every write the AI makes to the plan tree is checked against the system's rulebook before it is allowed. That rulebook is the merged view of two files: the composed bundle `~/.claude/governance/foundation-master.json` — specifically its `plans` section, which is the APPLY surface for the quartet requirement, the slug and numbering rules, the eight-state lifecycle and its guards (including closed-requires-verified), the inbox and backlog conventions, and the master/sub coordination contract — deep-merged with any local overrides in `~/.claude/governance/overlay-master.json`. On a collision the override wins, and any override must carry a stated reason. Plan manifests are *additionally* validated against the plan-manifest schema before they are written.
 
 This page does not re-explain that engine end to end; the governance doc is the full picture. The takeaway here is only that the behavior described above — the quartet, the lifecycle, the guards, the funnel conventions — is not enforced by goodwill. It is enforced structurally, at the moment of every write.
+
+## Why this design — evidence & alternatives
+
+Every choice above had an easier-looking alternative that this system deliberately rejected; the table sets each one against the reasoning that ruled it out.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| The control file is the truth; the to-do list is generated | Tracking completion in a hand-edited markdown checkbox | That is exactly where real agentic tools' bugs cluster: an agent claims it ticked the box but didn't. The field's answer is the same one taken here — a structured task source of truth (the pattern other agentic-coding tools express as a `tasks.json`-style file) that the human-readable list is rendered *from*, not the other way around. |
+| `verified` is machine-stamped and `closed` requires it | Letting a person mark a project "done" | "Done" becomes a forgeable claim; a status you can set without a check is not a fact. Project management has long drawn the same line between work that is *verified* (it meets its spec) and work that is merely *accepted* (someone signed for it) — the two are not interchangeable. |
+| Helper sub-plans report up only, never to each other | Letting parallel agents coordinate freely | Inter-agent coordination is a leading cause of multi-agent failure; isolation removes that failure mode at the root rather than trying to referee it. |
+| A human-gated runner that proposes and waits | A fully autonomous unattended daemon | An unsupervised runner inherits the documented high failure rates of multi-agent systems; the gate keeps a human at every risky step, where they can decline before anything irreversible runs. |
+| Capture is cheap; numbers handed out at graduation | Minting a project number for every stray idea | Dozens of discarded ideas would each cost a permanent slot. Letting capture be free and deferring the number until graduation keeps the numbered space meaningful. |
+
+None of these is a private invention. The forgeable-checkbox failure and the up-only-reporting rule both track the documented failure modes of unsupervised multi-agent systems (see the *Multi-Agent System Failure Taxonomy*, arXiv:2503.13657); the `verified`-versus-accepted distinction is standard project-management practice (the PMI / PMBOK separation of *verified* and *accepted* deliverables); and the generated-from-a-structured-source pattern is the lesson agentic-coding tools have settled on independently. The design converges with those external answers rather than departing from them — which is the strongest signal it is right. The one remaining asterisk is the one from the top of this page: that convergence governs *how* a project is run, not *whether* you run one. Adopting the methodology at all is yours to choose; once chosen, the shape it takes is not.
+
+---
 
 ## References
 

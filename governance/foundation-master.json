@@ -509,17 +509,17 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-13T04:52:51Z",
+    "built_at": "2026-06-16T13:53:10Z",
     "bundle_version": "68d48fc58d9edb5bb0cae204c7e08dacda670be3802884be2814016f58ab328b",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-06-13T04:52:51Z",
-      "governance/doc-dependencies.json": "2026-06-08T16:13:08Z",
-      "governance/frontmatter-rules.json": "2026-06-13T04:52:51Z",
-      "governance/mandatory-files-rules.json": "2026-06-10T21:12:54Z",
-      "governance/naming-rules.json": "2026-06-08T16:13:08Z",
+      "governance/_index.json": "2026-06-16T13:53:10Z",
+      "governance/doc-dependencies.json": "2026-06-16T13:53:10Z",
+      "governance/frontmatter-rules.json": "2026-06-16T13:53:10Z",
+      "governance/mandatory-files-rules.json": "2026-06-16T13:53:10Z",
+      "governance/naming-rules.json": "2026-06-16T13:53:10Z",
       "governance/plans-rules.json": "2026-06-13T04:52:51Z",
-      "governance/tagging-rules.json": "2026-06-08T16:13:08Z",
+      "governance/tagging-rules.json": "2026-06-16T13:53:10Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
     "source_files_count": 8

@@ -52,3 +52,5 @@ brain-stem runs small scripts at defined moments — **hooks** (on edits, at ses
 ## What to do
 
 Re-run `install.sh` from the updated source. The upgrade delivers the corrected files (including the restored executable bits) and converges your install. Nothing in your vault or your own settings is changed beyond the managed foundation files.
+
+> **If `git pull` reports "divergent branches" or a `(forced update)`:** clones made before 2026-06-05 cannot fast-forward, because the public history was rewritten once to purge an accidentally-committed personal path. Realign with `git fetch origin && git reset --hard origin/main` (or delete and re-clone) — a one-time fixup that never touches your installed `~/.claude` or your vault. The `--apply` step needs `CLAUDE_HOME` set explicitly (`export CLAUDE_HOME=~/.claude`) and, because an upgrade replaces your merged `settings.json`, a `--backup-dir <path>`.

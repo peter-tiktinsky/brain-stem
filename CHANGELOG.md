@@ -4,6 +4,24 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.4.0]
+
+Documentation release. **The installed foundation is unchanged — there is nothing to migrate.** This release rebuilds the public documentation into a complete, navigable site: a rich front-door README, a new `SECURITY.md`, a full command reference, an FAQ, a global glossary, a five-minute quickstart, a version-migrations guide, a standalone uninstall how-to, a claude-mem page, and a design-decisions overview — plus the "Why brain-stem" keystone and the context-library architecture pages, every architecture page reframed as native→gap→enhancement and closed with its own evidence section, and an explicit ordered site navigation. See the [v1.4.0 release notes](docs/release-notes-v1.4.0.md).
+
+### Added
+
+- **A new `SECURITY.md`** documenting the scope of trust (local-only, no network egress), the install/overwrite surface, the vault-write blast radius, and the private vulnerability-reporting channel.
+- **A reference section** — a command reference for every command brain-stem adds, a global glossary, and an FAQ.
+- **New getting-started pages** — a five-minute quickstart, a version-migrations guide (what each release moves for you), a standalone uninstall how-to, and an optional-claude-mem page.
+- **A "Why brain-stem" keystone** and a **"Design decisions"** overview that make the platform-completion case and map every load-bearing choice to its evidence.
+- **Context-library documentation** — a context-and-memory umbrella page and a context-library deep-dive for the three-surface model shipped in v1.2.0.
+
+### Changed
+
+- **The README is now a rich front door** — value proposition, install, and a capability map that mirrors the docs, with depth delegated to the published site.
+- **Every architecture page** opens with a native→gap→enhancement frame and closes with a self-contained "Why this design — evidence & alternatives" section citing durable external sources.
+- **Site navigation is now explicit and ordered** (Home → Why brain-stem → Getting started → Architecture → Reference → Design decisions → Release notes), and the documentation build is pinned to the Material 9.x line.
+
 ## [v1.3.0]
 
 Maintenance release. brain-stem now writes **zero machine files into your vault**. The assistant's operational exhaust — run logs, the session-close receipt, the librarian's working manifest, and internal hook state — moves out of the vault (and out of the `~/.claude` config home) into the standard per-user **state directory**, `~/.local/state/brain-stem`, following the XDG Base Directory specification. The vault's `Logs/` folder is retired: your vault is now 100% human knowledge, with nothing machine-emitted leaking into Obsidian search or the local graph. See the [v1.3.0 release notes](docs/release-notes-v1.3.0.md).

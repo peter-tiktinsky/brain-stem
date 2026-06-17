@@ -4,6 +4,16 @@
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** Claude Code provides the raw ingredients of a first-run flow but no first-run step itself: a documented setting that makes a command human-invoked-only (never model-fired), the fact that it *concatenates* (not overrides) the global and project preferences files, comment syntax that costs zero context, and a session-start channel that can inject a reminder without blocking. A bare install has no equivalent first-run step at all.
+
+**The gap:** the identical install is not yet *your* system — without a first-run step you would hand-write your preferences file, learn its schema, and build your vault tree by hand.
+
+**What brain-stem adds:** a one-time guided interview that turns the identical install into your system — a mechanical confirmation card pre-filled from your environment, a short free-form section condensed into structured fields, producing a validated preferences record, your personal preferences file, and a seeded vault — with placeholder-residue checks, no-clobber diffs, and a soft "you can do this later" gate. The point of all of it: onboarding *is* the personalization seam. Its mechanism matches established first-run/setup-wizard practice (optimal-by-convergence), built on the platform's own human-invoked-only and concatenation facts (optimal-by-constraint).
+
+---
+
 ## What onboarding is
 
 When someone installs brain-stem, they have all the moving parts but nothing personalized. The system does not yet know who they are, where they want their notes kept, or how they like to be talked to. **Onboarding is the one-time guided setup that fills those gaps.**
@@ -136,7 +146,6 @@ brain-stem ships a **seed**: a small starter folder tree with the standard folde
 |---|---|
 | `System Governance/` | A reference area — six human-readable companion documents explaining how the assistant keeps your vault consistent (one per governance pillar), plus its `_index.md` |
 | `Vault Writers/` | A catalog of any system that writes into your vault |
-| `Logs/` (and `Logs/Archive/`) | The assistant's scratch space, with cold storage in `Archive/` |
 | `Meetings/` | Date-prefixed meeting notes |
 
 Onboarding **copies that seed into the location you chose and turns it into your working vault.** This is called *adopt-by-default*: you do not opt in to the standard structure as an extra step; you get it automatically as part of setup.
@@ -155,10 +164,12 @@ The **"brain" vault** is just a folder on your computer — by default at a sens
 
 **Obsidian** is a free note-taking app that treats a folder of plain markdown files as a connected knowledge base. brain-stem uses it as the human-facing window into your vault.
 
-When the vault builder finishes, it also wires two convenience links into the vault:
+When the vault builder finishes, it also wires four convenience links into the vault:
 
 - `Plans/` → points to your plans home at `~/.claude-plans/`
 - `Skills/` → points to your installed skills at `~/.claude/skills/`
+- `Wiki/` → points to the universal Library at `~/.claude-plans/_library`
+- `Projects/` → points to the project binders at `~/.claude-plans/_projects`
 
 (These are *symlinks* — folder shortcuts that make one location appear inside another without copying anything.)
 
@@ -288,6 +299,21 @@ Memory bootstrap is handled by a **separate** startup script — `~/.claude/hook
 
 ---
 
+## Why this design — evidence & alternatives
+
+Each load-bearing choice in onboarding has a rejected alternative behind it. The table below records what was *not* done and why — so the design reads as deliberate rather than arbitrary. (Several of these — block-and-log, the two `CLAUDE.md` files, the single-use guard — are explained in full above; here they are summarized only as the *reason* a different shape was passed over.)
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| Run-once, guarded three ways — the assistant can't auto-fire it, a sentinel marker makes a re-run a no-op, and an explicit `--force` is required to truly redo | Letting setup re-run freely, or self-deleting after a successful use | A step that writes irreplaceable personal content must never be cheap to repeat by accident; self-deletion mid-run is racy and breaks the resume path. |
+| Onboarding renders your global preferences file fresh; a user who skips setup simply has none | Shipping a pre-seeded placeholder preferences file in the install | A file full of unfilled `{{tokens}}` looks broken to a reader and blocks the genuine first-run fill. |
+| A self-contained setup skill that owns its producers | A thin entry-point plus a scattered top-level bucket of loose scripts | That layout is the lone outlier among the system's skills, and it breeds brittle relative-path coupling between the entry-point and its helpers. |
+| Block-and-log on any malformed write | Write-and-hope | A setup step that writes personal files must fail loudly and leave no half-written state — never silently "succeed" on broken data. |
+
+Read together, the table shows two forces at work. Smart-default pre-fill, single-use with an explicit redo flag, schema-validated atomic writes, no-clobber diffing, and progressive disclosure are the **convergent practice** of mature first-run and setup-wizard UX — arrived at independently because they are simply what a good first-run flow does. The remaining shape is fixed by **constraint**: the human-invoked-only guard rests on the platform's documented `disable-model-invocation` setting, and rendering one global preferences file fresh rests on Claude Code's documented `CLAUDE.md` concatenation behavior. Convergence chose the pattern; the platform's own facts chose the mechanics.
+
+---
+
 ## References
 
 These are the installed artifacts that implement and back this document. The skill scripts under `~/.claude/skills/onboarder/` are the **APPLY surface** — what actually runs when you type `/onboard`.
@@ -303,7 +329,7 @@ These are the installed artifacts that implement and back this document. The ski
 - `~/.claude/skills/onboarder/scripts/section-b-slim.sh` — Section B: the free-form interview and the two-pass AI extraction into role/organization plus three preference blocks.
 - `~/.claude/skills/onboarder/scripts/bootstrap-user-manifest.sh` — merges the Section-A and Section-B fragments, injects system fields, validates against the schema, and atomically writes the user-manifest.
 - `~/.claude/skills/onboarder/scripts/author-claude-home.sh` — the authoritative author of the global `~/.claude/CLAUDE.md`; asserts zero leftover placeholders; no-clobber-without-force.
-- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — copies the seed into your vault, wires the Plans/Skills links, authors the vault-root `CLAUDE.md`, refuses to scaffold into a non-empty foreign folder without `--force`, and prints the Obsidian-open message.
+- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — copies the seed into your vault, wires the Plans/Skills/Wiki/Projects links, authors the vault-root `CLAUDE.md`, refuses to scaffold into a non-empty foreign folder without `--force`, and prints the Obsidian-open message.
 - `~/.claude/skills/onboarder/scripts/external-setup-gate.sh` — the soft-mandate gate over claude-mem and GitHub; read-only probes, honest recommendations, frictionless skip; never blocks.
 
 **The shared, integrity-protected assets**
@@ -311,7 +337,7 @@ These are the installed artifacts that implement and back this document. The ski
 - `~/.claude/templates/claude-home-claude-md-template.md` — the template for the global personal-preferences `CLAUDE.md`.
 - `~/.claude/templates/vault-claude-md-template.md` — the template for the vault-root `CLAUDE.md` (folder-structure map).
 - `~/.claude/schemas/user-manifest-schema.json` — the blueprint the manifest is validated against before it is saved.
-- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`System Governance/` with its six narrative spokes and `_index.md`, `Vault Writers/` with its `_index.md`, `Logs/` plus `Logs/Archive/`, and `Meetings/`).
+- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`System Governance/` with its six narrative spokes and `_index.md`, `Vault Writers/` with its `_index.md`, and `Meetings/`).
 
 **The outputs onboarding writes**
 

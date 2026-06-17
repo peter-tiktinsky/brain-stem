@@ -10,6 +10,16 @@ The rest of this document expands that sentence. The complication governance sol
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** Claude Code auto-loads a `CLAUDE.md` of conventions at the start of every session, so a folder can carry its own house rules; its write-time hook can wave a save through, attach an advisory note, or deny it with a reason; and macOS `launchd` can wake a background job on either a file-change event or a timer.
+
+**The gap:** those are general-purpose levers — they give you a place to write rules and a moment to enforce them, but no machinery that actually keeps a *shared, co-authored* folder consistent. And every brain-stem adopter has an AI co-author by definition; any folder two authors share drifts. This is a structural need, not a power-user preference — there is no adopter setup in which zero automated writes ever occur.
+
+**What brain-stem adds:** the consistency machinery those levers were missing — a seeded folder scaffold with index-file discipline; two write-time guards (an advisory "spell-checker" and a blocking writer-reference "bouncer"); an opt-in staging pipeline that serializes competing writes through a single reconciler and lets a human edit always win; a catalog of every automated writer; and periodic drift sweeps. The shape is not arbitrary. The platform's hook can only allow-with-a-note *or* block, which is exactly why the guards split into one advisory and one blocking check; the platform offers no shared-write coordinator, so a single-writer funnel is forced rather than chosen. And where the design had latitude, it lands on patterns the wider software world arrived at independently — the Single Writer Principle, content-addressable storage, atomic file rename — so the same answer is reached twice, from constraint and from convergence.
+
+---
+
 ## Scaffolding — a furnished show-home plus two address-specific fixtures
 
 When someone first sets up the assistant, they get a starter vault built from two things bolted together.
@@ -18,13 +28,12 @@ The first is a **seed** — a frozen, identical set of folders and files install
 
 - **`System Governance/`** — the governance cluster folder, seeded with its own **`_index.md`** *and* six short, pre-written human-readable explainer notes (one each for Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, and Doc-Dependencies). The `_index.md` is the cluster's navigation note and also does double duty as the marker that proves "this is a vault we built." Each explainer note is the narrative companion to one machine-readable governance rule — it explains *why* that rule exists, in plain language, rather than restating the rule itself. All six ship in the seed already authored; the scaffolder lays down both the room and its furnishings.
 - **`Vault Writers/`** — the catalog folder (covered in detail below), shipped with a mandatory `_index.md`.
-- **`Logs/`** — the assistant's scratch space, with cold storage in `Logs/Archive/`.
 - **`Meetings/`** — meeting notes.
 
 The second is a pair of **address-specific fixtures** that *cannot* be pre-baked into the seed, because they depend on where you installed everything — so the scaffolder fits them once the install location is known:
 
 1. A vault-root **`CLAUDE.md`** instructions file, rendered fresh from a template. (Claude Code auto-loads a project's `CLAUDE.md` at the start of every session, so the vault picks up its own conventions from the first session; this auto-load is documented at `code.claude.com/docs`.)
-2. Two **shortcuts** — `Plans/` pointing at your plans area, and `Skills/` pointing at `~/.claude/skills/`.
+2. Four **shortcuts** — `Plans/` (your plans area), `Skills/` (`~/.claude/skills/`), `Wiki/` (the universal Library at `~/.claude-plans/_library`), and `Projects/` (the project binders at `~/.claude-plans/_projects`).
 
 The scaffolder is `~/.claude/skills/onboarder/scripts/build-brain-vault.sh`. The copy is gentle and idempotent: it walks the seed file by file and **skips anything already present**, so re-running setup never clobbers your edits.
 
@@ -186,14 +195,30 @@ When a sweep regenerates a table inside a note, it must not erase the paragraphs
 
 | Stage | What happens | Where it lives |
 |---|---|---|
-| **Scaffold** | The seed tree is copied (including the six `System Governance/` explainer notes); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
+| **Scaffold** | The seed tree is copied (including the six `System Governance/` explainer notes); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/`/`Wiki/`/`Projects/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
 | **Every save — advisory** | A past-dated note edit gets a non-blocking reminder | `~/.claude/hooks/pre-write-guard.sh` |
 | **Every save — block** | A malformed `Vault Writers/` note is refused | same gate, against `vault-writer.md.json` |
-| **Every save — after** | A write into the scratch `Logs/` area is auto-governed in place (missing frontmatter is filled in; other writes pass through untouched; never denied) | `~/.claude/hooks/post-write-verify.sh` |
 | **Writer content in** | Writer → packet in staging → sole reconciler writes the destination (with survivorship + lock); optional AI lane composes a packet but never writes | `staging-emit.sh`, `writer-reconciler/process.sh`, `doc-amender/process.sh` |
 | **Periodic sweep** | Catalog table, overlap/fan-in matrix, health audit, index reconciliation, tag coverage | the librarian capabilities |
 
-Two notes on timing. The "Every save — after" stage uses a **PostToolUse hook** — a hook that runs *after* a tool executes (it cannot block, since the tool already ran; documented at `code.claude.com/docs`); `~/.claude/hooks/post-write-verify.sh` uses it to auto-govern `Logs/` writes and also exposes an on-demand index-regeneration entry point. And the only two **scheduled** background jobs that ship are the reconciler and the doc-amender — there is no scheduled vault-cleanup job; the librarian sweeps run on `/librarian` invocation (and at session-close).
+Two notes on timing. `~/.claude/hooks/post-write-verify.sh` is a **PostToolUse hook** — one that runs *after* a tool executes (it cannot block, since the tool already ran; documented at `code.claude.com/docs`); it exposes an on-demand index-regeneration entry point the session-close sweep invokes. And the only two **scheduled** background jobs that ship are the reconciler and the doc-amender — there is no scheduled vault-cleanup job; the librarian sweeps run on `/librarian` invocation (and at session-close).
+
+---
+
+## Why this design — evidence & alternatives
+
+Each governance choice below is the one left standing after a simpler-looking alternative was tried and found to break the "trustworthy for life" promise.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| One sole-writer reconciler serializes every staged write | Every writer writes the destination file directly | With many writers aimed at one file, two saves overlap and silently clobber each other; funneling all writes through a single program — the **Single Writer Principle** from concurrency design — makes the outcome ordered and recordable. |
+| Two-signal survivorship — a hand-edit always wins | Let the last writer (or the AI lane) be the final writer, no survivorship check | A routine regeneration would silently overwrite a human's edit. Detecting the edit by *either* a newer edit-timestamp *or* a content-hash mismatch — the last-writer / merge discipline studied in operational-transformation and CRDT literature — guarantees the person wins. |
+| Historical-data check is advisory; writer-registry check is blocking | Hard-block every imperfect note the same way | Editing an old note is sometimes a legitimate human call, so a block there is hostile — a nudge is right. A malformed writer-registry entry, by contrast, silently breaks a downstream sweep, so it must be refused. The platform's allow-with-note-or-block hook is *exactly* this two-way split. |
+| File-watch event trigger plus a relaxed timer backstop | Pure timer-poll (or pure event-watch) | Blind polling adds minutes of latency; pure event-watch silently loses a dropped event forever. A `launchd` job carrying both — fire-on-change for seconds-level latency, timer as insurance — gets responsiveness without missed work. |
+| Content-hash-named packets written by atomic rename | Hand-composed packets written in place | Naming a packet by the fingerprint of its bytes makes a duplicate write collapse to one file for free; a temp-file-then-rename keeps a reader from ever seeing a half-written packet. This is content-addressable storage plus POSIX atomic rename — the model Git uses for its objects, the familiar example. |
+| Machine-written logs relocated out of the vault entirely | Keep machine exhaust in the vault and "exclude from search" | A notes app's exclude-from-search only *hides* a file; it still leaks into the search index and the graph view. The only reliable fix is to keep machine exhaust out of the notes folder in the first place. |
+
+These choices are optimal on two independent grounds. Some are **forced by the platform**: Claude Code's write-time hook can only allow-with-a-note or block, which is precisely why the guards split into one advisory and one blocking check, and it offers no built-in coordinator for concurrent writers, so a single-writer funnel is required rather than preferred. The rest are **optimal by convergence** — the same answers the broader software world reached independently: the Single Writer Principle (concurrency design), content-addressable storage and POSIX atomic `rename(2)` (Git's object model is the everyday example), and last-writer / merge survivorship (the operational-transformation and CRDT literature on concurrent editing). When a design is reached twice — once because the platform forces it, once because the field converged on it — that is the strongest available signal it is the right shape.
 
 ---
 
@@ -219,10 +244,10 @@ Two notes on timing. The "Every save — after" stage uses a **PostToolUse hook*
 
 *All paths below are what an adopter has installed; this document explains the "why" behind them.*
 
-- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, `Vault Writers/` with its `_index.md`, `Logs/` plus `Logs/Archive/`, and `Meetings/`).
-- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/` shortcuts).
+- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, `Vault Writers/` with its `_index.md`, and `Meetings/`).
+- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/`/`Wiki/`/`Projects/` shortcuts).
 - `~/.claude/hooks/pre-write-guard.sh` — the write-time gate carrying both vault guards (advisory historical-data warning; blocking writer-reference check).
-- `~/.claude/hooks/post-write-verify.sh` — the after-write hook that auto-governs writes into the scratch `Logs/` area; it also exposes the on-demand index-regeneration entry point. It never denies a write.
+- `~/.claude/hooks/post-write-verify.sh` — the after-write hook that exposes the on-demand index-regeneration entry point (invoked by the session-close sweep). It never denies a write.
 - `~/.claude/hooks/lib/staging-emit.sh` — the shared library a writer calls (only when a destination is opted into staging) to drop one content-hash-named packet.
 - `~/.claude/skills/writer-reconciler/process.sh` — the sole destination writer (atomic write, two-signal survivorship, single-writer lock).
 - `~/.claude/skills/doc-amender/process.sh` — the optional AI-merge lane (emits a packet back to staging; never writes the destination).

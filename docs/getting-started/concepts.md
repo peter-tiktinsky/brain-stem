@@ -2,7 +2,7 @@
 
 > **Audience:** anyone who wants the mental model behind brain-stem before — or just after — installing it. Written for someone who has never used Claude Code and has no technical background; every term is explained the first time it appears. This page is a map: it builds each idea in plain language and points you to the full architecture page for the depth.
 
-brain-stem adds five things to Claude Code: a **vault**, a **governance engine**, **memory**, **plans**, and **session** machinery. They fit together simply — the vault is the place, governance keeps the place trustworthy, memory lets the assistant carry knowledge across visits, plans organize big projects, and the session machinery keeps any single conversation on-track. This page walks them in that order, then names the handful of design principles that run through all of them.
+brain-stem adds six things to Claude Code: a **vault**, a **governance engine**, **memory**, a **context library**, **plans**, and **session** machinery. They fit together simply — the vault is the place, governance keeps the place trustworthy, memory lets the assistant carry knowledge across visits, the context library frames the work with reusable reference and per-project state, plans organize big projects, and the session machinery keeps any single conversation on-track. This page walks them in that order, then names the handful of design principles that run through all of them.
 
 A quick word that recurs below: a **hook** is a small script the Claude Code program runs *automatically* at a set moment — when a session starts, just before a file is saved, when a session ends. You never run a hook yourself; the program fires it for you. Hooks are how brain-stem stays automatic instead of relying on anyone to remember the chores.
 
@@ -12,7 +12,7 @@ A quick word that recurs below: a **hook** is a small script the Claude Code pro
 
 A **vault** is a folder of plain-text notes that *both* you and the assistant write into. You type and edit notes by hand; the assistant creates and updates notes on its own. There is no database and no locked-away format — every note is an ordinary text file you can open in any editor.
 
-The vault is organized into a few standard folders from day one (a reference area explaining the system's own rules, a catalog of automated writers, a scratch space, and a meetings folder), and each folder carries a small **index note** so it is never an unlabeled pile. Because two different authors share one folder, the vault is exactly where things would drift if nothing watched it — which is what the next concept is for.
+The vault is organized into a few standard folders from day one (a reference area explaining the system's own rules, a catalog of automated writers, and a meetings folder), and each folder carries a small **index note** so it is never an unlabeled pile. Because two different authors share one folder, the vault is exactly where things would drift if nothing watched it — which is what the next concept is for.
 
 → Full detail: **[Vault governance](../architecture/vault-governance.md)**.
 
@@ -47,7 +47,7 @@ The point of memory is to move what matters off the whiteboard and into the cabi
 
 | Kind | What it holds | Example |
 |---|---|---|
-| **Semantic** | Timeless facts, preferences, and identity | "The user prefers direct, unhedged writing." |
+| **Semantic** | Timeless facts, preferences, and identity | "The user prefers terse, direct answers." |
 | **Procedural** | How-to knowledge *plus the reasoning behind it*, including lessons from past mistakes | "Always run the tests after writing code — a silent failure once shipped a broken file." |
 | **Episodic** | Dated records of what happened in one specific work session | "On a given day, fixed the seed hook; a marker file was missing." |
 
@@ -57,7 +57,20 @@ Memory also comes in two **scopes**: *project* memory (notes for one job, loaded
 
 ---
 
-## 4. Plans — from a raw idea to a signed-off project
+## 4. The context library — reference and project state
+
+Memory (above) is mostly about *how the assistant should behave* — your preferences, conventions, and the lessons behind them. But the assistant also needs **context**: the durable material that *frames the work itself*. That lives in the **context library**, in two scopes that mirror memory's own:
+
+- a **universal Library** — durable reference articles, written once and reusable by *any* project (you see it in your vault as a `Wiki/` folder);
+- a **project binder** — a per-project roll-up of that project's plans: their research, decisions, and a handoff journal, so a project's state is never lost (a `Projects/` folder).
+
+A third area, the **workshop**, is a scratch bench where research happens before it is cleaned up and *promoted* onto the Library shelf. The single distinction that runs through both memory and context — *governing how the assistant acts* versus *framing what the work is* — is the model this whole pair turns on.
+
+→ Full detail: **[Context and memory](../architecture/context-and-memory.md)** (the model) and **[The context library](../architecture/context-library.md)** (the surfaces).
+
+---
+
+## 5. Plans — from a raw idea to a signed-off project
 
 A **plan** is a small folder of plain-text files describing one project: its goal, its task list, and a running diary of progress. Plans live in their own area on disk (separate from your notes vault, though your vault links to it), one folder per project.
 
@@ -73,7 +86,7 @@ There is also an **orchestrator** — machinery that can run a plan's tasks for 
 
 ---
 
-## 5. Sessions — keeping one conversation on-track
+## 6. Sessions — keeping one conversation on-track
 
 A **session** is one continuous conversation with the assistant, from when you open it to when you close it. Sessions need help for one reason: the assistant has a fixed-size working memory — its **context window** — and when a long session fills it, the program **compacts** the conversation, summarizing the older parts and discarding the verbatim detail to make room. That trimming is lossy by design.
 

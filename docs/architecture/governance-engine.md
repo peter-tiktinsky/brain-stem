@@ -6,6 +6,16 @@
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** Claude Code exposes a single place to intervene before a file is written — a hook called `PreToolUse` that fires the instant the AI is about to save, and can answer *allow* or *deny*. That is the whole native surface: one interception point, and no opinion about what a good write looks like. There is no rulebook, no way to combine your own rules with shipped ones, and no sanctioned path to extend either.
+
+**The gap:** a write-interception point with nothing to consult.
+
+**What brain-stem adds:** the rulebook the platform leaves empty; a third verdict the platform lacks (*advise* — allow, but attach a reminder — not just allow/deny); a merge model that lays your rules over the shipped ones without conflict; and a guided way to register extensions. It is built *on* that one native interception point rather than beside it — which is exactly why it can mediate every write, and why this is the only shape the platform permits.
+
+---
+
 ## What the governance engine is
 
 Claude Code is a command-line program — a piece of software you run in a terminal — that wraps a Claude AI model and lets it read and write files on your machine. Because the AI can write files, something has to decide whether each write is a good idea. That something is the **governance engine**: a rulebook that is consulted *every single time* the AI is about to create or edit a file, and that returns one of three answers — allow it, block it, or allow it but attach a reminder.
@@ -168,13 +178,24 @@ This is the division of labour to hold onto:
 
 ---
 
-## The Logs/ auto-govern path
+## The three-tier convention: schema, guard, safety-net
 
-There is one more after-the-write hook, `~/.claude/hooks/post-write-verify.sh`, and it serves a single special folder: the **`Logs/`** area, a free-write scratch space where the system itself drops working notes.
+The plan-manifest example above is a specific instance of a convention that holds **system-wide** across every place a JSON schema and the write-time guard both have a say. It is worth stating plainly because it is easy to mis-read a schema as "the thing that gets enforced at write-time" — it is not. Three tiers, with deliberately different breadth:
 
-Rather than blocking or nagging on those low-stakes writes, the hook **quietly fills in the small required metadata** in place — a type label, a log-type, a date, a timestamp — *if* it is missing, while carefully preserving anything the author already wrote. It never denies, and it always exits cleanly.
+1. **The JSON schema is the authoring *contract* — the full vocabulary.** It is the broadest accept-set: every field a file *may* carry and the shape each takes. It documents the surface for authors and tools. Two consequences follow from "contract, not gate": a schema is permissive where the readers are permissive, and — except for the one write-side validator noted below — **no live consumer validates an instance against it at runtime**; readers pull fields with `jq '<path> // default'` and degrade gracefully when a field is absent. The `user-manifest.json` schema is the clearest case: its `paths` / `vault` / `behavioral` / `system` blocks are `additionalProperties: true` precisely so that a knob a reader supports (a path override, a librarian vault-customization field) never gets *rejected* by the one write-side validator (`onboarder/scripts/bootstrap-user-manifest.sh`). The schema's job there is to *describe and type the known surface*, not to fence it.
 
-This is *"governance applied automatically"* rather than *"governance demanded,"* and it is a useful contrast to the deny-or-advise model. For low-stakes scratch content, the system **fixes it for you** instead of asking.
+2. **The pre-write guard is the blocking *subset* — narrow and unforgeable.** `pre-write-guard.sh` enforces only what is both cheap to check before the write lands and genuinely worth *blocking* on: structural presence (a required field exists), the depth-3 status enum, and unforgeable transition facts (a plan cannot be marked `closed` without a `verified` predecessor; `verified` requires a fresh verdict). It is intentionally **narrower than the schema** — it does not re-implement full-shape conformance, and blocking a save over every schema nicety would be hostile (see *Tiered enforcement*, above). Where the guard is *stricter* than the schema, that is a custom rule layered on top (for example, the overlay `_override_reason` deny), not the schema talking.
+
+3. **The PostToolUse verifier is the advisory *completeness* net.** `post-tool-use-manifest.sh` runs the full Draft-2020-12 schema validation **after** the write — so it cannot undo, only warn. It catches the long tail the guard does not block, surfacing it immediately rather than letting a malformed file fail silently downstream.
+
+The shape to remember: **schema = permissive contract; guard = authoritative but narrow; safety-net = advisory but complete.** When you add a field to a schema, do not assume the guard now enforces it — it does not, unless you also add a guard clause. (This pairs with the release hard-rule that every hand-curated enforcement list needs a gate-independent completeness backstop.)
+
+### Two known R-27 documentation gaps
+
+R-27 is the plan-structure rule the guard enforces. Two places where the guard is deliberately **looser than the schema**, recorded here so they read as design choices rather than oversights:
+
+- **Depth-2 status is checked for *presence* only, not vocabulary.** At the plan-root level the guard confirms a `status` field exists; it does not re-validate the value against the 9-token enum (the schema and the depth-3 guard clause do that). Presence-at-depth-2 is the cheap structural floor; full-enum conformance is the schema's job and the PostToolUse net's.
+- **Sub-plan `parent_plan` / `sub_plan_id` requiredness is not pre-write-blocked.** The schema makes these conditionally required (an `if/then` on sub-plan files), but the guard does not deny a sub-plan write that omits them — that conformance is caught only by the PostToolUse advisory. Promotion to a write-time deny is a future call, gated on adoption data (the same "earned, not assumed" promotion bar the plan-status advisory uses).
 
 ---
 
@@ -223,6 +244,23 @@ The plain principle: **safe defaults let work continue, and the problem is surfa
 
 ---
 
+## Why this design — evidence & alternatives
+
+The engine's two load-bearing choices — **advise before you deny**, and a **sealed master with a transparent overlay** — are each the answer to a documented failure of the obvious alternative.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| **Advise is the workhorse; deny is reserved** | Block on every imperfection (deny-first) | Blocking a save over a missing tag is hostile and trains people to switch the guard off — and a disabled guard enforces nothing. Independent policy systems converged on the same gentler ladder: warn before you enforce. |
+| **A third verdict — *advise*** | The platform's two-way allow/deny only | Allow-or-block alone has no way to *teach*; most policy should be taught, not enforced. The advisory carries a plain-English reminder the assistant can act on, with the write never stopped. |
+| **A sealed master plus your overlay on top** | One rulebook everyone hand-edits | If everyone edits the master, every upgrade overwrites local work and no one can tell custom rules from shipped ones. The two-surface split is the structural guarantee behind taking an update *without* losing your customizations. |
+| **A signed reason to overrule a shipped rule** | Silently letting the local rule win (the way `git config` shadows) | A silent override goes unnoticed until something downstream breaks. brain-stem blocks the merge until the override is signed with a reason — deliberately stricter than its analogs. |
+| **Enforcement in a hook, at write-time** | A standing rule written into a prose preferences file | Prose rules degrade over a handful of sessions and get rationalized away under pressure (Claude Code issues [#33603](https://github.com/anthropics/claude-code/issues/33603), [#56393](https://github.com/anthropics/claude-code/issues/56393)). The hook fires deterministically on every write, regardless of the assistant's cooperation. |
+| **Intercept *before* the write (`PreToolUse`)** | Check *after* the write (`PostToolUse`) | An after-the-fact check cannot prevent the bad write, and the after-write channel cannot even inject a correction back into the conversation ([#18427](https://github.com/anthropics/claude-code/issues/18427)). The pre-write hook is the only point that can actually mediate. |
+
+Two of these are optimal *by constraint*: the pre-write hook is the only interception point the platform exposes, so building the doorman there is the one shape that works — it realizes the **complete-mediation** principle of Saltzer & Schroeder (1975), that every access must be checked. The advise-then-deny posture is optimal *by convergence*: independent policy systems — Open Policy Agent's Gatekeeper (`dryrun → warn → deny`), the Kubernetes Pod Security Standards (`enforce / audit / warn`), code linters, and progressive-delivery rollouts — all arrived at the same gentle-by-default, strict-where-it-counts ladder without coordinating. When that many independent designs rediscover one shape, it is not a matter of taste.
+
+---
+
 ## References
 
 Everything below is an **installed artifact** — a file that lands on an adopter's own machine when the system is installed, under their home directory at `~/.claude/`. These are the paths you would actually find on a running install; this page does not point at any build or source repository. (In particular, the eight per-pillar source files and the stitching tool are **not** listed here, because they stay in the build workshop and never reach an adopter — their eight pillars arrive as *slots inside* `foundation-master.json`.)
@@ -233,13 +271,13 @@ Everything below is an **installed artifact** — a file that lands on an adopte
 - `overlay-master.json` — the adopter-local overlay. Ships as an empty skeleton that mirrors the bundle's eight pillar slots plus one `system` slot (for machine-wide settings such as a timezone) — every slot empty until the adopter registers an extension. Deep-merged on top of the foundation, overlay wins, with a mandatory `_override_reason` on any shadowing entry.
 - `file-type-contracts/` — the per-document-type rulebooks, all folded into the bundle (meeting notes, plan specs, decision records, the governance hub page, and more).
 - `file-type-contracts/System Governance.md.json` — the contract carrying the line-count limit; the worked example of a size guard living in data, not in code.
-- `log-subtype-registry.json` — the shipped registry of `Logs/` subtypes, supporting the `Logs/` auto-govern backfill.
+- `log-subtype-registry.json` — the shipped registry of log subtypes (consumed by the log-archive retention capability).
 - `governance-action-log.jsonl` — the append-only audit log of every `/govern register` action and every frictionless skip (created empty at install time; mineable once used).
 
 **The write-time and after-write hooks (`~/.claude/hooks/`)**
 
 - `pre-write-guard.sh` — the write-time doorman. Reads the merged foundation-plus-overlay view, returns allow / allow-with-advisory / deny; carries the System Governance size-cap deny (reading the limit from the bundle, failing open if the bundle is missing), the overlay-collision deny, the live-mutation safety gate, the cross-document cascade advisory, the write-time plan-manifest substance check, and the `/govern register` suggestion.
-- `post-write-verify.sh` — fires after a write; performs the `Logs/` auto-govern backfill (quietly filling missing log metadata in place while preserving existing content). Never denies; always exits cleanly. Wired into the after-write step by default.
+- `post-write-verify.sh` — fires after a write; exposes an on-demand index-regeneration entry point (invoked by the session-close sweep). Never denies; always exits cleanly. Wired into the after-write step by default.
 - `post-tool-use-manifest.sh` — the after-write plan-manifest verifier; re-reads a just-written plan manifest, confirms it is well-formed and conforms to the plan-manifest schema, and warns. The safety net for files where silent corruption is most expensive. Ships with the system as a shipped-but-not-default hook — wire it into the after-write step to activate it.
 - `lib/foundation-overlay-load.sh` — the merge helper. Runs the `_override_reason` collision check, emits the deep-merged view the guard reads, and falls back to a foundation-only view if the overlay is corrupt.
 - `lib/overlay-master-mutate.sh` — the single locked, validated path through which all overlay writes flow, validating against the overlay schema and appending the audit-log row.

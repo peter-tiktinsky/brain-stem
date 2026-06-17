@@ -12,6 +12,16 @@ audience: "foundation authors + adopters"
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** the assistant has a fixed-size working window, and when a long session fills it the platform *compacts* the conversation — replacing the verbatim history with a summary, after which the full detail is gone. The platform exposes lifecycle moments (session start, just-before-compaction, stop, session end) where a script can run.
+
+**The gap:** a long session silently loses its own working state at the moment of compaction.
+
+**What brain-stem adds:** a structured checkpoint of where you are, a context-pressure ladder that escalates from a silent autosave to a firm stop-gate as the window fills, machine-local multi-session coordination with peer-overlap warnings, and an end-of-session reconciliation. None of this is decorative: every element is a forced response to a documented platform fact — optimal not because it is clever but because the constraints leave no other shape. The clearest case is the split between *saving* and *restoring*: the save must happen at compaction-time, because that is the last moment before detail is trimmed, and the restore must happen at session-start, because the platform does **not** allow a script to inject context back into the conversation at the compaction moment. The rest of this doc walks through each piece; each section ends by naming the platform fact it answers.
+
+---
+
 ## What a session is
 
 Claude Code is a command-line program: you open it inside a folder on your computer and have one continuous, typed conversation with an AI assistant (Claude). That conversation — from the moment you open it to the moment you close it — is a **session**. You start it, you do some work, you end it. That is the whole unit.
@@ -39,14 +49,15 @@ At each named moment in a session's life, the harness fires a declared, ordered 
 | Moment (event) | Hooks, in declared order | Why it matters here |
 |---|---|---|
 | **SessionStart** — a session opens | `session-register.sh` → `cron-health-banner.sh` → `memory-review-banner.sh` → `spec-context-inject.sh` → `session-start.sh` → `memory-seed.sh` | The first hook registers the session for coordination and, after a compaction, restores the saved checkpoint. |
-| **UserPromptSubmit** — you send a message | `prompt-context.sh` → `spec-context-inject.sh` | The first hook emits the context-pressure nudges and the peer-session awareness. |
+| **UserPromptSubmit** — you send a message | `prompt-context.sh` → `spec-context-inject.sh` → `pre-research-check.sh` | The first hook emits the context-pressure nudges and the peer-session awareness. |
 | **Stop** — the AI is about to stop | `stop-checkpoint-check.sh` → `stop-drift-scan.sh` | The first hook is the checkpoint "stop-gate." |
 | **PreCompact** — just before memory compacts | `pre-compact-checkpoint.sh` | Writes a fallback checkpoint before detail is trimmed. |
 | **SessionEnd** — the session closes | `session-deregister.sh` → `session-episode-write.sh` | The first hook marks the session closed and triggers shared cleanup; the second writes an episodic memory record. |
+| **InstructionsLoaded** — the instruction files are (re)loaded | `instructions-loaded-log.sh` | A diagnostic log entry recording that the instruction set loaded; not load-bearing for this doc. |
 
 A note on "order": within a single event the hooks are configured as an ordered array, but the harness may run matching hooks in parallel and de-duplicate identical ones (`code.claude.com/docs/en/hooks`). "Declared order" above describes how the list is written in the settings file, not a guarantee that each finishes before the next begins. The hooks in this system are written so they do not depend on each other's timing.
 
-A handful of the hooks above belong to other surfaces and are listed only so the lifecycle map is complete: `cron-health-banner.sh` (a one-line health banner for scheduled background jobs), `memory-review-banner.sh` (surfaces memory items waiting for review), `spec-context-inject.sh` (re-shows the AI the active plan's goal so it does not drift after a long conversation — owned by the plans surface), `session-start.sh` (shows a resume-onboarding banner until first-run setup is done), `memory-seed.sh` (lazily creates an empty memory file the first time), `stop-drift-scan.sh` (the other Stop-time check), and `session-episode-write.sh` (writes a short outcome record into memory — the deep memory story lives in `docs/architecture/memory-management.md`). The rest of this doc focuses on the load-bearing ones.
+A handful of the hooks above belong to other surfaces and are listed only so the lifecycle map is complete: `cron-health-banner.sh` (a one-line health banner for scheduled background jobs), `memory-review-banner.sh` (surfaces memory items waiting for review), `spec-context-inject.sh` (re-shows the AI the active plan's goal so it does not drift after a long conversation — owned by the plans surface), `session-start.sh` (shows a resume-onboarding banner until first-run setup is done), `memory-seed.sh` (lazily creates an empty memory file the first time), `stop-drift-scan.sh` (the other Stop-time check), `pre-research-check.sh` (a UserPromptSubmit signal that flags when a research request has no matching library coverage — owned by the plans/library surface), `session-episode-write.sh` (writes a short outcome record into memory — the deep memory story lives in `docs/architecture/memory-management.md`), and `instructions-loaded-log.sh` (a diagnostic that records when the instruction set is loaded). The rest of this doc focuses on the load-bearing ones.
 
 ---
 
@@ -214,11 +225,11 @@ The point, again, is that the system carries the discipline. You declare you are
 
 ---
 
-## The session-close log: librarian notes in your vault
+## The session-close log: the librarian's receipt
 
 Every close writes one aggregated **session-close log** — the librarian's notes on what the close actually did. Frame it as the **always-there receipt** of the close: a record exists even when the cleanup ran quietly in the background.
 
-The log is a dated markdown note named `session-close-YYYYMMDD-HHMMSS.md` and it **lands in your vault's `Logs/` folder** when a vault is configured. It carries structured frontmatter and a chore-by-chore chain:
+The log is a dated markdown note named `session-close-YYYYMMDD-HHMMSS.md` and it **lands in brain-stem's machine-local state log directory** (`~/.local/state/brain-stem/logs/`) — outside the vault, so this machine exhaust never enters your indexed knowledge. It carries structured frontmatter and a chore-by-chore chain:
 
 | In the log | Contents |
 |---|---|
@@ -227,7 +238,7 @@ The log is a dated markdown note named `session-close-YYYYMMDD-HHMMSS.md` and it
 | Summary | how many chores ran, how many errored, the scope |
 | Error section | present only if a chore failed, pointing back to the chain for detail |
 
-Because the log is a plain, dated, tagged note in your vault, it is a mineable record: you can scan past closes to see what was touched, what was skipped, and what went wrong — without re-running anything. (The session registry, by contrast, never lives in the vault — it stays machine-local. Keep the two separate in your head: the **log** is the human-readable receipt in `Logs/`; the **registry** is the running program's machine-local whiteboard.)
+Because the log is a plain, dated markdown note, it is a mineable record: you can scan past closes to see what was touched, what was skipped, and what went wrong — without re-running anything. It is written to brain-stem's machine-local state log directory, NOT into your vault — machine exhaust stays out of your indexed knowledge. (The session registry is likewise machine-local. Keep the two roles separate in your head: the **log** is the human-readable receipt; the **registry** is the running program's machine-local whiteboard.)
 
 ---
 
@@ -236,6 +247,21 @@ Because the log is a plain, dated, tagged note in your vault, it is a mineable r
 The session registry described above ships **on by default** — `session-register.sh` on every session start and `session-deregister.sh` on every session end are already wired into the standard settings. You do not turn coordination on; it is the baseline.
 
 For setups that run *many* concurrent sessions, there is an **opt-in** extra: a small settings fragment (`~/.claude/templates/settings-fragments/multi-session.json`) that, when the multi-session flag is set in your settings, wires one additional diagnostic check at session start. It is a belt-and-suspenders convenience for power users — **not** the only coordination path, and not something most adopters ever need to enable.
+
+---
+
+## Why this design — evidence & alternatives
+
+Each of the four load-bearing choices in this doc had a tempting alternative that was tried-on and rejected for a concrete reason. Reading the rejections is the fastest way to see *why* the system has the shape it does — and to notice that the shape is mostly forced, not invented.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| Save the checkpoint **before** compaction, restore it **at session start** | Inject the saved state back in at the compaction moment itself | The platform offers no way to hand context back into the conversation at that moment, so the save-here / restore-there split is **forced, not chosen.** This is the classic *checkpoint-then-resume* shape from database recovery — write a durable record at the safe moment, replay it when the system comes back up (the write-ahead-logging discipline behind ARIES; Mohan et al.). Agent frameworks reach the same answer when a run is interrupted and later resumed — for example, LangGraph's persisted-state model — which is a sign the shape is convergent, not idiosyncratic. |
+| Coordinate sessions through a **machine-local registry** | Keep the coordination file inside the synced notes vault, for "cross-machine" safety | The cross-machine guarantee is a **phantom**: the liveness checks (is this process still alive?) and the write lock are physically local to one machine and mean nothing on another. Worse, a hot, frequently rewritten file living in a synced folder invites conflict-copies and torn reads. So coordination stays local, the registry is written atomically (temp file, then rename — the POSIX-atomic replacement guarantee), and concurrent writers are serialized with an advisory file lock (`lockf`). |
+| **No** checkpoint schema — the block is re-injected verbatim as text | Define a strict schema and a parser for the continuity block | The only consumer re-injects the block as **plain text**, with no parser in the loop. A formal schema would create a *second* source of truth — the schema and the text could drift apart — for zero practical benefit, so the design keeps one plain-text shape and a light freshness-and-structure guard instead of a parser. |
+| A **pressure ladder** that escalates to a stop-gate | Rely on the person to remember to save | A long session fills its window **silently** — there is no felt warning at the moment detail is about to be summarized away. Leaning on memory means the save lands too late or not at all; the ladder forces a rich save *before* the detail is lost, which is the whole point. |
+
+The throughline is that **the constraints did most of the designing.** Where the platform forbids a thing (injecting context at compaction) the shape is forced; where physics forbids a thing (a "cross-machine" lock that is really local) the honest version is the local one; and where a richer mechanism would buy nothing (a schema for text nobody parses) the system declines it. That several of these answers also show up independently in database recovery and in agent-framework persistence is reassurance that the shape is the well-trodden one, not a local invention.
 
 ---
 
@@ -271,7 +297,7 @@ All paths below are **installed** surfaces on an adopter's machine.
 - `~/.claude/skills/librarian/SKILL.md` — `/librarian`; session-close is one of its named capabilities, not a standalone skill.
 - `~/.claude/skills/librarian/capabilities/session-close.sh` — the `/librarian session-close` orchestrator that auto-detects scope and chains the end-of-session cleanup chores.
 - `~/.claude/skills/librarian/capabilities/trinity-drift-detect.sh` — the read-only plan spec/manifest/tasks-ledger drift check chained near the end of the close (advisory; runs in every scope).
-- `<vault>/Logs/session-close-YYYYMMDD-HHMMSS.md` — the aggregated session-close log (the librarian's receipt), written into your vault's `Logs/` folder.
+- `~/.local/state/brain-stem/logs/session-close-YYYYMMDD-HHMMSS.md` — the aggregated session-close log (the librarian's receipt), written to brain-stem's machine-local state log directory (never the vault).
 
 **Settings**
 

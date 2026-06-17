@@ -89,10 +89,9 @@ The seed gives you:
 |---|---|
 | **`System Governance/`** | A reference area — six short, plain-language notes explaining how the assistant keeps your vault consistent, plus a navigation index. |
 | **`Vault Writers/`** | A catalog of every automated system that writes into your vault. |
-| **`Logs/`** (with `Logs/Archive/`) | The assistant's scratch space, with cold storage in `Archive/`. |
 | **`Meetings/`** | Date-stamped meeting notes. |
 
-The copy is gentle and safe to repeat: it walks the seed file by file and **skips anything already present**, so re-running setup never overwrites your work. While building the vault, onboarding also wires two convenience shortcuts into it — one pointing at your plans area and one at your installed skills — so both appear inside the vault without copying anything.
+The copy is gentle and safe to repeat: it walks the seed file by file and **skips anything already present**, so re-running setup never overwrites your work. While building the vault, onboarding also wires four convenience shortcuts into it — pointing at your plans area, your installed skills, the universal Library, and the project binders — so all four appear inside the vault without copying anything.
 
 ### The open-in-Obsidian beat
 

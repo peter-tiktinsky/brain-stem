@@ -4,6 +4,18 @@
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** Claude Code reads exactly one startup folder (`~/.claude`) with no internal override, and merges settings by a documented deep-merge rule — but provides no install discipline of its own.
+
+**The gap:** installing into the live startup folder blind risks clobbering your edits; there is no receipt, no way to tell an old shipped version from your own change, and no safe uninstall.
+
+**What brain-stem adds:** a recorded, preview-first file copy (a write-free dry-run is the default; actually writing requires naming `--apply`), a content-fingerprinted manifest, a fingerprint-walk uninstall that preserves files you edited, per-release baselines that let an upgrade tell a stale shipped file from your edit, and a two-root split of durable vs. throwaway runtime state.
+
+The reason this design is worth trusting is uncommon: **both axes agree.** It is a researched optimum — the alternatives were considered and rejected (see ["Why this design"](#why-this-design-evidence-alternatives) below) — *and* every adopter installs exactly once, so the design is also the one convergence actually selects. Optimal by constraint and optimal by convergence at the same time.
+
+---
+
 ## What "the foundation" is, and why it has to be installed at all
 
 Claude Code is a command-line program — a tool you run by typing into a terminal — that runs an AI assistant on your own machine. Out of the box, that assistant is a blank slate: it has no rules, no automations, no reusable procedures of its own.
@@ -211,7 +223,7 @@ The runtime state is split into two roots, sorted by how much you would care if 
 
 Putting them in different homes lets standard system conventions do the right thing: durable data lands where backup tools expect it, and ephemeral data lands where it can be cleared without losing anything that mattered. (Note: the plan files you create live in a third, separate place — `~/.claude-plans/`, described below — which is neither the program folder nor a runtime-state root.)
 
-> **Implementation caveat — per-session checkpoints:** the canonical location for a session's checkpoint file is the ephemeral root above, `~/.local/state/brain-stem/sessions/<session-id>/checkpoint.md` (this is the path the `/session-checkpoint` skill documents and writes through the XDG state root). Be aware, however, that two hook scripts in the same foundation (the session-registration and pre-compaction-checkpoint hooks) currently resolve their per-session directory through a different default — the install-folder path `~/.claude/hooks/state/sessions/<session-id>/` — when their state-override is unset. The two defaults do not yet agree; the skill's XDG path is the authoritative one. If you are hunting for a checkpoint file and do not find it under `~/.local/state`, check `~/.claude/hooks/state/sessions/` as well.
+> **Per-session checkpoints — one resolved root:** a session's checkpoint (and its `context-pressure.json`) lives at `~/.local/state/brain-stem/sessions/<session-id>/` — the ephemeral root above. The `/session-checkpoint` skill (writer) and all four R-26 hooks (session-registration, prompt-context, stop-checkpoint-check, pre-compaction-checkpoint) resolve it through a single `paths.sh` source of truth, `SESSION_STATE_ROOT` (`${HOOKS_STATE_OVERRIDE:-$CLAUDE_STATE_ROOT}`). Earlier the four hooks defaulted instead to the install-folder path `~/.claude/hooks/state/sessions/<session-id>/` while the skill used the XDG root — a writer/reader divergence that has since been reconciled, so every actor now resolves the same `$CLAUDE_STATE_ROOT` dir, with `HOOKS_STATE_OVERRIDE` retained as the test-isolation hatch.
 
 ---
 
@@ -220,7 +232,7 @@ Putting them in different homes lets standard system conventions do the right th
 Every **real** (applied) install writes a small dated log file into `~/.claude/logs/` — named `install-<timestamp>.log` — recording the facts of that install, including a header line naming which folder it targeted (`CLAUDE_HOME: <path>`). This **provenance log** serves two purposes a non-technical reader can appreciate:
 
 1. It is **durable evidence** of what was done and when.
-2. It is how the uninstaller **double-checks** it is pointed at a genuine foundation install before it removes anything. The uninstaller reads the most recent install log, confirms one exists, and cross-checks the folder recorded in the log against the folder you asked it to uninstall. If there is **no install log**, the uninstaller **refuses** — on the principle that you cannot safely reverse an install that was never recorded. The provenance log itself, and the rest of `~/.claude/logs/`, is preserved through an uninstall.
+2. It is how the uninstaller **double-checks** it is pointed at a genuine foundation install before it removes anything. The uninstaller reads the most recent install log, confirms one exists, and cross-checks the folder recorded in the log against the folder you asked it to uninstall. If there is **no install log**, the uninstaller **refuses** — on the principle that you cannot safely reverse an install that was never recorded. The provenance log itself, and the rest of `~/.claude/logs/`, is preserved through an uninstall. Note that `~/.claude/logs/` holds *only* this install/uninstall provenance — operational run-logs (cron, orchestrator, session-close, consolidation) live under the machine-local XDG state tier (`~/.local/state/brain-stem/logs/`), never the config-home, so the provenance log is deliberately carved out to keep the uninstaller's compass beside the install it describes.
 
 ---
 
@@ -253,6 +265,22 @@ Every safety property above exists because a simpler design fails in a concrete,
 
 ---
 
+## Why this design — evidence & alternatives
+
+The failure-modes table above covers the *internal* logic — why each safety property exists in terms of the concrete failure a simpler design would cause inside your own install. This section adds the other half of the case: the *external* one. For each load-bearing choice there was an obvious, more common alternative, and each was rejected for a reason an adopter can check.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| A generated, content-fingerprinted file manifest | A hand-maintained list of shipped files | A hand list drifts out of sync with what actually ships; generating it from the real tree cannot. |
+| Preview-first, with writes gated behind `--apply` | An installer that writes immediately | You get no chance to inspect what lands where before it lands; the safe thing should be the default and the consequential thing asked for by name. |
+| A fingerprint-walk uninstall that preserves edited files | A blunt `rm -rf` of the install folder | That would delete your customizations along with the shipped files. |
+| Runtime state split into durable vs. throwaway roots outside the program folder | Keeping working state inside the program's own folder | State mixed into the program folder is fragile across reinstalls and upgrades. |
+| An upgrade that diffs a per-release baseline to tell a shipped file from your edit | Blindly copying or skipping files on upgrade | A blind copy clobbers your edits; a blind skip silently fails to deliver fixes. |
+
+None of these choices is novel. They are the same patterns mature package and dotfile managers settled on independently: a generated receipt and a manifest of installed files is how Homebrew, Nix, and apt/dpkg all know what they put down and what is safe to remove; preserving files the user changed rather than clobbering them is exactly what chezmoi does for managed dotfiles; and keeping working state out of the program folder, sorted into durable-data and ephemeral-state roots, is the XDG Base Directory specification that this foundation already follows for its own runtime state. The convergence is the point: independent tools facing the same install-safety problem arrived at the same answers. Where brain-stem goes one step further than the typical installer is that it emits a **provably write-free action plan before the first write** — you see the entire set of file operations, having changed nothing, before you ever authorize one.
+
+---
+
 ## References
 
 - `~/.claude/governance/foundation-manifest.json` — **the manifest / ship-list.** The machine-generated receipt: one fingerprint entry per shipped file (`path`, `sha256`, `mode`, `size`), under the top-level fields `version`, `generated_at`, `generator_sha256`, and `files`. *This is an APPLY surface — the uninstaller and the installer's tamper check read it; this document is what humans read to understand it.*
@@ -262,7 +290,7 @@ Every safety property above exists because a simpler design fails in a concrete,
 - `~/.claude/governance/governance-action-log.jsonl` — an example of foundation-generated runtime state that lives under `~/.claude` (created empty at install, not copied); removed by uninstall as part of full reversal.
 - `~/.claude/hooks/lib/paths.sh` — the single source of path resolution shared by the foundation's scripts. Defines `CLAUDE_HOME` (default `~/.claude`), the ephemeral state root `CLAUDE_STATE_ROOT` (default `~/.local/state/brain-stem`), its coordination directory (the session registry + locks), and the plan tree `PLANS_DIR` (default `~/.claude-plans`).
 - `~/.local/share/brain-stem/vault-writers/` — the **durable** runtime-state root (write-activity SQLite database + per-day records), kept outside the installed program folder.
-- `~/.local/state/brain-stem/` — the **ephemeral** runtime-state root (staging scratch, per-session checkpoints, and the lock files that keep multiple Claude windows from colliding). The `/session-checkpoint` skill documents `sessions/<session-id>/checkpoint.md` under this root as the canonical checkpoint path; note that two hook scripts default instead to `~/.claude/hooks/state/sessions/<session-id>/` when their state-override is unset, an inconsistency not yet reconciled.
+- `~/.local/state/brain-stem/` — the **ephemeral** runtime-state root (staging scratch, per-session checkpoints, and the lock files that keep multiple Claude windows from colliding). The `/session-checkpoint` skill and all four R-26 hooks resolve `sessions/<session-id>/checkpoint.md` (+ `context-pressure.json`) under this root via the shared `paths.sh` `SESSION_STATE_ROOT` SoT — the writer/reader divergence where some hooks defaulted to `~/.claude/hooks/state/sessions/` has since been reconciled.
 - `~/.claude/settings.json` — the one configuration file Claude Code reads; the install deep-merges the foundation's settings into it rather than overwriting, and registers the foundation's hook entries.
 - `~/.claude-plans/` — the on-disk plan tree (default location resolved by `paths.sh`), distinct from `~/.claude`; the installer refuses to overlay a pre-existing plan tree without an explicit acknowledgement flag.
 - Anthropic docs: `code.claude.com/docs` — the `~/.claude` startup directory, `settings.json` configuration and merge semantics, hooks, and skills. Cited as the source for harness-behavior claims as of this document's writing date; if the domain or path changes, treat it as the canonical location to re-confirm.

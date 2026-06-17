@@ -1,0 +1,6 @@
+# Documentation build dependencies (MkDocs Material site under docs/).
+# Pinned to the Material 9.x line deliberately: MkDocs 2.0 / the Material→Zensical
+# migration changes third-party-theme navigation mechanics (navigation.sections /
+# navigation.indexes / explicit nav), which this site's nav: block depends on.
+# Re-evaluate this pin before moving to Material 10.x / Zensical.
+mkdocs-material>=9.5,<10

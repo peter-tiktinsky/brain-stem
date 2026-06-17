@@ -30,7 +30,7 @@ Four changes, working together:
 
 - **The upgrade refuses to claim success if delivery fell short.** Before recording an upgrade as finished, the installer now checks that every file it shipped actually reached the new version. If any file is still stale, it **stops with a clear error** (exit code **56**, "delivery shortfall"), writes no completion stamp, and does not advance its records — so a half-finished upgrade is never mistaken for a done one. Re-running simply finishes the job. → [Packaging & runtime](architecture/packaging-runtime.md)
 
-- **A home carrying a v1.1.0 stamp heals itself (precautionary).** v1.1.0 was an internal release that was never published, so you upgrade straight from v1.0.2 to v1.1.1 and will not encounter this. It is kept as cheap insurance: if an install ever does carry a v1.1.0 stamp while files underneath are stale, v1.1.1 recognizes those old-but-pristine files as a known previous release and updates them cleanly — rather than mistaking them for files *you* had edited and shelving them aside as `<file>.foundation-local` copies. Your real edits are always preserved; only genuinely-old files get refreshed. → [Packaging & runtime](architecture/packaging-runtime.md)
+- **An install that already ran the broken v1.1.0 heals itself.** If you upgraded to v1.1.0 and it marked you "up to date" while 18 files were quietly stale, v1.1.1 recognizes those old-but-pristine files as a known previous release and updates them cleanly — rather than mistaking them for files *you* had edited and shelving them aside as `<file>.foundation-local` copies. Your real edits are still always preserved; only genuinely-old files get refreshed. → [Packaging & runtime](architecture/packaging-runtime.md)
 
 - **The upgrade preview now tells you the truth.** Running `bash install.sh` to preview an upgrade over an older install used to fail with an error and print no plan at all. It now exits cleanly and prints an honest, write-free list of exactly which files the upgrade would change — so you can see the plan before you commit. → [Getting started](getting-started/index.md)
 
@@ -48,6 +48,8 @@ bash install.sh --apply  # apply it
 ```
 
 The preview (`bash install.sh`) writes zero files and shows you the full plan; `--apply` performs the upgrade. If anything is interrupted, re-running `bash install.sh --apply` picks up where it left off and converges — there is nothing to clean up by hand.
+
+> **If `git pull` reports "divergent branches" or a `(forced update)`:** clones made before 2026-06-05 cannot fast-forward, because the public history was rewritten once to purge an accidentally-committed personal path. Realign with `git fetch origin && git reset --hard origin/main` (or delete and re-clone). This is a one-time fixup and never touches your installed `~/.claude` or your vault. The `--apply` step also needs `CLAUDE_HOME` set explicitly (`export CLAUDE_HOME=~/.claude`) and, on an upgrade, `--backup-dir <path>`.
 
 The full, step-by-step walkthrough — including how edited files are preserved and what the delivery-shortfall error means — is in the **[Upgrading an existing install](getting-started/index.md#upgrading-an-existing-install)** runbook.
 

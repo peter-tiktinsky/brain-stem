@@ -43,9 +43,10 @@ bash install.sh | jq .
 
 The dry run is **always safe to run — even on a home that already has an older brain-stem in it.** If you previously installed an earlier version, your existing files differ from the new ones; the dry run does **not** treat that as an error. It still exits cleanly (`rc 0`), still writes zero files, and the action plan's `file_dispositions` field lists each managed file it would update and how — `replace` (take the new version), `new-ship` (a file that did not exist yet), or `sidecar` (take the new version but first save a copy of your edited one alongside it). So a single dry run shows you exactly what an upgrade would do to *your* home before you commit to it. (If you are upgrading an existing install rather than setting one up fresh, jump to **[Upgrading an existing install](#upgrading-an-existing-install)** below — the same `bash install.sh` command does both.)
 
-When you have read the plan and want to go ahead, re-run the **same** command with one word added:
+When you have read the plan and want to go ahead, name the install target and re-run the **same** command with one word added. **`--apply` requires you to set `CLAUDE_HOME` explicitly** — the installer refuses to guess where to write, and hard-stops (exit code 10) if it is unset. (The dry run defaults to `~/.claude` only for the preview; the real install never guesses.)
 
 ```bash
+export CLAUDE_HOME=~/.claude
 bash install.sh --apply
 ```
 
@@ -64,10 +65,11 @@ bash install.sh | jq '.required_overrides'
 To actually proceed past those guards on a real install, add the overrides it named. The most common one is the **overwrite-risk acknowledgement**, which you pass as a flag (no typing prompt required — this is what lets the install run unattended, e.g. in a script):
 
 ```bash
+export CLAUDE_HOME=~/.claude
 bash install.sh --apply --force-install --i-understand-overwrite-risk --backup-dir <path>
 ```
 
-`--i-understand-overwrite-risk` is the confirmation that you accept the overwrite. (You can also type the literal token `I-UNDERSTAND-OVERWRITE-RISK` when the installer prompts for it interactively, or pass that same bare token as an argument — all three forms are equivalent.) `--backup-dir <path>` names a folder where the installer first copies anything it is about to overwrite, so nothing is lost. These overrides apply only to the real `--apply` install; the dry run never needs them — it just reports them.
+`--i-understand-overwrite-risk` is the confirmation that you accept the overwrite. (You can also type the literal token `I-UNDERSTAND-OVERWRITE-RISK` when the installer prompts for it interactively, or pass that same bare token as an argument — all three forms are equivalent.) `--backup-dir <path>` names a folder where the installer first copies anything it is about to overwrite, so nothing is lost. If your plan directory (`~/.claude-plans`) already contains plans, the action plan will also ask for `--retrofit-existing` — a one-word acknowledgement that you know those plans are there. **The installer never touches your plans;** the flag just confirms you have seen them. These overrides apply only to the real `--apply` install; the dry run never needs them — it just reports them.
 
 ---
 
@@ -115,6 +117,15 @@ cd brain-stem
 git pull
 ```
 
+> **If `git pull` reports "divergent branches" or shows a `(forced update)`:** you cloned before 2026-06-05, when the public history was rewritten once to purge an accidentally-committed personal path. Your old clone can no longer fast-forward. Realign it to the published history — this discards any local commits on your clone (you have no reason to have any) but **never touches your installed `~/.claude` or your vault**:
+>
+> ```bash
+> git fetch origin
+> git reset --hard origin/main
+> ```
+>
+> (Or simply delete the folder and `git clone` again.) This is a one-time fixup; pulls after it are ordinary fast-forwards.
+
 **2 — Preview the upgrade (writes nothing).** Run the installer with no extra words, exactly as a dry run:
 
 ```bash
@@ -123,10 +134,11 @@ bash install.sh | jq .
 
 On an existing install this prints a write-free **upgrade plan**: the `file_dispositions` field lists every managed file the upgrade would touch and what it would do to each — `replace` (take the new version), `new-ship` (a file that did not exist yet), or `sidecar` (take the new version, but first save a copy of any file you had edited alongside it as `<file>.foundation-local`). The preview exits cleanly (`rc 0`) and changes nothing — even if your current files are an older version than the new ones. It is the honest "here is exactly what will change" view, and it is always safe to run.
 
-**3 — Apply the upgrade.** When the plan looks right, re-run the same command with `--apply`:
+**3 — Apply the upgrade.** When the plan looks right, set the target and re-run the same command with `--apply`. As on a first install, `--apply` needs `CLAUDE_HOME` set explicitly; and because an upgrade replaces your merged `settings.json`, pass `--backup-dir` so the installer first saves whatever it is about to overwrite (it hard-stops with exit code 53 if a replace is pending and no backup directory is given):
 
 ```bash
-bash install.sh --apply
+export CLAUDE_HOME=~/.claude
+bash install.sh --apply --backup-dir ~/.claude-upgrade-backup
 ```
 
 This delivers **every** changed managed file to the new version — including the whole shipped directories (the skills, the orchestrator, the installer support files, and the vault seed), which earlier versions could miss on an older install. Files you edited yourself are never lost: each is updated to the new version with your copy saved alongside as `<file>.foundation-local`, so your changes are preserved and clearly flagged.
@@ -135,7 +147,7 @@ This delivers **every** changed managed file to the new version — including th
 
 > **One thing the preview does *not* override on a real apply.** The *preview* is relaxed about your files differing from the shipped version — that difference is the whole point of an upgrade, so the dry run reports it and moves on. A real `--apply` is stricter: if it detects that brain-stem's own files have been edited in place, it still refuses to overwrite them silently and asks you to confirm, by passing `--force-install` and typing the `I-UNDERSTAND-OVERWRITE-RISK` phrase (exactly as on a first install into a folder that already has files — see [the section above](#installing-into-a-folder-that-already-has-files)). The relaxed behavior is **preview-only**; an apply never quietly writes over edited files.
 
-That is the whole upgrade: `git pull`, preview, `--apply`. The longer story — what changed in the latest release and why the in-place upgrade is built the way it is — lives in the [release notes](../release-notes-v1.1.1.md) and [Packaging & runtime](../architecture/packaging-runtime.md).
+That is the whole upgrade: `git pull`, preview, `--apply`. The longer story — what changed in the latest release and why the in-place upgrade is built the way it is — lives in the [release notes](../release-notes-v1.1.3.md) and [Packaging & runtime](../architecture/packaging-runtime.md).
 
 ---
 

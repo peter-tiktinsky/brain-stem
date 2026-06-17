@@ -4,6 +4,18 @@
 
 ---
 
+## What Claude Code gives you — and what's missing
+
+**Natively,** Claude Code forgets everything the moment a session ends, and the one file it auto-loads into memory is hard-capped — it loads only the first portion of the index, and beyond that threshold nothing is read — with no include or import mechanism to reach past it.
+
+**The gap:** no knowledge persists across sessions; and the single auto-loaded index silently truncates past its cap, so anything pushed below the line is invisible without a word of warning.
+
+**What brain-stem adds:** a small curated memory split into three kinds, two scopes, a promotion pipeline that feeds the global tier, and a load guard that keeps the one hot index actually loadable — so the auto-loaded file never grows past the point where it would start dropping content.
+
+The two halves of that fix are not arbitrary. The cap *forces* the shape — a single hot index that is always loaded, with the detail kept in on-demand files reached only when needed; given a hard ceiling on what loads automatically, that is the optimal arrangement, optimal *by constraint*. The three-way split of *what* goes into memory is a separate result: it is the division that the study of memory independently arrived at, rediscovered rather than invented here — optimal *by convergence*. The rest of this document works through both.
+
+---
+
 ## What "memory" means here
 
 **Claude Code** is a tool that runs an AI assistant inside your terminal. (The *assistant* is the AI you talk to; a *terminal* is the plain text window where you type commands.) A unit of work with the assistant — one continuous conversation, from when you open it to when you close it — is called a **session**.
@@ -27,7 +39,7 @@ Memory is not one undifferentiated pile of notes. It is split into **three kinds
 
 | Kind of memory | Plain meaning | Example |
 |---|---|---|
-| **Semantic** | Timeless facts, preferences, identity, and naming conventions — the assistant's *standing knowledge* of who you are and how your world is named. | "The user prefers direct, unhedged writing." "The client's project is named Acme." |
+| **Semantic** | Timeless facts, preferences, identity, and naming conventions — the assistant's *standing knowledge* of who you are and how your world is named. | "The user prefers terse, direct answers." "The team's main service is codenamed Northstar." |
 | **Procedural** | How-to knowledge: workflow rules **plus the reasoning behind them**, including lessons learned from past mistakes. | "Always run the tests after writing code — because a silent failure last time shipped a broken file." |
 | **Episodic** | Dated records of what happened in **one specific work session** — a time-anchored account of events. | "On 2026-05-29, fixed the seed hook; the marker file was missing." |
 
@@ -46,7 +58,7 @@ A fourth candidate type — **"reflective"** memory — was deliberately **not**
 
 ### Why the highest-signal facts must be pinned in a small curated set
 
-The triad is small and curated **on purpose**. The temptation is always to catch *everything* — to log every observation just in case. The problem is that a catch-everything store degrades fast: the directional finding from the memory-systems literature (mem0.ai, 2026) is that fewer than a quarter of automatically-captured items are still relevant to any given future question after roughly a month — and it worsens with every new write. A pile that keeps everything quickly becomes mostly noise, and noise drowns the few facts that genuinely matter.
+The triad is small and curated **on purpose**. The temptation is always to catch *everything* — to log every observation just in case. The problem is that a catch-everything store degrades fast: stale preferences and one-time corrections get the same retrieval weight as durable facts, so the more the store grows, the lower its signal-to-noise ratio falls. A pile that keeps everything quickly becomes mostly noise, and noise drowns the few facts that genuinely matter.
 
 So the design pins the highest-signal knowledge — the facts, rules, and identity that stay true — in a small, deliberately maintained set, and keeps the noisy, time-decaying material in separate, additive layers (described later in this doc). The triad is the signal; the wider layers are the safety net.
 
@@ -179,7 +191,7 @@ The complete, word-for-word record of past conversations is the **most granular*
 Beyond the curated memory tiers, several **runtime-generated** surfaces — files the system writes as it operates — also carry durable, searchable signal worth knowing about. These are not part of the curated triad, but they are legitimate places to mine for *what happened* and *why*:
 
 - **The governance action log** (`~/.claude/governance/governance-action-log.jsonl`) — a machine-readable record with one entry per governance action the system takes, appended over time. A running ledger of what the governance engine did and when.
-- **The vault session-close logs** — the running record written when a work session is reconciled and formally closed out.
+- **The session-close logs** (`~/.local/state/brain-stem/logs/`) — the running record written when a work session is reconciled and formally closed out (machine-local, outside the vault).
 - **Each plan's `handoff.md`** (`~/.claude-plans/<plan>/handoff.md`) — an append-only, newest-first work journal: both a searchable ledger of everything done on that plan and the carrier that hands the next session enough context to continue.
 
 When you need to reconstruct a history the curated memory does not hold, these are where to look.
@@ -191,6 +203,21 @@ When you need to reconstruct a history the curated memory does not hold, these a
 This document is the **structure-first lead**: it explains *what* memory is and *how* it is organized — the triad, the two scopes, the promotion pipeline, the memory-vs-context distinction, and the accessibility layers.
 
 The **mechanical** detail of how the auto-loaded index is kept small enough to load — the size limit on `MEMORY.md`, the load guard that warns at write-time, the rule for counting the file's size, the overflow seam that keeps the index bounded, and the fixed section order — lives in the companion mechanics doc, **`memory-management.md`**. Read that doc for the size-limit detail.
+
+---
+
+## Why this design — evidence & alternatives
+
+The reason for the *three-way split itself* — why Semantic, Procedural, and Episodic, and why a fourth "reflective" type was left out — is argued in full under *Why these three, and not some other split* above, and rests on the long-standing memory-science consensus (Tulving 1972; Cohen & Squire 1980) carried onto language agents (the CoALA framework, arXiv:2309.02427) with the small-core-plus-large-archive tiering from MemGPT (arXiv:2310.08560). This section covers the *other* decisions — the ones about persistence, scope, classification, and the optional layers — and the alternatives each one beat.
+
+| Choice | Rejected alternative | Why it was rejected |
+|---|---|---|
+| A small curated memory | A catch-everything store of every observation | It fills with noise, and the few durable facts get the same retrieval weight as stale one-offs. |
+| The author declares the memory's kind at write time | A separate program guesses the kind afterward | Silent misclassification you would have to second-guess; the author already knows the fact's kind and can state it directly. |
+| The optional recall plugin is adopter-installed | Vendoring a copy of it into the foundation | Its network-copyleft license plus the platform's plugin loader — which cannot load a hand-copied drop — make a vendored copy both legally heavy and mechanically non-functional. |
+| A skipped-setup user gets no global preferences file | Shipping a pre-filled placeholder file | A file full of unfilled `{{tokens}}` looks broken and blocks the real first-run fill. |
+
+The pattern under all four is the same one that splits this whole design in two. Some choices are *forced* by a hard limit — the auto-load cap dictates the single-hot-index shape, the same way the plugin's license and loader dictate that the recall plugin stays adopter-installed rather than vendored. Other choices are *converged* on from outside grounds — the three-way split lands where independent memory science already landed. Constraint settles what *must* be true; convergence confirms what *ought* to be. The design holds because both kinds of pressure point the same way.
 
 ---
 
@@ -222,5 +249,5 @@ Each item below is **adopter-present** — it ships with the install or is gener
 - `~/.claude-plans/<plan>/handoff.md` — runtime-generated, append-only, newest-first work journal per plan; a mineable "what happened / why" surface and the resume-carrier for the next session.
 - The companion mechanics doc: `memory-management.md` — the size-limit, load-guard, and overflow detail.
 - Anthropic docs for the harness loading behavior: `code.claude.com/docs/en/memory`.
-- The decay finding (the highest-signal facts must be pinned because auto-captured memories lose relevance over time): mem0.ai (2026).
+- Why the highest-signal facts must be pinned: a catch-everything store loses signal-to-noise as it grows, because stale preferences and one-time corrections are retrieved with the same weight as durable facts — a directional, qualitative grounding, not a measured age-decay rate.
 - Research grounding the triad: Tulving (1972), *Episodic and Semantic Memory*; Cohen & Squire (1980), *Preserved Learning and Retention of Pattern-Analyzing Skill in Amnesia* (Science 210:207–210); the CoALA framework, *Cognitive Architectures for Language Agents* (arXiv:2309.02427); and MemGPT, *Towards LLMs as Operating Systems* (arXiv:2310.08560).

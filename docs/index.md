@@ -20,21 +20,24 @@ brain-stem answers the first problem with **memory** that survives between sessi
 
 ## What you get
 
-Five capabilities, each explained in plain language in [Core concepts](getting-started/concepts.md) and in full in its own architecture page:
+Six capabilities, each explained in plain language in [Core concepts](getting-started/concepts.md) and in full in its own architecture page:
 
-| Capability | In one sentence |
-|---|---|
-| **A governed vault** | A notes folder the assistant reads from and writes into, kept structurally consistent by a rulebook consulted at every save. |
-| **Memory that lasts** | A small, curated set of on-disk notes the assistant reads back at the start of every session, so it remembers what matters before you type a word. |
-| **Plans** | A way to store a multi-step project on disk and shepherd it from a raw idea to a finished, verified, signed-off plan. |
-| **Sessions that stay on-track** | Automatic save-points that let one long conversation survive its own memory being trimmed, and keep several open conversations out of each other's way. |
-| **One-time setup** | A short guided interview (`/onboard`) that learns who you are, writes your preferences down, and builds your vault for you. |
+| Capability | In one sentence | Learn more |
+|---|---|---|
+| **A governed vault** | A notes folder the assistant reads from and writes into, kept structurally consistent by a rulebook consulted at every save. | [Vault governance →](architecture/vault-governance.md) |
+| **Memory that lasts** | A small, curated set of on-disk notes the assistant reads back at the start of every session, so it remembers what matters before you type a word. | [The memory model →](architecture/memory-model.md) |
+| **A context library** | A universal shelf of reusable reference plus a per-project binder, so research and project state are framed and never lost. | [Context and memory →](architecture/context-and-memory.md) |
+| **Plans** | A way to store a multi-step project on disk and shepherd it from a raw idea to a finished, verified, signed-off plan. | [Plans →](architecture/plans.md) |
+| **Sessions that stay on-track** | Automatic save-points that let one long conversation survive its own memory being trimmed, and keep several open conversations out of each other's way. | [Sessions →](architecture/sessions.md) |
+| **One-time setup** | A short guided interview (`/onboard`) that learns who you are, writes your preferences down, and builds your vault for you. | [Onboarding →](getting-started/onboarding.md) |
 
 Everything is **advisory by default**: the system teaches and reminds far more often than it blocks. It earns the right to be strict only where letting a bad write through would quietly corrupt your work.
 
 ---
 
 ## Start here
+
+Wondering whether it's worth it? **[Why brain-stem](getting-started/why-brain-stem.md)** makes the case in a single page — what it completes in the native Claude Code harness, and why each piece is built the way it is.
 
 If you want to install brain-stem and use it, go to **[Getting started](getting-started/index.md)**. It walks the whole path from nothing to a working setup:
 
@@ -54,6 +57,8 @@ The **Architecture** section is the long-form explanation of *why* the system is
 - **[Vault governance](architecture/vault-governance.md)** — how a shared, AI-maintained notebook stays trustworthy for its whole life.
 - **[The memory model](architecture/memory-model.md)** — what memory is here and how it is organized.
 - **[Memory management](architecture/memory-management.md)** — the mechanics that keep the auto-loaded memory index small enough to load.
+- **[Context and memory](architecture/context-and-memory.md)** — the one model tying it together: operational knowledge (how the assistant behaves) versus contextual knowledge (what the work is and where it stands).
+- **[The context library](architecture/context-library.md)** — the universal Library, the per-project binders, and the workshop that feeds them.
 - **[Plans](architecture/plans.md)** — the plan tree, the idea funnel, and the human-gated runner that can execute a plan's tasks.
 - **[Sessions](architecture/sessions.md)** — checkpoints, multi-session coordination, and end-of-session cleanup.
 - **[Onboarding](architecture/onboarding-lifecycle.md)** — exactly what happens the first time you type `/onboard`.
