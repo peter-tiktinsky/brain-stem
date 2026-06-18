@@ -27,12 +27,10 @@
       "body_structure_contract": "governance/file-type-contracts/_index.md.json",
       "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
       "exemption_paths": [
-        "Meetings/**",
         "Work/**"
       ],
       "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
       "exemption_categories": [
-        "date-prefixed sequence folders (Meetings/)",
         "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
       ],
       "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",

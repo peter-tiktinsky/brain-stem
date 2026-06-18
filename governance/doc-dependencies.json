@@ -43,21 +43,7 @@
       "_framing": "thin/legacy — the vault-writer fan-out (R-58 / writer-reference contract) is the FORWARD path; R-54 covers the registry-declared cascade edges only."
     }
   ],
-  "entries": [
-    {
-      "id": "meetings-fan-in-reference",
-      "kind": "writer-fan-in",
-      "consumer": "Meetings/<meeting-note>.md",
-      "upstream_writers": [
-        "meeting-processor",
-        "teams-scrape",
-        "gchat-scrape"
-      ],
-      "amendment_strategy": "prompt-guided-amend",
-      "rationale": "Reference entry — declares that meeting notes are a fan-in destination of 3 writers; doc-amender uses prompt-guided-amend strategy. Adopter MAY override with overlay row or remove if not applicable.",
-      "rename_history": []
-    }
-  ],
+  "entries": [],
   "entities": {
     "_comment": "Entity parity registry. Each entity declares a canonical source path template with {name} placeholder, an instance-enumerator (glob/file-list/directory-index), the canonical field to compare, and mirrors with strict/presence-only flags. Declarative entity-mirror registry; per-type parity enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",
     "skill": {

@@ -1,12 +1,12 @@
 {
   "schema_version": "2.0.0",
   "pillar": "frontmatter",
-  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40 plus the type registry, tier compliance, and path-routing rules. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy). See research/vault-construction/frontmatter-design.md for the narrative rationale.",
+  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40 plus the type registry, tier compliance, and path-routing rules. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
   "_design_notes": {
     "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
     "absorbed_from_vault_schema": [
       "tiers (canonical tier definitions; was vault-schema.json `tiers`)",
-      "types (21 per-type entries; were top-level type keys in vault-schema.json)",
+      "types (were top-level type keys in vault-schema.json)",
       "packet_only_fields (was vault-schema.json `_packet_only_fields`)",
       "excluded_fields (was vault-schema.json `_excluded_fields`)",
       "retired_types (was vault-schema.json `_retired_types`)",
@@ -14,10 +14,7 @@
     ],
     "lockstep_pair": "vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke) + pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
     "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + vault-init/System Governance/System Governance - Frontmatter.md + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
-    "source_dependencies": [
-      "../research/vault-construction/frontmatter-design.md",
-      "../research/vault-construction/vault-construction-principles.md"
-    ]
+    "source_dependencies": []
   },
   "_rules": [
     {
@@ -33,7 +30,7 @@
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Files written with an unknown `type:` value or with missing Strict-tier required fields drift the schema contract silently. Downstream consumers (auto-routing, librarian, scaffold) cannot reason about the file because the contract has been violated. Without write-time DENY, the schema becomes documentation rather than enforcement — production-scale untagged-file backlogs (~500 files observed in a reference deployment) accumulate before audit catches up. The Tier 2 DENY closes the gap at the moment of capture, returning a structured error that enumerates the missing fields and points to the schema entry.",
-      "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (21 canonical type entries; 2 retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
+      "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
       "schema_source": "governance/frontmatter-rules.json#types",
       "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`) are DENIED with the retirement reference and `replacement` guidance pointing the author to the folder-lineage convention (field-level propagation via `engagement:` + `project:` frontmatter fields plus matching tags). See `retired_types` block."
     },
@@ -120,7 +117,6 @@
         "Skills/**"
       ],
       "scope_exemptions": [
-        "Meetings/** — meeting `provides:` is cross-reference helper, not canonical claim (foundation-shipped folder)",
         "Daily/** — daily notes are temporally-scoped (foundation-shipped folder)"
       ],
       "_exemption_classes": {
@@ -262,32 +258,6 @@
         {
           "pattern": "System Governance/*",
           "label": "System Governance/"
-        }
-      ]
-    },
-    "meeting-note": {
-      "tier": "strict",
-      "required": [
-        "type",
-        "date",
-        "meeting_title",
-        "attendees",
-        "tags",
-        "processed",
-        "updated"
-      ],
-      "optional": [
-        "previous_instance",
-        "granola_id",
-        "granola_ids",
-        "granola_url"
-      ],
-      "body_structure_contract": "governance/file-type-contracts/meeting-note.md.json",
-      "canonical_scope": false,
-      "expected_path": [
-        {
-          "pattern": "Meetings/*",
-          "label": "Meetings/"
         }
       ]
     },

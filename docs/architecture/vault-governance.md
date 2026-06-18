@@ -28,7 +28,6 @@ The first is a **seed** — a frozen, identical set of folders and files install
 
 - **`System Governance/`** — the governance cluster folder, seeded with its own **`_index.md`** *and* six short, pre-written human-readable explainer notes (one each for Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, and Doc-Dependencies). The `_index.md` is the cluster's navigation note and also does double duty as the marker that proves "this is a vault we built." Each explainer note is the narrative companion to one machine-readable governance rule — it explains *why* that rule exists, in plain language, rather than restating the rule itself. All six ship in the seed already authored; the scaffolder lays down both the room and its furnishings.
 - **`Vault Writers/`** — the catalog folder (covered in detail below), shipped with a mandatory `_index.md`.
-- **`Meetings/`** — meeting notes.
 
 The second is a pair of **address-specific fixtures** that *cannot* be pre-baked into the seed, because they depend on where you installed everything — so the scaffolder fits them once the install location is known:
 
@@ -244,7 +243,7 @@ These choices are optimal on two independent grounds. Some are **forced by the p
 
 *All paths below are what an adopter has installed; this document explains the "why" behind them.*
 
-- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, `Vault Writers/` with its `_index.md`, and `Meetings/`).
+- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, and `Vault Writers/` with its `_index.md`).
 - `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/`/`Wiki/`/`Projects/` shortcuts).
 - `~/.claude/hooks/pre-write-guard.sh` — the write-time gate carrying both vault guards (advisory historical-data warning; blocking writer-reference check).
 - `~/.claude/hooks/post-write-verify.sh` — the after-write hook that exposes the on-demand index-regeneration entry point (invoked by the session-close sweep). It never denies a write.

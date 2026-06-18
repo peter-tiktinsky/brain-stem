@@ -1059,8 +1059,8 @@ GATE_R47_PREFIX_LIST=""
 GATE_R47_PREFIX_REGEX=""
 if [[ -n "$BUNDLE_JSON" ]]; then
   # R-32 accepted_types = union of canonical types (.frontmatter.types | keys)
-  # + aliases (.frontmatter.r32_type_aliases | keys). Mirrors the 26-value
-  # gate-config.r32.accepted_types (21 canonical + 5 aliases) without duplicating
+  # + aliases (.frontmatter.r32_type_aliases | keys). Mirrors the
+  # gate-config.r32.accepted_types union without duplicating
   # the canonical list. T-6 part-2: migrated from top-level `.types` +
   # `.r32_type_aliases` (legacy denorm slots) to pillar-nested form.
   GATE_R32_ACCEPTED_TYPES=$(jq -r '(.frontmatter.types // {} | keys[]), (.frontmatter.r32_type_aliases // {} | keys[])' <<<"$BUNDLE_JSON" 2>/dev/null | LC_ALL=C sort -u)
@@ -1208,7 +1208,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class A: new top-level folder (depth ≥ 1).
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH" -ge "1" ]]; then
     # Foundation system folders.
-    B1_FOUNDATION_FOLDERS=$'Archive\nMeetings\nPlans\nSkills\nSystem Governance\nVault Writers'
+    B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nSystem Governance\nVault Writers'
     # view. Single jq pass over UNION_JSON captures BOTH the foundation-side
     # top-level `.path_routing` (legacy denorm slot; retires in T-6) AND the
     # pillar-nested `.frontmatter.path_routing` (overlay-extended path).
@@ -1224,7 +1224,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
     fi
     B1_KNOWN_TOPS=$(printf '%s\n%s\n' "$B1_FOUNDATION_FOLDERS" "$B1_KNOWN_ROUTING" | LC_ALL=C sort -u)
     if ! printf '%s\n' "$B1_KNOWN_TOPS" | grep -Fxq "$B1_TOP"; then
-      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Meetings, System Governance, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, System Governance, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
     fi
   fi
 
@@ -1591,9 +1591,9 @@ print(content, end='')
         # R-32 — TYPE ALLOWLIST (Tier 2 DENY)
         # Promoted from Tier 1 warning to Tier 2 blocking.
         # Allowlist sourced from
-        # foundation-master.json#types | keys (21 canonical) UNION
-        # foundation-master.json#r32_type_aliases | keys (5 aliases since
-        # T-3, 2026-05-14): 26 accepted values total. Adding a type touches
+        # foundation-master.json#types | keys UNION
+        # foundation-master.json#r32_type_aliases | keys (since
+        # T-3, 2026-05-14). The accepted set is the live data-driven union. Adding a type touches
         # the R-37 coupled-surface set (governance/frontmatter-rules.json#types
         # + pre-write-guard.sh + post-write-verify.sh + vault CLAUDE.md);
         # foundation-master.json regenerates via tools/build-foundation-master.sh.
@@ -1605,7 +1605,7 @@ print(content, end='')
         # gap for this branch; generalizes to other branches.
         if [[ -n "$FM_TYPE" ]] && [[ -n "$R32_UNION_ACCEPTED_TYPES" ]] && [[ "$FM_TYPE_RETIRED" != "true" ]]; then
           if ! echo "$R32_UNION_ACCEPTED_TYPES" | grep -Fxq "$FM_TYPE"; then
-            TIER2_MSGS="${TIER2_MSGS}[R-32 UNKNOWN TYPE] type: '${FM_TYPE}' is not in the canonical allowlist (21 canonical type keys + 5 aliases). To add a new type: (1) update governance/frontmatter-rules.json#types with required fields, (2) add case entry in pre-write-guard.sh, (3) add to post-write-verify.sh type_map, (4) document in vault CLAUDE.md, (5) rebuild bundle via tools/build-foundation-master.sh — bundle as R-37 lockstep commit.\n"
+            TIER2_MSGS="${TIER2_MSGS}[R-32 UNKNOWN TYPE] type: '${FM_TYPE}' is not in the canonical type allowlist. To add a new type: (1) update governance/frontmatter-rules.json#types with required fields, (2) add case entry in pre-write-guard.sh, (3) add to post-write-verify.sh type_map, (4) document in vault CLAUDE.md, (5) rebuild bundle via tools/build-foundation-master.sh — bundle as R-37 lockstep commit.\n"
           fi
         fi
 
@@ -1925,7 +1925,6 @@ PYEOF
           _KNOWN_ROOTS="Archive
 Daily
 Inbox
-Meetings
 Plans
 Skills
 System Governance"

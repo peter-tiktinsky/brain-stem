@@ -205,7 +205,7 @@ emit_pairs() {
   # skills/{brain-stem roster}/** (recursive within named dirs). Mirrors install.sh
   # Step 5: REMOVED morning-brief (R-22), adopt + infer-vault-structure (R-09),
   # architect, meeting-note-ingestor (parked to internal/parked/ — meeting-note
-  # TYPE/contract stay foundation; the ingestor relocates out of the shipped roster).
+  # TYPE/contract parked out of foundation; the ingestor relocates out of the shipped roster).
   # The onboarder skill carries its absorbed producers.
   for skill in librarian backlog-hygiene backlog-triage backlog-research onboarder govern doc-amender writer-reconciler mem-promote new-plan session-checkpoint; do
     d="$SOURCE_REPO/skills/$skill"
@@ -319,8 +319,8 @@ emit_pairs() {
   # vault-init/** (recursive; T-1e NEW; install.sh Step 8.7)
   # Foundation-canonical adopter-vault seed tree mirroring the target adopter
   # vault tree EXACTLY per. Includes System Governance/ + Vault Writers/
-  # + Logs/Archive/ subdir scaffolds (the Meetings/ seed folder was parked out of
-  # foundation; meeting-note TYPE/contract stay). System Backlog carryover RETIRED
+  # + Logs/Archive/ subdir scaffolds (the Meetings/ seed folder + the meeting-note
+  # TYPE/contract are parked out of foundation; ingestor parked). System Backlog carryover RETIRED
   # 2026-05-22 per graduation (backlog + archive now live as librarian-emitted
   # files at ~/.claude-plans/_backlog.md + _archive.md under Plans Pillar governance).
   # cp -R wholesale matches install.sh Step 8.7 ship posture; sha256-protected baselines.

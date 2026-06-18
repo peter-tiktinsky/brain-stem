@@ -1507,7 +1507,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 6, "op": "DISSOLVED", "rationale": "top-level onboarding/ dissolved into skills/onboarder/; producers ride Step 5 cp -R"},
     {"step": 7, "op": "cp", "target": ($claude_home + "/orchestrator/"), "source": ($source_repo + "/orchestrator/"), "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
     {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
-    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (13). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
+    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (14). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
     {"step": 8.7, "op": "cp", "target": ($claude_home + "/vault-init/"), "source": ($source_repo + "/vault-init/"), "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
     {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{12 named}.json"), "rationale": "ship the 12 named schemas (the Step 9 loop is ground-truth) + README. memory-schema, rules-schema, and review-queue-schema are resolved at runtime by installed consumers ($CLAUDE_HOME/schemas/...) so they ship; only foundation-master-schema stays authoring-side"},
     {"step": 10, "op": "cp", "target": ($claude_home + "/templates/"), "source": ($source_repo + "/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/"), "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
@@ -2552,7 +2552,7 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   upgrade_foundation_file "$SOURCE_REPO/governance/anchored-spoke-registry.json" "$CLAUDE_HOME/governance/anchored-spoke-registry.json"
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
   # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
-  # File-type contracts subdir (k8s paramKind shape) — the 13 contract members.
+  # File-type contracts subdir (k8s paramKind shape) — the 14 contract members.
  # cp -R dropped from the upgrade path → per-file files[] walk.
   if [ -d "$SOURCE_REPO/governance/file-type-contracts" ]; then
     mkdir -p "$CLAUDE_HOME/governance/file-type-contracts"

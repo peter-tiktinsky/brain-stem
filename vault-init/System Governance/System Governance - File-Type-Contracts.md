@@ -33,7 +33,7 @@ Every contract carries a `write_shape` declaring what kinds of writes the system
 
 | Shape | What it permits | Default class of files |
 |---|---|---|
-| `create-only` | Initial write succeeds; subsequent overwrites of an existing file are denied at the hook. Edits go through the file's amender (where one exists). | Generated/system-emitted artifacts: meeting notes, spoke files, vault-writer descriptors, vault-root `CLAUDE.md`. |
+| `create-only` | Initial write succeeds; subsequent overwrites of an existing file are denied at the hook. Edits go through the file's amender (where one exists). | Generated/system-emitted artifacts: spoke files, vault-writer descriptors, vault-root `CLAUDE.md`. |
 | `replace` | Full-file replacement is permitted on every write. The system snapshots the prior content for diff-review. | Files that are regenerated as a unit: `_index.md`, `manifest.json`, `tasks.md`. |
 | `append-template` | Writes must append a templated block to the existing content; the contract carries the template shape and any required sentinel markers. | Append-only logs and session records: `handoff.md`, `spec.md` (where new sub-sections append). |
 
@@ -48,7 +48,6 @@ Foundation ships body-structure contracts only for files the foundation itself e
 | `CLAUDE.md` | `CLAUDE.md` | `$VAULT_ROOT/CLAUDE.md` | create-only |
 | `System Governance.md` | `system-governance-spoke` | `$VAULT_ROOT/System Governance/System Governance - *.md` | create-only |
 | `_index.md` | `index` | every non-exempt folder | replace |
-| `meeting-note.md` | `meeting-note` | `$VAULT_ROOT/Meetings/*.md` | create-only |
 | `vault-writer.md` | `vault-writer` | `$VAULT_ROOT/Vault Writers/*.md` | create-only |
 | `doc-amender-prompt.md` | `doc-amender-prompt` | `$VAULT_WRITER_STATE_ROOT/prompts/*.md` | create-only |
 | `spec.md` | `spec` | plan-tree | append-template |

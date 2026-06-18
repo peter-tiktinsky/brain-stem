@@ -509,14 +509,14 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-18T01:17:17Z",
-    "bundle_version": "d43e59b54367993ce6f6b90735b6ad0175a5f6e4eee70cbe9e5482e260a73b0f",
+    "built_at": "2026-06-18T02:36:27Z",
+    "bundle_version": "2181979e984cf6e2b19b5e2eedc2f680996ba5fa1d27f9b3bfb41919acb11805",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-16T13:53:10Z",
       "governance/doc-dependencies.json": "2026-06-16T13:53:10Z",
-      "governance/frontmatter-rules.json": "2026-06-17T22:57:18Z",
-      "governance/mandatory-files-rules.json": "2026-06-17T22:57:18Z",
+      "governance/frontmatter-rules.json": "2026-06-18T02:36:27Z",
+      "governance/mandatory-files-rules.json": "2026-06-18T02:36:27Z",
       "governance/naming-rules.json": "2026-06-16T13:53:10Z",
       "governance/plans-rules.json": "2026-06-13T04:52:51Z",
       "governance/tagging-rules.json": "2026-06-16T13:53:10Z",
@@ -627,21 +627,7 @@
         ]
       }
     },
-    "entries": [
-      {
-        "amendment_strategy": "prompt-guided-amend",
-        "consumer": "Meetings/<meeting-note>.md",
-        "id": "meetings-fan-in-reference",
-        "kind": "writer-fan-in",
-        "rationale": "Reference entry — declares that meeting notes are a fan-in destination of 3 writers; doc-amender uses prompt-guided-amend strategy. Adopter MAY override with overlay row or remove if not applicable.",
-        "rename_history": [],
-        "upstream_writers": [
-          "meeting-processor",
-          "teams-scrape",
-          "gchat-scrape"
-        ]
-      }
-    ],
+    "entries": [],
     "schema_notes": {
       "rename_history": "Append-only audit trail of renames that have touched an entry's primary / mirrors[]. Each row: {\"from\": \"<old-path>\", \"to\": \"<new-path>\", \"at\": \"<ISO8601>\", \"commit\": \"<sha>\"}. Populated by rename-detect.sh at librarian session-close. Forward-only: no historical backfill. Empty array means no known renames since instrumentation landed."
     },
@@ -1443,42 +1429,6 @@
       "version": "1.0.0",
       "write_shape": "replace"
     },
-    "meeting-note.md": {
-      "$id": "brain-stem/governance/file-type-contracts/meeting-note.md.json",
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh branch #2 (historical-data-warning — reads historical_data_warning_pattern for per-type override; falls back to pillar 7 universal default)",
-        "evolution_protocol": "R-37 atomic lockstep with branch #2 hook body",
-        "lockstep_pair": "governance/vault-writers-rules.json :: historical_data_warning_default (fallback) + skills/meeting-note-ingestor (ingestor flow producing meeting-note writes)"
-      },
-      "applies_to": {
-        "path_glob": "$VAULT_ROOT/Meetings/*.md"
-      },
-      "description": "Hook-consumable runtime artifact for Meetings/<date - title>.md meeting notes. Carries the historical_data_warning_pattern per-type override (hook branch #2 opt-in).",
-      "frontmatter_enums": {
-        "type": [
-          "meeting-note"
-        ]
-      },
-      "frontmatter_required": [
-        "type",
-        "title",
-        "date",
-        "attendees"
-      ],
-      "historical_data_warning_pattern": "^\\d{4}-\\d{2}-\\d{2} - .*",
-      "historical_data_warning_pattern_rationale": "Per-type override matching Meetings/ naming pattern; branch #2 fires WARN on edits to date-prefixed files where parsed_date < today.",
-      "matcher_entry": "mandates.meeting_note",
-      "matcher_pillar": "governance/mandatory-files-rules.json",
-      "naming_pattern": "^\\d{4}-\\d{2}-\\d{2} - .*\\.md$",
-      "naming_pattern_example": "2026-05-18 - Standup.md",
-      "naming_pattern_format": "regex",
-      "status": "runtime",
-      "title": "meeting-note.md runtime body-structure contract",
-      "type": "meeting-note",
-      "version": "1.0.0",
-      "write_shape": "create-only"
-    },
     "spec.md": {
       "$id": "brain-stem/governance/file-type-contracts/spec.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1716,11 +1666,11 @@
     }
   },
   "frontmatter": {
-    "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40 plus the type registry, tier compliance, and path-routing rules. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy). See research/vault-construction/frontmatter-design.md for the narrative rationale.",
+    "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40 plus the type registry, tier compliance, and path-routing rules. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
     "_design_notes": {
       "absorbed_from_vault_schema": [
         "tiers (canonical tier definitions; was vault-schema.json `tiers`)",
-        "types (21 per-type entries; were top-level type keys in vault-schema.json)",
+        "types (were top-level type keys in vault-schema.json)",
         "packet_only_fields (was vault-schema.json `_packet_only_fields`)",
         "excluded_fields (was vault-schema.json `_excluded_fields`)",
         "retired_types (was vault-schema.json `_retired_types`)",
@@ -1729,10 +1679,7 @@
       "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
       "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + vault-init/System Governance/System Governance - Frontmatter.md + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
       "lockstep_pair": "vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke) + pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
-      "source_dependencies": [
-        "../research/vault-construction/frontmatter-design.md",
-        "../research/vault-construction/vault-construction-principles.md"
-      ]
+      "source_dependencies": []
     },
     "_rules": [
       {
@@ -1746,7 +1693,7 @@
         "home": "frontmatter",
         "id": "R-32",
         "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`) are DENIED with the retirement reference and `replacement` guidance pointing the author to the folder-lineage convention (field-level propagation via `engagement:` + `project:` frontmatter fields plus matching tags). See `retired_types` block.",
-        "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (21 canonical type entries; 2 retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
+        "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
         "schema_source": "governance/frontmatter-rules.json#types",
         "source": "governance/frontmatter-rules.json :: _rules (SoT)",
         "status": "active",
@@ -1847,7 +1794,6 @@
         "manifest_mirror_path": "librarian-manifest.json drift_findings.provides_canonicality",
         "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + System Governance/** + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root or inside System Governance/**; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
         "scope_exemptions": [
-          "Meetings/** — meeting `provides:` is cross-reference helper, not canonical claim (foundation-shipped folder)",
           "Daily/** — daily notes are temporally-scoped (foundation-shipped folder)"
         ],
         "source": "governance/frontmatter-rules.json :: _rules (SoT)",
@@ -2011,32 +1957,6 @@
           "log-type",
           "date",
           "timestamp"
-        ],
-        "tier": "strict"
-      },
-      "meeting-note": {
-        "body_structure_contract": "governance/file-type-contracts/meeting-note.md.json",
-        "canonical_scope": false,
-        "expected_path": [
-          {
-            "label": "Meetings/",
-            "pattern": "Meetings/*"
-          }
-        ],
-        "optional": [
-          "previous_instance",
-          "granola_id",
-          "granola_ids",
-          "granola_url"
-        ],
-        "required": [
-          "type",
-          "date",
-          "meeting_title",
-          "attendees",
-          "tags",
-          "processed",
-          "updated"
         ],
         "tier": "strict"
       },
@@ -2212,11 +2132,9 @@
         ],
         "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
         "exemption_categories": [
-          "date-prefixed sequence folders (Meetings/)",
           "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
         ],
         "exemption_paths": [
-          "Meetings/**",
           "Work/**"
         ],
         "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
@@ -2305,7 +2223,6 @@
         "known_roots": [
           "Archive",
           "Daily",
-          "Meetings",
           "Plans",
           "Skills",
           "System Governance",

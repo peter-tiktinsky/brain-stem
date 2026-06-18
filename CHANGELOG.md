@@ -4,6 +4,26 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.6.0]
+
+Maintenance release — the `meeting-note` file type and its contract are removed from the installed foundation, and the release pipeline gains a deletion-prune arm so files dropped from the foundation actually leave the published tree. This **supersedes the v1.5.0 note that "the `meeting-note` file type and its rules are unchanged and still ship"**: v1.5.0 removed the empty `Meetings/` seed folder and the ingestor, and v1.6.0 completes that demotion by moving the type, contract, and governance out of the foundation entirely (parked, re-providable later as an overlay archetype). The universal historical-data write warning still applies to date-named notes. See the [v1.6.0 release notes](docs/release-notes-v1.6.0.md).
+
+### Removed
+
+- **The `meeting-note` file type and its contract** are no longer part of the installed foundation. Its governance is withdrawn — the frontmatter type entry (including the Granola workflow fields), the body-shape contract, the `Meetings/**` folder exemptions, the `Meetings/` known-root, and the doc-dependency fan-in. The standalone contract is preserved out-of-foundation for a future meeting-oriented add-on. This reverses the v1.5.0 "still ships" note and finishes the `Meetings/` demotion v1.5.0 began. Date-named notes still receive the universal historical-data write warning by default, so no write-safety is lost.
+
+### Changed
+
+- **The librarian's required-field check now reads the composed governance bundle directly** instead of a hand-maintained mirror. This fixes a latent gap in which the `reference` (knowledge-library) type's required fields were not actually enforced; `reference` articles now validate against their declared required fields.
+
+### Fixed
+
+- **The release pipeline now propagates deletions.** When a file is dropped from the foundation, the dev→ship transform prunes it from the published tree, and a new tree↔manifest completeness gate fails the release if any shipped directory carries a file the manifest does not — closing the durability gap that previously let a removed file linger as a stale shipped artifact. *(Maintainer-facing; no adopter action.)*
+
+### Upgrade note
+
+- After upgrading, a stale `meeting-note.md.json` contract file may remain under `~/.claude/governance/file-type-contracts/`: the upgrade engine delivers and updates managed files but does not yet prune ones removed upstream. It is inert (no shipped type references it) and safe to delete; an automatic removed-member prune is tracked as a follow-on.
+
 ## [v1.5.0]
 
 Feature release — a new **work / deliverable context layer**. brain-stem gains a fourth first-class context surface, `work/`, alongside your projects, wiki, and plans: a home for deliverable-centric, often non-code work (briefs, memos, reports, decks authored as markdown) governed with the same markdown discipline as the rest of the vault. The release adds the `deliverable` file type, a thin Markdown→DOCX/PDF export skill, and a documented extension-seam contract so archetype add-on packages (consulting, design, PM) can layer specialized structure on top **without modifying the foundation**. As part of the same change, three unrendered placeholder templates and an unused meeting seed folder plus its ingestor are removed from the installed foundation. See the [v1.5.0 release notes](docs/release-notes-v1.5.0.md).

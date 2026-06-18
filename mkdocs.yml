@@ -46,6 +46,8 @@ nav:
       - FAQ: reference/faq.md
   - Design decisions: decisions/index.md
   - Release notes:
+      - v1.6.0: release-notes-v1.6.0.md
+      - v1.5.0: release-notes-v1.5.0.md
       - v1.4.0: release-notes-v1.4.0.md
       - v1.3.0: release-notes-v1.3.0.md
       - v1.2.0: release-notes-v1.2.0.md

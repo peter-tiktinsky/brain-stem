@@ -60,7 +60,7 @@ Here is the load-bearing thing to understand up front: **on an adopter's machine
 | Naming | What folders and files may be called, plus the list of known top-level folders | `foundation-master.naming` |
 | Mandatory files | Which folders must contain a required file (such as an index page) | `foundation-master.mandatory_files` |
 | Doc-dependencies | Which documents must be updated together so paired docs do not drift apart | `foundation-master.doc_dependencies` |
-| File-type contracts | The per-document-type rulebooks — e.g. what a meeting note must contain | `foundation-master.file_type_contracts` |
+| File-type contracts | The per-document-type rulebooks — e.g. what a deliverable must contain | `foundation-master.file_type_contracts` |
 | Vault-writers | The registry of automated systems that write into the vault | `foundation-master.vault_writers` |
 | Plans | The lifecycle rules for project plan folders | `foundation-master.plans` |
 
@@ -157,7 +157,7 @@ The engine deliberately runs rules at **different strengths**.
 
 ## File-type contracts — a small rulebook per document kind
 
-Beyond the broad pillars, the engine carries a small rulebook for each *specific* kind of document — a meeting note, a plan spec, a decision record, the vault's own governance summary page, and more. These live under `~/.claude/governance/file-type-contracts/`, and each contract states what that document type must contain: which metadata fields are required, which values are allowed, and sometimes a size limit. All of them are folded into the composed bundle, so the guard can check, for example, that a meeting note actually carries a date.
+Beyond the broad pillars, the engine carries a small rulebook for each *specific* kind of document — a deliverable, a plan spec, a decision record, the vault's own governance summary page, and more. These live under `~/.claude/governance/file-type-contracts/`, and each contract states what that document type must contain: which metadata fields are required, which values are allowed, and sometimes a size limit. All of them are folded into the composed bundle, so the guard can check, for example, that a deliverable actually carries its required status field.
 
 The **size-limit** case is a clean illustration of a rule realized through *data* rather than through code. The vault's System Governance hub page is navigational — a short index, not a place for long content — so its contract (`~/.claude/governance/file-type-contracts/System Governance.md.json`) declares a maximum line count. The guard reads that limit *from the contract* (via the bundle) and **denies an over-length write**. The limit lives in the contract, not hardcoded in the script — so adjusting it is a data change, not a code change.
 
@@ -269,7 +269,7 @@ Everything below is an **installed artifact** — a file that lands on an adopte
 
 - `foundation-master.json` — **the APPLY surface** (read together with the overlay; see the merge helper). The single composed, shipped, immutable bundle the write-time guard reads at every write. Carries one slot per pillar — `frontmatter`, `tagging`, `naming`, `mandatory_files`, `doc_dependencies`, `file_type_contracts`, `vault_writers`, `plans` — plus pre-computed runtime slices and a `_meta` block. Stitched in the build workshop; never hand-edited, never rebuilt by adopters. Carries the content fingerprint at `_meta.bundle_version`.
 - `overlay-master.json` — the adopter-local overlay. Ships as an empty skeleton that mirrors the bundle's eight pillar slots plus one `system` slot (for machine-wide settings such as a timezone) — every slot empty until the adopter registers an extension. Deep-merged on top of the foundation, overlay wins, with a mandatory `_override_reason` on any shadowing entry.
-- `file-type-contracts/` — the per-document-type rulebooks, all folded into the bundle (meeting notes, plan specs, decision records, the governance hub page, and more).
+- `file-type-contracts/` — the per-document-type rulebooks, all folded into the bundle (deliverables, plan specs, decision records, the governance hub page, and more).
 - `file-type-contracts/System Governance.md.json` — the contract carrying the line-count limit; the worked example of a size guard living in data, not in code.
 - `log-subtype-registry.json` — the shipped registry of log subtypes (consumed by the log-archive retention capability).
 - `governance-action-log.jsonl` — the append-only audit log of every `/govern register` action and every frictionless skip (created empty at install time; mineable once used).

@@ -131,7 +131,7 @@ def emit(d):
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
-exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Meetings/**", "Work/**"]
+exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Work/**"]
 mf = None
 if bundle_path and os.path.isfile(bundle_path):
     try:

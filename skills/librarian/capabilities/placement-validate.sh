@@ -10,7 +10,6 @@
 #   2. Project folders: only `{Project} - *.md` + `_index.md` + `File-Index.md`
 #   3. People files: must be in <cluster_folder>/*/People/ (read from manifest.vault.cluster_folder;
 #      skipped when cluster_folder is unset)
-#   4. Meeting notes: must be in Meetings/
 #   5. Cluster root: standard files + CLAUDE.md + _index.md + File-Index.md (cluster-parameterized;
 #      skipped when cluster_folder is unset)
 #   6. Reference/ (Tier 1): no engagement-specific files
@@ -147,16 +146,6 @@ for dirpath, dirnames, filenames in os.walk(scope_root):
             emit({"finding": "placement-violation", "file": rel,
                   "issue": f"People file outside {CLUSTER_DIR}/*/People/",
                   "suggested_location": f"{CLUSTER_DIR}/<name>/People/",
-                  "classification": "auto-fix"})
-            findings_count += 1
-            continue
-
-        # --- Rule 4: Meeting notes must be in Meetings/
-        is_meeting = bool(re.search(r"^type:\s*meeting-note\s*$", fm_snip, re.MULTILINE))
-        if is_meeting and not rel.startswith("Meetings/"):
-            emit({"finding": "placement-violation", "file": rel,
-                  "issue": "Meeting note outside Meetings/",
-                  "suggested_location": "Meetings/",
                   "classification": "auto-fix"})
             findings_count += 1
             continue

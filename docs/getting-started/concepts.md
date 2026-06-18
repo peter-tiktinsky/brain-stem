@@ -12,7 +12,7 @@ A quick word that recurs below: a **hook** is a small script the Claude Code pro
 
 A **vault** is a folder of plain-text notes that *both* you and the assistant write into. You type and edit notes by hand; the assistant creates and updates notes on its own. There is no database and no locked-away format — every note is an ordinary text file you can open in any editor.
 
-The vault is organized into a few standard folders from day one (a reference area explaining the system's own rules, a catalog of automated writers, and a meetings folder), and each folder carries a small **index note** so it is never an unlabeled pile. Because two different authors share one folder, the vault is exactly where things would drift if nothing watched it — which is what the next concept is for.
+The vault is organized into a few standard folders from day one (a reference area explaining the system's own rules and a catalog of automated writers), and each folder carries a small **index note** so it is never an unlabeled pile. Because two different authors share one folder, the vault is exactly where things would drift if nothing watched it — which is what the next concept is for.
 
 → Full detail: **[Vault governance](../architecture/vault-governance.md)**.
 

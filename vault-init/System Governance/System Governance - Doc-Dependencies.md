@@ -36,17 +36,13 @@ The classes differ in how much the system can act for you. Writer fan-in is the 
 
 Foundation ships dependencies only for relationships that exist in every adopter's vault by virtue of the system itself. Everything else is overlay territory.
 
-| Entry | Class | Shape |
-|---|---|---|
-| `meetings-fan-in-reference` | writer-fan-in | `Meetings/<meeting-note>.md` is the destination of `meeting-processor` + `teams-scrape` + `gchat-scrape`; doc-amender applies `prompt-guided-amend`. |
-
-That is the entire foundation set. Every other relationship in your vault — the spoke pairs you maintain, the cluster directories you enumerate in an index, the catalog rows that mirror a per-row history file — is registered in your overlay as you encounter the cases.
+Foundation ships no doc-dependency entries by default — the registry starts empty. Every relationship in your vault — the spoke pairs you maintain, the cluster directories you enumerate in an index, the catalog rows that mirror a per-row history file — is registered in your overlay as you encounter the cases.
 
 ## Extending the registry
 
 When you find yourself editing the same content in two places without the system reminding you, register the relationship via `/govern register --kind doc-dep`. The registration writes an entry to `overlay-master.json` under `doc_dependencies.entries[]`. The next write that matches the relationship surfaces the advisory.
 
-To override a foundation entry — for example, to widen the amender strategy on `meetings-fan-in-reference` because your meeting note shape differs from the default — register the same `id` in your overlay with an `_override_reason` field stating why. The system denies overlay overrides that don't carry the reason.
+To override a foundation entry — should a future foundation release ship one — register the same `id` in your overlay with an `_override_reason` field stating why (for example, to widen the amender strategy because your content shape differs from the default). The system denies overlay overrides that don't carry the reason.
 
 The shape of an entry depends on its class. The shape table in foundation-author docs and the inline help on `/govern register` will walk you through which fields apply to which `kind`. The common contract: every entry declares an `id`, a `kind`, and one or more references to the files it relates. Some classes (`writer-fan-in`) also declare an amendment strategy; the mirror and listing classes declare which file plays which role.
 

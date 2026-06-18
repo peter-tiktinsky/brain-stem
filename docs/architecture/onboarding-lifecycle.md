@@ -146,7 +146,6 @@ brain-stem ships a **seed**: a small starter folder tree with the standard folde
 |---|---|
 | `System Governance/` | A reference area — six human-readable companion documents explaining how the assistant keeps your vault consistent (one per governance pillar), plus its `_index.md` |
 | `Vault Writers/` | A catalog of any system that writes into your vault |
-| `Meetings/` | Date-prefixed meeting notes |
 
 Onboarding **copies that seed into the location you chose and turns it into your working vault.** This is called *adopt-by-default*: you do not opt in to the standard structure as an extra step; you get it automatically as part of setup.
 
@@ -337,7 +336,7 @@ These are the installed artifacts that implement and back this document. The ski
 - `~/.claude/templates/claude-home-claude-md-template.md` — the template for the global personal-preferences `CLAUDE.md`.
 - `~/.claude/templates/vault-claude-md-template.md` — the template for the vault-root `CLAUDE.md` (folder-structure map).
 - `~/.claude/schemas/user-manifest-schema.json` — the blueprint the manifest is validated against before it is saved.
-- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`System Governance/` with its six narrative spokes and `_index.md`, `Vault Writers/` with its `_index.md`, and `Meetings/`).
+- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`System Governance/` with its six narrative spokes and `_index.md`, and `Vault Writers/` with its `_index.md`).
 
 **The outputs onboarding writes**
 

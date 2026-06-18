@@ -69,7 +69,7 @@ To override a foundation default — for example, to raise the cap or to redirec
 
 ## The folder-mirrors-tag invariant
 
-The folder a file lives in and the tags it carries are coupled by convention. When a file sits in a structural cluster folder, its tag set carries the dimension/value pair corresponding to that cluster. A meeting note in `Meetings/` carries a meeting-scope tag; a file in a user-defined cluster folder carries the cluster's tag.
+The folder a file lives in and the tags it carries are coupled by convention. When a file sits in a structural cluster folder, its tag set carries the dimension/value pair corresponding to that cluster. A note in `Daily/` carries a daily-scope tag; a file in a user-defined cluster folder carries the cluster's tag.
 
 The invariant has two halves. The frontmatter pillar enforces the field side of the lineage (see [[System Governance - Frontmatter]] — the folder-lineage convention); the tagging pillar enforces the tag side. Together they keep the folder hierarchy and the tag taxonomy aligned: when you move a file across clusters, both the lineage fields and the lineage tags follow.
 

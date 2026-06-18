@@ -258,8 +258,6 @@ def detect_type(rel, fm):
     if t:
         return t
     # Path pattern inference
-    if rel.startswith("Meetings/") and rel.endswith(".md"):
-        return "meeting-note"
     if re.match(rf"^{PD}/[^/]+/{PD_PEOPLE}/[^/]+\.md$", rel):
         return "people"
     if re.match(rf"^{PD}/[^/]+/{PD_PROJECTS}/[^/]+/.+ - PRD\.md$", rel):
@@ -299,20 +297,38 @@ def detect_type(rel, fm):
     return None
 
 # ---------- required-field matrix (alias collapse applied) ----------
-# Foundation-shipped types only. Adopter extensions resolve via overlay-master at
-# bundle composition time; this map mirrors foundation-master.frontmatter.types
-# for the audit-side enforcement check.
+# REQUIRED is READ from the composed governance bundle
+# (foundation-master.json#frontmatter.types[<type>].required), NOT hand-mirrored.
+# The hand-mirror previously drifted from the composed bundle — notably the
+# `reference` type was missing entirely, silently skipping its required-field
+# enforcement. This read mirrors the drift-sweep.sh precedent
+# (drift-sweep.sh:152-181): same composed-bundle source (FM_FOUNDATION_MASTER,
+# already union-redirected through the overlay merger), same .frontmatter.types
+# path, same `_`-prefixed-key skip so the `_description` sentinel is never
+# enumerated as a real type. Adopter extensions resolve via overlay-master at
+# bundle composition time; reading the composed view honors them for free.
 ALIAS = {"file-index": "index"}
 
-REQUIRED = {
-    "index":                  ["type", "tags", "updated"],
-    "system-governance-spoke": ["type", "title", "mirrors_pillar"],
-    "meeting-note":           ["type", "date", "meeting_title", "attendees", "tags", "processed", "updated"],
-    "vault-writer":           ["type", "writer_name", "writer_kind", "writer_skill", "destinations", "status", "created", "updated", "tags"],
-    "log":                    ["type", "log-type", "date", "timestamp"],
-    "ideation-brief":         ["type", "title", "created", "updated"],
-    "deliverable":            ["type", "tags", "updated", "project", "status", "audience"],
-}
+def _load_required_matrix():
+    bundle_path = os.environ.get("FM_FOUNDATION_MASTER", "")
+    try:
+        with open(bundle_path) as fh:
+            bundle = json.load(fh)
+    except Exception:
+        return {}
+    types = (bundle.get("frontmatter", {}) or {}).get("types", {}) or {}
+    if not isinstance(types, dict):
+        return {}
+    matrix = {}
+    for key, spec in types.items():
+        if key.startswith("_"):
+            continue
+        req = (spec or {}).get("required", [])
+        if isinstance(req, list):
+            matrix[key] = [f for f in req if isinstance(f, str)]
+    return matrix
+
+REQUIRED = _load_required_matrix()
 
 # Deliverables live under the Work/ surface (a symlink to the external work home).
 # os.walk(followlinks=False) above does NOT descend into that symlink during a

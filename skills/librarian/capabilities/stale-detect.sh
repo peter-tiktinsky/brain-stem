@@ -1,12 +1,12 @@
 #!/bin/bash
 # stale-detect — Identify files that may need attention based on age or missing processing.
 # Sources `lib/manifest.sh`, `lib/plan-path.sh`, `lib/findings.sh`.
-# 8 staleness rules per SKILL.md (rule 6 retired at G3 — vault Logs/ no longer ships):
+# 8 staleness rules per SKILL.md (rules 5 + 6 retired — meeting-note extracted,
 #   1. Daily notes — processed: false AND older than 2 days
 #   2. People files — <!-- TODO: enrich context --> marker present
 #   3. People files — no Timeline entry in last 30 days (active engagement only)
 #   4. Project files — updated older than 14 days (active only)
-#   5. Meeting notes — processed: false
+#   5. (retired) Meeting notes — meeting-note extracted from foundation
 #   6. (retired) Residual vault Logs/ — the vault no longer ships a Logs/ folder
 #      (operational-exhaust relocation, G3); the run-log home is $CLAUDE_LOG_DIR.
 #   7. Plan files — completion marker without verification evidence (R-16)
@@ -194,11 +194,8 @@ for dirpath, dirnames, filenames in os.walk(vault_scope):
                 except ValueError:
                     pass
 
-        # Rule 5: Meeting notes — processed: false
-        if rel.startswith("Meetings/") and fm.get("processed", "").lower() == "false":
-            emit({"finding": "stale", "file": rel,
-                  "category": "stale", "reason": "Meeting note processed: false"})
-            counts["stale"] += 1
+        # Rule 5 (retired): meeting-note extracted from foundation
+        # (type + contract + Meetings/ surface parked to internal/parked/).
 
         # Rule 6 (retired at G3): residual vault Logs/ — the vault no longer ships
         # a Logs/ folder; the run-log home is $CLAUDE_LOG_DIR (relocated, G4/G7).
