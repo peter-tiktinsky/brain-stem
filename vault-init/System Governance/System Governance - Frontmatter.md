@@ -28,7 +28,7 @@ Every file type carries a tier. The tier determines what the system does when a 
 | **Standard** | Write proceeds; the system surfaces an advisory you can review at session close. | User-authored vault content — your own notes, references, planning docs. |
 | **Minimal** | Write proceeds without validation. | Explicit opt-out for legacy imports, paste-buffer scratch, archived content outside the active lifecycle. |
 
-Tier assignment is per-type, not per-file. Foundation types are all Strict because they're system-emitted (meeting notes from the meeting processor, log files from Claude scratch, mandatory spokes, etc.). User-authored types you register through your overlay typically run at Standard. To put a single file under Minimal validation, add `tier: minimal` to its frontmatter.
+Tier assignment is per-type, not per-file. Foundation types run at Strict — most because they're system-emitted (meeting notes from the meeting processor, log files from Claude scratch, mandatory spokes, etc.); the `deliverable` type is Strict because its lifecycle fields (`project`, `status`, `audience`) are load-bearing even though you author it by hand. User-authored types you register through your overlay typically run at Standard. To put a single file under Minimal validation, add `tier: minimal` to its frontmatter.
 
 ## The foundation type registry
 
@@ -43,10 +43,13 @@ Foundation ships a small set of types — only those that have a foundation cons
 | `log` | Strict | `type`, `log-type`, `date`, `timestamp` | — (machine logs write off-vault to the XDG state tier) |
 | `ideation-brief` | Strict | `type`, `title`, `created`, `updated` | plan-tree (`~/.claude-plans/<plan>/00-ideation-brief.md`) |
 | `reference` | Strict | `type`, `tags`, `updated`, `routing`, `sources`, `originating_plan` | `_library/` |
+| `deliverable` | Strict | `type`, `tags`, `updated`, `project`, `status`, `audience` | `Work/` |
 
-Three fields are universal across every Strict type: `type`, `tags`, `updated`. The other entries declare additional required fields per their purpose (a meeting note needs attendees and a date; a writer descriptor declares its source and destinations; a log file declares its operational subtype; a reference article declares the `routing:` line that says when to read it, the `sources:` it was synthesized from, and the `originating_plan:` that promoted it).
+Three fields are universal across every Strict type: `type`, `tags`, `updated`. The other entries declare additional required fields per their purpose (a meeting note needs attendees and a date; a writer descriptor declares its source and destinations; a log file declares its operational subtype; a reference article declares the `routing:` line that says when to read it, the `sources:` it was synthesized from, and the `originating_plan:` that promoted it; a deliverable declares the `project:` it belongs to, its `status:` in the draft→delivered→superseded lifecycle, and its `audience:`).
 
 The `reference` type is the durable knowledge-library article — one concept per file, synthesized and kept current by the librarian, scrubbed of plan- and project-specific detail so it reads as universal. A reference article carries no leading in-document section index and no auto-generated table of contents; its body shape is checked by the librarian's library scans, not at write time.
+
+The `deliverable` type is durable, human- or agent-authored work product under the `Work/` surface — the durable + human-authored context surface that the generated binder, the generated library, and the ephemeral workshop do not fill. Its contract is deliberately thin: it governs the lifecycle frontmatter only and leaves the body free-form, because deliverables are heterogeneous (a brief, a deck source, a memo, and a long report share no shape). You author deliverables from a work-spoke launch (`cd ~/work/<spoke>`), so they live outside the vault root and no write-time guard fires on them; the librarian audit suite enforces the type over the `Work/` symlink view instead. Per-deliverable-kind structure (a fixed report skeleton, say) is an archetype subtype you add through your overlay, not part of this base type.
 
 Plan-tree files other than `ideation-brief` — `spec.md`, `tasks.md`, `handoff.md`, `manifest.json` — are governed by the plans pillar, not by this registry. They have their own body-structure contracts and write-time rules; the plans pillar's slice in `foundation-master.json` carries them.
 

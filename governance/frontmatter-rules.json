@@ -291,6 +291,30 @@
         }
       ]
     },
+    "deliverable": {
+      "tier": "strict",
+      "_description": "Durable, human/agent-authored work product under the Work/ surface (Work/<spoke>/deliverables/<name>.md) — the durable + human-authored context surface. Lifecycle frontmatter (status, audience) and enums are governed by governance/file-type-contracts/deliverable.md.json; the body is free-form because deliverables are heterogeneous. Enforcement is audit-time via the librarian suite over the Work/ symlink view; a deliverable authored from a work-spoke launch lands outside the vault root, so write-time governance does not fire.",
+      "required": [
+        "type",
+        "tags",
+        "updated",
+        "project",
+        "status",
+        "audience"
+      ],
+      "optional": [
+        "description",
+        "supersedes"
+      ],
+      "body_structure_contract": "governance/file-type-contracts/deliverable.md.json",
+      "canonical_scope": false,
+      "expected_path": [
+        {
+          "pattern": "Work/**",
+          "label": "Work/"
+        }
+      ]
+    },
     "vault-writer": {
       "tier": "strict",
       "_description": "Per-writer reference files at Vault Writers/ describing systems writing into the vault (connectors, agentic flows, auto-research, scheduled skills, custom). Writer-kind-conditional required fields governed by governance/file-type-contracts/vault-writer.md.json.",

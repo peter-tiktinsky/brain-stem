@@ -4,6 +4,26 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.5.0]
+
+Feature release — a new **work / deliverable context layer**. brain-stem gains a fourth first-class context surface, `work/`, alongside your projects, wiki, and plans: a home for deliverable-centric, often non-code work (briefs, memos, reports, decks authored as markdown) governed with the same markdown discipline as the rest of the vault. The release adds the `deliverable` file type, a thin Markdown→DOCX/PDF export skill, and a documented extension-seam contract so archetype add-on packages (consulting, design, PM) can layer specialized structure on top **without modifying the foundation**. As part of the same change, three unrendered placeholder templates and an unused meeting seed folder plus its ingestor are removed from the installed foundation. See the [v1.5.0 release notes](docs/release-notes-v1.5.0.md).
+
+### Added
+
+- **A `work/` context surface.** A new recommended parent for deliverable-heavy, non-code work, resolved like the other roots (environment override → manifest → `~/work` default) and surfaced into your vault as a `Work/` view. Each `work/` spoke gets its own per-spoke memory automatically, and a new `Deliverables` block on the spoke's `hub.md` joins it to the binder on the shared `project:` slug.
+- **A `deliverable` file type.** A universal, archetype-neutral vocabulary for deliverables — a thin lifecycle contract governing frontmatter only (`status: draft → delivered → superseded`, `audience: internal | external`) with a free-form body, so a one-page brief and a forty-page report share one type without a forced structure.
+- **A `deliver-export` skill.** A content-agnostic Markdown → DOCX / PDF exporter (Pandoc, with a slot for a branded reference document). Markdown stays the single source of truth; exported binaries are write-once and never committed or round-tripped.
+- **A documented extension-seam contract.** A binding description of the four seams (folder scaffolding, overlay governance, starter templates, recipe composition) an archetype add-on package uses to extend the `work/` layer without editing the foundation, with a generic `project-workspace` add-on as the reference proof.
+
+### Changed
+
+- **`audience` vocabulary is archetype-neutral.** The base `deliverable` type ships `audience: internal | external`; specialized values such as `client` are added by an add-on package as an overlay refinement, keeping the foundation vocabulary universal.
+
+### Removed
+
+- **Three unrendered placeholder templates** (`prd`, `context`, `updates`) are no longer installed into the foundation — they were placeholder files with no shipped renderer. They now live in the `project-workspace` add-on, which seeds them as named starters on request.
+- **The empty `Meetings/` seed folder and the meeting-note ingestor** are removed from the installed foundation. The `meeting-note` file type and its contract are unchanged and still ship; only the empty seed folder and the ingestor script (preserved for a future meeting-oriented add-on) are removed.
+
 ## [v1.4.0]
 
 Documentation release. **The installed foundation is unchanged — there is nothing to migrate.** This release rebuilds the public documentation into a complete, navigable site: a rich front-door README, a new `SECURITY.md`, a full command reference, an FAQ, a global glossary, a five-minute quickstart, a version-migrations guide, a standalone uninstall how-to, a claude-mem page, and a design-decisions overview — plus the "Why brain-stem" keystone and the context-library architecture pages, every architecture page reframed as native→gap→enhancement and closed with its own evidence section, and an explicit ordered site navigation. See the [v1.4.0 release notes](docs/release-notes-v1.4.0.md).

@@ -24,7 +24,7 @@
 ├── System Governance/           [F]  → narrative spokes for 6 governance pillars
 ├── Plans/                        [F]  → symlink to {{PLANS_HOME}}
 ├── Vault Writers/                [F]  → writer-references for vault-writing systems
-├── Meetings/                     [F]  → date-prefixed meeting notes
+├── Work/                         [F]  → symlink to {{WORK_HOME}} (deliverable spokes)
 ├── Skills/                       [F]  → symlink to {{CLAUDE_HOME}}/skills/
 ├── {{VAULT_TOP_LEVEL_FOLDER}}/        → user-defined cluster (e.g., client work)
 ├── <USER_CLUSTER_2>/                  → user-defined

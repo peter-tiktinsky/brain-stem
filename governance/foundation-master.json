@@ -509,14 +509,14 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-16T13:53:10Z",
-    "bundle_version": "68d48fc58d9edb5bb0cae204c7e08dacda670be3802884be2814016f58ab328b",
+    "built_at": "2026-06-18T01:17:17Z",
+    "bundle_version": "d43e59b54367993ce6f6b90735b6ad0175a5f6e4eee70cbe9e5482e260a73b0f",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-16T13:53:10Z",
       "governance/doc-dependencies.json": "2026-06-16T13:53:10Z",
-      "governance/frontmatter-rules.json": "2026-06-16T13:53:10Z",
-      "governance/mandatory-files-rules.json": "2026-06-16T13:53:10Z",
+      "governance/frontmatter-rules.json": "2026-06-17T22:57:18Z",
+      "governance/mandatory-files-rules.json": "2026-06-17T22:57:18Z",
       "governance/naming-rules.json": "2026-06-16T13:53:10Z",
       "governance/plans-rules.json": "2026-06-13T04:52:51Z",
       "governance/tagging-rules.json": "2026-06-16T13:53:10Z",
@@ -1077,6 +1077,42 @@
       "type": "adr",
       "version": "1.0.0",
       "write_shape": "create-only"
+    },
+    "deliverable.md": {
+      "$id": "brain-stem/governance/file-type-contracts/deliverable.md.json",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "_design_notes": {
+        "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root; no write-time guard fires on deliverables authored outside the vault root.",
+        "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.deliverable (the type registration) + the vault-init/System Governance/System Governance - Frontmatter.md narrative spoke + governance/foundation-master.json forward-composed move in one commit.",
+        "thin_contract_note": "Models the minimal-viable file-type stub shape (frontmatter + lifecycle, free-form body), NOT the rich library-article body-structure shape — deliverables are too heterogeneous for a single body contract. Per-deliverable-kind structure governance is an archetype subtype layered via overlay-master.json, not part of this base contract."
+      },
+      "applies_to": {
+        "path_glob": "$VAULT_ROOT/Work/**/*.md"
+      },
+      "audience_rationale": "The base audience values stay internal and external so the universal vocabulary remains archetype-neutral; a narrower refinement of the external value is an overlay subtype an adopter adds for their own publish tooling, not a base value the foundation ships.",
+      "contract_rationale": "A deliverable is durable, project-scoped work product the author owns and edits across its lifecycle, so the contract governs only the lifecycle frontmatter and leaves the body free-form; deliverables are too varied in shape for one body-structure to fit, and per-kind structure belongs to an archetype subtype rather than the universal base.",
+      "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement is AUDIT-TIME via the librarian suite over the Work/ symlink view — a deliverable authored from a work-spoke launch lands outside the vault root, so no write-time guard fires.",
+      "frontmatter_contract_source": "governance/frontmatter-rules.json#types.deliverable",
+      "frontmatter_enums": {
+        "audience": [
+          "internal",
+          "external"
+        ],
+        "status": [
+          "draft",
+          "delivered",
+          "superseded"
+        ],
+        "type": [
+          "deliverable"
+        ]
+      },
+      "routing": "A markdown file under the Work/ surface that declares type: deliverable in its frontmatter activates this contract; placement under Work/** is an audit-time advisory (the type's expected_path), never a write-time matcher.",
+      "status": "runtime",
+      "title": "deliverable (Work/<spoke>/deliverables/<name>.md) lifecycle contract",
+      "type": "deliverable",
+      "version": "1.0.0",
+      "write_shape": "replace"
     },
     "doc-amender-prompt.md": {
       "$id": "brain-stem/governance/file-type-contracts/doc-amender-prompt.md.json",
@@ -1903,6 +1939,30 @@
     },
     "types": {
       "_description": "Canonical type registry — 7 foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
+      "deliverable": {
+        "_description": "Durable, human/agent-authored work product under the Work/ surface (Work/<spoke>/deliverables/<name>.md) — the durable + human-authored context surface. Lifecycle frontmatter (status, audience) and enums are governed by governance/file-type-contracts/deliverable.md.json; the body is free-form because deliverables are heterogeneous. Enforcement is audit-time via the librarian suite over the Work/ symlink view; a deliverable authored from a work-spoke launch lands outside the vault root, so write-time governance does not fire.",
+        "body_structure_contract": "governance/file-type-contracts/deliverable.md.json",
+        "canonical_scope": false,
+        "expected_path": [
+          {
+            "label": "Work/",
+            "pattern": "Work/**"
+          }
+        ],
+        "optional": [
+          "description",
+          "supersedes"
+        ],
+        "required": [
+          "type",
+          "tags",
+          "updated",
+          "project",
+          "status",
+          "audience"
+        ],
+        "tier": "strict"
+      },
       "ideation-brief": {
         "_description": "Plan-tree ideation brief files at ~/.claude-plans/<plan>/00-ideation-brief.md. Validated against this type registry as an interim measure; planned relocation to plans pillar type registry as a follow-up.",
         "body_structure_contract": "governance/file-type-contracts/ideation-brief.md.json",
@@ -2152,10 +2212,12 @@
         ],
         "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
         "exemption_categories": [
-          "date-prefixed sequence folders (Meetings/)"
+          "date-prefixed sequence folders (Meetings/)",
+          "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
         ],
         "exemption_paths": [
-          "Meetings/**"
+          "Meetings/**",
+          "Work/**"
         ],
         "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
         "file_pattern": "**/_index.md",

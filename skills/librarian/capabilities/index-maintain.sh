@@ -2,7 +2,7 @@
 # index-maintain — Audit-time reconciler for every non-exempt folder's
 # _index.md contents-enum table against filesystem reality. The first canonical
 # self-healing capability under the R-34 boundary.
-# NET-NEW librarian body (;1.1 line 136 — replaces the phantom
+# NET-NEW librarian body (1.1 line 136 — replaces the phantom
 # doc-reference). Authored from the authoring-spec index-maintain.md
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
@@ -131,7 +131,7 @@ def emit(d):
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
-exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Meetings/**"]
+exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Meetings/**", "Work/**"]
 mf = None
 if bundle_path and os.path.isfile(bundle_path):
     try:

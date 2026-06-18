@@ -1503,7 +1503,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 2, "op": "cp", "target": ($claude_home + "/hooks/"), "source": ($source_repo + "/hooks/{*.sh,*.md,MANIFEST.txt}"), "rationale": "ship hook entry-points + MANIFEST"},
     {"step": 3, "op": "cp", "target": ($claude_home + "/hooks/lib/"), "source": ($source_repo + "/hooks/lib/{*.sh,*.json,*.sql}"), "rationale": "ship hook libs (hooks/lib/ is the SOLE lib surface; no lib/→hooks/lib/ translation)"},
     {"step": 4, "op": "cp", "target": ($claude_home + "/hooks/config/"), "source": ($source_repo + "/hooks/config/"), "rationale": "ship hook config JSON (graceful-skip if absent)"},
-    {"step": 5, "op": "cp", "target": ($claude_home + "/skills/"), "source": ($source_repo + "/skills/{brain-stem roster}/"), "rationale": "ship brain-stem foundation skill subtrees: librarian, backlog-{hygiene,triage,research}, onboarder (+absorbed producers), govern, doc-amender, writer-reconciler, meeting-note-ingestor, mem-promote, new-plan (R-11), session-checkpoint"},
+    {"step": 5, "op": "cp", "target": ($claude_home + "/skills/"), "source": ($source_repo + "/skills/{brain-stem roster}/"), "rationale": "ship brain-stem foundation skill subtrees: librarian, backlog-{hygiene,triage,research}, onboarder (+absorbed producers), govern, doc-amender, writer-reconciler, mem-promote, new-plan (R-11), session-checkpoint"},
     {"step": 6, "op": "DISSOLVED", "rationale": "top-level onboarding/ dissolved into skills/onboarder/; producers ride Step 5 cp -R"},
     {"step": 7, "op": "cp", "target": ($claude_home + "/orchestrator/"), "source": ($source_repo + "/orchestrator/"), "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
     {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
@@ -2373,7 +2373,7 @@ elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
   # pre-existing skills/* land (raw cp -R -n silently skips them).
   apply_subtree_legacy "$SOURCE_REPO/skills" "skills/"
 else
-  for skill in librarian backlog-hygiene backlog-triage backlog-research onboarder govern doc-amender writer-reconciler meeting-note-ingestor mem-promote new-plan session-checkpoint; do
+  for skill in librarian backlog-hygiene backlog-triage backlog-research onboarder govern doc-amender writer-reconciler mem-promote new-plan session-checkpoint; do
     src="$SOURCE_REPO/skills/$skill"
     if [ ! -d "$src" ]; then
       warn "skill not present in foundation-repo source: $skill (deferred to its sub-plan)"
@@ -2598,7 +2598,7 @@ fi
 # see in vault-init/ is what the adopter gets. cp_clobber posture matches the
 # rest of the foundation-known tree (cp -n default; --force-all → cp -f).
 # sha256-protected via governance/foundation-manifest.json. Subdir scaffolds
-# (System Governance/ + Vault Writers/ + Logs/Archive/ + Meetings/) ship
+# (System Governance/ + Vault Writers/ + Logs/Archive/) ship
 # as empty dirs with .gitkeep until adopter writes content. Authoring contract
 # for what may live under vault-init/ at docs/vault-init-authoring.md.
 # The per-plan backlog satellite is retired: backlog +
@@ -2723,7 +2723,7 @@ done
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
 # MIGRATE-STATE surface), a distinct path the templates walk never touches.
-for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md updates-template.md prd-template.md context-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md hub-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
+for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md hub-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
   upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition

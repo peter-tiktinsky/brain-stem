@@ -243,6 +243,10 @@ Validates (and optionally `--fix`es) frontmatter on vault files against the
 schema-type-coverage drift audits, persisting `drift_findings.*` to the
 librarian-manifest. Ported as-is.
 Runtime: `capabilities/frontmatter-enforce.sh`.
+Deliverables under the `Work/` surface (a symlink to the external work home) are
+not reached by the whole-vault walk (`os.walk` does not recurse into the symlink);
+audit them with a scoped invocation, `frontmatter-enforce.sh --scope <vault>/Work`
+— the same dedicated-scan pattern `library-index` uses for the `_library` root.
 
 ## Capability: placement-validate
 

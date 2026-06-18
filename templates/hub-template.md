@@ -17,7 +17,12 @@ in the spoke CLAUDE.md, NEVER inside hub.md (an import directive here is a defec
 import is CLAUDE.md-only Claude Code behavior). hub.md is POINTER-ONLY and fits a
 <=200-line budget (size_limits {max_lines: 200}, enforced by the librarian scan, not
 write-time). EXCLUDED: inline research summaries, decision bodies, full task lists,
-session history. Exactly 7 pointer-only blocks, in the order below.
+session history. Exactly 8 pointer-only blocks, in the order below (the Deliverables
+block joins the binder to the spoke's work product; Import relationship stays last as
+the structural meta-block). hub.md is template-scaffolded then hand-maintained — no
+librarian capability generates it (the binder generators write research-index.md /
+decision-log.md / handoff-chronicle.md, which this hub points at, never hub.md), so
+this template is the propagation surface for the block set.
 -->
 
 ## 1. Project identity
@@ -49,7 +54,12 @@ session history. Exactly 7 pointer-only blocks, in the order below.
 
 - The two generic `rules/` entries (binder pointer + pre-research library-check fallback).
 
-## 7. Import relationship
+## 7. Deliverables
+
+- Polished work product for this spoke: `~/work/<spoke>/deliverables/` (browsable in the vault as `Work/<spoke>/deliverables/`).
+- Joined on `project:` — deliverables group by spoke and surface across every plan of that spoke, surviving any single plan's lifecycle. (Pointer-only; deliverable bodies are read on-demand, never inlined here.)
+
+## 8. Import relationship
 
 This file is the import target: the spoke CLAUDE.md imports it via its own import
 directive. (That directive lives in the spoke CLAUDE.md, not here — import is

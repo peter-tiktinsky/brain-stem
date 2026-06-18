@@ -311,7 +311,15 @@ REQUIRED = {
     "vault-writer":           ["type", "writer_name", "writer_kind", "writer_skill", "destinations", "status", "created", "updated", "tags"],
     "log":                    ["type", "log-type", "date", "timestamp"],
     "ideation-brief":         ["type", "title", "created", "updated"],
+    "deliverable":            ["type", "tags", "updated", "project", "status", "audience"],
 }
+
+# Deliverables live under the Work/ surface (a symlink to the external work home).
+# os.walk(followlinks=False) above does NOT descend into that symlink during a
+# whole-vault audit, so deliverable enforcement is reached by a SCOPED invocation
+# (`frontmatter-enforce.sh --scope <vault>/Work`) — the same dedicated-scan pattern
+# library-index uses for the _library physical root. This REQUIRED row makes the
+# field check real once the scan reaches a deliverable.
 
 # Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
 # Foundation ships system-utility dimensions (status, log); user-facing dimensions

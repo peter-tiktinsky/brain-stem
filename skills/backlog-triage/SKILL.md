@@ -188,9 +188,9 @@ Run `/librarian backlog-index` (or wait for the daily sweep) to refresh _backlog
 - Touches plan structure but distinct from existing cleanup automation.
 - Result: NOVEL → captured at `_inbox/plan-handoff-generator.md` (via the helper), then `status: triaged`.
 
-**DUPLICATE** — "Create a tool to process meeting transcripts into vault notes."
-- `meeting-note-ingestor` already does exactly this.
-- Result: DUPLICATE, `status: new`, `related: [meeting-note-ingestor]`, merge recommended.
+**DUPLICATE** — "Build a tool to deep-research a triaged backlog item's feasibility before planning."
+- `backlog-research` already does exactly this.
+- Result: DUPLICATE, `status: new`, `related: [backlog-research]`, merge recommended.
 
 **OVERLAP** — "Build automated stale-content detection for plan files."
 - `librarian:memory-staleness` + `backlog-hygiene` already do freshness checks.

@@ -103,6 +103,25 @@ export PLANS_DIR
 # test/CI scenarios. Consumers MUST gate on non-empty before using.
 export PLANS_DIR_DEAD="${PLANS_DIR_DEAD:-}"
 
+# --- work tree (deliverable layer) ---
+# 3-tier resolver mirroring the plans arm above: env BRAIN_STEM_WORK_HOME >
+# manifest .paths.work_root > default $HOME/work. The durable + human/agent-authored
+# deliverables home (the 4th context surface), surfaced into the vault as Work/ by
+# build-brain-vault.sh. A pre-set WORK_HOME wins (test isolation), matching the
+# [ -z ] guard on PLANS_DIR. Per-spoke memory needs NOTHING here —
+# resolve_memory_dir() is already cwd/git-root-keyed, so a ~/work/<spoke>/ launch
+# gets its own memory slug for free.
+if [ -z "${WORK_HOME:-}" ]; then
+  if [ -n "${BRAIN_STEM_WORK_HOME:-}" ]; then
+    WORK_HOME="$BRAIN_STEM_WORK_HOME"
+  else
+    _v="$(_manifest_get .paths.work_root)"
+    if [ -n "$_v" ]; then WORK_HOME="$_v"; else WORK_HOME="$HOME/work"; fi
+    unset _v
+  fi
+fi
+export WORK_HOME
+
 # --- vault (no install-convention default) ---
 if [ -z "${VAULT_ROOT:-}" ]; then
   _v="$(_manifest_get .paths.vault_root)"

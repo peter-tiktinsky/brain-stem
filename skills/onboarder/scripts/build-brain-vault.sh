@@ -10,14 +10,18 @@
 # OUTPUT CONTRACT (R-43):
 #   Files written (under the resolved vault root):
 #     - <vault>/  + the vault-init/ tree (System Governance/ 6 spokes + _index.md,
-#       Vault Writers/ + _index.md, Meetings/)
+#       Vault Writers/ + _index.md)
 #     - <vault>/Plans    -> symlink to plans_root (// ~/.claude-plans)
 #     - <vault>/Skills   -> symlink to $CLAUDE_HOME/skills/
 #     - <vault>/Wiki     -> symlink to plans_root/_library/   (R-ARCH-SYMLINK)
 #     - <vault>/Projects -> symlink to plans_root/_projects/  (R-ARCH-SYMLINK)
+#     - <vault>/Work     -> symlink to $WORK_HOME (// ~/work)  (R-ARCH-SYMLINK;
+#       external unscaffolded root, mkdir -p'd here first so the link resolves [])
 #     - <vault>/.obsidian/app.json  userIgnoreFilters += Plans/_library,
-#       Plans/_projects (R-BIND-EXCL; visibility suppression only, no-clobber)
+#       Plans/_projects, /Work\/<spoke>\/reference\// (R-BIND-EXCL; visibility
+#       suppression only, no-clobber)
 #     - plans_root/_library/ + plans_root/_projects/  surface homes (scaffolded)
+#     - $WORK_HOME/  external deliverable home (mkdir -p'd)
 #     - $CLAUDE_WORKSHOP_DIR/ (= $CLAUDE_STATE_ROOT/workshop, via paths.sh;
 #       R-ARCH-1a — ephemeral workshop home, never a hardcoded literal)
 #     - <vault>/CLAUDE.md  (authored from templates/vault-claude-md-template.md;
@@ -106,6 +110,15 @@ PLANS_HOME="$(expand_tilde "$PLANS_HOME")"
 SKILLS_DIR="$SKILLS_DIR_ARG"
 [ -z "$SKILLS_DIR" ] && SKILLS_DIR="$CLAUDE_HOME/skills"
 
+# Work deliverable home: the 4th context surface. 3-tier resolver
+# mirroring paths.sh — env BRAIN_STEM_WORK_HOME > manifest .paths.work_root >
+# default $HOME/work. Resolved inline here (self-contained skill) exactly
+# as PLANS_HOME is, rather than sourcing paths.sh.
+WORK_HOME="${BRAIN_STEM_WORK_HOME:-}"
+[ -z "$WORK_HOME" ] && WORK_HOME="$(mf_get '.paths.work_root')"
+[ -z "$WORK_HOME" ] && WORK_HOME="$HOME/work"
+WORK_HOME="$(expand_tilde "$WORK_HOME")"
+
 CLAUDE_MD="$VAULT_ROOT/CLAUDE.md"
 MARKER="$VAULT_ROOT/System Governance/_index.md"   # presence => brain vault we built
 
@@ -132,12 +145,13 @@ build-brain-vault: dry-run summary
   plans_home:   $PLANS_HOME
   skills_dir:   $SKILLS_DIR
   identity:     $NAME
-  would_seed:   vault-init/ tree (System Governance/ + Vault Writers/ + Meetings/)
-  would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop}
+  would_seed:   vault-init/ tree (System Governance/ + Vault Writers/)
+  would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop} ; $WORK_HOME ()
   would_link:   $VAULT_ROOT/Plans -> $PLANS_HOME ; $VAULT_ROOT/Skills -> $SKILLS_DIR
                 $VAULT_ROOT/Wiki -> $PLANS_HOME/_library ; $VAULT_ROOT/Projects -> $PLANS_HOME/_projects
+                $VAULT_ROOT/Work -> $WORK_HOME ()
                 (real-dir guard: refuse-with-diagnostic if any name pre-exists as a real dir)
-  would_ignore: .obsidian/app.json userIgnoreFilters += Plans/_library, Plans/_projects (R-BIND-EXCL; no-clobber)
+  would_ignore: .obsidian/app.json userIgnoreFilters += Plans/_library, Plans/_projects, /Work\/<spoke>\/reference\// (R-BIND-EXCL; no-clobber)
   would_author: $CLAUDE_MD  ({{VAULT_TOP_LEVEL_FOLDER}} -> <USER_CLUSTER_1>)
 EOF
   echo "DRY-RUN: complete — zero filesystem mutations" >&2
@@ -206,12 +220,23 @@ link_vault_root "$SKILLS_DIR"           "Skills"   || exit 1
 link_vault_root "$PLANS_HOME/_library"  "Wiki"     || exit 1   # R-ARCH-SYMLINK
 link_vault_root "$PLANS_HOME/_projects" "Projects" || exit 1   # R-ARCH-SYMLINK
 
+# Work deliverable surface: ~/work/ is an EXTERNAL, unscaffolded root.
+# Unlike _library/_projects (scaffolded under $PLANS_HOME above), no prior step
+# creates it, so mkdir -p FIRST or the Work/ symlink would DANGLE on a fresh
+# install [audit]. The link_vault_root real-dir guard still refuses to clobber
+# a pre-existing real <vault>/Work.
+mkdir -p "$WORK_HOME" 2>/dev/null || { diag "mkdir work home failed: $WORK_HOME"; exit 1; }
+link_vault_root "$WORK_HOME"            "Work"     || exit 1   # R-ARCH-SYMLINK
+
 # --- 2b. Obsidian userIgnoreFilters (R-BIND-EXCL) ---
 # Suppress the duplicate Plans/_library + Plans/_projects view-paths from search /
-# quick-switcher / graph so only the Wiki/ + Projects/ symlink paths surface.
+# quick-switcher / graph so only the Wiki/ + Projects/ symlink paths surface, PLUS
+# the raw Work/<spoke>/reference/ subpaths (reference/ holds raw notes /
+# specimens, the polished deliverables/ payload stays visible). The Work entry is a
+# regex (spoke names are dynamic) — Obsidian treats /.../-wrapped filters as regex.
 # VISIBILITY suppression only — does NOT govern link resolution (R-BIND-EXCL).
-# No-clobber: merge the two entries into any existing app.json, preserving every
-# adopter-added filter; idempotent (entries added only when absent).
+# No-clobber: merge the entries into any existing app.json, preserving every
+# adopter-added filter; idempotent (entries added only when absent, via unique).
 OBSIDIAN_DIR="$VAULT_ROOT/.obsidian"
 APP_JSON="$OBSIDIAN_DIR/app.json"
 mkdir -p "$OBSIDIAN_DIR" 2>/dev/null || { diag "mkdir .obsidian failed: $OBSIDIAN_DIR"; exit 1; }
@@ -222,7 +247,7 @@ else
 fi
 APP_MERGED="$(printf '%s' "$EXISTING_APP" | jq '
   .userIgnoreFilters = ((.userIgnoreFilters // [])
-    + ["Plans/_library", "Plans/_projects"] | unique)
+    + ["Plans/_library", "Plans/_projects", "/Work\\/[^/]+\\/reference\\//"] | unique)
 ' 2>/dev/null)" || APP_MERGED=""
 if [ -z "$APP_MERGED" ]; then
   diag "app.json userIgnoreFilters merge failed (invalid JSON at $APP_JSON?)"
@@ -238,6 +263,7 @@ RENDERED_VAULT_MD="$(sed \
   -e "s|{{IDENTITY_NAME}}|$(esc "$NAME")|g" \
   -e "s|{{VAULT_ROOT}}|$(esc "$VAULT_ROOT")|g" \
   -e "s|{{PLANS_HOME}}|$(esc "$PLANS_HOME")|g" \
+  -e "s|{{WORK_HOME}}|$(esc "$WORK_HOME")|g" \
   -e "s|{{CLAUDE_HOME}}|$(esc "$CLAUDE_HOME")|g" \
   -e "s|{{VAULT_TOP_LEVEL_FOLDER}}|<USER_CLUSTER_1>|g" \
   "$TEMPLATE")" || { diag "vault CLAUDE.md render failed"; exit 1; }
@@ -273,11 +299,11 @@ cat <<EOF
   Seeded in the vault:
     System Governance/   how Claude keeps the vault consistent (6 reference spokes)
     Vault Writers/       catalog of any system that writes into the vault
-    Meetings/            date-prefixed meeting notes
     Plans/    -> $PLANS_HOME
     Skills/   -> $SKILLS_DIR
     Wiki/     -> $PLANS_HOME/_library    (cross-project library — durable knowledge)
     Projects/ -> $PLANS_HOME/_projects   (per-spoke project binders)
+    Work/     -> $WORK_HOME    (your deliverables home — durable work product)
     CLAUDE.md            the vault's structure map (Claude reads this first)
 
   Open it in Obsidian:
