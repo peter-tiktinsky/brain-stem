@@ -20,7 +20,7 @@ Some releases change *where* or *how* your data is stored. When they do, the upg
 | **v1.2.0** | The new context **Library** and per-project **binders** are built from your existing files the first time the librarian runs after the upgrade. | Nothing to migrate by hand — it backfills itself. → [Context and memory](../architecture/context-and-memory.md) |
 | **v1.3.0** | The assistant's machine output — run logs, the session-close receipt, internal working state — moves **out of your vault** (the old `Logs/` folder) and out of `~/.claude` into the standard per-user state directory, `~/.local/state/brain-stem`. Your vault becomes 100% human notes. | Nothing. After upgrading, your vault no longer shows machine files in Obsidian search or the graph. → [Packaging & runtime](../architecture/packaging-runtime.md) |
 
-The general rule: **a migration preserves your data and moves it for you.** If a future release introduces one, its [release notes](../release-notes-v1.3.0.md) will say exactly what moved and the upgrade will carry it out during `--apply`.
+The general rule: **a migration preserves your data and moves it for you.** If a future release introduces one, its [release notes](../release-notes-v1.6.0.md) will say exactly what moved and the upgrade will carry it out during `--apply`.
 
 ## Special case: old clones that won't pull
 
@@ -36,5 +36,5 @@ git reset --hard origin/main
 ## Where to go next
 
 - **[Install & upgrade](index.md#upgrading-an-existing-install)** — the exact upgrade commands and every option.
-- **[Release notes](../release-notes-v1.3.0.md)** — what changed in each version, and why.
+- **[Release notes](../release-notes-v1.6.0.md)** — what changed in each version, and why.
 - **[Uninstalling](uninstall.md)** — if you'd rather remove brain-stem than upgrade.

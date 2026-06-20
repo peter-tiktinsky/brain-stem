@@ -4,6 +4,19 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.6.1]
+
+Documentation release — the published documentation is brought back into step with the system as it ships after v1.5.0 and v1.6.0. **The installed foundation is unchanged and there is nothing to migrate.** The command reference gains the `/deliver-export` command (shipped in v1.5.0 but never documented), the vault tour now describes all five setup shortcuts (the `Work/` surface was missing), several "what changed" cross-links are repointed at the current release, and a leftover reference to a removed ingestion script is cleaned up. See the [v1.6.1 release notes](docs/release-notes-v1.6.1.md).
+
+### Changed
+
+- **The command reference now documents `/deliver-export`** — the v1.5.0 command that exports a finished `Work/` deliverable to a shareable `.docx` or PDF. It was working but undocumented; the count of commands you run directly is now ten.
+- **The vault tour describes all five setup shortcuts.** The architecture and onboarding pages said setup wires "four" convenience links (`Plans/`, `Skills/`, `Wiki/`, `Projects/`) and omitted the `Work/` shortcut added in v1.5.0; they now say five and list it.
+
+### Fixed
+
+- **Stale documentation cross-links.** Getting-started and migrations pages linked older release notes as if current; they now point at the current release. A leftover "ingestion script" reference in the command reference is reworded to reflect only what ships. *(Documentation only; no adopter action.)*
+
 ## [v1.6.0]
 
 Maintenance release — the `meeting-note` file type and its contract are removed from the installed foundation, and the release pipeline gains a deletion-prune arm so files dropped from the foundation actually leave the published tree. This **supersedes the v1.5.0 note that "the `meeting-note` file type and its rules are unchanged and still ship"**: v1.5.0 removed the empty `Meetings/` seed folder and the ingestor, and v1.6.0 completes that demotion by moving the type, contract, and governance out of the foundation entirely (parked, re-providable later as an overlay archetype). The universal historical-data write warning still applies to date-named notes. See the [v1.6.0 release notes](docs/release-notes-v1.6.0.md).

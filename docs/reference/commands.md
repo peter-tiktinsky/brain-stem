@@ -4,7 +4,7 @@
 
 A **command** here is a **slash command**: you type a slash and a name into a running Claude Code session (the terminal chat with the assistant) and it runs a packaged capability called a **skill**. brain-stem ships the commands below; they appear alongside Claude Code's own built-in commands and any other skills you have installed.
 
-These are the **nine commands brain-stem adds for you to run directly.** A handful of other skills it ships are internal machinery — event-driven runners and a large maintenance catalog — that you do not type yourself; they are listed under [Not in this reference](#not-in-this-reference) at the end.
+These are the **ten commands brain-stem adds for you to run directly.** A handful of other skills it ships are internal machinery — event-driven runners and a large maintenance catalog — that you do not type yourself; they are listed under [Not in this reference](#not-in-this-reference) at the end.
 
 ---
 
@@ -21,6 +21,7 @@ These are the **nine commands brain-stem adds for you to run directly.** A handf
 | [`/session-checkpoint`](#session-checkpoint) | Write a save-point of the current conversation's state | Before a long task, or when a session is getting full |
 | [`/mem-promote`](#mem-promote) | Propose moving auto-captured observations into curated memory | If you use the optional claude-mem plugin |
 | [`/librarian`](#librarian) | Audit and reconcile governance, plans, and vault indexes | End-of-session cleanup; regenerating derived files |
+| [`/deliver-export`](#deliver-export) | Export a finished `Work/` deliverable to a shareable `.docx` or PDF | When a deliverable is ready to send to someone |
 
 ---
 
@@ -96,6 +97,12 @@ Proposes moving observations from the optional **claude-mem** plugin (which auto
 
 The vault, plan, and governance **maintenance** entry point. It audits and reconciles the governance rules, plan status, and the vault's auto-generated index files, and regenerates derived files (tables of contents, task lists, rule indexes) so they cannot drift out of date. End-of-session reconciliation is one of its modes. You will mostly use it to tidy up at the end of a working session.
 
+## Deliverables
+
+### `/deliver-export`
+
+Converts a finished markdown deliverable under your `Work/` area into a shareable **`.docx` or PDF** using Pandoc, with an optional slot for a branded reference document. Your markdown stays the single source of truth; the export is a **write-once** artifact that lands in a gitignored `deliverables/_exports/` and is never committed to git or edited back into your notes. (For branded slide decks it points you to the dedicated deck tooling rather than producing weaker slides itself.) Use it when a deliverable is ready to share outside your vault.
+
 ---
 
 ## Not in this reference
@@ -103,6 +110,6 @@ The vault, plan, and governance **maintenance** entry point. It audits and recon
 A few shipped skills are **internal machinery, not commands you type:**
 
 - **The librarian's capability catalog** — the librarian routes to a large set of named maintenance routines internally. These are a maintainer-facing surface, reached through `/librarian`, not invoked directly.
-- **Event-driven runners** — the automated edit reconciler and the writer/meeting ingestion scripts run when triggered by an event or another skill, not from a prompt you type.
+- **Event-driven runners** — the automated edit reconciler and the writer-reconciliation runner run when triggered by an event or another skill, not from a prompt you type.
 
 These exist so the surfaces above work; you do not call them yourself.

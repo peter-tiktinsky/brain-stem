@@ -163,12 +163,13 @@ The **"brain" vault** is just a folder on your computer — by default at a sens
 
 **Obsidian** is a free note-taking app that treats a folder of plain markdown files as a connected knowledge base. brain-stem uses it as the human-facing window into your vault.
 
-When the vault builder finishes, it also wires four convenience links into the vault:
+When the vault builder finishes, it also wires five convenience links into the vault:
 
 - `Plans/` → points to your plans home at `~/.claude-plans/`
 - `Skills/` → points to your installed skills at `~/.claude/skills/`
 - `Wiki/` → points to the universal Library at `~/.claude-plans/_library`
 - `Projects/` → points to the project binders at `~/.claude-plans/_projects`
+- `Work/` → points to your deliverable work area at `~/work`
 
 (These are *symlinks* — folder shortcuts that make one location appear inside another without copying anything.)
 
@@ -328,7 +329,7 @@ These are the installed artifacts that implement and back this document. The ski
 - `~/.claude/skills/onboarder/scripts/section-b-slim.sh` — Section B: the free-form interview and the two-pass AI extraction into role/organization plus three preference blocks.
 - `~/.claude/skills/onboarder/scripts/bootstrap-user-manifest.sh` — merges the Section-A and Section-B fragments, injects system fields, validates against the schema, and atomically writes the user-manifest.
 - `~/.claude/skills/onboarder/scripts/author-claude-home.sh` — the authoritative author of the global `~/.claude/CLAUDE.md`; asserts zero leftover placeholders; no-clobber-without-force.
-- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — copies the seed into your vault, wires the Plans/Skills/Wiki/Projects links, authors the vault-root `CLAUDE.md`, refuses to scaffold into a non-empty foreign folder without `--force`, and prints the Obsidian-open message.
+- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — copies the seed into your vault, wires the Plans/Skills/Wiki/Projects/Work links, authors the vault-root `CLAUDE.md`, refuses to scaffold into a non-empty foreign folder without `--force`, and prints the Obsidian-open message.
 - `~/.claude/skills/onboarder/scripts/external-setup-gate.sh` — the soft-mandate gate over claude-mem and GitHub; read-only probes, honest recommendations, frictionless skip; never blocks.
 
 **The shared, integrity-protected assets**

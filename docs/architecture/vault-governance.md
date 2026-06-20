@@ -32,7 +32,7 @@ The first is a **seed** — a frozen, identical set of folders and files install
 The second is a pair of **address-specific fixtures** that *cannot* be pre-baked into the seed, because they depend on where you installed everything — so the scaffolder fits them once the install location is known:
 
 1. A vault-root **`CLAUDE.md`** instructions file, rendered fresh from a template. (Claude Code auto-loads a project's `CLAUDE.md` at the start of every session, so the vault picks up its own conventions from the first session; this auto-load is documented at `code.claude.com/docs`.)
-2. Four **shortcuts** — `Plans/` (your plans area), `Skills/` (`~/.claude/skills/`), `Wiki/` (the universal Library at `~/.claude-plans/_library`), and `Projects/` (the project binders at `~/.claude-plans/_projects`).
+2. Five **shortcuts** — `Plans/` (your plans area), `Skills/` (`~/.claude/skills/`), `Wiki/` (the universal Library at `~/.claude-plans/_library`), `Projects/` (the project binders at `~/.claude-plans/_projects`), and `Work/` (your deliverable work area at `~/work`).
 
 The scaffolder is `~/.claude/skills/onboarder/scripts/build-brain-vault.sh`. The copy is gentle and idempotent: it walks the seed file by file and **skips anything already present**, so re-running setup never clobbers your edits.
 
@@ -194,7 +194,7 @@ When a sweep regenerates a table inside a note, it must not erase the paragraphs
 
 | Stage | What happens | Where it lives |
 |---|---|---|
-| **Scaffold** | The seed tree is copied (including the six `System Governance/` explainer notes); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/`/`Wiki/`/`Projects/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
+| **Scaffold** | The seed tree is copied (including the six `System Governance/` explainer notes); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/`/`Wiki/`/`Projects/`/`Work/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
 | **Every save — advisory** | A past-dated note edit gets a non-blocking reminder | `~/.claude/hooks/pre-write-guard.sh` |
 | **Every save — block** | A malformed `Vault Writers/` note is refused | same gate, against `vault-writer.md.json` |
 | **Writer content in** | Writer → packet in staging → sole reconciler writes the destination (with survivorship + lock); optional AI lane composes a packet but never writes | `staging-emit.sh`, `writer-reconciler/process.sh`, `doc-amender/process.sh` |
@@ -244,7 +244,7 @@ These choices are optimal on two independent grounds. Some are **forced by the p
 *All paths below are what an adopter has installed; this document explains the "why" behind them.*
 
 - `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, and `Vault Writers/` with its `_index.md`).
-- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/`/`Wiki/`/`Projects/` shortcuts).
+- `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/`/`Wiki/`/`Projects/`/`Work/` shortcuts).
 - `~/.claude/hooks/pre-write-guard.sh` — the write-time gate carrying both vault guards (advisory historical-data warning; blocking writer-reference check).
 - `~/.claude/hooks/post-write-verify.sh` — the after-write hook that exposes the on-demand index-regeneration entry point (invoked by the session-close sweep). It never denies a write.
 - `~/.claude/hooks/lib/staging-emit.sh` — the shared library a writer calls (only when a destination is opted into staging) to drop one content-hash-named packet.

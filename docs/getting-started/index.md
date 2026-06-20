@@ -147,7 +147,7 @@ This delivers **every** changed managed file to the new version — including th
 
 > **One thing the preview does *not* override on a real apply.** The *preview* is relaxed about your files differing from the shipped version — that difference is the whole point of an upgrade, so the dry run reports it and moves on. A real `--apply` is stricter: if it detects that brain-stem's own files have been edited in place, it still refuses to overwrite them silently and asks you to confirm, by passing `--force-install` and typing the `I-UNDERSTAND-OVERWRITE-RISK` phrase (exactly as on a first install into a folder that already has files — see [the section above](#installing-into-a-folder-that-already-has-files)). The relaxed behavior is **preview-only**; an apply never quietly writes over edited files.
 
-That is the whole upgrade: `git pull`, preview, `--apply`. The longer story — what changed in the latest release and why the in-place upgrade is built the way it is — lives in the [release notes](../release-notes-v1.1.3.md) and [Packaging & runtime](../architecture/packaging-runtime.md).
+That is the whole upgrade: `git pull`, preview, `--apply`. The longer story — what changed in the latest release and why the in-place upgrade is built the way it is — lives in the [release notes](../release-notes-v1.6.0.md) and [Packaging & runtime](../architecture/packaging-runtime.md).
 
 ---
 
