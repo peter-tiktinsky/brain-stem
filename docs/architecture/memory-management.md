@@ -147,7 +147,7 @@ This is the single-source-of-truth discipline: humans read **this doc** to UNDER
 
 ## See also
 
-The human-readable narrative companions to the governance pillars ship under the adopter vault at `System Governance/`. What the foundation install seeds there is the folder itself plus its `_index.md` catalog; this architecture doc is the docs-site UNDERSTAND surface for the load-guard mechanics. For the memory *model* — the triad, project-vs-global memory, and the accessibility layers — see `memory-model.md`.
+The human-readable narrative companions to the governance pillars live in the hosted docs (`governance-engine.md` and `vault-governance.md`), not in a seeded in-vault folder; this architecture doc is the docs-site UNDERSTAND surface for the load-guard mechanics. For the memory *model* — the triad, project-vs-global memory, and the accessibility layers — see `memory-model.md`.
 
 ---
 

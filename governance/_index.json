@@ -3,10 +3,8 @@
   "_description": "8-pillar registry + cross-cutting meta-rules + dissolved-schema registry. Hook-loaded. The registry spans 8 pillars (frontmatter, tagging, naming, mandatory-files, doc-dependencies, file-type-contracts, vault-writers, plans); the retired governance/enforcement-map.schema.json has canonical successor governance/foundation-master.json.",
   "_design_notes": {
     "consumer": "pre-write-guard.sh, post-write-verify.sh, librarian governance-parity-audit",
-    "lockstep_pair": "System Governance/ folder narrative spokes (one per pillar)",
     "evolution_protocol": "R-37 atomic lockstep"
   },
-  "_spoke_prefix": "System Governance - ",
   "pillars": [
     {
       "id": "frontmatter",
@@ -23,11 +21,9 @@
         "pre-write-guard.sh",
         "post-write-verify.sh"
       ],
-      "spoke": "Frontmatter.md",
       "absorbs": "types{} registry + tier_compliance + packet_only_fields + excluded_fields + retired_types + path_routing (absorbed from dissolved schemas/vault-schema.json)",
       "r37_coupled_surfaces": [
         "governance/frontmatter-rules.json",
-        "vault-init/System Governance/System Governance - Frontmatter.md",
         "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
         "hooks/post-write-verify.sh (type_map)",
         "governance/foundation-master.json (forward — composed from this pillar via tools/build-foundation-master.sh)"
@@ -46,11 +42,9 @@
       "loaded_by": [
         "pre-write-guard.sh"
       ],
-      "spoke": "Tagging.md",
       "absorbs": "canonical tag-prefix taxonomy (absorbed from dissolved schemas/vault-schema._tag_prefixes + _tag_prefixes_meta)",
       "r37_coupled_surfaces": [
         "governance/tagging-rules.json",
-        "vault-init/System Governance/System Governance - Tagging.md",
         "hooks/pre-write-guard.sh (tag-validation branch)",
         "governance/log-subtype-registry.json (system-utility canonicality discipline)",
         "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
@@ -71,10 +65,8 @@
       "loaded_by": [
         "pre-write-guard.sh"
       ],
-      "spoke": "Naming.md",
       "r37_coupled_surfaces": [
         "governance/naming-rules.json",
-        "vault-init/System Governance/System Governance - Naming.md",
         "hooks/pre-write-guard.sh (R-04 vault-root-allowlist branch — known_roots check)",
         "governance/foundation-master.json (forward — composed naming slot)"
       ]
@@ -92,13 +84,11 @@
         "pre-write-guard.sh",
         "post-write-verify.sh"
       ],
-      "spoke": "Mandatory-Files.md",
       "file_type_contracts_subfolder": "file-type-contracts/",
       "file_type_contracts_pattern": "governance/file-type-contracts/<file>.json carries the per-file-type body-structure contract (k8s ValidatingAdmissionPolicy paramKind pattern); the pillar's `mandates.<file_type>` block declares the matcher + exemption list.",
       "r37_coupled_surfaces": [
         "governance/mandatory-files-rules.json",
         "governance/file-type-contracts/*.json (registry pattern)",
-        "vault-init/System Governance/System Governance - Mandatory-Files.md",
         "hooks/post-write-verify.sh (auto-bootstrap)",
         "skills/librarian/capabilities/index-maintain.sh",
         "governance/foundation-master.json (forward)"
@@ -116,7 +106,6 @@
         "pre-write-guard.sh",
         "post-write-verify.sh"
       ],
-      "spoke": "Doc-Dependencies.md",
       "r37_coupled_surfaces": [
         "governance/doc-dependencies.json",
         "hooks/pre-write-guard.sh (cascade propagation)",
@@ -133,11 +122,9 @@
         "pre-write-guard.sh",
         "post-write-verify.sh"
       ],
-      "spoke": "File-Type-Contracts.md",
       "r37_coupled_surfaces": [
         "governance/file-type-contracts/*.json",
         "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
-        "vault-init/System Governance/System Governance - File-Type-Contracts.md (forward)",
         "hooks/pre-write-guard.sh (body-structure validation lookup)",
         "hooks/post-write-verify.sh (body-structure validation)",
         "templates/{spec,tasks,handoff,ideation-brief}-template.md (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
@@ -156,8 +143,6 @@
         "hooks/pre-write-guard.sh",
         "skills/writer-reconciler"
       ],
-      "spoke": null,
-      "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
       "r37_coupled_surfaces": [
         "governance/vault-writers-rules.json",
         "governance/file-type-contracts/vault-writer.md.json (writer-reference SHAPE)",
@@ -187,8 +172,6 @@
         "skills/librarian/capabilities/plan-archive.sh",
         "skills/librarian/capabilities/backlog-index.sh"
       ],
-      "spoke": null,
-      "_spoke_note": "No System-Governance narrative spoke by ratified design — the 6-spokes-mirror-6-pillars set (vault-init/System Governance/_index.md) deliberately excludes the vault-writers + plans pillars.",
       "r37_coupled_surfaces": [
         "governance/plans-rules.json (carries the inbox block + _status_model_note; backlog_row.stale_advisory_days; the decision_records convention)",
         "schemas/plan-manifest-schema.json (manifest.json validator with conditional fields; optional decision_records[])",
@@ -221,7 +204,7 @@
         "librarian governance-parity-audit"
       ],
       "status": "active",
-      "rule_text": "R-37 (atomic lockstep) is DOCUMENTARY across the entire governance surface — there is NO write-time DENY, by design. A PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set. Enforcement = git's commit-boundary atomicity + the librarian governance-parity-audit capability at session-close. The lockstep set = pillar JSON + narrative spoke + CLAUDE.md.",
+      "rule_text": "R-37 (atomic lockstep) is DOCUMENTARY across the entire governance surface — there is NO write-time DENY, by design. A PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set. Enforcement = git's commit-boundary atomicity + the librarian governance-parity-audit capability at session-close. The lockstep set = pillar JSON + hooks + CLAUDE.md.",
       "failure_mode": "Drift from partial landings of a multi-surface change. Caught at git commit-boundary + audit-time, never write-time.",
       "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },

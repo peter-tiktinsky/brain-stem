@@ -4,8 +4,8 @@
   "_description": "Pillar 4 — Mandatory-files (per-pillar rule model). Loaded by pre-write-guard.sh + post-write-verify.sh at runtime. Carries the per-file-type mandate registry (k8s ValidatingAdmissionPolicy pattern: matcher in pillar; paramKind body-structure contract in governance/file-type-contracts/<file>.json). Homes R-44 (_index.md mandate), R-59 (MEMORY.md load-contract cap, categorized C5), and R-58 (vault-writer reference — Branch 3). _rules[] is the per-pillar rule SoT.",
   "_design_notes": {
     "consumer": "pre-write-guard.sh (mandate-presence DENY + Branch 3 vault-writer-reference); post-write-verify.sh (Tier 1 auto-bootstrap + live-sync); librarian index-maintain capability",
-    "lockstep_pair": "System Governance - Mandatory-Files.md (narrative spoke) + governance/file-type-contracts/{_index.md,vault-writer.md}.json + hooks/post-write-verify.sh",
-    "evolution_protocol": "R-37 documentary lockstep — this pillar + System Governance - Mandatory-Files.md + governance/file-type-contracts/<file>.json + hooks move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit)."
+    "lockstep_pair": "governance/file-type-contracts/{_index.md,vault-writer.md}.json + hooks/post-write-verify.sh",
+    "evolution_protocol": "R-37 documentary lockstep — this pillar + governance/file-type-contracts/<file>.json + hooks move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit)."
   },
   "mandates": {
     "_description": "Per-file-type mandate registry. Each entry is a `matcher` (file type + path/scope conditions) bound to its `body_structure_contract` (the paramKind resource). Hooks consume mandates[<file_type>] to determine WHETHER a mandate fires; consume body_structure_contract to determine WHAT the file's contract is. The two-resource separation follows the k8s ValidatingAdmissionPolicy pattern.",
@@ -29,7 +29,7 @@
       "exemption_paths": [
         "Work/**"
       ],
-      "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check + System Governance - Mandatory-Files.md narrative spoke.",
+      "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check.",
       "exemption_categories": [
         "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
       ],

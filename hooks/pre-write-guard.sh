@@ -5,7 +5,7 @@
 # Skill file edits:   4-step change protocol checklist
 # ENFORCEMENT-MAP rules implemented here (see ~/.claude-plans/ENFORCEMENT-MAP.md):
 #   R-01  dead plans path DENY                        — line 26+
-#   R-03  System Governance.md size guard             — line 39+ (SG_MAX_LINES from governance/file-type-contracts/System Governance.md.json; fallback 400)
+#   R-03  System Governance.md size guard             — line 39+ (SG_MAX_LINES hardcoded 400; dev-vault hub only)
 #   R-04  vault-root allowlist                        — line ~532
 #   R-54  doc-dependency cascade                      — line ~495
 #   R-09  RETIRED (G3) — vault Logs/ no longer ships; the Logs/ autogovern tier
@@ -440,23 +440,11 @@ fi
 # === System Governance.md size guard (SG_MAX_LINES) ====================
 # Block any Write/Edit on System Governance.md whose result exceeds the
 # navigational-index threshold. Force extraction-first discipline.
-# governance/file-type-contracts/System Governance.md.json :: size_limits.max_lines
-# via foundation-master.json bundle. R-37 lockstep with T-13.9 contract authoring
-# (same-commit). Fallback to 400 if bundle lookup fails (same posture as legacy
-# missing-bundle fail-OPEN pattern at T-3 line 599+).
+# SG_MAX_LINES is hardcoded to 400 — the foundation no longer ships a
+# System Governance.md.json contract to derive the cap from. This guard is
+# retained for the dev-vault hub only.
 VA_PATH="$HOME/Documents/Obsidian Vault/System Governance.md"
-SG_FOUNDATION_MASTER="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
-SG_MAX_LINES=$(
-  if [[ -f "$SG_FOUNDATION_MASTER" ]]; then
-    jq -r '.file_type_contracts."System Governance.md.json".size_limits.max_lines // 400' "$SG_FOUNDATION_MASTER" 2>/dev/null || echo 400
-  else
-    echo 400
-  fi
-)
-# Defensive: if jq returned an empty / non-numeric string, fall back.
-case "$SG_MAX_LINES" in
-  ''|*[!0-9]*) SG_MAX_LINES=400 ;;
-esac
+SG_MAX_LINES=400
 
 if [[ "$FILE_PATH" == "$VA_PATH" ]]; then
   va_new_lines=0
@@ -502,7 +490,7 @@ with open(sys.argv[5], 'w') as f:
   esac
 
   if [[ "$va_new_lines" -gt "$SG_MAX_LINES" ]]; then
-    REASON="System Governance.md would become ${va_new_lines} lines, exceeding the navigational-index threshold (${SG_MAX_LINES}). VA.md is the hub; long content belongs in a spoke file at System Governance/System Governance - {Topic}.md. To proceed: (1) identify a self-contained section to extract, (2) create or extend a spoke, (3) replace the section in VA.md with a stub redirect, (4) retry the write."
+    REASON="System Governance.md would become ${va_new_lines} lines, exceeding the navigational-index threshold (${SG_MAX_LINES}). It is a navigational hub; long content belongs in separate topic notes. To proceed: (1) identify a self-contained section to extract, (2) move it to its own note, (3) replace the section in the hub with a stub redirect, (4) retry the write."
     format_output_deny "PreToolUse" "$REASON"
     exit 0
   fi
@@ -1190,13 +1178,12 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class B: vault-root file at depth 0 (no slash separator).
   if [[ "$B1_DEPTH" == "0" ]]; then
     # Foundation-shipped mandatory vault-root files. CLAUDE.md is the only
-    # mandatory file per T-13; System Governance.md is the foundation-shipped
-    # reference file already accounted for in the 3-tier vault block below.
+    # mandatory file per T-13.
     # (System Backlog.md retired from foundation ship per T-15 Tier B
     # 2026-05-22 — backlog lifecycle now librarian-owned at
     # ~/.claude-plans/_backlog.md per governance/plans-rules.json.)
     case "$B1_REL" in
-      CLAUDE.md|System\ Governance.md)
+      CLAUDE.md)
         : # known vault-root file; no propose-and-validate
         ;;
       *)
@@ -1208,7 +1195,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class A: new top-level folder (depth ≥ 1).
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH" -ge "1" ]]; then
     # Foundation system folders.
-    B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nSystem Governance\nVault Writers'
+    B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nVault Writers'
     # view. Single jq pass over UNION_JSON captures BOTH the foundation-side
     # top-level `.path_routing` (legacy denorm slot; retires in T-6) AND the
     # pillar-nested `.frontmatter.path_routing` (overlay-extended path).
@@ -1224,7 +1211,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
     fi
     B1_KNOWN_TOPS=$(printf '%s\n%s\n' "$B1_FOUNDATION_FOLDERS" "$B1_KNOWN_ROUTING" | LC_ALL=C sort -u)
     if ! printf '%s\n' "$B1_KNOWN_TOPS" | grep -Fxq "$B1_TOP"; then
-      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, System Governance, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
     fi
   fi
 
@@ -1926,8 +1913,7 @@ PYEOF
 Daily
 Inbox
 Plans
-Skills
-System Governance"
+Skills"
         fi
         while IFS= read -r _d; do
           [[ -z "$_d" ]] && continue
@@ -1937,9 +1923,8 @@ System Governance"
           fi
         done <<< "$_KNOWN_ROOTS"
 
-        if [[ "$IS_KNOWN" == "false" ]] && [[ "$ROOT_DIR" != "CLAUDE.md" ]] && \
-           [[ "$ROOT_DIR" != "System Governance.md" ]]; then
-          TIER3_MSGS="${TIER3_MSGS}[NEW DIRECTORY] File is being written to '${ROOT_DIR}/' which is not a documented vault-root directory. After this write, update System Governance.md to document this new directory or move the file to an existing directory.\n"
+        if [[ "$IS_KNOWN" == "false" ]] && [[ "$ROOT_DIR" != "CLAUDE.md" ]]; then
+          TIER3_MSGS="${TIER3_MSGS}[NEW DIRECTORY] File is being written to '${ROOT_DIR}/' which is not a documented vault-root directory. After this write, run \`/govern register --kind folder --target '${ROOT_DIR}/'\` to register this new directory, or move the file to an existing directory.\n"
         fi
 
         # --- Emit combined Tier 1 + Tier 3 + engagement reminder guidance if any ---

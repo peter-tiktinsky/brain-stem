@@ -1,30 +1,25 @@
 #!/bin/bash
 # xref-check — Scan for broken wikilinks, orphaned files, stale cross-references.
-#
+# Landed: Sub-plan 02 T-3 (2026-04-21). Extracted from SKILL.md
 # Usage:
 #   xref-check.sh                        # --recent (last 7 days), default
 #   xref-check.sh --full                 # entire vault
 #   xref-check.sh --scope <path>         # single file or dir
 #   xref-check.sh --include-logs         # include Logs/ in orphan detection
-#
 # Wikilink regex: \[\[([^\]|]+)(\|[^\]]+)?\]\]
 # Resolves by searching for <target>.md anywhere in vault.
-#
 # Finding classes:
 #   xref-broken-link      — wikilink target not found (error)
 #   xref-people-one-way   — A→B in People/ without reciprocal B→A (warn)
 #   xref-orphan           — file has zero inbound links (info, excluded by default
 #                            for Logs/, Archive/, CLAUDE.md, _index.md, File-Index.md)
-#
 # Manifest: xref_graph section updated via manifest_set (entire subtree —
-# resolved-row drop-out pattern).
-#
+# resolved-row drop-out pattern per T-2 precedent from).
 # Env overrides:
 #   VAULT_ROOT_OVERRIDE  — override vault scan root
 #   XREF_SCOPE           — override scope (path) from env
 #   MANIFEST_PATH        — standard manifest.sh env
 #   FINDINGS_OUTPUT      — standard findings.sh env
-#
 # Bash 3.2 clean; heavy lifting in Python heredoc.
 
 set -u
@@ -82,15 +77,16 @@ WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(\|[^\]]+)?\]\]")
 
 # Excluded dirs at walk level.
 EXCLUDE_DIRS = {".git", ".obsidian", ".trash", "Archive"}
-ORPHAN_EXCLUDE_BASENAMES = {"CLAUDE.md", "_index.md", "File-Index.md", "System Governance.md"}
+ORPHAN_EXCLUDE_BASENAMES = {"CLAUDE.md", "_index.md", "File-Index.md"}
 # Meetings/, Daily/, Inbox/ are expected-orphan by design — generated content that
-# does not receive inbound wikilinks.
+# does not receive inbound wikilinks (2026-04-22 finisher pass).
 ORPHAN_EXCLUDE_DIRS_DEFAULT = {"Archive", "Logs", "Meetings", "Daily", "Inbox"} if not include_logs else {"Archive", "Meetings", "Daily", "Inbox"}
 
 # Sources that legitimately CONTAIN wikilink-shaped strings pointing at broken
 # targets because their purpose is auditing broken links elsewhere. Skip
-# broken-link emission for these sources (structural false-positive fix).
-# Still participates in inbound-link graph for orphan detection.
+# broken-link emission for these sources (structural false-positive fix —
+# 2026-04-22 finisher pass). Still participates in inbound-link graph for
+# orphan detection.
 BROKEN_LINK_SOURCE_EXEMPT_PREFIXES = (
     "Logs/session-close-",
     "Logs/broken-wikilinks-",
@@ -157,7 +153,7 @@ for src in scoped_files:
         # Table-cell wikilinks use `\|` as escape for the cell divider:
         # `[[Target\|Display]]`. The regex `[^\]|]+` stops at the `|`, leaving
         # a trailing backslash on target_raw. Strip it before resolving.
-        # (structural false-positive fix)
+        # (structural false-positive fix — 2026-04-22 finisher pass)
         if target_raw.endswith("\\"):
             target_raw = target_raw[:-1].rstrip()
         # Strip # anchor + / path delimiters.

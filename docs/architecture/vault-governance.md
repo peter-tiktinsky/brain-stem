@@ -26,8 +26,7 @@ When someone first sets up the assistant, they get a starter vault built from tw
 
 The first is a **seed** — a frozen, identical set of folders and files installed at `~/.claude/vault-init/`. Think of it as a furnished show-home: every adopter gets exactly the same rooms on day one. The seed ships:
 
-- **`System Governance/`** — the governance cluster folder, seeded with its own **`_index.md`** *and* six short, pre-written human-readable explainer notes (one each for Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, and Doc-Dependencies). The `_index.md` is the cluster's navigation note and also does double duty as the marker that proves "this is a vault we built." Each explainer note is the narrative companion to one machine-readable governance rule — it explains *why* that rule exists, in plain language, rather than restating the rule itself. All six ship in the seed already authored; the scaffolder lays down both the room and its furnishings.
-- **`Vault Writers/`** — the catalog folder (covered in detail below), shipped with a mandatory `_index.md`.
+- **`Vault Writers/`** — the catalog folder (covered in detail below), seeded with a mandatory **`_index.md`**. That `_index.md` also does double duty as the marker that proves "this is a vault we built." The per-pillar governance narrative (Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, Doc-Dependencies) is *not* seeded as an in-vault folder — it lives in these hosted docs (this page and `governance-engine.md`), where each pillar is explained in plain language alongside how all the rules compose.
 
 The second is a pair of **address-specific fixtures** that *cannot* be pre-baked into the seed, because they depend on where you installed everything — so the scaffolder fits them once the install location is known:
 
@@ -194,7 +193,7 @@ When a sweep regenerates a table inside a note, it must not erase the paragraphs
 
 | Stage | What happens | Where it lives |
 |---|---|---|
-| **Scaffold** | The seed tree is copied (including the six `System Governance/` explainer notes); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/`/`Wiki/`/`Projects/`/`Work/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
+| **Scaffold** | The seed tree is copied (the `Vault Writers/` folder with its `_index.md`); the vault-root `CLAUDE.md` and the `Plans/`/`Skills/`/`Wiki/`/`Projects/`/`Work/` shortcuts are generated on top | `~/.claude/vault-init/`, `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` |
 | **Every save — advisory** | A past-dated note edit gets a non-blocking reminder | `~/.claude/hooks/pre-write-guard.sh` |
 | **Every save — block** | A malformed `Vault Writers/` note is refused | same gate, against `vault-writer.md.json` |
 | **Writer content in** | Writer → packet in staging → sole reconciler writes the destination (with survivorship + lock); optional AI lane composes a packet but never writes | `staging-emit.sh`, `writer-reconciler/process.sh`, `doc-amender/process.sh` |
@@ -243,7 +242,7 @@ These choices are optimal on two independent grounds. Some are **forced by the p
 
 *All paths below are what an adopter has installed; this document explains the "why" behind them.*
 
-- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`System Governance/` with its `_index.md` plus the six explainer notes, and `Vault Writers/` with its `_index.md`).
+- `~/.claude/vault-init/` — the seed tree copied into a new vault at setup (`Vault Writers/` with its `_index.md`).
 - `~/.claude/skills/onboarder/scripts/build-brain-vault.sh` — the idempotent scaffolder (seed copy + `CLAUDE.md` render + `Plans/`/`Skills/`/`Wiki/`/`Projects/`/`Work/` shortcuts).
 - `~/.claude/hooks/pre-write-guard.sh` — the write-time gate carrying both vault guards (advisory historical-data warning; blocking writer-reference check).
 - `~/.claude/hooks/post-write-verify.sh` — the after-write hook that exposes the on-demand index-regeneration entry point (invoked by the session-close sweep). It never denies a write.
@@ -259,7 +258,7 @@ These choices are optimal on two independent grounds. Some are **forced by the p
 - `~/.claude/skills/librarian/capabilities/writers-index-refresh.sh`, `writers-overlap-refresh.sh`, `writers-health-audit.sh`, `index-maintain.sh`, `tag-coverage-audit.sh` — the vault-health sweeps.
 - `~/.claude/templates/launchd/writer-reconciler.plist.tmpl` — reconciler scheduler (folder watcher + timer backstop).
 - `~/.claude/templates/launchd/doc-amender.plist.tmpl` — AI-lane scheduler (watcher-only).
-- The six `System Governance/` explainer notes (Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, Doc-Dependencies) — shipped pre-authored in the seed under `~/.claude/vault-init/System Governance/`, alongside the cluster's `_index.md`. Each mirrors one machine-readable governance rule with a plain-language explanation of why it exists.
+- The per-pillar governance narrative (Frontmatter, Tagging, Naming, Mandatory-Files, File-Type-Contracts, Doc-Dependencies) — carried in these hosted docs (this page and `governance-engine.md`), not seeded as an in-vault folder. Each pillar gets a plain-language explanation of why its machine-readable rule exists.
 - Commands: `/govern register`, `/librarian <capability>`.
 - Anthropic docs: `code.claude.com/docs` (PreToolUse/PostToolUse hooks, allow-with-context / deny-with-reason, `claude -p`, `CLAUDE.md` auto-load, slash-command skills).
 - macOS documentation: `launchd.plist` (folder-watch + timed triggers) and `lockf` (single-instance lock) man pages.

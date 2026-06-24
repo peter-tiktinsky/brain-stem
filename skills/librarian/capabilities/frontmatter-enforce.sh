@@ -359,10 +359,9 @@ TAG_PREFIXES = _load_tag_prefixes()
 # tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths via
 # tools/build-foundation-master.sh). SEPARATE from the R-47 tag-PRESENCE exempt
 # list (r47_exempt_paths) — this gates ONLY the tag-not-in-taxonomy membership
-# arm so the foundation-shipped vault-init seed surface (System Governance/**,
-# Vault Writers/_index.md) does not flag the 9 day-one violations, while seeds
-# stay byte-unchanged and still obey the tag-presence rule. NOT pre-loaded by
-# is_exempt(); read here.
+# arm so the foundation-shipped vault-init seed surface (Vault Writers/_index.md)
+# does not flag day-one violations, while seeds stay byte-unchanged and still
+# obey the tag-presence rule. NOT pre-loaded by is_exempt(); read here.
 def _load_seed_taxonomy_exempt_paths():
     bundle_path = os.environ.get("FM_FOUNDATION_MASTER", "")
     try:
@@ -629,7 +628,7 @@ def load_drift_allowlist():
             if isinstance(e, dict) and e.get("capability")]
 
 def canonical_scope_files():
-    """Vault root depth-1 + System Governance/** + Skills/**"""
+    """Vault root depth-1 + Skills/**"""
     out = []
     # FileNotFoundError on an empty vault_root, aborting session-close under
     # set -euo pipefail. Guard before the walk so a missing vault degrades to [].
@@ -640,7 +639,7 @@ def canonical_scope_files():
         full = os.path.join(vault_root, fn)
         if os.path.isfile(full) and fn.endswith(".md"):
             out.append((full, fn))
-    for sub in ("System Governance", "Skills"):
+    for sub in ("Skills",):
         base = os.path.join(vault_root, sub)
         if not os.path.isdir(base):
             continue
@@ -672,7 +671,7 @@ def drift_provides_canonicality(allowlist):
         file_list = sorted(files)
         sev = "warning"
         for f in file_list:
-            if "/" not in f or f.startswith("System Governance/"):
+            if "/" not in f:
                 sev = "blocking"
                 break
         findings.append({
@@ -779,8 +778,7 @@ def drift_size_monitoring():
                 finding_type, severity = "size-warning-strong", "warning"
             else:
                 finding_type, severity = "size-guard-violation", "blocking"
-            canonical = (os.path.dirname(rel) == "" or rel.startswith("System Governance/")
-                         or rel.startswith("Skills/"))
+            canonical = (os.path.dirname(rel) == "" or rel.startswith("Skills/"))
             recommendation = None
             if canonical and severity in ("warning", "blocking"):
                 recommendation = hub_spoke_recommendation(full, rel)

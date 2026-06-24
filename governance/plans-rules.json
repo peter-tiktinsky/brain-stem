@@ -4,8 +4,8 @@
   "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 8-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
   "_design_notes": {
     "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; Branch 4 librarian-only writes; manifest-substance branch), skills/librarian/capabilities/{plan-index,plan-archive,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
-    "lockstep_pair": "System Governance - Plans.md (narrative spoke) + schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh",
-    "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its narrative spoke + schema + contracts + hook move in one commit."
+    "lockstep_pair": "schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh",
+    "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its schema + contracts + hook move in one commit."
   },
   "_rules": [
     {

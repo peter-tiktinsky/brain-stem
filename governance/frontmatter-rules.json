@@ -12,8 +12,8 @@
       "retired_types (was vault-schema.json `_retired_types`)",
       "path_routing (was vault-schema.json `_path_rules`; renamed for clarity)"
     ],
-    "lockstep_pair": "vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke) + pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
-    "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + vault-init/System Governance/System Governance - Frontmatter.md + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
+    "lockstep_pair": "pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
+    "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
     "source_dependencies": []
   },
   "_rules": [
@@ -32,7 +32,7 @@
       "failure_mode": "Files written with an unknown `type:` value or with missing Strict-tier required fields drift the schema contract silently. Downstream consumers (auto-routing, librarian, scaffold) cannot reason about the file because the contract has been violated. Without write-time DENY, the schema becomes documentation rather than enforcement — production-scale untagged-file backlogs (~500 files observed in a reference deployment) accumulate before audit catches up. The Tier 2 DENY closes the gap at the moment of capture, returning a structured error that enumerates the missing fields and points to the schema entry.",
       "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
       "schema_source": "governance/frontmatter-rules.json#types",
-      "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`) are DENIED with the retirement reference and `replacement` guidance pointing the author to the folder-lineage convention (field-level propagation via `engagement:` + `project:` frontmatter fields plus matching tags). See `retired_types` block."
+      "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`, `system-governance-spoke`) are DENIED with the retirement reference and per-type `replacement` guidance. For `engagement` and `project` the replacement points the author to the folder-lineage convention (field-level propagation via `engagement:` / `project:` frontmatter fields); `system-governance-spoke` retires with no replacement type (the file is now plain user content). See `retired_types` block."
     },
     {
       "id": "R-33",
@@ -64,11 +64,10 @@
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "_enforcement_layer_note": "R-37 is documentary, not write-time-enforced. There is no `pre-write-guard.sh atomic-lockstep branch (DENY on partial-surface writes)` — PreToolUse sees one file per invocation and cannot inspect a multi-file commit set; and no `git pre-commit hook` ships with the foundation. Enforcement is git's commit-boundary atomicity (commits are atomic by construction) + author discipline at the close-out merge boundary + the librarian governance-parity-audit at audit-time.",
       "failure_mode": "Schema-touching changes that land in one surface without the others produce silent drift — the pillar declares a new type the hook does not recognize; the narrative spoke documents fields the pillar has not added; the rule registry references a field name the pillar spells differently. Within weeks the surfaces diverge enough that no single artifact is authoritative. Drift is detectable but already-broken when the audit surfaces it. R-37's structural commitment is that partial-surface commits are treated as the error they are; the close-out merge boundary and the librarian audit are the regression checks that catch drift before it ossifies.",
-      "rule_text": "The frontmatter pillar binds three coupled surfaces under R-37 atomic lockstep: (1) governance/frontmatter-rules.json (canonical pillar declaring types, tiers, path-routing rules, and rule registry; absorbed the former schemas/vault-schema.json), (2) vault-init/System Governance/System Governance - Frontmatter.md (narrative spoke), (3) hooks/pre-write-guard.sh SCHEMA_KEY case-statement + hooks/post-write-verify.sh type_map (runtime mirror). Adding, modifying, or retiring a `type:` value, changing a required-field list, introducing a new field class, or updating the tier-compliance contract requires touching ALL THREE surfaces in a single commit. R-37 is documentary — enforced via author discipline at the close-out merge boundary, git's commit-boundary atomicity, and the librarian governance-parity-audit at audit-time. There is no write-time hook branch that denies partial-surface commits (PreToolUse architecture sees one file per invocation and has no view of the multi-file commit set; the proper enforcement layer for that would be a pre-commit or post-merge audit, not pre-write-guard). This entry is the pillar-scoped instantiation of the canonical R-37 meta-rule at governance/_index.json `cross_cutting_meta_rules[]`. The coupled-surfaces declaration in governance/_index.json carries governance/foundation-master.json (forward).",
+      "rule_text": "The frontmatter pillar binds two coupled surfaces under R-37 atomic lockstep: (1) governance/frontmatter-rules.json (canonical pillar declaring types, tiers, path-routing rules, and rule registry; absorbed the former schemas/vault-schema.json), (2) hooks/pre-write-guard.sh SCHEMA_KEY case-statement + hooks/post-write-verify.sh type_map (runtime mirror). Adding, modifying, or retiring a `type:` value, changing a required-field list, introducing a new field class, or updating the tier-compliance contract requires touching BOTH surfaces in a single commit. R-37 is documentary — enforced via author discipline at the close-out merge boundary, git's commit-boundary atomicity, and the librarian governance-parity-audit at audit-time. There is no write-time hook branch that denies partial-surface commits (PreToolUse architecture sees one file per invocation and has no view of the multi-file commit set; the proper enforcement layer for that would be a pre-commit or post-merge audit, not pre-write-guard). This entry is the pillar-scoped instantiation of the canonical R-37 meta-rule at governance/_index.json `cross_cutting_meta_rules[]`. The coupled-surfaces declaration in governance/_index.json carries governance/foundation-master.json (forward).",
       "meta_rule_reference": "governance/_index.json cross_cutting_meta_rules[] R-37",
       "coupled_surfaces": [
         "governance/frontmatter-rules.json",
-        "vault-init/System Governance/System Governance - Frontmatter.md",
         "hooks/pre-write-guard.sh (SCHEMA_KEY case)",
         "hooks/post-write-verify.sh (type_map)",
         "governance/foundation-master.json (forward; built from this pillar via tools/build-foundation-master.sh)"
@@ -109,11 +108,10 @@
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Two or more canonical-scope files claiming the same `provides:` capability fragment authority. A consumer routing to the capability does not know which file to read; updates to one canonical do not propagate to the other; the two files drift into mutually-contradictory statements within months. Without an audit, the drift is invisible — `grep provides:` returns both files and the consumer picks one by accident. The librarian-audit finding surfaces the collision and asks the operator to either consolidate, archive one source, or register the overlap as deliberate in the drift-allowlist.",
-      "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + System Governance/** + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root or inside System Governance/**; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
+      "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
       "audit_only": true,
       "canonical_scope": [
         "vault root depth-1",
-        "System Governance/**",
         "Skills/**"
       ],
       "scope_exemptions": [
@@ -187,6 +185,10 @@
     "project": {
       "reason": "Same as `engagement` — folders own project lineage; FIELD `project` propagates lineage to files.",
       "replacement": "Use `project: <slug>` as FIELD on any file living under the adopter's project sub-cluster lineage folder. Foundation declares the field; adopter's overlay-master.frontmatter.path_routing.rules[] declares the lineage glob. For the project-level overview file itself, use type=`context` or type=`navigation` (per file purpose)."
+    },
+    "system-governance-spoke": {
+      "reason": "Retired type — the foundation no longer ships in-vault narrative spokes; the governance pillar content is published in the hosted docs instead. A file declaring this type is editing a legacy spoke that is now ordinary user-owned content carrying no foundation contract.",
+      "replacement": "No replacement type. The file is now plain user content; choose an active type that fits its purpose (e.g. type=`navigation` for a folder overview, type=`reference` for a knowledge article), or leave it untracked. The governance narrative it mirrored lives in the hosted docs, not an in-vault spoke."
     }
   },
   "path_routing": {
@@ -237,29 +239,6 @@
       ],
       "body_structure_contract": "governance/file-type-contracts/_index.md.json",
       "canonical_scope": true
-    },
-    "system-governance-spoke": {
-      "tier": "strict",
-      "_description": "Foundation-shipped narrative spokes at System Governance/ — one per governance pillar. User-facing prose mirroring pillar content + rationale. Body shape governed by governance/file-type-contracts/System Governance.md.json.",
-      "required": [
-        "type",
-        "title",
-        "mirrors_pillar"
-      ],
-      "optional": [
-        "description",
-        "provides",
-        "updated",
-        "tags"
-      ],
-      "body_structure_contract": "governance/file-type-contracts/System Governance.md.json",
-      "canonical_scope": true,
-      "expected_path": [
-        {
-          "pattern": "System Governance/*",
-          "label": "System Governance/"
-        }
-      ]
     },
     "deliverable": {
       "tier": "strict",
@@ -370,7 +349,7 @@
           "label": "_library/"
         }
       ],
-      "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime; the only write-time line-count enforcement is the System-Governance-specific max-lines guard. Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template."
+      "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime; the only write-time line-count enforcement is the navigational hub-file max-lines guard (R-03). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template."
     }
   }
 }

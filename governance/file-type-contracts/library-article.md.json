@@ -8,7 +8,7 @@
   "frontmatter_contract_source": "governance/frontmatter-rules.json#types.reference",
   "_design_notes": {
     "consumer": "skills/librarian/capabilities/library-scrub.sh emits the article at promotion (synthesizes the routing one-liner + scrubbed body); skills/librarian/capabilities/library-index.sh reads size_limits at the audit-time re-derive scan to emit the over-threshold finding and consumes routing as the first Description-derivation source. The templates/library-article.md scaffold instantiates this contract.",
-    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.reference (the type registration) + the vault-init/System Governance/System Governance - Frontmatter.md narrative spoke + the hook SCHEMA_KEY dispatch + governance/foundation-master.json forward-composed move in one commit.",
+    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.reference (the type registration) + the hook SCHEMA_KEY dispatch + governance/foundation-master.json forward-composed move in one commit.",
     "type_registration_rationale": "The article type is registered via the frontmatter pillar, not the tagging pillar; frontmatter is the activation surface the index generators read to route a reader to the article."
   },
 

@@ -2,8 +2,8 @@
 # placement-validate — Check that every file is in the correct location per routing rules.
 # Sources `lib/findings.sh`.
 # Rules per SKILL.md:
-#   1. Vault root allowlist: CLAUDE.md, System Governance.md (foundation
-#      ships only these two; System Backlog.md + System Backlog - Archive.md
+#   1. Vault root allowlist: CLAUDE.md (the only foundation-shipped mandatory
+#      vault-root file; System Backlog.md + System Backlog - Archive.md
 #      retired per T-15 Tier B 2026-05-22 — backlog lifecycle now
 #      librarian-owned at ~/.claude-plans/_backlog.md per
 #      governance/plans-rules.json :: root_files).
@@ -93,11 +93,11 @@ def emit(payload):
     else:
         sys.stdout.write(line + "\n")
 
-# Vault root allowlist (CLAUDE.md + System Governance.md per foundation
-# ship; System Backlog entries retired per T-15 Tier B 2026-05-22)
+# Vault root allowlist (CLAUDE.md per foundation ship; System Backlog
+# entries retired per T-15 Tier B 2026-05-22)
 # + index-file convention.
 VAULT_ROOT_ALLOWLIST = {
-    "CLAUDE.md", "System Governance.md",
+    "CLAUDE.md",
     "_index.md", "File-Index.md",
 }
 

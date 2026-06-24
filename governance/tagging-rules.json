@@ -4,8 +4,8 @@
   "_description": "Pillar 2 — Tagging (per-pillar rule model). Loaded by pre-write-guard.sh at runtime. Homes R-05 (deny, tag-validation), R-47 (advisory, tag-presence), R-50 (advisory, 25-tag cap). The R-60 (deny, tag grammar) _rules[] OBJECT is homed in governance/naming-rules.json — it appears in the tagging rule_id_range (category=tagging) only, NOT duplicated here. _rules[] is the per-pillar rule SoT (each object carries home/category/surface?/status). Carries the canonical tag-prefix taxonomy. Tags are the user-side query surface (Obsidian graph view, filter pane, MOC patterns); frontmatter fields are the Claude-side substrate.",
   "_design_notes": {
     "consumer": "pre-write-guard.sh — tag-validation branch (R-05) + tag-presence advisory (R-47); librarian tag-coverage-audit (R-47, R-50); onboarder consolidation prompt (R-50, install-time)",
-    "lockstep_pair": "System Governance - Tagging.md (narrative spoke) + hooks/pre-write-guard.sh (tag-validation branch) + governance/log-subtype-registry.json (system-utility canonicality discipline)",
-    "evolution_protocol": "R-37 documentary lockstep — tagging-rules.json + System Governance - Tagging.md narrative spoke + pre-write-guard.sh tag-validation branch move in one commit (the r37_coupled_surfaces set declared at governance/_index.json#pillars[tagging]). NO write-time DENY for R-37, by design (R-37 is documentary across the governance surface — git commit-boundary atomicity + librarian governance-parity-audit at session-close; a PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set).",
+    "lockstep_pair": "hooks/pre-write-guard.sh (tag-validation branch) + governance/log-subtype-registry.json (system-utility canonicality discipline)",
+    "evolution_protocol": "R-37 documentary lockstep — tagging-rules.json + pre-write-guard.sh tag-validation branch move in one commit (the r37_coupled_surfaces set declared at governance/_index.json#pillars[tagging]). NO write-time DENY for R-37, by design (R-37 is documentary across the governance surface — git commit-boundary atomicity + librarian governance-parity-audit at session-close; a PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set).",
     "rule_id_range_reconciliation": "_index.json#pillars[tagging].rule_id_range = [R-05, R-60, R-47, R-50]. This pillar's _rules[] = [R-05, R-47, R-50] (3 objects). R-60 is in the range (its tag-grammar substance is category=tagging) but its _rules[] object is HOMED in governance/naming-rules.json. This is the home != range divergence — the tagging surface owns R-60's runtime substance (it validates against this pillar's taxonomy); naming owns R-60's declaration site."
   },
   "taxonomy": {
@@ -61,12 +61,11 @@
         ".claude/**",
         ".claude/hooks/lib/**"
       ],
-      "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + the narrative spoke (System Governance - Tagging.md) + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited).",
+      "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited).",
       "seed_taxonomy_exempt_paths": [
-        "System Governance/**",
         "Vault Writers/_index.md"
       ],
-      "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation ships its vault-init seed surface tagged with adopter-tier dimensions (#scope/reference on the six System Governance/*.md spokes, #system-governance on System Governance/_index.md, #vault-writers on Vault Writers/_index.md) that model good tagging for adopters; the foundation taxonomy itself ships user_facing_dimensions:[] BY DESIGN (taxonomy.user_facing_dimensions), so those seed tags are NOT members of the foundation allowlist and the tag-taxonomy membership arm flags them as 9 day-one violations. These two glob surfaces exempt EXACTLY those seeds from the tag-not-in-taxonomy membership check ONLY — seeds stay byte-unchanged, still obey the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle). Forward note: _load_tag_prefixes() reads only FM_FOUNDATION_MASTER and does not yet union the adopter overlay-master taxonomy — until that union-read lands, exemption (not adopter-dimension-registration) is the correct minimum-viable closure."
+      "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation seeds #vault-writers on Vault Writers/_index.md to model good tagging for adopters; the foundation taxonomy itself ships user_facing_dimensions:[] BY DESIGN (taxonomy.user_facing_dimensions), so that seed tag is NOT a member of the foundation allowlist and the tag-taxonomy membership arm would flag it. This one glob surface exempts EXACTLY that seed from the tag-not-in-taxonomy membership check ONLY — the seed stays byte-unchanged, still obeys the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle)."
     },
     {
       "id": "R-50",
@@ -76,7 +75,7 @@
       "enforcement_layer": [
         "librarian tag-coverage-audit (audit-time consolidation prompt at 80% threshold)",
         "onboarder consolidation prompt (install-time)",
-        "documentary in System Governance - Tagging.md"
+        "documentary in the hosted governance docs (vault-governance.md)"
       ],
       "status": "active",
       "source": "governance/tagging-rules.json :: _rules (SoT; 25-tag cap grounded in Forte/Dubois working-vocabulary research + Hedden faceted-classification literature + Adobe AEM and SharePoint enterprise CMS picklist patterns)",

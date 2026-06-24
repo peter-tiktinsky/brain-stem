@@ -10,8 +10,8 @@
   "frontmatter_contract_source": "governance/frontmatter-rules.json#types.index",
   "_design_notes": {
     "consumer": "hooks/post-write-verify.sh — Tier 1 auto-bootstrap + live-sync on every Edit/Write tool call to a vault folder; skills/librarian/capabilities/index-maintain.sh — Tier 2 audit sweep + Tier 3 --deep semantic validation",
-    "lockstep_pair": "governance/frontmatter-rules.json#types.index (frontmatter contract; dissolved from schemas/vault-schema.json) + governance/mandatory-files-rules.json `mandates._index_md` (matcher + exemption list) + System Governance - Mandatory-Files.md (narrative spoke)",
-    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + frontmatter-rules.json#types.index + mandatory-files-rules.json mandates entry + Mandatory-Files spoke updated in one commit",
+    "lockstep_pair": "governance/frontmatter-rules.json#types.index (frontmatter contract; dissolved from schemas/vault-schema.json) + governance/mandatory-files-rules.json `mandates._index_md` (matcher + exemption list)",
+    "evolution_protocol": "R-37 atomic lockstep — runtime artifact + frontmatter-rules.json#types.index + mandatory-files-rules.json mandates entry updated in one commit",
     "shape_optimization_for_hooks": "Single-document JSON loadable in one `jq` pass; flat keys for sentinel patterns, regexes, columns ordered by `position` (1-indexed); enums resolved to concrete arrays (no PLACEHOLDER strings). Adopter Layer-3 overlays at $CLAUDE_HOME/governance/file-type-contracts/_index.md.adopter.json shadow this file per R-52 with `_override_reason` discipline."
   },
 
@@ -168,7 +168,7 @@
   "exemption_list_pointer": {
     "canonical_source": "governance/mandatory-files-rules.json",
     "canonical_jq_path": ".mandates._index_md.exemption_paths",
-    "rationale": "Single source of truth for which folders are exempt from _index.md mandate. The post-write hook + librarian index-maintain consume from there at runtime — when a write hits an exempt folder, the hook does not auto-create _index.md and the librarian does not flag missing-index as drift. Exemption changes require R-37 lockstep updating mandatory-files-rules.json + this file's `last_synced_exemption_count` + Mandatory-Files spoke."
+    "rationale": "Single source of truth for which folders are exempt from _index.md mandate. The post-write hook + librarian index-maintain consume from there at runtime — when a write hits an exempt folder, the hook does not auto-create _index.md and the librarian does not flag missing-index as drift. Exemption changes require R-37 lockstep updating mandatory-files-rules.json + this file's `last_synced_exemption_count`."
   },
 
   "consumers": [

@@ -318,7 +318,7 @@ emit_pairs() {
 
   # vault-init/** (recursive; T-1e NEW; install.sh Step 8.7)
   # Foundation-canonical adopter-vault seed tree mirroring the target adopter
-  # vault tree EXACTLY per. Includes System Governance/ + Vault Writers/
+  # vault tree EXACTLY per. Includes Vault Writers/
   # + Logs/Archive/ subdir scaffolds (the Meetings/ seed folder + the meeting-note
   # TYPE/contract are parked out of foundation; ingestor parked). System Backlog carryover RETIRED
   # 2026-05-22 per graduation (backlog + archive now live as librarian-emitted

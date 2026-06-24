@@ -66,7 +66,7 @@ Here is the load-bearing thing to understand up front: **on an adopter's machine
 
 The same eight names show up one more time, in the adopter's own additions file: **the overlay (covered two sections down) mirrors these exact eight pillar slots, plus one extra `system` slot** for machine-wide settings such as a timezone — and on a fresh install every one of those slots is empty. Keep that picture in mind; it is the symmetry that makes the whole engine simple to reason about.
 
-> The pillars also have human-readable companion pages that ship in the vault under `System Governance/` — one narrative spoke per pillar. Those spokes explain a single pillar in everyday language; this architecture page explains how all eight compose into one working engine.
+> Each pillar also has a human-readable companion narrative — one explainer per pillar — covering a single pillar in everyday language; this architecture page explains how all eight compose into one working engine. Those per-pillar narratives live in these hosted docs (this page and `vault-governance.md`); they are not seeded as an in-vault folder.
 
 ---
 
@@ -157,9 +157,9 @@ The engine deliberately runs rules at **different strengths**.
 
 ## File-type contracts — a small rulebook per document kind
 
-Beyond the broad pillars, the engine carries a small rulebook for each *specific* kind of document — a deliverable, a plan spec, a decision record, the vault's own governance summary page, and more. These live under `~/.claude/governance/file-type-contracts/`, and each contract states what that document type must contain: which metadata fields are required, which values are allowed, and sometimes a size limit. All of them are folded into the composed bundle, so the guard can check, for example, that a deliverable actually carries its required status field.
+Beyond the broad pillars, the engine carries a small rulebook for each *specific* kind of document — a deliverable, a plan spec, a decision record, and more. These live under `~/.claude/governance/file-type-contracts/`, and each contract states what that document type must contain: which metadata fields are required, which values are allowed, and sometimes a size limit. All of them are folded into the composed bundle, so the guard can check, for example, that a deliverable actually carries its required status field.
 
-The **size-limit** case is a clean illustration of a rule realized through *data* rather than through code. The vault's System Governance hub page is navigational — a short index, not a place for long content — so its contract (`~/.claude/governance/file-type-contracts/System Governance.md.json`) declares a maximum line count. The guard reads that limit *from the contract* (via the bundle) and **denies an over-length write**. The limit lives in the contract, not hardcoded in the script — so adjusting it is a data change, not a code change.
+The **size-limit** case is a clean illustration of a rule realized through *data* rather than through code. Where a document type is navigational — a short index, not a place for long content — its contract can declare a maximum line count. The guard reads that limit *from the contract* (via the bundle) and **denies an over-length write**. The limit lives in the contract, not hardcoded in the script — so adjusting it is a data change, not a code change.
 
 ---
 
@@ -269,14 +269,13 @@ Everything below is an **installed artifact** — a file that lands on an adopte
 
 - `foundation-master.json` — **the APPLY surface** (read together with the overlay; see the merge helper). The single composed, shipped, immutable bundle the write-time guard reads at every write. Carries one slot per pillar — `frontmatter`, `tagging`, `naming`, `mandatory_files`, `doc_dependencies`, `file_type_contracts`, `vault_writers`, `plans` — plus pre-computed runtime slices and a `_meta` block. Stitched in the build workshop; never hand-edited, never rebuilt by adopters. Carries the content fingerprint at `_meta.bundle_version`.
 - `overlay-master.json` — the adopter-local overlay. Ships as an empty skeleton that mirrors the bundle's eight pillar slots plus one `system` slot (for machine-wide settings such as a timezone) — every slot empty until the adopter registers an extension. Deep-merged on top of the foundation, overlay wins, with a mandatory `_override_reason` on any shadowing entry.
-- `file-type-contracts/` — the per-document-type rulebooks, all folded into the bundle (deliverables, plan specs, decision records, the governance hub page, and more).
-- `file-type-contracts/System Governance.md.json` — the contract carrying the line-count limit; the worked example of a size guard living in data, not in code.
+- `file-type-contracts/` — the per-document-type rulebooks, all folded into the bundle (deliverables, plan specs, decision records, and more). Some contracts carry a maximum line count — the worked example of a size guard living in data, not in code.
 - `log-subtype-registry.json` — the shipped registry of log subtypes (consumed by the log-archive retention capability).
 - `governance-action-log.jsonl` — the append-only audit log of every `/govern register` action and every frictionless skip (created empty at install time; mineable once used).
 
 **The write-time and after-write hooks (`~/.claude/hooks/`)**
 
-- `pre-write-guard.sh` — the write-time doorman. Reads the merged foundation-plus-overlay view, returns allow / allow-with-advisory / deny; carries the System Governance size-cap deny (reading the limit from the bundle, failing open if the bundle is missing), the overlay-collision deny, the live-mutation safety gate, the cross-document cascade advisory, the write-time plan-manifest substance check, and the `/govern register` suggestion.
+- `pre-write-guard.sh` — the write-time doorman. Reads the merged foundation-plus-overlay view, returns allow / allow-with-advisory / deny; carries the contract-driven size-cap deny (failing open if the bundle is missing), the overlay-collision deny, the live-mutation safety gate, the cross-document cascade advisory, the write-time plan-manifest substance check, and the `/govern register` suggestion.
 - `post-write-verify.sh` — fires after a write; exposes an on-demand index-regeneration entry point (invoked by the session-close sweep). Never denies; always exits cleanly. Wired into the after-write step by default.
 - `post-tool-use-manifest.sh` — the after-write plan-manifest verifier; re-reads a just-written plan manifest, confirms it is well-formed and conforms to the plan-manifest schema, and warns. The safety net for files where silent corruption is most expensive. Ships with the system as a shipped-but-not-default hook — wire it into the after-write step to activate it.
 - `lib/foundation-overlay-load.sh` — the merge helper. Runs the `_override_reason` collision check, emits the deep-merged view the guard reads, and falls back to a foundation-only view if the overlay is corrupt.
@@ -295,7 +294,7 @@ Everything below is an **installed artifact** — a file that lands on an adopte
 
 **Companion narrative pages**
 
-- The vault's `System Governance/` folder — one human-readable spoke per pillar; the everyday-language companions to this engine-level overview.
+- These hosted docs — `vault-governance.md` and this page — carry the everyday-language, per-pillar narrative companions to this engine-level overview.
 
 **External**
 

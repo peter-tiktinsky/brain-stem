@@ -4,6 +4,23 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.7.0]
+
+Maintenance release — the foundation no longer seeds the in-vault `System Governance/` folder, the eight-file narrative-spoke seed that explained each governance pillar inside your vault. That narrative is published in full on the documentation site, so the in-vault copy was a drift-prone duplicate that also blurred the line between what the foundation owns and what you own. **Upgrading adopters are unaffected:** a folder an earlier version already seeded is never touched — it becomes ordinary, user-owned content — and nothing is pruned out from under you. See the [v1.7.0 release notes](docs/release-notes-v1.7.0.md).
+
+### Removed
+
+- **The seeded in-vault `System Governance/` folder** is no longer created by vault setup. The per-pillar governance narrative it held (naming, tagging, frontmatter, mandatory files, file-type contracts, doc-dependencies, plus its index) lives in full on the documentation site — the *governance engine* and *vault governance* pages carry the complete write-up, so no explanation is lost.
+
+### Changed
+
+- **The "this is a brain-stem vault" marker moved.** brain-stem recognizes a vault it built by looking for a small marker file; that marker used to be the `System Governance/` index page and is now `Vault Writers/_index.md`, a page setup already creates. This is invisible in normal use — it only ensures that re-running setup on a vault brain-stem already built is still recognized.
+- **A legacy `system-governance-spoke` file type now gives a clear retired-type message.** If you keep and edit one of the old seed pages while it still declares `type: system-governance-spoke`, the governance check recognizes that type as retired and says so directly — a plain retirement note, not an "unknown type" error or a hard failure.
+
+### Upgrade note
+
+- Your already-seeded `System Governance/` folder is never touched — upgrading does not re-run vault setup, so it stays exactly where it is and quietly becomes user-owned content you may keep, edit, or delete. One inert leftover may remain: brain-stem keeps a copy of the seed files inside your install directory (`~/.claude/vault-init/`), and the upgrade engine delivers managed files but does not prune ones removed upstream, so an inert `vault-init/System Governance/` set may persist under your install directory. Nothing reads it at runtime; it is harmless residue you can leave or delete.
+
 ## [v1.6.1]
 
 Documentation release — the published documentation is brought back into step with the system as it ships after v1.5.0 and v1.6.0. **The installed foundation is unchanged and there is nothing to migrate.** The command reference gains the `/deliver-export` command (shipped in v1.5.0 but never documented), the vault tour now describes all five setup shortcuts (the `Work/` surface was missing), several "what changed" cross-links are repointed at the current release, and a leftover reference to a removed ingestion script is cleaned up. See the [v1.6.1 release notes](docs/release-notes-v1.6.1.md).

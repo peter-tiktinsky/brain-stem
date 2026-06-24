@@ -154,7 +154,7 @@
     },
     "seed_taxonomy_exempt_paths_composed": {
       "type": "array",
-      "description": "Deterministic union of the DEDICATED tag-TAXONOMY exempt-paths composed from tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths. SEPARATE from r47_exempt_paths_composed (the tag-PRESENCE list). Deduped + sorted. Consumed by skills/librarian/capabilities/frontmatter-enforce.sh tag-taxonomy arm to exempt the foundation-shipped vault-init seed surface (System Governance/**, Vault Writers/_index.md) from the tag-not-in-taxonomy membership check without altering seed bytes.",
+      "description": "Deterministic union of the DEDICATED tag-TAXONOMY exempt-paths composed from tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths. SEPARATE from r47_exempt_paths_composed (the tag-PRESENCE list). Deduped + sorted. Consumed by skills/librarian/capabilities/frontmatter-enforce.sh tag-taxonomy arm to exempt the foundation-shipped vault-init seed surface (Vault Writers/_index.md) from the tag-not-in-taxonomy membership check without altering seed bytes.",
       "items": {
         "type": "string",
         "minLength": 1

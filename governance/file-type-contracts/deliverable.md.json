@@ -9,7 +9,7 @@
   "_design_notes": {
     "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root; no write-time guard fires on deliverables authored outside the vault root.",
     "thin_contract_note": "Models the minimal-viable file-type stub shape (frontmatter + lifecycle, free-form body), NOT the rich library-article body-structure shape — deliverables are too heterogeneous for a single body contract. Per-deliverable-kind structure governance is an archetype subtype layered via overlay-master.json, not part of this base contract.",
-    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.deliverable (the type registration) + the vault-init/System Governance/System Governance - Frontmatter.md narrative spoke + governance/foundation-master.json forward-composed move in one commit."
+    "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.deliverable (the type registration) + governance/foundation-master.json forward-composed move in one commit."
   },
 
   "type": "deliverable",

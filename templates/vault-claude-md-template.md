@@ -21,7 +21,6 @@
 ```
 {{VAULT_ROOT}}/
 ├── CLAUDE.md                          [this file]
-├── System Governance/           [F]  → narrative spokes for 6 governance pillars
 ├── Plans/                        [F]  → symlink to {{PLANS_HOME}}
 ├── Vault Writers/                [F]  → writer-references for vault-writing systems
 ├── Work/                         [F]  → symlink to {{WORK_HOME}} (deliverable spokes)

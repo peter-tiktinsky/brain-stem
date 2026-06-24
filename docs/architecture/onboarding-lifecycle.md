@@ -144,7 +144,6 @@ brain-stem ships a **seed**: a small starter folder tree with the standard folde
 
 | Seeded folder | What it is for |
 |---|---|
-| `System Governance/` | A reference area — six human-readable companion documents explaining how the assistant keeps your vault consistent (one per governance pillar), plus its `_index.md` |
 | `Vault Writers/` | A catalog of any system that writes into your vault |
 
 Onboarding **copies that seed into the location you chose and turns it into your working vault.** This is called *adopt-by-default*: you do not opt in to the standard structure as an extra step; you get it automatically as part of setup.
@@ -153,7 +152,7 @@ The copy is gentle. It walks the seed file by file and **skips anything already 
 
 The seed is the blank, pre-labeled filing cabinet everyone starts with. Adopt-by-default means you walk away with the cabinet assembled, not a flat-pack box.
 
-> **Build-history aside (safe to skip).** An earlier seed shipped only empty placeholder files. The result: nothing was copied, the marker file that proves "this is a vault we built" was never created, and a re-run was wrongly refused as if the folder belonged to someone else. The fix was to ship two real committed index files (`System Governance/_index.md` and `Vault Writers/_index.md`) so the marker exists from the first build. The `System Governance/_index.md` file doubles as that marker. This is fixed history, not current behavior — included only for authors tracing why the marker convention exists.
+> **Build-history aside (safe to skip).** An earlier seed shipped only empty placeholder files. The result: nothing was copied, the marker file that proves "this is a vault we built" was never created, and a re-run was wrongly refused as if the folder belonged to someone else. The fix was to ship a real committed index file (`Vault Writers/_index.md`) so the marker exists from the first build. The `Vault Writers/_index.md` file doubles as that marker. This is fixed history, not current behavior — included only for authors tracing why the marker convention exists.
 
 ---
 
@@ -337,7 +336,7 @@ These are the installed artifacts that implement and back this document. The ski
 - `~/.claude/templates/claude-home-claude-md-template.md` — the template for the global personal-preferences `CLAUDE.md`.
 - `~/.claude/templates/vault-claude-md-template.md` — the template for the vault-root `CLAUDE.md` (folder-structure map).
 - `~/.claude/schemas/user-manifest-schema.json` — the blueprint the manifest is validated against before it is saved.
-- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`System Governance/` with its six narrative spokes and `_index.md`, and `Vault Writers/` with its `_index.md`).
+- `~/.claude/vault-init/` — the seed folder tree that adopt-by-default copies into your vault (`Vault Writers/` with its `_index.md`).
 
 **The outputs onboarding writes**
 

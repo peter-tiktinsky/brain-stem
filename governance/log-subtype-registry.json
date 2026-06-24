@@ -3,8 +3,8 @@
   "_description": "Canonical enumeration of `#log/*` and `#status/*` system-utility tag subtype values. Source of truth for the pre-write-guard hook's near-match DENY discipline (R-05) and the librarian log-subtype-canonical audit. Foundation seeds the operational subtypes that ship with foundation skills + crons; adopters extend via Layer 3 overlay at `log_subtype_registry_overlay.json` (sibling location post-install).",
   "_design_notes": {
     "consumer": "pre-write-guard.sh tag-validation branch (R-05 near-match DENY); librarian log-subtype-canonical capability (audit-time drift detection); skill-side `log_subtype:` SKILL.md declaration contract",
-    "lockstep_pair": "governance/tagging-rules.json R-05 (tag-validation branch) + System Governance - Tagging.md (narrative spoke) + hooks/pre-write-guard.sh (enforcement) + governance/tagging-rules.json#taxonomy.system_utility_governance",
-    "evolution_protocol": "R-37 documentary lockstep — registry additions move with tagging-rules.json R-05 + System Governance - Tagging.md narrative spoke + pre-write-guard.sh tag-validation branch + tagging-rules.json#taxonomy.system_utility_governance in one commit. NO write-time DENY for R-37, by design (git commit-boundary atomicity + librarian governance-parity-audit). Adopter-side additions land at the sibling overlay (log_subtype_registry_overlay.json); no foundation-repo commit required for adopter operational subtypes."
+    "lockstep_pair": "governance/tagging-rules.json R-05 (tag-validation branch) + hooks/pre-write-guard.sh (enforcement) + governance/tagging-rules.json#taxonomy.system_utility_governance",
+    "evolution_protocol": "R-37 documentary lockstep — registry additions move with tagging-rules.json R-05 + pre-write-guard.sh tag-validation branch + tagging-rules.json#taxonomy.system_utility_governance in one commit. NO write-time DENY for R-37, by design (git commit-boundary atomicity + librarian governance-parity-audit). Adopter-side additions land at the sibling overlay (log_subtype_registry_overlay.json); no foundation-repo commit required for adopter operational subtypes."
   },
   "dimensions": {
     "log": {

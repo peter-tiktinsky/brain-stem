@@ -9,8 +9,7 @@
 # /adopt call anywhere in the Tier-2 GA path.
 # OUTPUT CONTRACT (R-43):
 #   Files written (under the resolved vault root):
-#     - <vault>/  + the vault-init/ tree (System Governance/ 6 spokes + _index.md,
-#       Vault Writers/ + _index.md)
+#     - <vault>/  + the vault-init/ tree (Vault Writers/ + _index.md)
 #     - <vault>/Plans    -> symlink to plans_root (// ~/.claude-plans)
 #     - <vault>/Skills   -> symlink to $CLAUDE_HOME/skills/
 #     - <vault>/Wiki     -> symlink to plans_root/_library/   (R-ARCH-SYMLINK)
@@ -120,7 +119,7 @@ WORK_HOME="${BRAIN_STEM_WORK_HOME:-}"
 WORK_HOME="$(expand_tilde "$WORK_HOME")"
 
 CLAUDE_MD="$VAULT_ROOT/CLAUDE.md"
-MARKER="$VAULT_ROOT/System Governance/_index.md"   # presence => brain vault we built
+MARKER="$VAULT_ROOT/Vault Writers/_index.md"   # presence => brain vault we built
 
 # --- non-empty foreign-vault guard ---
 # Empty / missing      -> fresh build.
@@ -145,7 +144,7 @@ build-brain-vault: dry-run summary
   plans_home:   $PLANS_HOME
   skills_dir:   $SKILLS_DIR
   identity:     $NAME
-  would_seed:   vault-init/ tree (System Governance/ + Vault Writers/)
+  would_seed:   vault-init/ tree (Vault Writers/)
   would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop} ; $WORK_HOME ()
   would_link:   $VAULT_ROOT/Plans -> $PLANS_HOME ; $VAULT_ROOT/Skills -> $SKILLS_DIR
                 $VAULT_ROOT/Wiki -> $PLANS_HOME/_library ; $VAULT_ROOT/Projects -> $PLANS_HOME/_projects
@@ -165,14 +164,13 @@ mkdir -p "$VAULT_ROOT" || { diag "mkdir vault root failed: $VAULT_ROOT"; exit 1;
 ( cd "$VAULT_INIT" && find . -type d ) | while IFS= read -r d; do
   mkdir -p "$VAULT_ROOT/$d" || { diag "mkdir $VAULT_ROOT/$d failed"; exit 1; }
 done || { diag "vault-init directory seed failed"; exit 1; }
-# _index.md files (System Governance/_index.md + Vault Writers/_index.md). The
-# copy loop seeds every committed file except the .gitkeep dir-placeholders, so
-# the System Governance/_index.md idempotency MARKER is produced on the first
-# build — a re-run then matches IS_BRAIN_VAULT (marker present) and overlays
-# idempotently instead of hitting the foreign-vault guard. (RED-NOW was a
-# .gitkeep-only tree → zero content seeded → marker never produced → re-run
-# REFUSED without --force.) The 6 System Governance narrative spokes are
-# authored in the COLLABORATIVE content session (operator-locked), not here.
+# Vault Writers/_index.md file. The copy loop seeds every committed file
+# except the .gitkeep dir-placeholders, so the Vault Writers/_index.md
+# idempotency MARKER (see :131) is produced on the first build — a re-run
+# then matches IS_BRAIN_VAULT (marker present) and overlays idempotently
+# instead of hitting the foreign-vault guard. (RED-NOW was a .gitkeep-only
+# tree → zero content seeded → marker never produced → re-run REFUSED
+# without --force.)
 ( cd "$VAULT_INIT" && find . -type f ! -name '.gitkeep' ) | while IFS= read -r f; do
   dest="$VAULT_ROOT/$f"
   [ -f "$dest" ] && continue                       # idempotent: preserve existing
@@ -297,7 +295,6 @@ cat <<EOF
   Your brain vault:       $VAULT_ROOT
 
   Seeded in the vault:
-    System Governance/   how Claude keeps the vault consistent (6 reference spokes)
     Vault Writers/       catalog of any system that writes into the vault
     Plans/    -> $PLANS_HOME
     Skills/   -> $SKILLS_DIR

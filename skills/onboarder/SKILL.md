@@ -26,7 +26,7 @@ Two short interview steps, then four deterministic build steps:
 | B′ | `scripts/section-b-slim.sh` | Voice-optional (or `--typed-only`) free-form answer about who you are and how you work → a slim LLM extraction consolidates it into `identity.role` / `identity.organization` + three behavioral prose blocks. |
 | 1 | `scripts/bootstrap-user-manifest.sh` | Deep-merge the A + B′ fragments, inject system fields, validate against `user-manifest-schema.json` (2.0.0), atomic-write `user-manifest.json`. |
 | 2 | `scripts/author-claude-home.sh` | Render `$CLAUDE_HOME/CLAUDE.md` from the manifest (About-Me line + behavioral prose injected). |
-| 3 | `scripts/build-brain-vault.sh` | Build a fresh "brain" vault: `vault-init/` tree (System Governance/ + Vault Writers/), Plans/Skills symlinks, `<vault>/CLAUDE.md`. Prints the Obsidian-open confirm beat. |
+| 3 | `scripts/build-brain-vault.sh` | Build a fresh "brain" vault: `vault-init/` tree (Vault Writers/), Plans/Skills symlinks, `<vault>/CLAUDE.md`. Prints the Obsidian-open confirm beat. |
 | 4 | `scripts/external-setup-gate.sh` | Soft-mandate gate over claude-mem / GitHub: strong recommendation + honest rationale + frictionless skip. Records dispositions; never blocks. |
 
 ## Invocation

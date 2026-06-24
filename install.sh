@@ -2057,9 +2057,8 @@ apply_subtree_managed() {
   # delivery); upgrade_foundation_file no-ops any member not in the shipped manifest
   # (case (b) user-preserve-skip).
   #
-  # Read line-by-line (NOT `for rel in $(...)`): 11 managed paths carry spaces
-  # (vault-init/System Governance/*, vault-init/Vault Writers/*,
-  # governance/file-type-contracts/System Governance.md.json). Word-splitting on
+  # Read line-by-line (NOT `for rel in $(...)`): managed paths carry spaces
+  # (e.g. vault-init/Vault Writers/*). Word-splitting on
   # IFS would shatter those into nonexistent tokens and silently skip them — the
   # exact cp -n silent-skip regression this engine exists to kill. The `< <(...)`
   # process substitution keeps the loop in the CURRENT shell so per-file global
@@ -2121,9 +2120,8 @@ for p in sorted(paths):
 #
 # (space-bearing paths): iterate with `while IFS= read -r rel` over a
 # `< <(...)` PROCESS SUBSTITUTION (current shell, so UPGRADE_FILE_DISPOSITIONS
-# accrues) — NOT `for rel in $(...)`. 11 managed paths carry spaces (e.g.
-# vault-init/Vault Writers/_index.md, vault-init/System Governance/*,
-# governance/file-type-contracts/System Governance.md.json); word-splitting on
+# accrues) — NOT `for rel in $(...)`. managed paths carry spaces (e.g.
+# vault-init/Vault Writers/_index.md); word-splitting on
 # IFS would shatter them into nonexistent tokens and silently skip them — the
 # exact cp -n silent-skip class this fix kills (mirrors apply_subtree_managed's
 # comment + memory feedback_awk_no_multiline_dash_v).
@@ -2598,7 +2596,7 @@ fi
 # see in vault-init/ is what the adopter gets. cp_clobber posture matches the
 # rest of the foundation-known tree (cp -n default; --force-all → cp -f).
 # sha256-protected via governance/foundation-manifest.json. Subdir scaffolds
-# (System Governance/ + Vault Writers/ + Logs/Archive/) ship
+# (Vault Writers/ + Logs/Archive/) ship
 # as empty dirs with .gitkeep until adopter writes content. Authoring contract
 # for what may live under vault-init/ at docs/vault-init-authoring.md.
 # The per-plan backlog satellite is retired: backlog +
