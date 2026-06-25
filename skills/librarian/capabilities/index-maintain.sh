@@ -33,6 +33,11 @@
 #   index-orphan-folder        (warning) parent_folder: does not resolve
 #   index-exemption-conflict   (warning) _index.md exists at an exempt path
 #   mandate-violation          (warning) non-exempt folder lacks _index.md AND bootstrap failed
+#   work-master-deliverables-conflict (warning, advisory) a Work/<spoke> MASTER
+#     (sub-projects own deliverables/reference) ALSO carries a non-empty top-level
+#     deliverables/ or reference/ — read-only, never auto-relocated (the
+#     master-deliverables-conflict audit; MASTER-PENDING spokes with no qualifying
+#     child are benign and not flagged)
 # CLI:
 #   index-maintain.sh             # Tier 2 sweep (mechanical auto-correct)
 #   index-maintain.sh --deep      # Tier 3 (+ semantic-drift findings, no auto-overwrite)
@@ -106,7 +111,7 @@ if [ -z "$VROOT" ] || [ ! -d "$VROOT" ]; then
 fi
 
 python3 - "$VROOT" "${GOV_DIR:-}" "$DEEP" "$DRY_RUN" "$BUNDLE" <<'PY'
-import json, os, re, sys, tempfile
+import json, os, re, sys, tempfile, fnmatch
 from datetime import date
 
 vroot, gov_dir, deep_s, dry_s = sys.argv[1:5]
@@ -132,11 +137,22 @@ def emit(d):
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
 exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Work/**"]
+# Single SoT for de-exemption: the overlay's path_routing rules. A walked dir
+# matching a REGISTERED glob is de-exempted even when a static exemption (e.g.
+# Work/**) covers it — registered-glob WINS. There is NO second
+# de_exemption_paths list; registration in the overlay IS the de-exemption.
+registered_globs = []
+# Read the FULL union bundle once (not just .mandatory_files): derive both the
+# _index mandate exemption list AND the registered path_routing rule patterns
+# from the SAME merged view ($BUNDLE is the overlay-merged union per the loader
+# above — frontmatter.path_routing.rules carries every /govern register glob).
+bundle = None
 mf = None
 if bundle_path and os.path.isfile(bundle_path):
     try:
         with open(bundle_path, encoding="utf-8") as fh:
-            mf = (json.load(fh).get("mandatory_files") or {})
+            bundle = json.load(fh)
+        mf = (bundle.get("mandatory_files") or {})
     except Exception as exc:
         print("index-maintain: foundation-master.json malformed; "
               "aborting (block-and-log): %s" % exc, file=sys.stderr)
@@ -157,12 +173,59 @@ if isinstance(mf, dict):
     ep = idx_mandate.get("exemption_paths")
     if isinstance(ep, list) and ep:
         exempt_globs = ep
+if isinstance(bundle, dict):
+    rules = (((bundle.get("frontmatter") or {}).get("path_routing") or {}).get("rules") or [])
+    if isinstance(rules, list):
+        for r in rules:
+            if isinstance(r, dict):
+                pat = r.get("pattern")
+                if isinstance(pat, str) and pat:
+                    registered_globs.append(pat)
+
+def _expand_braces(glob):
+    # Expand a {a,b} alternation into brace-free globs (fnmatch has no brace
+    # support); left-to-right, recursive for multiple groups. A brace-free glob
+    # returns unchanged, so existing single-pattern behaviour is preserved.
+    i = glob.find("{")
+    if i < 0:
+        return [glob]
+    j = glob.find("}", i)
+    if j < 0:
+        return [glob]
+    pre, opts, post = glob[:i], glob[i + 1:j], glob[j + 1:]
+    out = []
+    for opt in opts.split(","):
+        out.extend(_expand_braces(pre + opt + post))
+    return out
+
+def _glob_match(rel, glob):
+    # Match rel against glob via fnmatch (which expands `*`/`**` across path
+    # segments). Brace alternations (Work/<spoke>/*/{deliverables,reference}/**)
+    # are pre-expanded because fnmatch cannot match braces. Also match the base
+    # dir of a `/**` glob so the registered folder itself de-exempts, not only
+    # its leaves.
+    for g in _expand_braces(glob):
+        if fnmatch.fnmatch(rel, g):
+            return True
+        if g.endswith("/**") and fnmatch.fnmatch(rel, g[:-3]):
+            return True
+    return False
+
+def is_registered(rel):
+    rel = rel.replace(os.sep, "/")
+    for g in registered_globs:
+        if _glob_match(rel, g):
+            return g
+    return None
 
 def is_exempt(rel):
+    # Registered-glob WINS: a dir under a registered overlay rule is NOT exempt,
+    # even when a static glob (Work/**) covers it.
+    if is_registered(rel):
+        return None
     rel = rel.replace(os.sep, "/")
     for g in exempt_globs:
-        base = g.replace("/**", "").replace("**", "").rstrip("/")
-        if base and (rel == base or rel.startswith(base + "/")):
+        if _glob_match(rel, g):
             return g
     return None
 
@@ -199,7 +262,21 @@ def line_count(path):
 corrections = 0
 bootstraps = 0
 
-for dirpath, dirnames, filenames in os.walk(vroot):
+# symlink (a vault-view of the external work-home) and reach a registered
+# (-de-exempted) Work subdir; without it's overlay-derived de-exemption
+# is inert (the walk never gets there). Work/** stays exempt-by-default (the
+# is_exempt gate below is the regression guard — only registered globs de-exempt).
+# Symlink-loop guard: track realpath(dirpath) in a visited set and prune any subdir
+# whose realpath is already visited so a self-referential symlink cannot hang the walk.
+_im_visited = set()
+for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
+    _rp = os.path.realpath(dirpath)
+    if _rp in _im_visited:
+        dirnames[:] = []
+        continue
+    _im_visited.add(_rp)
+    dirnames[:] = [d for d in dirnames
+                   if os.path.realpath(os.path.join(dirpath, d)) not in _im_visited]
     dirnames[:] = [d for d in dirnames if not d.startswith(".")]
     rel = os.path.relpath(dirpath, vroot)
     if rel == ".":
@@ -367,6 +444,76 @@ for dirpath, dirnames, filenames in os.walk(vroot):
             corrections += 1
         except Exception as exc:
             print("index-maintain: write failed for %s: %s" % (idx_path, exc), file=sys.stderr)
+
+# --- the master-deliverables-conflict audit: work-master-deliverables-conflict (advisory, audit-time) -
+# A Work/<spoke> that is a MASTER (its sub-projects own the deliverables/reference)
+# must hold NO non-empty top-level deliverables/ or reference/. This is a read-only
+# advisory finding — never auto-corrected, never relocated (relocation is the
+# operator's call). MASTER discriminator:
+#   MASTER  iff  top-level deliverables/ ABSENT AND top-level reference/ ABSENT
+#                AND >=1 child dir holding its own deliverables/ or reference/.
+#   MASTER-PENDING  = no-top-deliverables/reference spoke with ZERO qualifying
+#                     children (a master awaiting its first sub-project) — BENIGN,
+#                     nothing to conflict.
+# The "absence of top-level deliverables/reference" is the load-bearing condition;
+# a flat project ALWAYS has top-level deliverables/, so a flat project never enters
+# either MASTER arm and is never flagged here. The conflict case the audit catches:
+# a master that ALSO carries a non-empty top-level deliverables/ or reference/.
+def _dir_nonempty(p):
+    try:
+        return os.path.isdir(p) and any(os.scandir(p))
+    except Exception:
+        return False
+
+def _has_deliverables_or_reference(base):
+    return (os.path.isdir(os.path.join(base, "deliverables"))
+            or os.path.isdir(os.path.join(base, "reference")))
+
+work_root = os.path.join(vroot, "Work")
+if os.path.isdir(work_root):
+    try:
+        spokes = sorted(d.name for d in os.scandir(work_root) if d.is_dir())
+    except Exception:
+        spokes = []
+    for spoke in spokes:
+        if spoke.startswith("."):
+            continue
+        sp_path = os.path.join(work_root, spoke)
+        top_deliverables = os.path.join(sp_path, "deliverables")
+        top_reference = os.path.join(sp_path, "reference")
+        top_has = os.path.isdir(top_deliverables) or os.path.isdir(top_reference)
+        # Qualifying children: child dirs (not deliverables/reference themselves)
+        # that hold their OWN deliverables/ or reference/.
+        try:
+            children = [c.name for c in os.scandir(sp_path)
+                        if c.is_dir() and not c.name.startswith(".")
+                        and c.name not in ("deliverables", "reference")]
+        except Exception:
+            children = []
+        qualifying = [c for c in children
+                      if _has_deliverables_or_reference(os.path.join(sp_path, c))]
+        if not top_has:
+            # No top-level deliverables/reference. MASTER (>=1 qualifying child)
+            # or MASTER-PENDING (zero) — both benign for THIS conflict check
+            # (a master with no top-level deliverables is exactly the invariant).
+            continue
+        # top_has is True: a flat project (NOT a master) UNLESS it also has a
+        # qualifying child — in which case it is a master that VIOLATES the
+        # master-holds-no-deliverables invariant.
+        if qualifying:
+            conflict_dirs = []
+            if _dir_nonempty(top_deliverables):
+                conflict_dirs.append("deliverables")
+            if _dir_nonempty(top_reference):
+                conflict_dirs.append("reference")
+            if conflict_dirs:
+                emit({"finding": "work-master-deliverables-conflict",
+                      "file": sp_path,
+                      "spoke": spoke,
+                      "conflicting_top_level_dirs": conflict_dirs,
+                      "qualifying_sub_projects": sorted(qualifying),
+                      "recommended_action": "relocate-top-level-deliverables-into-a-sub-project",
+                      "detected_at": today, "first_seen": today})
 
 print("index-maintain: bootstraps=%d corrections=%d deep=%s dry_run=%s"
       % (bootstraps, corrections, deep, dry_run), file=sys.stderr)

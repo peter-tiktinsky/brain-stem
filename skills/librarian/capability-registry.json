@@ -1006,8 +1006,7 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full",
-        "session-close-step-5"
+        "librarian-full"
       ],
       "cron_block": "none",
       "dependencies": [
@@ -1356,8 +1355,7 @@
         "capabilities/rename-detect.sh",
         "capabilities/rename-history-sync.sh",
         "capabilities/rename-cascade.sh",
-        "capabilities/trinity-drift-detect.sh",
-        "capabilities/backup.sh"
+        "capabilities/trinity-drift-detect.sh"
       ],
       "emits_findings": false,
       "writes_manifest_subtree": null,

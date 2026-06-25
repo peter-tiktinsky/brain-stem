@@ -34,7 +34,9 @@
 #             ~/.claude-plans/_backlog.md per governance/plans-rules.json
 #             :: root_files; librarian:backlog-index capability emits row
 #             findings via its `backlog-row-missing-disposition` category).
-#   Step 5  : backup (git add/commit/push on tracked dirs).
+#   Step 5  : (removed) backup — T-1 made the close structurally
+#             commit-free; /librarian backup stays the standalone by-hand cap
+#             (SECURITY.md:11). The MANUAL close offers it (D3); auto never does.
 #   Step 6  : write aggregated session-close log.
 # Design constraints:
 #   - Bash 3.2 clean per R-23. No declare -A, readarray, step brace expansion,
@@ -258,13 +260,6 @@ record_capability() {
 # digest of the real fail/skip lines into record_capability's detail (instead of
 # the content-free "exit N"). On SUCCESS the behavior is IDENTICAL for every
 # capability — the output is discarded and `ok` recorded (low blast radius).
-# backup is special-cased on its tri-state exit codes (from/): exit 3
-# (partial-degraded — a default target is a non-repo and was NOT backed up) maps
-# to `warn` with the remediation digest, and warn must NOT inflate
-# ERRORS_COUNT; exit 1 (hard failure — a commit or post-commit push failed) maps
-# to `error` carrying the real git fatal:/PUSH FAILED digest. This makes the
-# false-green and the swallowed push fatal: / non-repo skip
-# finally surface at the session-close layer instead of reading `ok`.
 run_capability() {
   local name="$1"
   shift
@@ -306,8 +301,7 @@ run_capability() {
   # `{` — the emit_finding/emit_event shape from hooks/lib/findings.sh). Findings
   # caps that honor FINDINGS_OUTPUT write findings to the sink directly and print
   # only summary/info noise to stdout (e.g. placement-validate:251
-  # `placement-validate: scanned=N findings=N`); backup prints a `## Backup`
-  # human report. Copying that non-finding noise verbatim would inflate
+  # `placement-validate: scanned=N findings=N`). Copying that non-finding noise verbatim would inflate
   # findings-total on a clean run (breaking the clean-vault==0 contract), so only
   # `{`-prefixed JSON-finding lines from stdout are folded into the sink — this
   # captures the stdout-fallback findings class while excluding summary/report
@@ -325,27 +319,12 @@ run_capability() {
   fi
   # Non-zero: fold a one-line digest of the fail/skip lines into the detail.
   local digest
-  if [[ "$name" == "backup" && "$rc" -eq 3 ]]; then
-    # backup partial-degraded (non-repo): a default target was NOT backed up.
-    # warn (NOT error — must not inflate ERRORS_COUNT). Surface the remediation.
-    digest=$(grep -aE 'WARNING — not a git repo|^[[:space:]]*remediate:' "$out_file" \
-      | head -1 | sed 's/^[[:space:]]*//')
-    [[ -z "$digest" ]] && digest="exit 3 — a default backup target is a non-repo and was NOT backed up"
-    record_capability "$name" "warn" "$digest"
-  elif [[ "$name" == "backup" && "$rc" -eq 1 ]]; then
-    # backup hard failure (push fatal: / commit fail). error with the digest.
-    digest=$(grep -aE 'PUSH FAILED|^(fatal|error):|commit failed' "$out_file" \
-      | head -1 | sed 's/^[[:space:]]*//')
-    [[ -z "$digest" ]] && digest="exit 1"
-    record_capability "$name" "error" "$digest"
+  digest=$(grep -aE '^(fatal|error):|FAILED|WARNING|ERROR' "$out_file" \
+    | head -1 | sed 's/^[[:space:]]*//')
+  if [[ -n "$digest" ]]; then
+    record_capability "$name" "error" "exit $rc — $digest"
   else
-    digest=$(grep -aE '^(fatal|error):|FAILED|WARNING|ERROR' "$out_file" \
-      | head -1 | sed 's/^[[:space:]]*//')
-    if [[ -n "$digest" ]]; then
-      record_capability "$name" "error" "exit $rc — $digest"
-    else
-      record_capability "$name" "error" "exit $rc"
-    fi
+    record_capability "$name" "error" "exit $rc"
   fi
   rm -f "$out_file"
 }
@@ -506,17 +485,11 @@ step2d_trinity_drift() {
 # carries dead "skip: not-installed" references. The registry session-close
 # dependencies[] strip for the same 3 caps is/WS-G (regen, never hand-edit).
 
-# ---- Step 5: backup ---------------------------------------------------------
-
-step5_backup() {
-  # Only full reconciler or solo runs commit. Scoped runs defer backup
-  # to avoid partial-state commits during overlapping sessions.
-  if [[ "$SCOPE" == "scoped" ]]; then
-    record_capability "backup" "skip" "scoped — deferred"
-    return 0
-  fi
-  run_capability backup
-}
+# ---- Step 5 (backup): REMOVED — T-1 -------------------------------
+# The close chain no longer runs backup, so the orchestrator is structurally
+# commit-free (no git add/commit/push reachable). backup remains the standalone
+# /librarian backup capability (SECURITY.md:11 "never automatic"); the MANUAL
+# /librarian session-close OFFERS it (D3), the detached auto path never does.
 
 # ---- Step 6: write aggregated log ------------------------------------------
 
@@ -589,7 +562,6 @@ step2_integrity
 step2b_rename_cascade
 run_reconcile_sweep
 step2d_trinity_drift
-step5_backup
 
 # sink AFTER the capability chain and BEFORE write_log emits `findings-total:`.
 # FINDINGS_COUNT is no longer left at its 0 init — it reflects the real count of

@@ -2388,7 +2388,7 @@ fi
 # fails rc=126) and session-close gates each capability on `[ -x ]` (a non-exec cap
 # silently skips). hooks/lib + hooks/config are sourced/data and excluded by the non-
 # recursive */*.sh glob. Mirrors the migrations/*.sh chmod parity below.
-for _xdir in "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/skills/librarian/capabilities"; do
+for _xdir in "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/skills/librarian/capabilities" "$CLAUDE_HOME/skills/govern/lib/project-workspace"; do
   [ -d "$_xdir" ] && chmod +x "$_xdir"/*.sh 2>/dev/null || true
 done
 
@@ -2966,6 +2966,34 @@ view. Advisory only — it never blocks. If `_library/` does not exist yet, ther
 nothing to check; proceed.
 RULE_LIBCHECK
 seed_rules_entry "10-pre-research-library-check.md" "$rules_library_check"
+
+# Entry 3 — work-project registration on-ramp. The always-on, unscoped, create-only
+# rule that names the /govern register --kind project path before any write into a new
+# ~/work project (surfaced in the vault as Work/<spoke>/). Generic — never names a
+# specific spoke. Advisory only (never blocks).
+read -r -d '' rules_work_project_register <<'RULE_WORKPROJ' || true
+# Starting a new ~/work project — register it first
+
+When you begin a new project under `~/work/` (a Work spoke surfaced in the vault
+as `Work/<spoke>/`), register it BEFORE the first file write so its identity,
+on-disk shape, and write-time governance are in place:
+
+  Run `/govern register --kind project` from the new project's launch directory
+  (`~/work/<spoke>/`, exactly one level under `~/work/`). Pick the shape:
+
+  - `--layout flat` (default) — a single-project workspace: scaffolds the 6-file
+    MVP (CLAUDE.md, hub.md, README.md, updates.md, deliverables/, reference/).
+  - `--layout master --first-sub <name>` — a master that organizes sub-projects:
+    scaffolds a 4-file master top (NO top-level deliverables/reference) plus one
+    sub-project under it (each sub owns its own README + deliverables/ + reference/).
+
+Registration records the spoke in the anchored-spoke registry (the identity
+source of truth), scaffolds the shape, and emits the `Work/<spoke>/**` routing
+rule so write-time governance fires for the spoke. Run it before `mkdir`/first
+write — it is a proactive on-ramp, not a gate. This entry is generic and always-on;
+it never names a specific project and never blocks.
+RULE_WORKPROJ
+seed_rules_entry "20-work-project-register.md" "$rules_work_project_register"
 
 # Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
 # Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat

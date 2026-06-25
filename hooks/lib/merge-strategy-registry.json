@@ -4,8 +4,9 @@
   "strategies": {
     "tagging.taxonomy.dimension_prefixes": "union",
     "tagging.taxonomy.user_facing_dimensions": "union",
-    "tagging.taxonomy.registered_archetypes": "union"
+    "tagging.taxonomy.registered_archetypes": "union",
+    "frontmatter.path_routing.rules": "union"
   },
   "default": "replace",
-  "_shape_handling": "When a declared UNION leaf has dict-shape on either side (legacy/test fixture), the library falls back to object-recursive-merge for that leaf (preserves the baseline test-fixture shape). Mixed shape (array on one side, dict on other) resolves to payload-wins. The library does not coerce shape; producers (skills) are responsible for emitting the declared shape per leaf."
+  "_shape_handling": "When a declared UNION leaf has dict-shape on either side (legacy/test fixture), the library falls back to object-recursive-merge for that leaf (preserves baseline test shape). Mixed shape (array on one side, dict on other) resolves to payload-wins. The library does not coerce shape; producers (skills) are responsible for emitting the declared shape per leaf."
 }

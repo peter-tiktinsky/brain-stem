@@ -492,17 +492,17 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-20T04:42:53Z",
-    "bundle_version": "b9fa0d9897c2db7b6c67e8a9dcd1dc552e951a8d92521c009ffc119cc2cd5371",
+    "built_at": "2026-06-24T13:48:58Z",
+    "bundle_version": "5e7c1a5a0f7444474d13934c3e2c6bbd5f4f9e3524de46208434c53f8f4a5602",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-06-16T13:53:10Z",
+      "governance/_index.json": "2026-06-24T13:48:58Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
-      "governance/frontmatter-rules.json": "2026-06-18T19:27:37Z",
-      "governance/mandatory-files-rules.json": "2026-06-18T19:27:37Z",
-      "governance/naming-rules.json": "2026-06-18T19:27:37Z",
-      "governance/plans-rules.json": "2026-06-13T04:52:51Z",
-      "governance/tagging-rules.json": "2026-06-16T13:53:10Z",
+      "governance/frontmatter-rules.json": "2026-06-24T13:48:58Z",
+      "governance/mandatory-files-rules.json": "2026-06-24T13:48:58Z",
+      "governance/naming-rules.json": "2026-06-24T13:48:58Z",
+      "governance/plans-rules.json": "2026-06-24T13:48:58Z",
+      "governance/tagging-rules.json": "2026-06-24T13:48:58Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
     "source_files_count": 8
@@ -1560,8 +1560,10 @@
         "last_run",
         "last_success",
         "last_failure",
-        "last_updated_by"
+        "last_updated_by",
+        "project"
       ],
+      "frontmatter_optional_rationale": "project: the owning work-project spoke key for a writer scoped to a Work/<spoke> destination; a writer that targets the shared vault leaves it unset.",
       "frontmatter_required": [
         "type",
         "writer_name",
@@ -2779,7 +2781,8 @@
       "cap_25_applies_to": "user_facing_dimensions",
       "dimension_prefixes": [
         "status",
-        "log"
+        "log",
+        "project"
       ],
       "system_utility_dimensions": [
         "status",
@@ -2787,7 +2790,9 @@
       ],
       "system_utility_governance": "log-subtype-registry (canonical values per dimension; near-match DENY via R-05)",
       "tag_pattern_regex": "^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
-      "user_facing_dimensions": []
+      "user_facing_dimensions": [
+        "project"
+      ]
     }
   },
   "vault_writers": {

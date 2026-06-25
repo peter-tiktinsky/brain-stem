@@ -28,18 +28,29 @@
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
+# Reuse the collision-safe cwd->spoke resolver + --project override validator
+# (single SoT lives in new-plan/lib; the writer mode stamps the SAME
+# registry-resolved spoke key, never a bare basename). Resolved relative to this
+# handler's repo root.
+_WRITER_MODE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=/dev/null
+. "$_WRITER_MODE_DIR/../../new-plan/lib/spoke-resolve.sh"
+
 mode_propose() {
-  local writer_name writer_kind writer_subtype writer_skill
+  local writer_name writer_kind writer_subtype writer_skill project
   writer_name=""
   writer_kind=""
   writer_subtype=""
   writer_skill=""
+  project=""
+  local project_explicit=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --writer-name)     writer_name="$2";     shift 2 ;;
       --writer-kind)     writer_kind="$2";     shift 2 ;;
       --writer-subtype)  writer_subtype="$2";  shift 2 ;;
       --writer-skill)    writer_skill="$2";    shift 2 ;;
+      --project)         project="$2"; project_explicit=1; shift 2 ;;
       --proposed-by)     PROPOSED_BY="$2";     shift 2 ;;
       *) shift ;;
     esac
@@ -65,6 +76,26 @@ mode_propose() {
   local proposed_by
   proposed_by="${PROPOSED_BY:-user-direct}"
 
+  # Resolve the owning work-project spoke key.
+  #   --project <key> explicit -> validate against the registry; a bad override
+  #     BLOCKS (lists valid keys, no proposal, never stamp a guessed spoke).
+  #   no --project -> auto-resolve from cwd (longest-anchor-wins). A home /
+  #     unanchored cwd resolves to the "home" catch-all, which is NOT a project
+  #     scope -> dropped to empty so the null-strip omits the project: key.
+  local resolved_spoke
+  resolved_spoke=""
+  if [ "$project_explicit" = "1" ]; then
+    if ! resolved_spoke=$(spoke_validate_override "$project" 2>&1); then
+      printf '%s\n' "$resolved_spoke" >&2
+      return 2
+    fi
+  else
+    resolved_spoke=$(spoke_resolve_from_cwd "$PWD" 2>/dev/null) || resolved_spoke=""
+  fi
+  if [ "$resolved_spoke" = "home" ]; then
+    resolved_spoke=""
+  fi
+
   # Derive slug from writer_name.
   local slug
   slug=$(printf '%s' "$writer_name" | tr 'A-Z' 'a-z' | sed 's/ /-/g; s/[^a-z0-9-]//g')
@@ -77,12 +108,24 @@ mode_propose() {
 
   # Build a writer-reference frontmatter draft per + Session 5 contract.
   # Conditional fields per writer_kind — operator validates per-field.
+  # When a project spoke is resolved, the SUGGESTED default destination is the
+  # Form-A vault-view path under $VAULT_ROOT/Work/<spoke>/ — single-keyed for
+  # supersession. Otherwise fall back to the operator-templated default.
+  local default_dest_path
+  if [ -n "$resolved_spoke" ]; then
+    default_dest_path="$vault_root/Work/$resolved_spoke/{{date}} - {{title}}.md"
+  else
+    default_dest_path="{{destination_dir}}/{{date}} - {{title}}.md"
+  fi
+
   local frontmatter_json
   frontmatter_json=$(jq -nc \
     --arg writer_name "$writer_name" \
     --arg writer_kind "$writer_kind" \
     --arg writer_subtype "$writer_subtype" \
     --arg writer_skill "$writer_skill" \
+    --arg project "$resolved_spoke" \
+    --arg default_dest_path "$default_dest_path" \
     --arg ts "$ts" \
     '
       {
@@ -91,9 +134,10 @@ mode_propose() {
         writer_kind: $writer_kind,
         writer_skill: ($writer_skill | if . == "" then null else . end),
         writer_subtype: ($writer_subtype | if . == "" then null else . end),
+        project: ($project | if . == "" then null else . end),
         destinations: [
           {
-            path: "{{destination_dir}}/{{date}} - {{title}}.md",
+            path: $default_dest_path,
             output_type: "markdown",
             posture: "direct"
           }

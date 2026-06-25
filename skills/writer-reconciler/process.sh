@@ -235,13 +235,18 @@ find_folder_rules() {
   return 1
 }
 
-# Validate destination-path is within allowed roots: $VAULT_ROOT or
-# ~/.claude (librarian-only files). Returns 0 if allowed; 1 otherwise.
+# Validate destination-path is within allowed roots: $VAULT_ROOT,
+# ~/.claude (librarian-only files), or — when WORK_CONFIGURED=1 — the
+# $WORK_HOME/* work-project tree (a Form-B packet keyed on the ~/work/<spoke>
+# physical path; canonicalized to the Form-A $VAULT_ROOT/Work/<rest> vault view
+# at the call site so supersession stays single-keyed). Returns 0 if allowed;
+# 1 otherwise.
 destination_within_allowed_roots() {
   # $1 destination-path
   local dest="$1"
   local vault="${VAULT_ROOT:-}"
   local claude_home_dir="${HOME}/.claude"
+  local work_home="${WORK_HOME:-}"
   case "$dest" in
     "$vault"/*)
       if [ -n "$vault" ]; then return 0; fi
@@ -250,6 +255,11 @@ destination_within_allowed_roots() {
       return 0
       ;;
   esac
+  if [ "${WORK_CONFIGURED:-0}" = "1" ] && [ -n "$work_home" ]; then
+    case "$dest" in
+      "$work_home"/*) return 0 ;;
+    esac
+  fi
   return 1
 }
 
@@ -310,7 +320,7 @@ operator_edit_detected() {
 }
 
 # Step 8.5 + 8.6 helper (per SKILL.md../ spec.md / writer-
-# pipeline-layering.md..+../ +).
+# pipeline-layering.md..+../).
 # Inputs: destination, writer_id, content_sha, output_type, packet_kind, source_id.
 # Behavior:
 #   - Step 8.5: append one row to
@@ -425,6 +435,18 @@ apply_packet() {
     sidecar_error "$packet" "destination-outside-allowed-roots"
     audit_emit "$packet" "$writer_id" "$destination" "guard" "REJECT"
     return 1
+  fi
+  # Canonicalize-on-pass (FIX #5): a Form-B packet keyed on the $WORK_HOME/<rest>
+  # physical path is rewritten to the Form-A $VAULT_ROOT/Work/<rest> vault view so
+  # supersession (and every downstream rules/write step) keys on a single path. A
+  # Form-A packet (already under $VAULT_ROOT/Work/) does NOT match the $WORK_HOME/
+  # prefix, so this is idempotent — no double-prefix.
+  if [ "${WORK_CONFIGURED:-0}" = "1" ] && [ -n "${WORK_HOME:-}" ] && [ -n "${VAULT_ROOT:-}" ]; then
+    case "$destination" in
+      "$WORK_HOME"/*)
+        destination="$VAULT_ROOT/Work/${destination#"$WORK_HOME"/}"
+        ;;
+    esac
   fi
   # Compose effective rules.
   local rules survivorship merge

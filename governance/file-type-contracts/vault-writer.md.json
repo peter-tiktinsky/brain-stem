@@ -40,8 +40,10 @@
     "last_run",
     "last_success",
     "last_failure",
-    "last_updated_by"
+    "last_updated_by",
+    "project"
   ],
+  "frontmatter_optional_rationale": "project: the owning work-project spoke key for a writer scoped to a Work/<spoke> destination; a writer that targets the shared vault leaves it unset.",
 
   "frontmatter_conditional_by_writer_kind": {
     "connector": {

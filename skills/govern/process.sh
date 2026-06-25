@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # skills/govern/process.sh — orchestrator for the /govern register
-# 4-mode skill family (folder / file-type / tag-extension / writer).
+# skill family (folder / file-type / tag-extension / writer /
+# doc-amender-prompt / project).
 # Implements the 6-step propose-and-validate protocol.
 # The skill family is flattened from
 # skills/govern/register/ -> skills/govern/ (Claude Code scans one level deep).
@@ -63,6 +64,7 @@ Modes (per --kind):
   tag-extension       New tag dimension                 (tagging.taxonomy)
   writer              New vault-writer registration     (Vault Writers/<slug>.md + no-op vault_writers)
   doc-amender-prompt  New doc-amender prompt asset      (Layer-3 guided authoring; \$VAULT_WRITER_STATE_ROOT/prompts/<id>.md + optional doc-deps fan-in entry)
+  project             New ~/work/<spoke> project        (anchored-spoke registry + scaffold + Work/<spoke>/** overlay rule; --layout flat|master)
 
 Per-mode argv shapes — see the Invocation contracts section in SKILL.md.
 
@@ -115,14 +117,14 @@ else
 fi
 
 case "$KIND" in
-  folder|file-type|tag-extension|writer|doc-amender-prompt)
+  folder|file-type|tag-extension|writer|doc-amender-prompt|project)
     ;;
   plan)
     printf 'process.sh: --kind plan is ORTHOGONAL — use /new-plan or /backlog-research instead.\n' >&2
     exit 2
     ;;
   *)
-    printf 'process.sh: unknown --kind: %s (valid: folder, file-type, tag-extension, writer, doc-amender-prompt)\n' "$KIND" >&2
+    printf 'process.sh: unknown --kind: %s (valid: folder, file-type, tag-extension, writer, doc-amender-prompt, project)\n' "$KIND" >&2
     exit 2
     ;;
 esac

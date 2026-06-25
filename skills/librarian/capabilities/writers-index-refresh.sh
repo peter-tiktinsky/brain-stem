@@ -1,11 +1,9 @@
 #!/bin/bash
 # writers-index-refresh — Regenerate the canonical Vault Writers/_index.md
 # catalog table from the writer-reference files in Vault Writers/.
-#
-# Librarian body. Reuses the backlog-index/plan-index sentinel-regeneration
-# pattern; the new logic is the column composer + the per-writer
+# NET-NEW librarian body (1.1 line 139). Authored from the
+# the net-new logic is the column composer + the per-writer
 # vault-writer.md.json validation loop.
-#
 # Output Contract
 #   Files written: $VAULT_ROOT/Vault Writers/_index.md (sentinel-bounded table
 #     region regenerated; operator narrative outside the sentinels preserved
@@ -19,23 +17,19 @@
 #     sentinel pair can be located NOR a fresh file initialized.
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Read-only against writer-reference files.
-#
-# Finding categories (4):
+# Finding categories (4 — §Finding categories):
 #   writer-frontmatter-malformed (warning) unparseable / contract-failing frontmatter
 #   writer-missing-required-field(warning) required frontmatter field absent
 #   writer-kind-violation        (warning) writer_kind conditional-required field absent
 #   writers-index-regenerated    (info-event) _index.md regenerated; once per run
-#
 # CLI:
 #   writers-index-refresh.sh             # regenerate Vault Writers/_index.md
 #   writers-index-refresh.sh --check     # parity report + findings; no write
 #   writers-index-refresh.sh --help
-#
 # Env overrides (testing):
 #   VAULT_ROOT        vault root (Vault Writers/ resolves under it)
 #   GOVERNANCE_DIR    governance root (default: foundation-repo -> live)
 #   FINDINGS_OUTPUT   NDJSON sink (default: stdout)
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -149,17 +143,21 @@ for fn in sorted(os.listdir(writers_dir)):
     if not name:
         skipped += 1
         continue
+    project = fm.get("project") or ""
+    proj_cell = cell(project) if project else "—"
     dest = fm.get("destinations", "")
     dest_summary = cell(dest)[:60] if dest else "—"
-    rows.append((name, "| %s | %s | %s | %s | %s |" % (
-        cell(name), cell(kind) or "—", cell(fm.get("status")) or "—",
+    rows.append((project, name, "| %s | %s | %s | %s | %s | %s |" % (
+        proj_cell, cell(name), cell(kind) or "—", cell(fm.get("status")) or "—",
         cell(fm.get("last_run")) or "—", dest_summary)))
     rendered += 1
 
-rows.sort(key=lambda r: r[0].lower())
-table = ["| Name | Kind | Status | Last run | Destinations summary |",
-         "|------|------|--------|----------|----------------------|"]
-table += [r[1] for r in rows]
+# Composite (project, name) sort over a SINGLE global table: project-scoped rows
+# precede unscoped ones (an empty project sorts AFTER any named one), then name.
+rows.sort(key=lambda r: (r[0] == "", r[0].lower(), r[1].lower()))
+table = ["| Project | Name | Kind | Status | Last run | Destinations summary |",
+         "|---------|------|------|--------|----------|----------------------|"]
+table += [r[2] for r in rows]
 
 # preserve operator narrative outside the sentinels.
 preface, footer = "", ""
@@ -213,7 +211,7 @@ if START not in new_content or END not in new_content:
     print("writers-index-refresh: refusing to write — sentinels missing", file=sys.stderr)
     sys.exit(1)
 
-# Idempotence-gate: when the rendered content already
+# Idempotence-gate (-session-close-2): when the rendered content already
 # matches what is on disk, skip the os.replace so a virgin/clean close is a true
 # no-op write. Emit only the info-event (write_skipped_bool).
 if not drift:

@@ -511,8 +511,21 @@ Runtime: `capabilities/memory-staleness.sh`.
 
 The load-bearing session-close orchestrator — chains the
 C1/C2/C3/S2 capability set; cut caps degrade via `run_capability`
-skip-not-installed. Ported AS-IS UNMODIFIED.
+skip-not-installed. **Backup is no longer chained** — the orchestrator is
+structurally commit-free (no `git add`/`commit`/`push` reachable), so the auto and
+manual close paths run the identical safe chain. `/librarian backup` stays the
+standalone by-hand capability (`SECURITY.md` — "a capability you run by hand,
+never automatically").
 Runtime: `capabilities/session-close.sh`.
+
+### Manual-close backup offer
+
+A MANUAL `/librarian session-close` ends with a backup OFFER: after the chain, if
+tracked `system.backup_targets[]` have uncommitted changes, surface
+`N file(s) changed across <targets> — run /librarian backup to commit+push? [y/N]`
+as an explicit confirm. NEVER auto-fire it — the user decides. The detached
+auto-close (SessionEnd spawn / SessionStart backstop) never reaches this rubric, so
+it never offers and never commits.
 
 ## Capability: review
 

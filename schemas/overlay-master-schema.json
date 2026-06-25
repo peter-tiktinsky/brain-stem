@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brain-stem.example/schemas/overlay-master/v1.json",
   "title": "Overlay-Master (adopter-local 8-pillar overlay)",
-  "description": "Adopter-local 8-pillar overlay that pairs with foundation-master.json. Parallel structure to foundation-master — same pillar slots; adopter writes shadow foundation entries per R-52 collision tiebreaker (`_override_reason` required). Includes the system.timezone slot for adopter-local config. Per-pillar $defs shapes are minimum-viable stubs ({type: object}); refinement happens once first overlay-master mutations land via `/govern register`.",
+  "description": "Adopter-local 8-pillar overlay that pairs with foundation-master.json. Parallel structure to foundation-master — same pillar slots; adopter writes shadow foundation entries per R-52 collision tiebreaker (`_override_reason` required). The 8th pillar is the adopter-machine-local system slot (carries system.timezone). Per-pillar $defs shapes are minimum-viable stubs ({type: object}); refinement happens once first overlay-master mutations land via `/govern register` per feedback_minimum_viable_foundation_scope.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -30,7 +30,26 @@
   "$defs": {
     "frontmatter_pillar": {
       "type": "object",
-      "description": "Adopter shadow for frontmatter-rules.json — parallel structure to foundation pillar. Stub min-viable; refines on first /govern register --kind file-type mutation."
+      "description": "Adopter shadow for frontmatter-rules.json — parallel structure to foundation pillar. Stub min-viable; refines on first /govern register --kind file-type mutation.",
+      "properties": {
+        "path_routing": {
+          "type": "object",
+          "description": "Path-routing pillar. Object-with-rules-array shape: rules[] is the union-merged routing list. The legacy bare-array form is rejected. Per-rule item is permissive — only pattern is required; folder.sh's type/auto_create/inherit_from vocabulary passes.",
+          "required": ["rules"],
+          "properties": {
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["pattern"],
+                "properties": {
+                  "pattern": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "tagging_pillar": {
       "type": "object",

@@ -2,11 +2,9 @@
 # writers-health-audit — Daily read-only sweep of writer-reference files + skill
 # registry + path_routing for operational drift. Emits findings only; never
 # writes vault content.
-#
-# Librarian body. Reuses the tag-coverage-audit read-only multi-class sweep
-# base; the new logic is the 5 per-class predicates + the dormant-writer
+# NET-NEW librarian body (1.1 line 138). Authored from the
+# net-new logic is the 5 per-class predicates + the dormant-writer
 # last-run derivation.
-#
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or
 #     $FINDINGS_OUTPUT (the cron mode appends to a date-stamped JSONL via
@@ -16,26 +14,22 @@
 #     vault-writers-rules.json must parse; block-and-log + abort on a malformed
 #     source contract (never emit findings against malformed inputs).
 #   Failure mode: block-and-log; never write-and-hope.
-#
-# Finding categories (5):
+# Finding categories (5 — §Finding categories; S5 verbatim):
 #   dormant-writer            (warning) last_success >30d OR status:active & never-observed
 #   unresolved-destination    (warning) destination glob matches zero folders + no auto_create
 #   orphan-writer-skill-ref   (warning) writer_skill points to a non-existent skill slug
 #   orphan-destination-ref    (warning) destination references a retired path_routing pattern
 #   multi-writer-overlap      (info/cross-ref) writer participates in an _overlap-matrix cluster
-#
 # CLI:
 #   writers-health-audit.sh             # audit (default)
 #   writers-health-audit.sh --dry-run   # summary counts, no findings
 #   writers-health-audit.sh --help
-#
 # Env overrides (testing):
 #   VAULT_ROOT             vault root (Vault Writers/ resolves under it)
 #   GOVERNANCE_DIR         governance root (default: foundation-repo -> live)
 #   SKILLS_DIR             installed-skill registry root (default: $CLAUDE_HOME/skills)
 #   WRITER_MANIFEST_PATH   SQLite writes manifest (optional; informs dormant-writer)
 #   FINDINGS_OUTPUT        NDJSON/JSONL sink (default: stdout)
-#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -62,7 +56,6 @@ if [ -z "$GOV_DIR" ]; then
   done
 fi
 
-# Bundle-first: vault-writers-rules.json + file-type-contracts/ are
 # repo-only / bundle-composed — on a fresh adopter only foundation-master.json
 # lands. Resolve the SHIPPED bundle via ${CLAUDE_HOME:-$HOME/.claude} FIRST; the
 # Python body validates the composed .vault_writers + .file_type_contracts slots
@@ -82,12 +75,26 @@ fi
 
 SKILLS_DIR_RES="${SKILLS_DIR:-$CLAUDE_HOME_RES/skills}"
 
-python3 - "$VROOT/Vault Writers" "${GOV_DIR:-}" "$SKILLS_DIR_RES" "${WRITER_MANIFEST_PATH:-}" "$MODE" "$BUNDLE" <<'PY'
+# Resolve the anchored-spoke registry for the project-association checks. Test
+# override -> shipped bundle dir -> governance dir. A missing/unreadable registry
+# is a GRACEFUL SKIP of the two project checks (NOT an abort) — only a malformed
+# master/contract trips the block-and-log gate above.
+SPOKE_REG="${SPOKE_REGISTRY_PATH:-}"
+if [ -z "$SPOKE_REG" ]; then
+  for cand in \
+    "$CLAUDE_HOME_RES/governance/anchored-spoke-registry.json" \
+    "$GOV_DIR/anchored-spoke-registry.json"; do
+    [ -f "$cand" ] && { SPOKE_REG="$cand"; break; }
+  done
+fi
+
+python3 - "$VROOT/Vault Writers" "${GOV_DIR:-}" "$SKILLS_DIR_RES" "${WRITER_MANIFEST_PATH:-}" "$MODE" "$BUNDLE" "${SPOKE_REG:-}" <<'PY'
 import json, os, re, sys, glob as globmod
 from datetime import date, datetime, timedelta
 
 writers_dir, gov_dir, skills_dir, manifest_path, mode = sys.argv[1:6]
 bundle_path = sys.argv[6] if len(sys.argv) > 6 else ""
+spoke_reg_path = sys.argv[7] if len(sys.argv) > 7 else ""
 dry_run = (mode == "dry-run")
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
@@ -105,7 +112,6 @@ def emit(d):
         sys.stdout.write(line + "\n")
 
 # block-and-log: validate source contracts parse.
-# Bundle-first. On a fresh adopter the shipped
 # foundation-master.json carries the composed .file_type_contracts["vault-writer.md"]
 # + .vault_writers slots; confirm they resolve from the bundle. Fall back to the
 # loose pillar files under gov_dir when the bundle is absent (dev-repo).
@@ -189,10 +195,26 @@ if os.path.isfile(mp):
     except Exception:
         pass
 
+# Registered spoke keys for the project-association checks. A missing /
+# unreadable registry SKIPS the two project checks gracefully (registry_known
+# stays False); it is NOT an abort condition.
+registered_spokes = set()
+registry_known = False
+if spoke_reg_path and os.path.isfile(spoke_reg_path):
+    try:
+        with open(spoke_reg_path, encoding="utf-8") as fh:
+            _reg = json.load(fh)
+        registered_spokes = {sp.get("spoke_key", "")
+                             for sp in _reg.get("spokes", []) if sp.get("spoke_key")}
+        registry_known = True
+    except Exception:
+        registry_known = False
+
 cutoff = datetime.now() - timedelta(days=30)
 counts = {"dormant-writer": 0, "unresolved-destination": 0,
           "orphan-writer-skill-ref": 0, "orphan-destination-ref": 0,
-          "multi-writer-overlap": 0}
+          "multi-writer-overlap": 0, "writer-project-unregistered": 0,
+          "writer-destination-spoke-drift": 0}
 
 for fn in sorted(os.listdir(writers_dir)):
     if not fn.endswith(".md") or fn.startswith("_"):
@@ -253,6 +275,29 @@ for fn in sorted(os.listdir(writers_dir)):
               "overlap_cluster_glob": g, "peer_writers": [],
               "detected_at": today})
         counts["multi-writer-overlap"] += 1
+
+    # --- project-association checks ------------------------------------------
+    project = fm_field(fmb, "project")
+    if project:
+        # writer-project-unregistered: the writer's project is not a registered
+        # spoke key. Graceful skip when the registry is absent/unreadable.
+        if registry_known and project not in registered_spokes:
+            emit({"finding": "writer-project-unregistered", "file": fp,
+                  "writer_name": name, "project": project,
+                  "registry_resolution": "no-registered-spoke",
+                  "detected_at": today, "first_seen": today})
+            counts["writer-project-unregistered"] += 1
+
+        # writer-destination-spoke-drift: a Work/<seg>/ destination whose first
+        # segment after Work/ disagrees with the writer's declared project.
+        for p in fm_paths(fmb):
+            m = re.search(r"(?:^|/)Work/([^/]+)/", p)
+            if m and m.group(1) != project:
+                emit({"finding": "writer-destination-spoke-drift", "file": fp,
+                      "writer_name": name, "project": project,
+                      "destination_path": p, "destination_spoke_segment": m.group(1),
+                      "detected_at": today, "first_seen": today})
+                counts["writer-destination-spoke-drift"] += 1
 
 # orphan-destination-ref requires a path_routing retired-marker surface which
 # the foundation does not yet populate; emit nothing rather than

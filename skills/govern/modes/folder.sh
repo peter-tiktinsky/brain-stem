@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # modes/folder.sh — Class A handler for /govern register --kind folder.
-#
-# Class A trigger: new top-level vault folder.
-# R-37 atomic across frontmatter.path_routing + (if applicable)
-# mandatory_files. The final step (vault-root CLAUDE.md tree
-# self-update; no [F] marker) is performed AFTER the library
-# commit succeeds.
-#
+# Class A trigger (new top-level vault folder). R-37 atomic across
+# frontmatter.path_routing + (if applicable)
+# mandatory_files. Step 6 of protocol (vault-root CLAUDE.md tree
+# self-update; no [F] marker per) is performed AFTER the library
+# commit succeeds — EXCEPT for a Work or Work/* target, which is carved
+# out: a Work spoke is an external-root project workspace whose identity
+# lives in its own hub.md, so its registration never appends to the
+# vault-root CLAUDE.md tree.
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
@@ -53,15 +54,17 @@ mode_propose() {
           {
             pillar: "frontmatter",
             payload: {
-              path_routing: [
-                {
-                  pattern: ($target + "/**"),
-                  type: $slug,
-                  auto_create: true,
-                  inherit_from: ($inherit | if . == "" then null else . end)
-                }
-                | with_entries(select(.value != null))
-              ]
+              path_routing: {
+                rules: [
+                  {
+                    pattern: ($target + "/**"),
+                    type: $slug,
+                    auto_create: true,
+                    inherit_from: ($inherit | if . == "" then null else . end)
+                  }
+                  | with_entries(select(.value != null))
+                ]
+              }
             },
             field_descriptions: {
               path_routing: ("Routing rule for vault paths under " + $target + "/; declares default frontmatter type for files in this subtree")
@@ -82,7 +85,7 @@ mode_propose() {
         notes: [
           "Class A folder registration mutates two pillars atomically (R-37).",
           "If the folder does not need _index.md, REMOVE the mandatory_files pillar entry from the validated proposal before commit.",
-          "Step 6 (vault-root CLAUDE.md tree self-update) fires AFTER commit. Operator confirms tree-edit at that step."
+          "Step 6 (vault-root CLAUDE.md tree self-update) fires after commit for a vault-root user cluster, and is SKIPPED for a Work or Work/* target. A Work spoke is an external-root project workspace whose identity lives in its own hub.md, never the vault-root CLAUDE.md tree — so no tree-append is performed for it. Operator confirms the tree-edit at that step only when it fires."
         ]
       }
     '
@@ -91,7 +94,7 @@ mode_propose() {
 # Compose payload tempfiles from a validated proposal and invoke the library.
 # Validated proposal shape: same as propose output, but with rejected fields
 # removed from .pillars[].payload and per-entry `_override_reason` fields
-# inline on each shadowing payload entry (canonical shape).
+# inline on each shadowing payload entry (canonical shape; T-5).
 mode_commit() {
   local proposal="$1"
   shift || true
@@ -148,27 +151,45 @@ mode_commit() {
     return "$rc"
   fi
 
-  # Final step — vault-root CLAUDE.md tree self-update.
+  # Step 6 of — vault-root CLAUDE.md tree self-update.
   # Foundation-repo authoring: vault path is provided via env. Failure here
   # does NOT roll back the overlay (canonical; survives); operator triages
   # via librarian governance-parity-audit `vault-claude-md-tree-drift` finding.
-  _folder_claude_md_tree_append "$target" || {
-    local update_rc=$?
-    printf 'folder.mode_commit: vault-root CLAUDE.md tree self-update failed rc=%s — overlay commit retained; surface as drift finding\n' "$update_rc" >&2
-    # Non-fatal — overlay mutation already committed.
-  }
+  # Work/* carve-out: a Work-spoke target is an external-root project workspace,
+  # NOT a vault-root user cluster — its identity lives in its own hub.md, never
+  # the vault-root CLAUDE.md Vault Structure tree. Skip the tree-append entirely
+  # for any Work or Work/* target (the append would misdirect a project pointer
+  # into the vault-root cover).
+  case "$target" in
+    Work|Work/*) ;;  # carve-out: no vault-root tree-append for Work spokes
+    *)
+      _folder_claude_md_tree_append "$target" || {
+        local update_rc=$?
+        printf 'folder.mode_commit: vault-root CLAUDE.md tree self-update failed rc=%s — overlay commit retained; surface as drift finding\n' "$update_rc" >&2
+        # Non-fatal — overlay mutation already committed.
+      }
+      ;;
+  esac
 
   return 0
 }
 
 # Append a user-cluster entry to the vault-root CLAUDE.md Vault Structure
-# tree. No [F] marker (reserved for foundation-shipped entries).
+# tree. No [F] marker (reserved for foundation-shipped per T-13 v3.1 template).
 # Idempotent: if entry already exists, no-op. Locates the Vault Structure
 # H2 section and appends within it.
 _folder_claude_md_tree_append() {
   local target="$1"
   local vault_root="${VAULT_ROOT:-$HOME/Documents/Obsidian Vault}"
   local claude_md="$vault_root/CLAUDE.md"
+
+  # Defensive Work/* carve-out (belt-and-suspenders with the mode_commit case
+  # guard): a Work-spoke target never lands in the vault-root tree — its
+  # identity is its own hub.md. Early-return BEFORE any sidecar/file mutation
+  # so even a direct call cannot misdirect a project pointer into the cover.
+  case "$target" in
+    Work|Work/*) return 0 ;;
+  esac
 
   if [ ! -f "$claude_md" ]; then
     # No vault-root CLAUDE.md yet — defer (install scaffolding handles seed).

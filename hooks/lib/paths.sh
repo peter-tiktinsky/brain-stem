@@ -140,6 +140,21 @@ export VAULT_ROOT
 if [ -n "${VAULT_ROOT:-}" ] && [ -d "$VAULT_ROOT" ]; then VAULT_CONFIGURED=1; else VAULT_CONFIGURED=0; fi
 export VAULT_CONFIGURED
 
+# work-surface-configured contract ONCE at the SoT producer (same pattern as
+# VAULT_CONFIGURED above) so every Work/-aware consumer (pre-write-guard.sh
+# spoke-scoped remap, post-write-verify.sh Tier-1 bootstrap) READS it rather
+# than re-deriving the triple `[ -d … ] && [ -n … ] && [ -d … ]` inline. The
+# Work surface is configured IFF: the vault is configured AND a $VAULT_ROOT/Work
+# vault-view exists AND WORK_HOME is non-empty AND the WORK_HOME dir exists. Any
+# negative leg → 0 (graceful degrade: a remap/bootstrap consumer no-ops). VAULT_
+# CONFIGURED semantics are unchanged. Bash 3.2 clean.
+if [ "$VAULT_CONFIGURED" = "1" ] && [ -d "$VAULT_ROOT/Work" ] && [ -n "${WORK_HOME:-}" ] && [ -d "$WORK_HOME" ]; then
+  WORK_CONFIGURED=1
+else
+  WORK_CONFIGURED=0
+fi
+export WORK_CONFIGURED
+
 if [ -z "${VAULT_LOGS:-}" ]; then
   if [ -n "$VAULT_ROOT" ]; then VAULT_LOGS="$VAULT_ROOT/Logs"; else VAULT_LOGS=""; fi
 fi

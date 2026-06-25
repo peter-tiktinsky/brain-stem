@@ -14,9 +14,12 @@
     "tag_pattern_regex": "^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
     "dimension_prefixes": [
       "status",
-      "log"
+      "log",
+      "project"
     ],
-    "user_facing_dimensions": [],
+    "user_facing_dimensions": [
+      "project"
+    ],
     "system_utility_dimensions": [
       "status",
       "log"

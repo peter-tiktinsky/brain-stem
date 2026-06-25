@@ -18,6 +18,13 @@
 #   frontmatter-enforce.sh                     # --recent by default
 #   frontmatter-enforce.sh --full              # full vault walk
 #   frontmatter-enforce.sh --scope <path>      # narrow scope (skips drift audits)
+#   frontmatter-enforce.sh --scope "$VAULT_ROOT/Work"   # Work-deliverable audit lane
+#       (FIX #7): the Work/ vault-view is a SYMLINK to the external
+#       work-home. A scoped run follows that symlink (os.walk followlinks=True)
+#       so deliverables under Work/<spoke>/deliverables/ are reached and their
+#       required-field checks become real. followlinks fires ONLY in the scoped
+#       lane — the whole-vault default run keeps Work/ symlink-inert (no
+#       regression: Work/** stays out of the default drift sweep).
 #   frontmatter-enforce.sh --fix               # auto-apply auto-fix class
 #   frontmatter-enforce.sh --dry-run           # summary counts only
 # Scope exemptions:
@@ -331,11 +338,11 @@ def _load_required_matrix():
 REQUIRED = _load_required_matrix()
 
 # Deliverables live under the Work/ surface (a symlink to the external work home).
-# os.walk(followlinks=False) above does NOT descend into that symlink during a
-# whole-vault audit, so deliverable enforcement is reached by a SCOPED invocation
-# (`frontmatter-enforce.sh --scope <vault>/Work`) — the same dedicated-scan pattern
-# library-index uses for the _library physical root. This REQUIRED row makes the
-# field check real once the scan reaches a deliverable.
+# so a SCOPED invocation (`frontmatter-enforce.sh --scope <vault>/Work`) descends
+# the Work/ symlink and reaches deliverables under Work/<spoke>/deliverables/;
+# the whole-vault default run keeps followlinks=False so Work/ stays symlink-inert
+# (no new whole-vault Work findings — the regression guard). This REQUIRED row makes
+# the field check real once the scoped scan reaches a deliverable.
 
 # Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
 # Foundation ships system-utility dimensions (status, log); user-facing dimensions
@@ -435,7 +442,21 @@ def build_scope():
     # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
     if not root or not os.path.isdir(root):
         return files
-    for dirpath, dirnames, filenames in os.walk(root):
+    # audit lane; the whole-vault default run stays symlink-inert (regression guard).
+    follow = (walk == "scope")
+    # Symlink-loop guard: when following symlinks, track realpath(dirpath) and prune
+    # any subdir whose realpath was already visited so a self-referential symlink
+    # cannot make the walk hang (standard followlinks=True hardening).
+    visited = set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow):
+        if follow:
+            rp = os.path.realpath(dirpath)
+            if rp in visited:
+                dirnames[:] = []
+                continue
+            visited.add(rp)
+            dirnames[:] = [d for d in dirnames
+                           if os.path.realpath(os.path.join(dirpath, d)) not in visited]
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("node_modules", "_test")]
         for fn in filenames:
             if not fn.endswith(".md"):

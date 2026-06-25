@@ -109,6 +109,11 @@
             "type": "command",
             "command": "~/.claude/hooks/memory-seed.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-integrity-backstop.sh",
+            "timeout": 5
           }
         ]
       }

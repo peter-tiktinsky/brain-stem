@@ -57,7 +57,11 @@
       },
       "overflow_routing": {
         "_description": "Cold-spill seam — DOCUMENTED ONLY (pre-built, cheap). At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill is v-next, volume-gated, no calendar gate). The fixed section order below makes the cold boundary always knowable.",
-        "fixed_section_order": ["Semantic", "Procedural", "Episodic"],
+        "fixed_section_order": [
+          "Semantic",
+          "Procedural",
+          "Episodic"
+        ],
         "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is a single pointer line to the append-only episodic-chronicle.md and is not cold-spilled.",
         "archive_target": "MEMORY-archive.md",
         "archive_created": false,
@@ -87,7 +91,9 @@
       "category": "C1",
       "surface": "vault-writers",
       "tier": "mandate",
-      "enforcement_layer": ["pre-write-guard.sh Branch 3 (vault-writer-reference)"],
+      "enforcement_layer": [
+        "pre-write-guard.sh Branch 3 (vault-writer-reference)"
+      ],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates.vault_writer_reference",
       "rule_text": "Vault Writers/<writer>.md writer-reference files MUST conform to the writer-reference shape defined by governance/file-type-contracts/vault-writer.md.json (the single authority for writer-reference shape; R-58 matcher contract). Branch 3 DENIES a frontmatter-schema violation at write-time. R-58 is the mandate (vault-writer reference — Branch 3), home mandatory-files, category C1.",
@@ -100,7 +106,9 @@
       "home": "mandatory-files",
       "category": "C5",
       "tier": "mandate",
-      "enforcement_layer": ["hooks/pre-write-guard.sh PreToolUse Edit|Write advisory (additionalContext warning when any threshold exceeded; never blocks write)"],
+      "enforcement_layer": [
+        "hooks/pre-write-guard.sh PreToolUse Edit|Write advisory (additionalContext warning when any threshold exceeded; never blocks write)"
+      ],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap",
       "failure_mode": "Adopter writes MEMORY.md entries past the documented 200-line/25KB cap; harness silently truncates at load-time; bottom entries never reach the model. Without the advisory, the adopter has no write-time signal that part of their index will be invisible.",

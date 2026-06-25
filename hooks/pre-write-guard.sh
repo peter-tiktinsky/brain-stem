@@ -45,6 +45,82 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 # No file path → nothing to guard
 [[ -z "$FILE_PATH" ]] && exit 0
 
+# ===: WORK_CONFIGURED-gated spoke-scoped remap prelude =======
+# When an agent launched from ~/work/<spoke>/ writes a deliverable, the physical
+# path is $WORK_HOME/<spoke>/<rest> but the GOVERNED surface is the vault-view
+# Work/<spoke>/<rest> (the vault surfaces ~/work as Work/ via a build-time
+# symlink). This prelude rewrites the in-engine FILE_PATH from the physical
+# work-home form to the vault-view form so every downstream consumer — the
+# doc-dependency cascade (1169), Branch #1 Class A (1241), and the 3-tier
+# R-32/R-33/R-47 schema enforcement (1466) — governs the write as Work/<spoke>/…
+# It MUST precede those consumers; it is inserted before the G1 gate (CORRECTED
+# from a later draft window because :1169 runs first).
+# Three-way gate — ALL must hold to remap (else byte-identical pass-through):
+#   1. WORK_CONFIGURED=1            (vault + Work/ view + WORK_HOME all present)
+#   2. FILE_PATH under $WORK_HOME/  (a work-home physical write)
+#   3. first segment is a REGISTERED spoke (FIX #6 — anchored-spoke-registry.json
+#      via spoke-resolve.sh; an unregistered subdir like ~/work/scratch is a
+#      no-op so net-new spokes stay frictionless until /govern register).
+# Canonicalization uses `pwd -P` on the parent dir (resolve symlinks/.. to the
+# real path) with a STRING-PREFIX fallback (FIX #5b) when the parent does not
+# yet exist (first write into a brand-new registered subdir). Fail-OPEN: any
+# error leaves FILE_PATH untouched — a normal vault-direct / non-work write is
+# never broken by this block.
+if [[ "${WORK_CONFIGURED:-0}" == "1" ]] && [[ "$FILE_PATH" == "$WORK_HOME/"* ]]; then
+  WR_REL="${FILE_PATH#$WORK_HOME/}"
+  WR_SEG="${WR_REL%%/*}"
+  # Only remap a path that actually descends into a segment ($WORK_HOME/<seg>/…),
+  # never a bare file directly under $WORK_HOME (no spoke to key on).
+  if [[ -n "$WR_SEG" ]] && [[ "$WR_REL" == */* ]]; then
+    # FIX #6 — registered-spoke check. Reuse spoke-resolve.sh. A registered
+    # depth-1 spoke resolves $WORK_HOME/<seg> to a key DISTINCT from the key
+    # that $WORK_HOME itself resolves to (the home catch-all): the depth-1
+    # cwd_anchor wins by longest-match only when it is registered. Subshell +
+    # `|| true` keep set -e/-u/-o pipefail from aborting the hook on any
+    # resolver hiccup (fail-OPEN to no-remap).
+    WR_SPOKE_LIB="${_HOOK_DIR_EARLY:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd 2>/dev/null || true)}"
+    WR_RESOLVE=""
+    for _wr_cand in \
+      "${SPOKE_RESOLVE_LIB:-}" \
+      "$WR_SPOKE_LIB/../skills/new-plan/lib/spoke-resolve.sh" \
+      "$WR_SPOKE_LIB/lib/spoke-resolve.sh" \
+      "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh"; do
+      [[ -n "$_wr_cand" ]] && [[ -f "$_wr_cand" ]] && { WR_RESOLVE="$_wr_cand"; break; }
+    done
+    WR_REGISTERED=0
+    if [[ -n "$WR_RESOLVE" ]]; then
+      WR_SEG_KEY="$(set +e; source "$WR_RESOLVE" 2>/dev/null; spoke_resolve_from_cwd "$WORK_HOME/$WR_SEG" 2>/dev/null || true)"
+      WR_HOME_KEY="$(set +e; source "$WR_RESOLVE" 2>/dev/null; spoke_resolve_from_cwd "$WORK_HOME" 2>/dev/null || true)"
+      if [[ -n "$WR_SEG_KEY" ]] && [[ "$WR_SEG_KEY" != "$WR_HOME_KEY" ]]; then
+        WR_REGISTERED=1
+      fi
+    fi
+    if [[ "$WR_REGISTERED" == "1" ]] && [[ "$VAULT_CONFIGURED" == "1" ]]; then
+      # Canonicalize via pwd -P on the parent dir; string-prefix fallback (FIX
+      # #5b) when the parent does not yet exist (first write into a new subdir).
+      WR_FILE_BASE="${FILE_PATH##*/}"
+      WR_PARENT="${FILE_PATH%/*}"
+      WR_REAL_PARENT=""
+      if [[ -d "$WR_PARENT" ]]; then
+        WR_REAL_PARENT="$(cd "$WR_PARENT" 2>/dev/null && pwd -P 2>/dev/null || true)"
+      fi
+      WR_REAL_WORKHOME="$(cd "$WORK_HOME" 2>/dev/null && pwd -P 2>/dev/null || true)"
+      [[ -z "$WR_REAL_WORKHOME" ]] && WR_REAL_WORKHOME="$WORK_HOME"
+      if [[ -n "$WR_REAL_PARENT" ]] && [[ "$WR_REAL_PARENT" == "$WR_REAL_WORKHOME/"* ]]; then
+        # Real-parent path (symlinks/.. resolved) is under the real work-home.
+        WR_VIEW_REL="${WR_REAL_PARENT#$WR_REAL_WORKHOME/}/$WR_FILE_BASE"
+      else
+        # Parent dir absent (or pwd -P failed) → string-prefix fallback.
+        WR_VIEW_REL="$WR_REL"
+      fi
+      if [[ -n "$WR_VIEW_REL" ]]; then
+        FILE_PATH="$VAULT_ROOT/Work/$WR_VIEW_REL"
+      fi
+    fi
+  fi
+fi
+# === end remap prelude ======================================
+
 # === G1: live-mutation gate ============================================
 # Plan-agnostic manifest-driven gate. Reads each active plan's
 # `live_mutation_scope` block from its manifest.json; evaluates detection
@@ -1195,23 +1271,34 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class A: new top-level folder (depth ≥ 1).
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH" -ge "1" ]]; then
     # Foundation system folders.
-    B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nVault Writers'
+    # of ~/work surfaced by build-brain-vault.sh). A remapped governed Work
+    # write (Work/<spoke>/…) must NOT fire the Class A "new top-level folder"
+    # advisory — Work/ is a known surface, and spoke registration is handled by
+    # /govern register --kind project, not the generic folder-register prompt.
+    B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nVault Writers\nWork'
     # view. Single jq pass over UNION_JSON captures BOTH the foundation-side
     # top-level `.path_routing` (legacy denorm slot; retires in T-6) AND the
     # pillar-nested `.frontmatter.path_routing` (overlay-extended path).
     # Replaces the prior 3-source manual union (BUNDLE jq + direct overlay
     # file read) with one helper-mediated read; overlay R-52 enforcement runs
     # through the helper.
+    # path_routing RULES, not the metadata KEYS. The pillar-nested shape is
+    # `.frontmatter.path_routing.rules[].pattern` (e.g. "Clients/**" → top-level
+    # "Clients"); the prior `keys[]?` read metadata keys (`rules`, `_description`,
+    # `_rule_shape_contract`) and never the real registered tops — a defect that
+    # let a registered cluster STILL fire the Class A advisory. The legacy
+    # foundation-side top-level `.path_routing` denorm slot still resolves via
+    # its own keys (unchanged; no behavior change against today's empty rules:[]).
     B1_KNOWN_ROUTING=""
     if [[ -n "${UNION_JSON:-}" ]]; then
       B1_KNOWN_ROUTING=$(jq -r '
         (.path_routing // {} | keys[]?),
-        (.frontmatter.path_routing // {} | keys[]?)
+        (.frontmatter.path_routing.rules // [] | .[]?.pattern // empty | split("/")[0])
       ' <<<"$UNION_JSON" 2>/dev/null || true)
     fi
     B1_KNOWN_TOPS=$(printf '%s\n%s\n' "$B1_FOUNDATION_FOLDERS" "$B1_KNOWN_ROUTING" | LC_ALL=C sort -u)
     if ! printf '%s\n' "$B1_KNOWN_TOPS" | grep -Fxq "$B1_TOP"; then
-      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Plans, Skills, Archive) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+      B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class A /] You are writing to a new top-level vault folder: '${B1_TOP}/'. Foundation system folders (Vault Writers, Plans, Skills, Archive, Work) + your registered overlay path_routing entries don't include this. Suggested: run \`/govern register --kind folder --target '${B1_TOP}/'\` to register naming/tagging/doc-deps + type-mapping for this cluster, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-a; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
     fi
   fi
 

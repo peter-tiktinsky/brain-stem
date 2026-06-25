@@ -98,6 +98,12 @@
       "timeout": 5
     },
     {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-start-integrity-backstop.sh",
+      "timeout": 5
+    },
+    {
       "event": "Stop",
       "matcher": null,
       "command": "~/.claude/hooks/stop-checkpoint-check.sh",
