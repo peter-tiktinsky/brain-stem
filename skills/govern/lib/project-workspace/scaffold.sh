@@ -1,25 +1,26 @@
 #!/bin/bash
 # scaffold.sh — project-workspace, Seam-1 folder scaffolding for a work/ spoke.
 # The executable half of recipe.md.
-# Writes ONLY under $WORK_HOME/<spoke>/ (the adopter's work spoke); it reads the
-# foundation hub template read-only and NEVER modifies a foundation file. That is the
-# load-bearing "zero foundation edits" property the recipe proves.
+# Writes ONLY under $WORK_HOME/<spoke>/ (the adopter's work spoke) and NEVER modifies a
+# foundation file. That is the load-bearing "zero foundation edits" property the recipe
+# proves.
 # OUTPUT CONTRACT:
-#   files written : --layout flat (default) → $WORK_HOME/<spoke>/{CLAUDE.md, hub.md,
-#                   README.md, updates.md} + deliverables/ + reference/ (dirs) — the
-#                   6-file MVP shape (no starters).
-#                   --layout master → $WORK_HOME/<spoke>/{CLAUDE.md, hub.md, README.md,
-#                   updates.md} ONLY — NO top-level deliverables/ or reference/ (each
-#                   sub-project owns its own); hub.md renders the MASTER variant (block 7
-#                   points at sub-projects).
+#   files written : --layout flat (default) → $WORK_HOME/<spoke>/{CLAUDE.md, README.md,
+#                   updates.md} + deliverables/ + reference/ (dirs) — the MVP shape
+#                   (no starters).
+#                   --layout master → $WORK_HOME/<spoke>/{CLAUDE.md, README.md, updates.md}
+#                   ONLY — NO top-level deliverables/ or reference/ (each sub-project owns
+#                   its own).
 #                   --subdir <name> → $WORK_HOME/<spoke>/<name>/{README.md, deliverables/,
-#                   reference/} under an existing spoke — NEVER a CLAUDE.md, NEVER a hub.md
+#                   reference/} under an existing spoke — NEVER a CLAUDE.md
 #                   (sub-projects are ORGANIZATIONAL UNITS, identity stays with the master,
-#   schema        : hub.md follows the foundation hub template (type: index, 8 pointer
-#                   blocks); README/updates are free-form spoke docs the adopter owns.
-#   pre-write validation : a resolvable templates dir (for hub.md); refuses to clobber a
-#                   pre-existing real spoke dir; --subdir requires the spoke dir to already
-#                   exist + a slash-free <name>.
+#   schema        : the work CLAUDE.md carries project identity, a README/updates pointer,
+#                   a binder pointer, and an auto-maintained directory map bounded by the
+#                   work-map:start / work-map:end sentinels (generated:true — re-derived by
+#                   `librarian work-map-generate`, never hand-edited); README/updates are
+#                   free-form spoke docs the adopter owns.
+#   pre-write validation : refuses to clobber a pre-existing real spoke dir; --subdir
+#                   requires the spoke dir to already exist + a slash-free <name>.
 #   failure mode  : block-and-log — validate all inputs first, diagnostic to stderr, non-zero
 #                   exit; never partial-write over an existing spoke.
 # Usage: scaffold.sh --spoke <name> [--work-home <path>]
@@ -28,6 +29,81 @@
 # Exit: 0 spoke scaffolded; 1 validation/usage error; 2 clobber refusal.
 # R-23: bash 3.2 compatible.
 set -u
+
+# SHARED work-CLAUDE.md renderers — the SINGLE source of truth for the work
+# spoke's CLAUDE.md body shape. This is a frozen cross-tool interface: the
+# register path (scaffold.sh below) and the adopt path (project.sh's
+# _proj_adopt_mint_identity, which SOURCES this file) MUST emit a byte-identical
+# work CLAUDE.md. Edit the shape HERE only.
+# The work CLAUDE.md carries project identity, a README/updates pointer, a binder
+# pointer (cross-plan state), and an AUTO-MAINTAINED directory map bounded by the
+# work-map:start / work-map:end sentinels. The map block is generated:true —
+# re-derived by the work directory-map generator, never hand-edited. NO @import,
+# NO plan roster (the project binder owns that — disjoint roles).
+# Usage: _pw_emit_flat_claude_md <spoke> > <out>   (or to a path via redirection)
+#        _pw_emit_master_claude_md <spoke> > <out>
+_pw_emit_flat_claude_md() {
+  local spoke="$1"
+  cat <<EOF
+# $spoke — spoke context
+
+This is a \`work/\` spoke (project workspace).
+
+<!-- work-map:start generated:true -->
+## What lives where
+
+- \`deliverables/\` — polished, audience-facing work.
+- \`reference/\` — raw notes / source material.
+- \`README.md\` — scope / outcome / definition-of-done.
+- \`updates.md\` — append-only updates log.
+
+_Auto-maintained by \`librarian work-map-generate\` — do not hand-edit this block._
+<!-- work-map:end -->
+
+\`README.md\` carries scope / outcome / definition-of-done; \`updates.md\` is the
+append-only updates log.
+
+Cross-plan state (prior decisions, research index, handoff journal) lives in the project
+binder at \`~/.claude-plans/_projects/$spoke/\` — read on demand.
+EOF
+}
+
+_pw_emit_master_claude_md() {
+  local spoke="$1"
+  cat <<EOF
+# $spoke — master spoke context
+
+This is a \`work/\` MASTER spoke (project workspace). It holds NO top-level
+\`deliverables/\` or \`reference/\` — each sub-project under this spoke owns its own.
+
+<!-- work-map:start generated:true -->
+## What lives where
+
+- Sub-projects: each owns its own \`deliverables/\` (polished, audience-facing work) +
+  \`reference/\` (raw notes / source material). This master holds none of its own.
+- \`README.md\` — scope / outcome / definition-of-done.
+- \`updates.md\` — append-only updates log.
+
+_Auto-maintained by \`librarian work-map-generate\` — do not hand-edit this block._
+<!-- work-map:end -->
+
+\`README.md\` carries scope / outcome / definition-of-done; \`updates.md\` is the
+append-only updates log.
+
+Cross-plan state (prior decisions, research index, handoff journal) lives in the project
+binder at \`~/.claude-plans/_projects/$spoke/\` — read on demand.
+EOF
+}
+
+# SOURCE-GUARD: when this file is sourced (project.sh reuses the renderers), stop
+# here — only the function definitions above are exported, the scaffolding main
+# body below never runs. Detection: `return` succeeds ONLY in a sourced context
+# (in a directly-run script it errors outside a function). This is context-
+# independent (does not depend on BASH_SOURCE/$0 being set) and bash 3.2 safe.
+if ( return 0 2>/dev/null ); then
+  return 0 2>/dev/null || true   # sourced -> defines-only, no scaffolding.
+fi
+# Fell through -> invoked directly (bash scaffold.sh ...): run the main body below.
 
 SPOKE=""
 WORK_HOME="${BRAIN_STEM_WORK_HOME:-}"
@@ -96,17 +172,6 @@ EOF
   exit 0
 fi
 
-# templates dir: explicit > $CLAUDE_HOME/templates > repo templates/ (script-relative)
-if [ -z "$TEMPLATES_DIR" ]; then
-  if [ -n "${CLAUDE_HOME:-}" ] && [ -d "$CLAUDE_HOME/templates" ]; then
-    TEMPLATES_DIR="$CLAUDE_HOME/templates"
-  else
-    TEMPLATES_DIR="$(cd "$SCRIPT_DIR/../../../.." 2>/dev/null && pwd)/templates"
-  fi
-fi
-HUB_TEMPLATE="$TEMPLATES_DIR/hub-template.md"
-[ -f "$HUB_TEMPLATE" ] || die "hub template not found: $HUB_TEMPLATE (pass --templates-dir)"
-
 # real-dir guard: refuse to clobber a pre-existing real spoke (mirrors build-brain-vault).
 if [ -e "$SPOKE_DIR" ] && [ ! -L "$SPOKE_DIR" ]; then
   die "refusing to clobber existing spoke: $SPOKE_DIR" 2
@@ -121,60 +186,16 @@ else
   mkdir -p "$SPOKE_DIR/deliverables" "$SPOKE_DIR/reference" || die "mkdir failed under $SPOKE_DIR"
 fi
 
-# hub.md rendered from the foundation hub template (read-only consume): substitute the
-# spoke name + today's date. The template is the propagation surface for the 8-block set.
-# For MASTER, block 7 (Deliverables) is rewritten in place to point at sub-projects — the
-# master holds none (a conditional block in the scaffolder, not a separate template file).
+# CLAUDE.md — the work spoke's identity + on-demand pointer surface, rendered via the
+# SHARED renderers above (the SINGLE source of truth the adopt path also calls).
 if [ "$LAYOUT" = "master" ]; then
-  sed -e "s/<spoke>/$SPOKE/g" -e "s/<YYYY-MM-DD>/$TODAY/g" "$HUB_TEMPLATE" \
-    | awk '
-        /^## 7\. Deliverables/ {
-          print "## 7. Deliverables"
-          print ""
-          print "- Sub-projects: each owns its own `deliverables/` + `reference/`; this master holds none."
-          print "- This is a MASTER project — its top-level surface organizes sub-projects, which carry the work product. (Pointer-only; sub-project bodies are read on-demand, never inlined here.)"
-          skip = 1
-          next
-        }
-        /^## 8\. / { skip = 0 }
-        skip == 1 { next }
-        { print }
-      ' > "$SPOKE_DIR/hub.md" || die "failed to render master hub.md"
+  _pw_emit_master_claude_md "$SPOKE" > "$SPOKE_DIR/CLAUDE.md"
 else
-  sed -e "s/<spoke>/$SPOKE/g" -e "s/<YYYY-MM-DD>/$TODAY/g" "$HUB_TEMPLATE" > "$SPOKE_DIR/hub.md" \
-    || die "failed to render hub.md"
-fi
-
-# CLAUDE.md — the eager cover-page bridge; <=30 lines, imports hub.md (import directive
-# lives here, never inside hub.md — import is CLAUDE.md-only Claude Code behavior).
-if [ "$LAYOUT" = "master" ]; then
-  cat > "$SPOKE_DIR/CLAUDE.md" <<EOF
-# $SPOKE — master spoke context
-
-@hub.md
-
-This is a \`work/\` MASTER spoke (project workspace). \`hub.md\` is the eager pointer-only
-cover page imported above; \`README.md\` is the context doc (scope / outcome /
-definition-of-done); \`updates.md\` is the append-only updates log. This master holds NO
-top-level \`deliverables/\` or \`reference/\` — each sub-project under this spoke owns its
-own. Read sub-project bodies on-demand — they are not imported here.
-EOF
-else
-  cat > "$SPOKE_DIR/CLAUDE.md" <<EOF
-# $SPOKE — spoke context
-
-@hub.md
-
-This is a \`work/\` spoke (project workspace). \`hub.md\` is the eager pointer-only cover
-page imported above; \`README.md\` is the context doc (scope / outcome / definition-of-done);
-\`updates.md\` is the append-only updates log. Polished, audience-facing work lives in
-\`deliverables/\`; raw notes and source material live in \`reference/\`. Read deliverable and
-reference bodies on-demand — they are not imported here.
-EOF
+  _pw_emit_flat_claude_md "$SPOKE" > "$SPOKE_DIR/CLAUDE.md"
 fi
 
 # README + updates — minimal shape stubs (the foundation scaffolds the shape only; the
-# 6-file MVP ships NO starter templates per — the adopter owns the body content).
+# flat MVP ships NO starter templates per — the adopter owns the body content).
 cat > "$SPOKE_DIR/README.md" <<EOF
 # $SPOKE
 
@@ -203,8 +224,8 @@ EOF
 # --- summary -----------------------------------------------------------------
 printf 'scaffold: created spoke %s at %s\n' "$SPOKE" "$SPOKE_DIR"
 if [ "$LAYOUT" = "master" ]; then
-  printf '  shape   : CLAUDE.md hub.md README.md updates.md (MASTER — no top-level deliverables/reference)\n'
+  printf '  shape   : CLAUDE.md README.md updates.md (MASTER — no top-level deliverables/reference)\n'
 else
-  printf '  shape   : CLAUDE.md hub.md README.md updates.md deliverables/ reference/\n'
+  printf '  shape   : CLAUDE.md README.md updates.md deliverables/ reference/\n'
 fi
 exit 0

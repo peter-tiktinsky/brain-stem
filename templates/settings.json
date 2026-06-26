@@ -54,6 +54,16 @@
             "type": "command",
             "command": "~/.claude/hooks/post-tool-use-manifest.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-manifest-binder-refresh.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-work-map-refresh.sh",
+            "timeout": 5
           }
         ]
       }
@@ -113,6 +123,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-start-integrity-backstop.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-project-context.sh",
             "timeout": 5
           }
         ]

@@ -20,11 +20,15 @@
 #      `updated:` regen date lags the newest constituent-plan activity (the max
 #      manifest.json/handoff.md mtime across the plans whose manifest project:
 #      matches the spoke) by more than 14 days. Finding category: `binder-stale`,
-#      severity: `warn`. WARN-ONLY family (rules #4/#7/#8): degraded-utility with a
-#      one-command repair (re-run the binder generator), NO Stop/exit-2 escalation.
-#      A binder with no `updated:` date or no contributing plans, or an absent
-#      binder (adopter never ran the generators — first-run state, not staleness),
-#      yields no finding.
+#      severity: `warn`. POSTURE: the binder is now auto-maintained (session-close +
+#      a plan-manifest-write trigger + a session-start refresh-from-disk), so a
+#      `binder-stale` finding indicates the AUTO-MAINTENANCE PIPELINE DID NOT RUN —
+#      a pipeline-failure signal, not a normal stale state. Investigate the
+#      maintenance chain; a one-command generator re-run repairs the surface but does
+#      NOT explain why the pipeline missed it. WARN-ONLY family (rules #4/#7/#8):
+#      degraded-utility, NO Stop/exit-2 escalation. A binder with no `updated:` date
+#      or no contributing plans, or an absent binder (adopter never ran the
+#      generators — first-run state, not staleness), yields no finding.
 # Verification evidence for plans (any-of-three):
 #   a. last_verified: <ISO date> frontmatter within 14 days
 #   b. **Last Verified:** <ISO date> header bullet within 14 days
@@ -364,18 +368,25 @@ for plan_dir in walk_plan_dirs(plans_scope):
 
 # ---------- binder freshness (rule #9 — R-FLOW-MAINT-1) ----------
 # Per-spoke binders live at <plans>/_projects/<spoke>/{research-index,decision-log,
-# handoff-chronicle}.md (the T-3/4/5 generator outputs). Each carries a generated
+# handoff-chronicle}.md (the binder generator outputs). Each carries a generated
 # `updated: <ISO date>` frontmatter — the binder regen timestamp. The "max
 # constituent-plan activity" is the newest manifest.json/handoff.md mtime among the
 # plans whose manifest project: matches the spoke (the SAME spoke-attribution the
 # generators use: a plan contributes iff its manifest project: == <spoke>). When the
 # regen date lags that activity by more than BINDER_STALE_DAYS, emit a severity:warn
-# `binder-stale` finding. WARN-ONLY (rules #4/#7/#8 family): one re-run of the
-# generator repairs it; no Stop/exit-2 escalation (binder staleness is degraded-but-
-# usable, not the lost-in-flight-state class). An absent binder is first-run state,
-# NOT staleness — no finding. Threshold mirrors rule #4 (the project-freshness rule;
-# D4 R-FLOW-MAINT-1 names no numeric threshold, so the shipped staleness-family
-# convention governs).
+# `binder-stale` finding.
+# POSTURE: the binder is auto-maintained (session-close + a plan-manifest-write
+# PostToolUse trigger + a session-start refresh-from-disk). Because the surface
+# regenerates on every plan-state change, a `binder-stale` finding means the
+# AUTO-MAINTENANCE PIPELINE DID NOT RUN — it is a pipeline-failure signal, not a
+# normal stale state. Treat it as a prompt to investigate the maintenance chain
+# (which leg dropped the regen), not just a one-off re-run: a manual generator
+# re-run repairs THIS surface but does not explain why the pipeline missed it.
+# WARN-ONLY (rules #4/#7/#8 family): no Stop/exit-2 escalation (binder staleness is
+# degraded-but-usable, not the lost-in-flight-state class). An absent binder is
+# first-run state, NOT staleness — no finding. Threshold mirrors rule #4 (the
+# project-freshness rule; D4 R-FLOW-MAINT-1 names no numeric threshold, so the
+# shipped staleness-family convention governs).
 BINDER_STALE_DAYS = 14
 BINDER_BASENAMES = ("research-index.md", "decision-log.md", "handoff-chronicle.md")
 BINDER_UPDATED_RE = re.compile(r"^updated:\s*(20\d{2}-\d{2}-\d{2})\s*$", re.MULTILINE)
@@ -453,10 +464,17 @@ if os.path.isdir(projects_root):
                       "binder_updated": m.group(1),
                       "constituent_activity_lag_days": round(lag_days, 1),
                       "reason": "binder regen lags max constituent-plan activity by "
-                                "%dd (>%dd) — binder is stale (R-FLOW-MAINT-1)" % (int(lag_days), BINDER_STALE_DAYS),
-                      "resolution_hint": "re-run the owning librarian binder generator "
+                                "%dd (>%dd) — the binder is auto-maintained "
+                                "(session-close + manifest-write trigger + session-start "
+                                "refresh), so this stale surface signals the "
+                                "auto-maintenance pipeline did not run (R-FLOW-MAINT-1)"
+                                % (int(lag_days), BINDER_STALE_DAYS),
+                      "resolution_hint": "investigate the auto-maintenance pipeline (which "
+                                         "leg dropped the regen for spoke '%s'), not just a "
+                                         "one-off re-run; to repair this surface now, re-run the "
+                                         "owning librarian binder generator "
                                          "(plan-research-index / plan-decision-log / plan-handoff-index) "
-                                         "for spoke '%s' to refresh it" % spoke})
+                                         "for the spoke" % spoke})
                 counts["binder-stale"] += 1
 
 if dry_run:

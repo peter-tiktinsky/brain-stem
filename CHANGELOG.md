@@ -4,6 +4,23 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.9.0]
+
+Feature release — brain-stem now **self-orients at the start of a session**. When you open a session inside a registered work project (`~/work/<project>`) or against a plan's binder, brain-stem regenerates a short **situating brief** from the current state on disk and hands it to the assistant at startup, so it orients itself before you type anything. The same release makes each work project's `CLAUDE.md` a thin identity file with an **auto-maintained map of the project**, gives a work project's folders **self-maintaining indexes**, and creates a project's binder cover page **at registration** (previously the assistant was pointed at a page that was never minted). Everything is additive, automatic, and never writes into your authored content. See the [v1.9.0 release notes](docs/release-notes-v1.9.0.md).
+
+### Added
+
+- **A self-orienting session start.** Launch a session inside a registered work project or against a plan binder and brain-stem resolves where you are, regenerates a small situating brief from disk, and force-feeds it to the assistant at startup. The brief carries only machine-derivable orientation (what the project contains, what is active, the latest handoff headline, where to look next); the curated, judgement-bearing pages stay read-on-demand. It is regenerated every session, so it is never stale, and kept small so it costs almost nothing to load.
+- **A binder cover page that is minted at registration.** Registering a project or plan now creates its binder cover page up front, instead of pointing the assistant at a page that was never created.
+- **`work-map-generate` — a self-maintaining project map.** A work project's `CLAUDE.md` is now a thin identity file plus an auto-maintained map of the project's folders, regenerated from what is actually on disk. The map block is clearly marked as generated; anything you have added to that file yourself is left in place.
+- **`work-index-maintain` — self-indexing folders.** Inside a work project, the `deliverables/` and `reference/` folders (and each sub-project's own folders in a master project) now grow and keep their own `_index.md` listings automatically.
+- **Automatic upkeep with no command to run.** The situating brief, the project map, and the folder indexes are refreshed automatically — when a session ends, when the next one starts, when you register or grow a project, and when a plan's tracking file is written.
+
+### Changed
+
+- **A work project's `CLAUDE.md` is collapsed to identity + an auto-maintained map.** It no longer carries a hand-maintained project map or a plan roster; the map is derived from disk and kept current for you. Projects registered before this release are left untouched — the new shape applies to projects you register from here on.
+- **Generated vs authored content is treated distinctly.** brain-stem generates and keeps current the parts a machine can derive correctly (the project map, the situating brief, folder indexes) and never machine-writes the parts that need judgement (your cover pages, notes, and deliverables). Generated files are marked as such and confined to the project's own scaffolding.
+
 ## [v1.8.0]
 
 Feature release — brain-stem now governs the **work projects** you keep under `~/work/` (surfaced as the `Work/` view in your vault), and the same release makes session-close **commit-free**. A folder you create inside `Work/` can now be turned into a fully-governed project workspace with one command, so the highest-stakes, most client-facing content surface is governed with the same markdown discipline as the rest of your vault — and a project authored from outside the vault (`cd ~/work/<project>`) is governed too, not just one opened from inside Obsidian. Separately, `/librarian session-close` no longer commits or pushes your vault as a side-effect, and sessions that end without a formal close now get an automatic, commit-free integrity pass. See the [v1.8.0 release notes](docs/release-notes-v1.8.0.md).

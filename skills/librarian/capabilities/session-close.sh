@@ -29,8 +29,8 @@
 #   Step 2c : pending-reconciliation sweep (invokes
 #             ~/.claude/hooks/reconcile-sessions.sh). Fires in every mode;
 #             the sweep script is idempotent + lock-guarded.
-#   Step 4b : Backlog update advisory (RETIRED 2026-05-22 per T-15
-#             Tier B; backlog lifecycle now librarian-owned at
+#   Step 4b : Backlog update advisory (RETIRED 2026-05-22;
+#             backlog lifecycle now librarian-owned at
 #             ~/.claude-plans/_backlog.md per governance/plans-rules.json
 #             :: root_files; librarian:backlog-index capability emits row
 #             findings via its `backlog-row-missing-disposition` category).
@@ -377,6 +377,37 @@ is_build_dogfood() {
 # own scope via CLI flags per their SKILL.md contracts.
 
 step2_integrity() {
+  # ONCE for the binder-maintenance block below. The binder generators (the 3
+  # plan-* re-derivers + the situating card + the handoff-chronicle append) are
+  # scoped to the ACTIVE SPOKE ONLY — whole-tree re-derive is reserved for the
+  # `librarian-full` invocation, never the per-session close. We resolve the spoke
+  # from the session cwd ($PWD) via the shared spoke_resolve_from_cwd resolver
+  # (skills/new-plan/lib/spoke-resolve.sh) against the anchored-spoke registry —
+  # this is the most-correct source on disk: session-close records no launch cwd in
+  # HOOKS_STATE (verified — session-register.sh stores session_id+source only), so
+  # $PWD (the cwd the close runs in) is the session's working directory and the
+  # same anchor the SessionStart card hook (T-07) keys on.
+  # FALLBACK (documented, deliberate): if the resolver errors (registry unreadable,
+  # python3 absent, collision) OR yields an empty key, default active_spoke="home"
+  # — the registry catch-all. We MUST NOT silently fall back to a whole-tree
+  # re-derive (passing no --spoke), which would violate ACTIVE-SPOKE-ONLY. The
+  # `home` catch-all is the same key spoke_resolve_from_cwd returns for an
+  # unanchored cwd, so the fallback is consistent with the resolver's own default.
+  local active_spoke=""
+  local _spoke_resolver="${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh"
+  if [[ ! -r "$_spoke_resolver" ]]; then
+    # dev/source-tree resolution: CAPS_DIR is .../skills/librarian/capabilities
+    _spoke_resolver="$(cd "$CAPS_DIR/../../new-plan/lib" 2>/dev/null && pwd)/spoke-resolve.sh"
+  fi
+  if [[ -r "$_spoke_resolver" ]]; then
+    # shellcheck source=/dev/null
+    source "$_spoke_resolver"
+    active_spoke="$(spoke_resolve_from_cwd "$PWD" 2>/dev/null)"
+  fi
+  if [[ -z "$active_spoke" ]]; then
+    active_spoke="home"
+  fi
+
   run_capability frontmatter-enforce --check
   run_capability xref-check
   run_capability placement-validate
@@ -395,7 +426,42 @@ step2_integrity() {
   # timeout, so the close-out-harvest work that the SessionEnd hook cannot do
   # runs here).
   run_capability chronicle-index
+  # Append-before-re-derive ordering: append the just-finalized handoff's
+  # newest block to the active spoke's handoff-chronicle.md FIRST — the thin
+  # adaptor (binder-handoff-append-wrapper) drives the orphaned positional-arg
+  # hooks/handoff-chronicle-append.sh under the run_capability wrapper. It fires
+  # BEFORE plan-handoff-index's full re-derive (below), which de-dupes the appended
+  # block idempotently (the re-derive owns the whole file; the append is absorbed).
+  run_capability binder-handoff-append-wrapper --spoke "$active_spoke"
   run_capability plan-index
+  # generators — today triggered by ZERO session events (orphaned). They re-derive
+  # the active spoke's research-index.md / decision-log.md / handoff-chronicle.md
+  # from fresh plan source. All three are run_capability-compatible (block-and-log,
+  # exit 0, idempotent, atomic os.replace). plan-handoff-index's full re-derive
+  # absorbs the append above idempotently.
+  run_capability plan-research-index --spoke "$active_spoke"
+  run_capability plan-decision-log   --spoke "$active_spoke"
+  run_capability plan-handoff-index  --spoke "$active_spoke"
+  # Card-after-generators ordering: re-derive the situating
+  # card AFTER the 3 generators — the card reads their output (research/decision/
+  # handoff-chronicle pointers + the latest handoff headline), so it MUST run after
+  # them so the card the next SessionStart force-ingests (T-07) reflects the
+  # just-closed session's state.
+  run_capability project-context-situating --spoke "$active_spoke"
+  # Work-side directory map: re-derive the active spoke's work CLAUDE.md "what lives
+  # where" block FROM DISK so the work surface reflects this session's file changes.
+  # Runs AFTER the binder card (card = binder surface, work-map = work surface; the
+  # two are disjoint). Block-and-log + idempotent + writes ONLY the marker block in
+  # $WORK_HOME/<spoke>/CLAUDE.md (leave-orphan skips a marker-less/absent CLAUDE.md).
+  run_capability work-map-generate --spoke "$active_spoke"
+  # Work-side folder indexes: mint/refresh the active spoke's deliverables/ +
+  # reference/ _index.md FROM DISK so each work folder carries a current
+  # contents-enum table after this session's file changes. Runs AFTER the work-map
+  # (work-map = the spoke's directory map, work-index = the per-folder content
+  # indexes; both are work-surface, disjoint from the binder card). Block-and-log +
+  # idempotent + writes ONLY _index.md files under $WORK_HOME/<spoke>/.../{deliverables,
+  # reference}/ (defensive skip for an absent spoke / target subfolder / marker-less index).
+  run_capability work-index-maintain --spoke "$active_spoke"
   run_capability plan-parent-resolve
   # R-44 _index regen). writers-index-refresh -> Vault Writers/_index.md catalog;
   # writers-overlap-refresh -> _overlap-matrix.md. writers-health-audit is NOT

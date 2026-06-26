@@ -107,7 +107,8 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "daily",
       "dependencies": [
@@ -143,7 +144,8 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "daily",
       "dependencies": [
@@ -178,7 +180,8 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "daily",
       "dependencies": [
@@ -209,6 +212,148 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/plan-handoff-index.sh"
+    },
+    "project-context-situating": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "daily",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": false,
+      "synthesis_rubric_section": "SKILL.md#project-context-situating",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "(default) regenerate every spoke's GENERATED situating card _situating.md",
+          "--spoke <key> regenerate one spoke's card only",
+          "--dry-run findings + would-be writes, NO file write"
+        ],
+        "writes": [
+          "{plans_root}/_projects/<spoke>/_situating.md (atomic temp+os.replace; full-file regenerate — the eager, force-ingested binder surface, NOT hub.md; frontmatter type:index REUSED (; no new file-type, no governance-type lockstep) PLUS the generated:true sentinel; machine-derived from each contributing plan's manifest — plan roster + per-plan status + an AGGREGATE project-level status by RULE (no native aggregate field; precedence in-progress>paused>planned>completed>closed) + active focus (the in-progress plan's current task/blocker) + the latest handoff headline + pointers to research-index.md/decision-log.md/handoff-chronicle.md/hub.md + the ~/work/<spoke>/deliverables/ path; EXCLUDES the non-derivable library-refs / active-SoT free pointer (stays in the curated hub) and EXCLUDES all work-spoke directory-map content (the work-side directory-map domain); bounded < 9728B force-ingest budget, defensively trimmed if a degenerate roster overflows)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. manifest-parse-failed defensive-skip + card-over-budget findings"
+        ],
+        "schema": null,
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a malformed manifest emits a finding and is SKIPPED (never crash), a missing field is empty not an error; the rendered card is bounded < 9728B (defensively trimmed if over); atomic temp+os.replace; NEVER writes hub.md (preserves C-HUB)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/project-context-situating.sh"
+    },
+    "work-map-generate": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": null,
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": false,
+      "synthesis_rubric_section": "SKILL.md#work-map-generate",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "(default) regenerate every work spoke's work-map directory-map block",
+          "--spoke <key> regenerate one spoke's block only",
+          "--dry-run findings + would-be writes, NO file write"
+        ],
+        "writes": [
+          "$WORK_HOME/<spoke>/CLAUDE.md (atomic temp+os.replace; the GENERATED work-map MARKER BLOCK ONLY — the text strictly between '<!-- work-map:start generated:true -->' and '<!-- work-map:end -->' is replaced, the markers themselves and EVERYTHING outside them are preserved byte-for-byte; the block carries the generated:true sentinel via the open-marker line; the '## What lives where' directory map is derived from the TOP LEVEL of $WORK_HOME/<spoke>/ ONLY (not recursive) — MASTER layout lists the sub-project dir names, FLAT layout lists deliverables/ (polished work) + reference/ (raw notes) + README.md + updates.md with their roles; deterministic + idempotent, a re-run without a disk change is byte-identical; NEVER writes README.md, updates.md, anything under deliverables/ or reference/, hub.md, or anything under the plans root)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. leave-orphan defensive-skip findings (spoke-dir-absent / claude-md-absent / no-work-map-markers) + write-failed/blocked findings"
+        ],
+        "schema": null,
+        "validation": "work home resolves to a directory (absent -> block-and-log, no write, exit 0); the spoke dir must exist (absent -> defensive skip + finding); the spoke CLAUDE.md must exist AND already carry BOTH work-map markers (else leave-orphan defensive skip + finding — NEVER inject markers into an absent or marker-less CLAUDE.md, NEVER write README/updates or any other file); atomic temp+os.replace; replaces ONLY the inside-markers block, preserving everything outside byte-for-byte",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/work-map-generate.sh"
+    },
+    "work-index-maintain": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": null,
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": false,
+      "synthesis_rubric_section": "SKILL.md#work-index-maintain",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "(default) mint/refresh every work spoke's deliverables/ + reference/ _index.md",
+          "--spoke <key> one spoke only",
+          "--dry-run findings + would-be writes, NO file write"
+        ],
+        "writes": [
+          "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #projects/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, hub.md, deliverable/reference bodies, or anything under the plans root)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. defensive-skip findings (spoke-dir-absent / target-subfolder-absent / no-contents-enum-markers) + mint/refresh/blocked findings"
+        ],
+        "schema": null,
+        "validation": "work home resolves to a directory (absent -> block-and-log, no write, exit 0); the spoke dir must exist (absent -> defensive skip + finding); a target {deliverables,reference}/ subfolder must exist + be readable (absent/unreadable -> defensive skip + finding, never minted out of thin air); a marker-less existing _index.md is a leave-orphan skip (never imposes the shape); atomic temp+os.replace; the generated frontmatter conforms to governance/frontmatter-rules.json#types.index by construction",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/work-index-maintain.sh"
+    },
+    "binder-handoff-append-wrapper": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": null,
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/handoff-chronicle-append.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": false,
+      "synthesis_rubric_section": "SKILL.md#binder-handoff-append-wrapper",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "--spoke <key> resolve the active spoke's just-finalized handoff.md and delegate the single sentinel-region append",
+          "--spoke <key> --handoff <path> explicit handoff.md override (skips PLANS_ROOT resolution)"
+        ],
+        "writes": [
+          "NONE directly — this adaptor performs NO file write of its own; it resolves the active spoke's just-finalized handoff.md and delegates the single sentinel-region append to hooks/handoff-chronicle-append.sh (the sole writer: ONE block at the HEAD of the chronicle's '<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->' region, atomic temp+os.replace; absorbed idempotently by plan-handoff-index's full re-derive)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) on block-and-log defensive skip"
+        ],
+        "schema": null,
+        "validation": "the --spoke key must be non-empty (else block-and-log defensive skip, exit 0); a handoff.md must resolve for the spoke (prefer the in-progress plan, newest handoff.md by mtime; absent -> block-and-log defensive skip, exit 0); the delegated appender re-validates the handoff + parses the newest session block (block-and-log); never crashes the session-close",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/binder-handoff-append-wrapper.sh"
     },
     "writers-index-refresh": {
       "tier": "judgment",

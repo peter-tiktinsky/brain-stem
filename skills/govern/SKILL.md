@@ -61,37 +61,41 @@ atomic temp+rename), invokes the project-workspace scaffolder
 `path_routing` overlay rule in the `{rules:[...]}` object shape (routed
 through `hooks/lib/overlay-master-mutate.sh` with `--kind folder` — a routing-rule
 mutation is folder-class). It NEVER appends to the vault-root `CLAUDE.md` tree
-(the FIX#3 carve-out — a project's identity lives in its own `hub.md`).
+(the FIX#3 carve-out — a project's identity lives in its own work `CLAUDE.md`;
+cross-plan state lives in the binder hub at `~/.claude-plans/_projects/<spoke>/hub.md`).
 
 **Two create shapes ():**
 
-- `--layout flat` (default) — the 6-file flat MVP; overlay rule `Work/<spoke>/**`.
-- `--layout master --first-sub <name>` — a 4-file master top (CLAUDE.md + hub.md +
-  README + updates.md, NO top-level `deliverables/`/`reference/`) plus one
-  sub-project (`<name>/{README, deliverables/, reference/}`, NO sub `CLAUDE.md`,
-  NO sub `hub.md`). The master offers the wildcard rule
+- `--layout flat` (default) — the flat MVP (CLAUDE.md + README + updates.md +
+  `deliverables/` + `reference/`); overlay rule `Work/<spoke>/**`.
+- `--layout master --first-sub <name>` — a master top (CLAUDE.md + README +
+  updates.md, NO top-level `deliverables/`/`reference/`) plus one
+  sub-project (`<name>/{README, deliverables/, reference/}`, NO sub `CLAUDE.md`).
+  The master offers the wildcard rule
   `Work/<spoke>/*/{deliverables,reference}/**` (one rule covers all current +
-  future subs; survives a 2nd sub via the union leaf).
+  future subs; survives a 2nd sub via the union leaf). The work `CLAUDE.md`
+  carries an auto-maintained directory map (`work-map:start`/`end` sentinels) —
+  no `@import`, no plan roster (the binder owns that).
 
 **Identity bound (the #1 recursion control):** a spoke is minted ONLY for a
 directory EXACTLY one level under `$WORK_HOME` — `project.sh` rejects any cwd
 where `canonical(dirname(cwd)) != canonical($WORK_HOME)` (depth-2 BLOCKS). Only
 the MASTER registers a spoke; sub-projects are ORGANIZATIONAL UNITS () with no
-spoke, no anchor, no `hub.md`, no `CLAUDE.md` (— each sub `README` carries a
+spoke, no anchor, no `CLAUDE.md` (— each sub `README` carries a
 one-line launch advisory). Re-registering an existing spoke BLOCKS (no dup anchor,
 no re-scaffold).
 
 **Grow-later sub-modes:**
 
 - `--under <spoke> --add-sub <name>` — scaffold a sub + emit its overlay rule
-  (priors kept via the union leaf) + idempotently append the master `hub.md`
-  sub-pointer WITH the FIX#3 guard (never the vault-root `CLAUDE.md`). On a FLAT
+  (priors kept via the union leaf). The sub listing is auto-derived from disk by
+  the work directory-map generator on the next refresh. On a FLAT
   spoke: WARN + advise manual relocation of existing top-level deliverables
   (— never auto-moved).
 - `--adopt` — sub→top-level promotion: the operator `git mv` is EMITTED (not
-  executed), then register the depth-1 spoke + scaffold MISSING-ONLY `CLAUDE.md` +
-  `hub.md` (existing `README`/`deliverables`/`reference` byte-unchanged). Lossless;
-  ZERO content-file mutation.
+  executed), then register the depth-1 spoke + scaffold the MISSING-ONLY work
+  `CLAUDE.md` + mint the binder hub (existing `README`/`deliverables`/`reference`
+  byte-unchanged). Lossless; ZERO content-file mutation.
 ```
 
 `process.sh` exposes three sub-verbs matching the 6-step protocol's
@@ -115,7 +119,7 @@ deliberation/commit/skip arcs:
 | `tag-extension` | `tagging.taxonomy.dimension_prefixes` | (none) | `tag-extension` |
 | `writer` | `vault_writers` (no-op `{}` payload for atomic action-log) | `Vault Writers/<slug>.md` writer-reference file | `writer` |
 | `doc-amender-prompt` | (none — outside-vault state-tier asset) | `$VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md` (CREATE-ONLY) + optional `doc-dependencies.json` writer-fan-in entry | `doc-amender-prompt` |
-| `project` | `frontmatter.path_routing.rules` (vault-view overlay rule; union shape, committed as `--kind folder`) | `anchored-spoke-registry.json` (standalone direct-patch, atomic temp+rename — master only) + `$WORK_HOME/<spoke>/` scaffold (6-file flat OR 4-file master + sub) — NEVER the vault-root `CLAUDE.md` tree | `folder` (overlay rule); registry patch writes NO action-log row |
+| `project` | `frontmatter.path_routing.rules` (vault-view overlay rule; union shape, committed as `--kind folder`) | `anchored-spoke-registry.json` (standalone direct-patch, atomic temp+rename — master only) + `$WORK_HOME/<spoke>/` scaffold (flat MVP OR master + sub) — NEVER the vault-root `CLAUDE.md` tree | `folder` (overlay rule); registry patch writes NO action-log row |
 
 ### doc-amender-prompt Output Contract (the 5th class — Skill Creation Rules)
 

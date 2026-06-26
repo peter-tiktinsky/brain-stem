@@ -6,7 +6,7 @@
 # self-update; no [F] marker per) is performed AFTER the library
 # commit succeeds — EXCEPT for a Work or Work/* target, which is carved
 # out: a Work spoke is an external-root project workspace whose identity
-# lives in its own hub.md, so its registration never appends to the
+# lives in its own CLAUDE.md, so its registration never appends to the
 # vault-root CLAUDE.md tree.
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
@@ -85,7 +85,7 @@ mode_propose() {
         notes: [
           "Class A folder registration mutates two pillars atomically (R-37).",
           "If the folder does not need _index.md, REMOVE the mandatory_files pillar entry from the validated proposal before commit.",
-          "Step 6 (vault-root CLAUDE.md tree self-update) fires after commit for a vault-root user cluster, and is SKIPPED for a Work or Work/* target. A Work spoke is an external-root project workspace whose identity lives in its own hub.md, never the vault-root CLAUDE.md tree — so no tree-append is performed for it. Operator confirms the tree-edit at that step only when it fires."
+          "Step 6 (vault-root CLAUDE.md tree self-update) fires after commit for a vault-root user cluster, and is SKIPPED for a Work or Work/* target. A Work spoke is an external-root project workspace whose identity lives in its own CLAUDE.md, never the vault-root CLAUDE.md tree — so no tree-append is performed for it. Operator confirms the tree-edit at that step only when it fires."
         ]
       }
     '
@@ -156,7 +156,7 @@ mode_commit() {
   # does NOT roll back the overlay (canonical; survives); operator triages
   # via librarian governance-parity-audit `vault-claude-md-tree-drift` finding.
   # Work/* carve-out: a Work-spoke target is an external-root project workspace,
-  # NOT a vault-root user cluster — its identity lives in its own hub.md, never
+  # NOT a vault-root user cluster — its identity lives in its own CLAUDE.md, never
   # the vault-root CLAUDE.md Vault Structure tree. Skip the tree-append entirely
   # for any Work or Work/* target (the append would misdirect a project pointer
   # into the vault-root cover).
@@ -185,7 +185,7 @@ _folder_claude_md_tree_append() {
 
   # Defensive Work/* carve-out (belt-and-suspenders with the mode_commit case
   # guard): a Work-spoke target never lands in the vault-root tree — its
-  # identity is its own hub.md. Early-return BEFORE any sidecar/file mutation
+  # identity is its own CLAUDE.md. Early-return BEFORE any sidecar/file mutation
   # so even a direct call cannot misdirect a project pointer into the cover.
   case "$target" in
     Work|Work/*) return 0 ;;

@@ -11,15 +11,18 @@ updated: <YYYY-MM-DD>
 SHAPE CONTRACT — governance/file-type-contracts/_index.md.json (C-IDX type: index)
 + C-HUB (R-BIND-1, the binder hub.md contract). Maintainer: librarian.
 
-hub.md is the ONLY eager binder surface and the import TARGET — the spoke project
-CLAUDE.md imports this file via its own import directive. That directive line lives
-in the spoke CLAUDE.md, NEVER inside hub.md (an import directive here is a defect:
-import is CLAUDE.md-only Claude Code behavior). hub.md is POINTER-ONLY and fits a
+hub.md is the curated, pointer-only binder cover, read ON DEMAND — nothing imports it.
+The eager binder orientation is the force-ingested situating card (_situating.md),
+loaded automatically at session start; hub.md is the curated depth the reader opens
+when they need it. No import directive belongs inside hub.md (it would be a defect:
+import is CLAUDE.md-only Claude Code behavior, and nothing imports the binder hub). hub.md
+is POINTER-ONLY and fits a
 <=200-line budget (size_limits {max_lines: 200}, enforced by the librarian scan, not
 write-time). EXCLUDED: inline research summaries, decision bodies, full task lists,
 session history. Exactly 8 pointer-only blocks, in the order below (the Deliverables
 block joins the binder to the spoke's work product; Import relationship stays last as
-the structural meta-block). hub.md is template-scaffolded then hand-maintained — no
+the structural meta-block, now documenting that the hub is read on-demand, not imported).
+hub.md is template-scaffolded then hand-maintained — no
 librarian capability generates it (the binder generators write research-index.md /
 decision-log.md / handoff-chronicle.md, which this hub points at, never hub.md), so
 this template is the propagation surface for the block set.
@@ -61,6 +64,8 @@ this template is the propagation surface for the block set.
 
 ## 8. Import relationship
 
-This file is the import target: the spoke CLAUDE.md imports it via its own import
-directive. (That directive lives in the spoke CLAUDE.md, not here — import is
-CLAUDE.md-only Claude Code behavior.)
+This file is read ON DEMAND — nothing imports it. The eager binder orientation is
+the force-ingested situating card (`_situating.md`), loaded automatically at session
+start; open this cover for the curated depth the card does not carry. On the work
+side, the spoke's `CLAUDE.md` auto-loads its own "what lives where" directory map —
+it does not import this binder hub.

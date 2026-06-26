@@ -61,6 +61,15 @@
 #         at the region HEAD inside those markers and touches nothing else; this
 #         librarian capability rebuilds the entire region (plus the frontmatter
 #         and the intro prose outside the markers) on a full re-derive.
+#         PERMITTED CONCURRENT WRITERS to the sentinel region:
+#         hooks/handoff-chronicle-append.sh AND its session-close adaptor
+#         capabilities/binder-handoff-append-wrapper.sh are the sanctioned
+#         append-one-block writers to this same '<!-- handoff-chronicle:start --> …
+#         :end -->' region. They append; THIS full re-derive ABSORBS an appended
+#         block IDEMPOTENTLY — the re-derive rebuilds the whole region from the
+#         source handoff.md set and renders the same block byte-for-byte, so a
+#         block the adaptor appended (then re-derived here) produces NO
+#         duplication. Session-close fires the append BEFORE this re-derive.
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder chronicle markdown;
 #     handoff-chronicle.md is a generated human-readable projection — the block

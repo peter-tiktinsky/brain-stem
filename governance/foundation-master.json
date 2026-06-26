@@ -492,17 +492,17 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-24T13:48:58Z",
-    "bundle_version": "5e7c1a5a0f7444474d13934c3e2c6bbd5f4f9e3524de46208434c53f8f4a5602",
+    "built_at": "2026-06-25T01:15:31Z",
+    "bundle_version": "4b472ac06aeb4f6f7c7e64b19fd73dbdbe0d9fe7468f21ca2816c30d9571f6f9",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-24T13:48:58Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
       "governance/frontmatter-rules.json": "2026-06-24T13:48:58Z",
-      "governance/mandatory-files-rules.json": "2026-06-24T13:48:58Z",
+      "governance/mandatory-files-rules.json": "2026-06-25T01:15:31Z",
       "governance/naming-rules.json": "2026-06-24T13:48:58Z",
       "governance/plans-rules.json": "2026-06-24T13:48:58Z",
-      "governance/tagging-rules.json": "2026-06-24T13:48:58Z",
+      "governance/tagging-rules.json": "2026-06-25T01:15:31Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
     "source_files_count": 8
@@ -1006,7 +1006,7 @@
       "$id": "brain-stem/governance/file-type-contracts/deliverable.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root; no write-time guard fires on deliverables authored outside the vault root.",
+        "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root; no write-time guard fires on deliverables authored outside the vault root, and a deliverable is never machine-written. The work root is not write-untouched, however: foundation capabilities machine-write generated, sentinel-bounded files into it (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files). Those generated surfaces are a disjoint artifact class — not deliverables — and are out of this contract's scope; the deliverable surface (human/agent-authored README/updates and the deliverable files themselves) stays audit-time-only and never machine-written.",
         "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.deliverable (the type registration) + governance/foundation-master.json forward-composed move in one commit.",
         "thin_contract_note": "Models the minimal-viable file-type stub shape (frontmatter + lifecycle, free-form body), NOT the rich library-article body-structure shape — deliverables are too heterogeneous for a single body contract. Per-deliverable-kind structure governance is an archetype subtype layered via overlay-master.json, not part of this base contract."
       },
@@ -1015,7 +1015,7 @@
       },
       "audience_rationale": "The base audience values stay internal and external so the universal vocabulary remains archetype-neutral; a narrower refinement of the external value is an overlay subtype an adopter adds for their own publish tooling, not a base value the foundation ships.",
       "contract_rationale": "A deliverable is durable, project-scoped work product the author owns and edits across its lifecycle, so the contract governs only the lifecycle frontmatter and leaves the body free-form; deliverables are too varied in shape for one body-structure to fit, and per-kind structure belongs to an archetype subtype rather than the universal base.",
-      "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement is AUDIT-TIME via the librarian suite over the Work/ symlink view — a deliverable authored from a work-spoke launch lands outside the vault root, so no write-time guard fires.",
+      "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement is AUDIT-TIME via the librarian suite over the Work/ symlink view — a deliverable authored from a work-spoke launch lands outside the vault root, so no write-time guard fires, and a deliverable is never machine-written. Note the bounded exception: foundation capabilities DO machine-write generated, sentinel-bounded files into the work root (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files, each carrying a generated sentinel). Those generated surfaces are NOT deliverables and are out of this contract's scope; they are disjoint from the deliverable class, so the audit-time-only, never-machine-written boundary for human/agent-authored deliverables is unchanged.",
       "frontmatter_contract_source": "governance/frontmatter-rules.json#types.deliverable",
       "frontmatter_enums": {
         "audience": [

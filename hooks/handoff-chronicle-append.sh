@@ -59,6 +59,17 @@
 #     region. It NEVER re-derives the whole file, never rewrites prior blocks,
 #     never touches the frontmatter/intro outside the markers, and never rotates
 #     (the librarian plan-handoff-index re-derive owns that role).
+#   Session-close adaptor + full-re-derive idempotency: this hook
+#     takes POSITIONAL args, so it is driven into the session-close capability chain
+#     by the thin adaptor capabilities/binder-handoff-append-wrapper.sh, which
+#     accepts --spoke, resolves the active spoke's just-finalized handoff.md, and
+#     invokes this hook. Session-close fires the adaptor (this append) BEFORE the
+#     librarian plan-handoff-index full re-derive (the append-before-re-derive ordering). The
+#     re-derive ABSORBS the appended block IDEMPOTENTLY — it rebuilds the whole
+#     sentinel region from the source handoff.md set and renders the same block
+#     byte-for-byte (this hook mirrors the re-derive's block render exactly), so an
+#     appended-then-re-derived block produces NO duplication. THIS hook + the
+#     re-derive are the PERMITTED CONCURRENT WRITERS to the sentinel region.
 # CLI (the close-out / session-handoff seam invokes the append form):
 #   handoff-chronicle-append.sh <handoff.md path> <spoke> [<plan-slug>]
 #   handoff-chronicle-append.sh --help

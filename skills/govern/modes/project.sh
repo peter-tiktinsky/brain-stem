@@ -7,29 +7,36 @@
 # the spoke in the anchored-spoke registry (the identity SoT), and emits the
 # vault-view path_routing overlay rule so write-time governance fires for the
 # spoke. It NEVER appends to the vault-root CLAUDE.md tree (FIX#3 / folder.sh
-# carve-out) — a project's identity lives in its own hub.md.
+# carve-out) — a project's identity lives in its own work CLAUDE.md (cross-plan
+# state lives in the binder hub at ~/.claude-plans/_projects/<spoke>/hub.md).
 # TWO SHAPES:
-#   --layout flat (default)  : 6-file flat MVP; one overlay rule Work/<spoke>/**.
-#   --layout master          : 4-file master top (NO top-level deliverables/
-#     --first-sub <name>       reference) + one sub-project; the master offers
-#                              the wildcard rule Work/<spoke>/*/{deliverables,
-#                              reference}/** so one rule covers all current+future
-#                              subs (survives a 2nd sub via the union leaf).
+#   --layout flat (default)  : flat MVP — CLAUDE.md + README + updates.md +
+#                              deliverables/ + reference/; one overlay rule
+#                              Work/<spoke>/**.
+#   --layout master          : master top — CLAUDE.md + README + updates.md (NO
+#     --first-sub <name>       top-level deliverables/reference) + one sub-project;
+#                              the master offers the wildcard rule
+#                              Work/<spoke>/*/{deliverables,reference}/** so one rule
+#                              covers all current+future subs (survives a 2nd sub via
+#                              the union leaf).
+# The work CLAUDE.md carries an auto-maintained directory map (work-map:start/end
+# sentinels, re-derived by the work directory-map generator) + README/binder
+# pointers — no @import, no plan roster (the binder owns that).
 # IDENTITY BOUND (/, the #1 recursion control): a spoke entry is
 # minted ONLY for a directory EXACTLY ONE level under $WORK_HOME. project.sh
 # REJECTS any cwd where canonical(dirname(cwd)) != canonical($WORK_HOME) — the
 # registry won't stop depth-2 (no parent edge; longest-anchor-wins), so the guard
 # lives here. Only the MASTER registers a spoke; sub-projects are ORGANIZATIONAL
-# UNITS — no spoke, no anchor, no hub.md, no CLAUDE.md.
+# UNITS — no spoke, no anchor, no CLAUDE.md.
 # GROW-LATER sub-modes:
 #   --under <spoke> --add-sub <name> : scaffold a sub + emit its overlay rule
-#     (priors kept via the union leaf) + idempotently append the master hub.md
-#     sub-pointer WITH the FIX#3 guard (never the vault-root CLAUDE.md). On a FLAT
-#     spoke: WARN + advise manual relocation (— never auto-move).
+#     (priors kept via the union leaf). The sub listing is auto-derived from disk
+#     by the work directory-map generator on the next refresh. On a FLAT spoke:
+#     WARN + advise manual relocation (— never auto-move).
 #   --adopt : sub->top-level promotion. The operator git mv is EMITTED, not
-#     executed; then register the depth-1 spoke + scaffold MISSING-ONLY CLAUDE.md
-#     + hub.md (clobber-refusal relaxed for adopt; README/deliverables/reference
-#     byte-unchanged). Lossless; ZERO content-file mutation.
+#     executed; then register the depth-1 spoke + scaffold the MISSING-ONLY work
+#     CLAUDE.md (clobber-refusal relaxed for adopt; README/deliverables/reference
+#     byte-unchanged) + mint the binder hub. Lossless; ZERO content-file mutation.
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible. R-23.
 
@@ -203,48 +210,6 @@ _proj_commit_overlay_payload() {
   return "$rc"
 }
 
-# Idempotently append a sub-project pointer to the MASTER's hub.md (Block 7
-# Deliverables area). FIX#3 guard: this NEVER targets the vault-root CLAUDE.md —
-# it targets $WORK_HOME/<spoke>/hub.md. Belt-and-suspenders Work-target refusal
-# guards a misdirected call. $1 = spoke, $2 = sub name.
-_proj_hub_append_subpointer() {
-  local spoke="$1" sub="$2" wh hub line tmp
-  wh="$(_proj_work_home)"
-  hub="$wh/$spoke/hub.md"
-  if [ ! -f "$hub" ]; then
-    printf 'project: master hub.md not found for sub-pointer append: %s\n' "$hub" >&2
-    return 3
-  fi
-  line="- $sub/ — sub-project (deliverables/ + reference/)."
-  # Idempotent: bail if the pointer already present.
-  if grep -qF "- $sub/ — sub-project" "$hub" 2>/dev/null; then
-    return 0
-  fi
-  tmp="$hub.tmp.$$"
-  # Insert the pointer inside Block 7 (Deliverables); else append at EOF.
-  awk -v line="$line" '
-    BEGIN { in_b7 = 0; inserted = 0 }
-    /^## 7\. Deliverables/ { in_b7 = 1; print; next }
-    /^## / && in_b7 == 1 && inserted == 0 {
-      print line
-      inserted = 1
-      in_b7 = 0
-      print
-      next
-    }
-    { print }
-    END {
-      if (in_b7 == 1 && inserted == 0) { print line }
-      else if (inserted == 0) { print line }
-    }
-  ' "$hub" > "$tmp" || { rm -f "$tmp"; return 6; }
-  if ! mv -f "$tmp" "$hub"; then
-    rm -f "$tmp"
-    return 6
-  fi
-  return 0
-}
-
 # Remove an EMPTY operator-created spoke launch dir so the (clobber-refusing)
 # scaffolder can mint it fresh. Non-existent dir -> no-op. Non-empty real dir ->
 # BLOCK (never destroy operator content). A symlink -> leave it (scaffolder
@@ -268,6 +233,26 @@ _proj_clear_empty_launch_dir() {
   fi
   printf 'project: launch path exists and is not a directory: %s\n' "$d" >&2
   return 3
+}
+
+# Best-effort mint of the spoke's deliverables/ + reference/ _index.md via the
+# work-scoped index pass, so the AC-required folder indexes EXIST immediately after
+# registration (scaffold.sh does NOT mint _index.md). Resolves the capability path
+# repo-local-then-live (mirrors the add-sub work-map auto-derive), suppresses findings,
+# ignores rc — block-and-log, NEVER fails registration. $1 = spoke key. Adopter-neutral.
+_proj_workindex_mint() {
+  local spoke="$1" wh cap
+  wh="$(_proj_work_home)"
+  cap=""
+  for _wic in "$_PROJECT_REPO_ROOT/skills/librarian/capabilities/work-index-maintain.sh" \
+              "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/work-index-maintain.sh"; do
+    if [ -f "$_wic" ]; then cap="$_wic"; break; fi
+  done
+  if [ -n "$cap" ]; then
+    WORK_HOME="$wh" FINDINGS_OUTPUT="/dev/null" \
+      bash "$cap" --spoke "$spoke" >/dev/null 2>&1 || true
+  fi
+  return 0
 }
 
 # mode_propose — emit the project-registration proposal JSON to stdout.
@@ -301,9 +286,9 @@ mode_propose() {
     jq -nc \
       --arg spoke "$under" --arg sub "$add_sub" \
       '{kind:"project", op:"add-sub", spoke:$spoke, sub:$sub,
-        notes:["Scaffolds Work/<spoke>/<sub>/{README,deliverables/,reference/} — NO CLAUDE.md, NO hub.md (organizational unit,/).",
+        notes:["Scaffolds Work/<spoke>/<sub>/{README,deliverables/,reference/} — NO CLAUDE.md (organizational unit,/).",
                "Emits the per-sub overlay rule via the union leaf (priors kept).",
-               "Appends the sub-pointer to the MASTER hub.md WITH the FIX#3 guard (never the vault-root CLAUDE.md).",
+               "The sub listing is auto-derived from disk by the work directory-map generator on the next refresh.",
                "On a FLAT spoke: WARN + advise manual relocation of existing top-level deliverables/reference (— never auto-moved)."]}'
     return 0
   fi
@@ -323,8 +308,8 @@ mode_propose() {
     jq -nc --arg spoke "$spoke" --arg cwd "$cwd" \
       '{kind:"project", op:"adopt", spoke:$spoke, cwd:$cwd,
         notes:["sub->top-level promotion. The operator git mv is EMITTED, not executed.",
-               "Registers a depth-1 spoke + scaffolds MISSING-ONLY CLAUDE.md + hub.md (existing README/deliverables/reference byte-unchanged).",
-               "Advises retracting the old Work/master/sub/** rule + master hub pointer. Lossless — ZERO content-file mutation."]}'
+               "Registers a depth-1 spoke + scaffolds the MISSING-ONLY work CLAUDE.md + mints the binder hub (existing README/deliverables/reference byte-unchanged).",
+               "Advises retracting the old Work/master/sub/** rule. Lossless — ZERO content-file mutation."]}'
     return 0
   fi
 
@@ -373,9 +358,9 @@ mode_propose() {
       notes: [
         "Depth-1 only — a spoke entry is minted ONLY for a directory exactly one level under $WORK_HOME (identity never recurses).",
         (if $layout == "master"
-          then "MASTER: 4-file top (CLAUDE.md+hub.md+README+updates.md, NO top-level deliverables/reference) + sub-project " + $first_sub + " (README+deliverables+reference, NO CLAUDE.md, NO hub.md). wildcard rule covers all current+future subs."
-          else "FLAT: 6-file MVP (CLAUDE.md+hub.md+README+updates.md+deliverables/+reference/); one rule Work/" + $spoke + "/**." end),
-        "Only the MASTER registers a spoke; sub-projects are organizational units () — no spoke, no anchor, no hub.md, no CLAUDE.md ()."
+          then "MASTER: master top (CLAUDE.md+README+updates.md, NO top-level deliverables/reference) + sub-project " + $first_sub + " (README+deliverables+reference, NO CLAUDE.md). wildcard rule covers all current+future subs."
+          else "FLAT: flat MVP (CLAUDE.md+README+updates.md+deliverables/+reference/); one rule Work/" + $spoke + "/**." end),
+        "Only the MASTER registers a spoke; sub-projects are organizational units () — no spoke, no anchor, no CLAUDE.md ()."
       ]
     }
     | with_entries(select(.value != null))
@@ -384,8 +369,8 @@ mode_propose() {
 
 # mode_commit — apply a validated project proposal.
 #   create : registry-patch (master only) + scaffold + overlay rule emit.
-#   add-sub: scaffold sub + overlay rule + master hub.md sub-pointer.
-#   adopt  : registry-patch + missing-only CLAUDE.md/hub.md scaffold + overlay.
+#   add-sub: scaffold sub + overlay rule (sub listing auto-derived from disk).
+#   adopt  : registry-patch + missing-only work CLAUDE.md scaffold + binder hub + overlay.
 mode_commit() {
   local proposal="$1"
   shift || true
@@ -438,6 +423,13 @@ mode_commit() {
           return 3
         }
       fi
+      # 2a. Mint the work-side folder indexes so deliverables/_index.md +
+      #     reference/_index.md EXIST immediately after registration (the scaffolder
+      #     does not mint _index.md). Best-effort: block-and-log, never fails register.
+      _proj_workindex_mint "$spoke"
+      # 2b. Establish the binder home + mint the binder-side hub.md (template render,
+      #     NOT a generator — preserves C-HUB/R-BIND "no capability generates hub.md").
+      _proj_mint_binder_hub "$spoke" || return $?
       # 3. Emit the overlay rule ({rules:[...]} shape via the union leaf).
       #    FLAT  -> simple Work/<spoke>/** (folder.sh auto-append).
       #    MASTER-> literal wildcard Work/<spoke>/*/{deliverables,reference}/**.
@@ -459,7 +451,7 @@ mode_commit() {
           return 3
         }
       fi
-      printf 'project: registered spoke %s (layout=%s) — registry + scaffold + overlay rule committed.\n' "$spoke" "$layout" >&2
+      printf 'project: registered spoke %s (layout=%s) — registry + scaffold + binder hub + overlay rule committed.\n' "$spoke" "$layout" >&2
       return 0
       ;;
 
@@ -489,13 +481,25 @@ mode_commit() {
         return 3
       }
       # 2. Per-sub overlay rule (priors kept via the union leaf).
+      #    No work-side hub append — sub listings are auto-derived from disk by the
+      #    work directory-map generator on the next refresh (no static sub-pointer).
       _proj_emit_overlay_rule "Work/$spoke/$sub" || return $?
-      # 3. Master hub.md sub-pointer (FIX#3-guarded — never the vault-root CLAUDE.md).
-      _proj_hub_append_subpointer "$spoke" "$sub" || {
-        printf 'project.mode_commit: master hub.md sub-pointer append failed (spoke=%s sub=%s)\n' "$spoke" "$sub" >&2
-        return 3
-      }
-      printf 'project: added sub-project %s under %s — scaffold + overlay rule + master hub pointer committed.\n' "$sub" "$spoke" >&2
+      # 3. Auto-derive the master's work-map so the new sub appears in the master
+      #    CLAUDE.md's directory map immediately. Best-effort: block-and-log, ignore
+      #    rc, suppress findings — a missing/marker-less generator NEVER fails add-sub.
+      _proj_workmap_cap=""
+      for _wmc in "$_PROJECT_REPO_ROOT/skills/librarian/capabilities/work-map-generate.sh" \
+                  "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/work-map-generate.sh"; do
+        if [ -f "$_wmc" ]; then _proj_workmap_cap="$_wmc"; break; fi
+      done
+      if [ -n "$_proj_workmap_cap" ]; then
+        WORK_HOME="$wh" FINDINGS_OUTPUT="/dev/null" \
+          bash "$_proj_workmap_cap" --spoke "$spoke" >/dev/null 2>&1 || true
+      fi
+      # 4. Mint the new sub's work-side folder indexes so the sub's
+      #    deliverables/_index.md + reference/_index.md exist immediately. Best-effort.
+      _proj_workindex_mint "$spoke"
+      printf 'project: added sub-project %s under %s — scaffold + overlay rule committed (master work-map auto-derived from disk).\n' "$sub" "$spoke" >&2
       return 0
       ;;
 
@@ -521,15 +525,22 @@ mode_commit() {
       printf 'project: ADOPT — operator git mv (EMITTED, not executed): git mv <old-master>/%s %s\n' "$spoke" "$cwd" >&2
       # 1. Register the depth-1 spoke.
       _proj_registry_add_spoke "$spoke" || return $?
-      # 2. Scaffold MISSING-ONLY identity files (CLAUDE.md + hub.md). The
-      #    scaffolder refuses to clobber the real spoke dir, so mint the two
-      #    identity files directly here, ONLY when absent. README/deliverables/
-      #    reference are byte-unchanged (never touched).
+      # 2. Scaffold the MISSING-ONLY work CLAUDE.md (the spoke's identity file). The
+      #    scaffolder refuses to clobber the real spoke dir, so mint the identity file
+      #    directly here, ONLY when absent, via the SHARED renderer (byte-identical to
+      #    the register path). README/deliverables/reference are byte-unchanged (never
+      #    touched). No work-side hub.md is minted — cross-plan state lives in the binder.
       _proj_adopt_mint_identity "$spoke" "$cwd" || return $?
+      # 2a. Mint the work-side folder indexes for the promoted spoke so its
+      #     deliverables/_index.md + reference/_index.md exist immediately. Best-effort.
+      _proj_workindex_mint "$spoke"
+      # 2b. Establish the binder home + mint the binder-side hub.md (the curated cover
+      #     page at $plans_root/_projects/<spoke>/hub.md; separate tree, missing-only render).
+      _proj_mint_binder_hub "$spoke" || return $?
       # 3. Overlay rule for the promoted top-level spoke.
       _proj_emit_overlay_rule "Work/$spoke" || return $?
-      printf 'project: ADVISORY — retract the old Work/<master>/%s/** overlay rule + the master hub sub-pointer for %s (now a top-level spoke).\n' "$spoke" "$spoke" >&2
-      printf 'project: adopted %s as a top-level spoke — registry + missing-only identity + overlay committed (content byte-unchanged).\n' "$spoke" >&2
+      printf 'project: ADVISORY — retract the old Work/<master>/%s/** overlay rule for %s (now a top-level spoke).\n' "$spoke" "$spoke" >&2
+      printf 'project: adopted %s as a top-level spoke — registry + missing-only identity + binder hub + overlay committed (content byte-unchanged).\n' "$spoke" >&2
       return 0
       ;;
 
@@ -540,12 +551,48 @@ mode_commit() {
   esac
 }
 
-# Mint CLAUDE.md + hub.md for an adopted sub (MISSING-ONLY; relax clobber for
-# adopt). Renders hub.md from the foundation hub template (same source the
-# scaffolder uses). Existing content files are NEVER touched.
+# Mint the work CLAUDE.md for an adopted sub (MISSING-ONLY; relax clobber for
+# adopt). NO work-side hub.md is minted — the adopted spoke's cross-plan state lives
+# in the binder hub (_proj_mint_binder_hub, minted separately). The work CLAUDE.md
+# shape MUST stay byte-identical to the register path: both render via the SHARED
+# flat renderer SOURCED from scaffold.sh (the single source of truth for the frozen
+# work-CLAUDE.md interface — directory-map block + README/binder pointers, no @import).
+# Existing content files are NEVER touched.
 _proj_adopt_mint_identity() {
-  local spoke="$1" dir="$2" tdir hub_template today
-  today="$(date +%F)"
+  local spoke="$1" dir="$2"
+  if [ ! -f "$dir/CLAUDE.md" ]; then
+    # shellcheck source=/dev/null
+    if [ -r "$_PROJECT_SCAFFOLD" ]; then
+      . "$_PROJECT_SCAFFOLD"
+    fi
+    if ! type _pw_emit_flat_claude_md >/dev/null 2>&1; then
+      printf 'project: shared work-CLAUDE.md renderer unavailable (scaffold.sh: %s)\n' "$_PROJECT_SCAFFOLD" >&2
+      return 3
+    fi
+    _pw_emit_flat_claude_md "$spoke" > "$dir/CLAUDE.md" \
+      || { printf 'project: adopt CLAUDE.md render failed: %s\n' "$dir/CLAUDE.md" >&2; return 6; }
+  fi
+  return 0
+}
+
+# Establish the project binder home + mint the binder-side hub.md for a spoke.
+#   $1 = spoke key.
+# Creates ~/.claude-plans/_projects/<spoke>/ (idempotent; also mints the _projects/
+# parent if absent) then renders hub.md from the foundation hub template MISSING-ONLY
+# (never clobbers a curated hub). This is a template render, NOT a generator — it
+# preserves the C-HUB/R-BIND invariant "no librarian capability generates hub.md."
+# The binder hub ($plans_root/_projects/<spoke>/hub.md) is the ONLY hub.md in play —
+# the work spoke carries no hub.md (its CLAUDE.md owns identity + directory map).
+_proj_mint_binder_hub() {
+  local plans_root binder_home tdir hub_template today tmp
+  # Plans root — the established sibling resolution convention.
+  plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+  case "$plans_root" in */) plans_root="${plans_root%/}" ;; esac
+  binder_home="$plans_root/_projects/$1"
+  mkdir -p "$binder_home" || {
+    printf 'project: binder home mkdir failed: %s\n' "$binder_home" >&2
+    return 3
+  }
   # Resolve a templates dir (explicit env -> $CLAUDE_HOME/templates -> repo).
   if [ -n "${PROJECT_TEMPLATES_DIR:-}" ]; then
     tdir="$PROJECT_TEMPLATES_DIR"
@@ -556,24 +603,20 @@ _proj_adopt_mint_identity() {
   fi
   hub_template="$tdir/hub-template.md"
   if [ ! -f "$hub_template" ]; then
-    printf 'project: hub template not found for adopt mint: %s\n' "$hub_template" >&2
+    printf 'project: hub template not found for binder mint: %s\n' "$hub_template" >&2
     return 3
   fi
-  if [ ! -f "$dir/hub.md" ]; then
-    sed -e "s/<spoke>/$spoke/g" -e "s/<YYYY-MM-DD>/$today/g" "$hub_template" > "$dir/hub.md" \
-      || { printf 'project: adopt hub.md render failed: %s\n' "$dir/hub.md" >&2; return 6; }
-  fi
-  if [ ! -f "$dir/CLAUDE.md" ]; then
-    cat > "$dir/CLAUDE.md" <<EOF
-# $spoke — spoke context
-
-@hub.md
-
-This is a \`work/\` spoke (project workspace, adopted from a sub-project). \`hub.md\` is the
-eager pointer-only cover page imported above; \`README.md\` is the context doc;
-\`updates.md\` (if present) is the append-only updates log. Read deliverable and reference
-bodies on-demand — they are not imported here.
-EOF
+  # Hub mint — MISSING-ONLY, never clobber a curated hub. Atomic temp+mv render.
+  if [ ! -f "$binder_home/hub.md" ]; then
+    today="$(date +%F)"
+    tmp="$binder_home/.hub.md.tmp.$$"
+    sed -e "s/<spoke>/$1/g" -e "s/<YYYY-MM-DD>/$today/g" "$hub_template" > "$tmp" \
+      || { rm -f "$tmp"; printf 'project: binder hub.md render failed: %s\n' "$binder_home/hub.md" >&2; return 6; }
+    if ! mv -f "$tmp" "$binder_home/hub.md"; then
+      rm -f "$tmp"
+      printf 'project: binder hub.md commit failed: %s\n' "$binder_home/hub.md" >&2
+      return 6
+    fi
   fi
   return 0
 }

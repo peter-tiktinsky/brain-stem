@@ -2917,24 +2917,32 @@ seed_rules_entry() {
 }
 
 # Entry 1 — binder pointer (R-ARCH-RULES #1). Cwd-parameterized: resolves the
-# CURRENT spoke's _projects/<spoke>/hub.md (the only eager binder surface). Generic
-# — never names a specific spoke; the launch directory selects the spoke at read
-# time. hub.md is @imported by the spoke project CLAUDE.md, never re-dumped here.
+# CURRENT spoke's _projects/<spoke>/ binder surfaces. Generic — never names a
+# specific spoke; the launch directory selects the spoke at read time. Two binder
+# surfaces: the force-ingested situating card (eager, automatic) and the curated
+# hub cover page (on-demand). Neither is re-dumped here.
 read -r -d '' rules_binder_pointer <<'RULE_BINDER' || true
-# Project binder — read the spoke hub first
+# Project binder — the situating card is eager, the hub is on-demand
 
-When working inside a registered project spoke, the spoke's project binder hub is
-the eager project-context surface. Read it before research or planning so prior
-decisions, active research, and library references are in view:
+When working inside a registered project spoke, the spoke's binder has two cover
+surfaces with distinct loading:
 
-  Read `~/.claude-plans/_projects/<spoke>/hub.md` (where `<spoke>` is the
-  current launch-directory's registered spoke key — `home` for the home anchor)
-  BEFORE starting project work, because it pointer-links the spoke's
-  research-index, decision-log, handoff-chronicle, and library references.
+  1. The situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is
+     AUTO-FORCE-INGESTED at session start — you already have the machine-derived
+     orientation (the spoke's plan roster, aggregate status, active focus, and the
+     latest handoff headline) WITHOUT reading anything. It is generated from the
+     plans' manifests, so it is always current.
 
-The hub is pointer-only (the project CLAUDE.md `@import`s it); follow its pointers
-on demand rather than loading every binder index up front. If no binder exists for
-the current spoke yet, run `librarian plan-research-index` (and the binder
+  2. The hub cover page (`~/.claude-plans/_projects/<spoke>/hub.md`) is the curated,
+     ON-DEMAND surface. Read it for curated depth the card does not carry: the
+     library references, the active source-of-truth pointer, and narrative context.
+
+`<spoke>` is the current launch-directory's registered spoke key (`home` for the
+home anchor). The card gives you eager orientation automatically; open hub.md when
+you need the curated cover. The hub is pointer-only — follow its pointers
+(research-index, decision-log, handoff-chronicle, library references) on demand
+rather than loading every binder index up front. If no binder exists for the
+current spoke yet, run `librarian plan-research-index` (and the binder
 capabilities) to generate it. This entry is generic and cwd-parameterized — it
 never names a specific project.
 RULE_BINDER
@@ -2981,11 +2989,12 @@ on-disk shape, and write-time governance are in place:
   Run `/govern register --kind project` from the new project's launch directory
   (`~/work/<spoke>/`, exactly one level under `~/work/`). Pick the shape:
 
-  - `--layout flat` (default) — a single-project workspace: scaffolds the 6-file
-    MVP (CLAUDE.md, hub.md, README.md, updates.md, deliverables/, reference/).
+  - `--layout flat` (default) — a single-project workspace: scaffolds the flat
+    MVP (CLAUDE.md, README.md, updates.md, deliverables/, reference/).
   - `--layout master --first-sub <name>` — a master that organizes sub-projects:
-    scaffolds a 4-file master top (NO top-level deliverables/reference) plus one
-    sub-project under it (each sub owns its own README + deliverables/ + reference/).
+    scaffolds a master top (CLAUDE.md, README.md, updates.md — NO top-level
+    deliverables/reference) plus one sub-project under it (each sub owns its own
+    README + deliverables/ + reference/).
 
 Registration records the spoke in the anchored-spoke registry (the identity
 source of truth), scaffolds the shape, and emits the `Work/<spoke>/**` routing

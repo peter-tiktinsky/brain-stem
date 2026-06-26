@@ -270,7 +270,12 @@ a per-spoke binder surface (`_projects/<spoke>/{research-index,decision-log,hand
 whose `updated:` regen date lags the newest constituent-plan activity (max
 manifest/handoff mtime across the spoke's plans) by >14d emits a `severity: warn`
 `binder-stale` finding — warn-only family (rules #4/#7/#8), no Stop/exit-2; an
-absent binder is first-run state, not staleness.
+absent binder is first-run state, not staleness. POSTURE: the binder is now
+auto-maintained (session-close + a plan-manifest-write trigger + a session-start
+refresh-from-disk), so a `binder-stale` finding indicates the auto-maintenance
+pipeline did not run — a pipeline-failure signal to investigate the maintenance
+chain, not a normal stale state (a generator re-run repairs the surface but does
+not explain the miss).
 Runtime: `capabilities/stale-detect.sh`.
 
 ## Capability: tag-coverage-audit
@@ -487,6 +492,121 @@ defensive skip + finding, never an error (R-BIND-10a). `--spoke <key>` scopes to
 one spoke; `--dry-run` reports findings + would-be writes without writing.
 Runtime: `capabilities/plan-handoff-index.sh`.
 
+## Capability: project-context-situating
+
+Generates the per-spoke GENERATED situating card `_projects/<spoke>/_situating.md`
+— the eager, force-ingested binder surface a session reads at SessionStart to
+self-orient. This is NOT `hub.md`: `hub.md` is template-scaffolded-then-curated and
+read on-demand; the situating card is the machine-derived eager surface. This
+capability NEVER writes `hub.md` (it preserves C-HUB / R-BIND "no capability
+generates hub.md"). The card is per-spoke: only plans whose manifest `project:`
+matches the target spoke contribute. It is DERIVED entirely from each contributing
+plan's `manifest.json` (fields from `schemas/plan-manifest-schema.json`) and carries
+ONLY machine-derivable blocks: the plan roster (`slug`/`title`/per-plan `status`),
+an AGGREGATE project-level status computed BY RULE (there is no native aggregate
+field — precedence `in-progress > paused > planned > completed > closed`), active
+focus (the in-progress plan's current `tasks[]` task + blocker), the latest handoff
+headline (freshest `handoff.md`'s newest session heading), and pointers to
+`research-index.md` / `decision-log.md` / `handoff-chronicle.md` / `hub.md` + the
+`~/work/<spoke>/deliverables/` path. It EXCLUDES (hard) the non-derivable
+library-refs and the free "active SoT" pointer (non-derivable curation — those stay in the curated
+hub) and EXCLUDES all work-spoke directory-map / "what-lives-where" content (the
+work-map generator's domain —D disjoint roles). The frontmatter REUSES the
+existing `index` file-type (— no new file-type, no governance-type lockstep) plus a
+`generated: true` sentinel that distinguishes the machine card from a curated index;
+the body carries the `_Auto-generated … Do not hand-edit._` line. The card is
+force-ingested every session, so it is bounded `< 9728B` (the `format_output`
+budget, `hooks/lib/registry.sh:106`) and is defensively trimmed if a degenerate
+roster would overflow. A malformed manifest is a defensive skip + finding, never a
+crash (R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run` reports
+findings + would-be writes without writing.
+Runtime: `capabilities/project-context-situating.sh`.
+
+## Capability: work-map-generate
+
+Regenerates the GENERATED work-map directory-map block inside a work spoke's
+`CLAUDE.md` FROM DISK. This is the WORK surface — the work `CLAUDE.md`'s "what lives
+where" directory map — the disjoint counterpart to the BINDER surface the situating
+card owns (`project-context-situating`); the two never overlap (D disjoint roles).
+The work `CLAUDE.md` is scaffolded by `skills/govern/lib/project-workspace/scaffold.sh`
+with a FROZEN block contract: a `## What lives where` map bounded by
+`<!-- work-map:start generated:true -->` … `<!-- work-map:end -->`, closing with the
+`_Auto-maintained by \`librarian work-map-generate\` — do not hand-edit this block._`
+line. Everything OUTSIDE those markers (the identity line, the README/updates
+pointer, the binder pointer) is OWNED by scaffold.sh — this generator PRESERVES it
+byte-for-byte and replaces ONLY the inside-markers content. The map is DERIVED from
+the TOP LEVEL of `$WORK_HOME/<spoke>/` ONLY (not recursive): MASTER layout (the spoke
+has sub-project dirs and no top-level `deliverables/`+`reference/` pair) lists the
+actual sub-project dir names; FLAT layout lists `deliverables/` (polished work) +
+`reference/` (raw notes) + `README.md` + `updates.md` with their roles. The block is
+deterministic on the same disk state (idempotent: a re-run without a disk change is
+byte-identical). Survivorship / leave-orphan: if the spoke's `CLAUDE.md` is
+ABSENT, or carries NO work-map markers (a legacy / hand-authored `CLAUDE.md`), it
+DEFENSIVELY SKIPS with a finding — it NEVER injects markers into a `CLAUDE.md` that
+lacks the shape, and an absent spoke dir is the same defensive skip. It writes ONLY
+the marker block in `$WORK_HOME/<spoke>/CLAUDE.md` (atomic `os.replace`) and NEVER
+`README.md`, `updates.md`, anything under `deliverables/`/`reference/`, `hub.md`, the
+content outside the markers, or anything under the plans root. Block-and-log, exit 0,
+never crash. `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
+would-be writes without writing.
+Runtime: `capabilities/work-map-generate.sh`.
+
+## Capability: work-index-maintain
+
+A WORK-SCOPED index pass that walks `$WORK_HOME` and mints/refreshes a
+C-IDX-conformant `_index.md` inside each `deliverables/` and `reference/` directory
+under each work spoke. This is the universal-foundation counterpart to
+`index-maintain` (which is VAULT_ROOT-scoped): a work spoke lives at an EXTERNAL root
+(`$WORK_HOME/<spoke>/`, not under the vault root), so `index-maintain`'s vault walk
+never reaches it. This pass targets `$WORK_HOME` DIRECTLY — it does NOT modify
+`index-maintain`'s VAULT_ROOT scoping, and it is NOT a per-spoke overlay-glob
+registration. The `_index.md` it mints conforms to the SAME C-IDX contract: frontmatter
+`type: index` + `tags` (`#projects/<spoke>`) + `updated` + `parent_folder` (depth≥2) and
+a `<!-- contents-enum:start -->` … `<!-- contents-enum:end -->` block enumerating the
+directory's `.md` files in the `| Name | Lines | Type | Description |` row shape — so a
+file minted here passes `index-maintain`'s index contract + `frontmatter-enforce`'s index
+type. Scope per spoke (all spokes by default, or `--spoke <key>`): a FLAT spoke's
+`deliverables/` + `reference/` are the TOP level; a MASTER spoke holds NONE of its own —
+each sub-project is a DIRECT child of the master (`$WORK_HOME/<spoke>/<sub>/`) and owns
+its own `deliverables/` + `reference/`. There is NO literal `sub-projects/` dir in the
+shipped scaffold layout, so the AC's "(master) `sub-projects/_index.md`" resolves to the
+per-sub-project `$WORK_HOME/<spoke>/<sub>/{deliverables,reference}/_index.md`; the master's
+TOP-LEVEL sub-project navigation is the work-map's domain (`work-map-generate`), NOT this
+pass (D disjoint roles). The pass OWNS the contents-enum block: it MINTS the full
+`_index.md` when absent, else REFRESHES ONLY the text between the markers (markers +
+everything outside preserved byte-for-byte). A marker-less existing `_index.md` (legacy /
+hand-authored) is a leave-orphan skip — the shape is never imposed. Deterministic +
+idempotent: a re-run without a disk change is byte-identical. It writes ONLY `_index.md`
+files under `$WORK_HOME/<spoke>/.../{deliverables,reference}/` (atomic `os.replace`) and
+NEVER `README.md`, `updates.md`, `CLAUDE.md`, `hub.md`, deliverable/reference bodies, or
+anything under the plans root. An absent work home / absent spoke / absent-or-unreadable
+target subfolder is a defensive skip + finding. Block-and-log, exit 0, never crash.
+`--spoke <key>` scopes to one spoke; `--dry-run` reports findings + would-be writes without
+writing.
+Runtime: `capabilities/work-index-maintain.sh`.
+
+## Capability: binder-handoff-append-wrapper
+
+The thin session-close ADAPTOR that wires the shipped-but-ORPHANED
+`hooks/handoff-chronicle-append.sh` into the session-close capability chain (R-B).
+The appender hook is the SECONDARY-ROLE (incremental append) half of the R-GOV-1a
+composite maintainer for the per-spoke binder `handoff-chronicle.md`, but it takes
+POSITIONAL args (`<handoff.md path> <spoke>`), so the generic `run_capability`
+wrapper cannot drive it directly. This adaptor accepts `--spoke <key>` (so
+`run_capability binder-handoff-append-wrapper --spoke "$active_spoke"` works),
+resolves the just-finalized `handoff.md` for that spoke's active plan (walks
+`PLANS_ROOT` for plans whose manifest `project:` == the spoke, prefers the
+in-progress plan, picks the newest `handoff.md` by mtime; `--handoff <path>`
+overrides), and invokes the positional-arg appender. It writes NOTHING itself — the
+appender is the sole writer (ONE block at the HEAD of the chronicle's
+`<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->` sentinel
+region). Session-close fires it BEFORE `plan-handoff-index`'s full re-derive
+(the append-before-re-derive ordering), which absorbs the appended block idempotently — the append
+and the re-derive are DISJOINT roles that render IDENTICAL block text, so running
+both produces NO duplication. Unresolvable spoke / no `handoff.md` / a blocked
+appender all emit a finding and exit 0 (block-and-log; never crash the close).
+Runtime: `capabilities/binder-handoff-append-wrapper.sh`.
+
 ## Capability: memory-globalize
 
 Promotes a vault memory entry to a global `.claude/rules/<name>.md` rule (only
@@ -577,7 +697,7 @@ Runtime: none (judgment rubric — see the rubric below; the registry `review` e
 
 > **Producer asymmetry (v1.0.0, operator-ratified):** the `conflict` + `promotion` classes
 > are fully end-to-end (live producers exist + this drain). For the remaining two classes:
-> - **`revalidation` producer = LANDED** (T-09): `hooks/memory-consolidation-run.sh`
+> - **`revalidation` producer = LANDED**: `hooks/memory-consolidation-run.sh`
 >   `enqueue_revalidation` feeds this drain, SessionEnd-gated (≥24h AND ≥5 sessions). The
 >   SessionStart "N memories due for revalidation" banner count is non-zero on any adopt running
 >   ~180+ days.
