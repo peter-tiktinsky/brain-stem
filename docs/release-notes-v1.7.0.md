@@ -34,7 +34,7 @@ Two things made that folder worth removing. First, the same content is published
 - **Upgrading adopters: nothing is touched.** See *Upgrading* below for the one small detail.
 - **Anyone reading the governance narrative:** read it on the documentation site — it is complete and current there.
 
-> **<https://peter-tiktinsky.github.io/brain-stem/>**
+> **<https://peter-tiktinsky.github.io/brain-stem-docs/>**
 
 ---
 

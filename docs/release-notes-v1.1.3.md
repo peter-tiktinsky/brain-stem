@@ -32,13 +32,13 @@ It also affects anyone whose clone of the source predates **2026-06-05**, when t
 
 ## What v1.1.3 fixes
 
-- **Merge-delivered files no longer trip the completeness check.** Files that are delivered by merging into your copy (your `.gitignore`, your governance overlay) are now recognized as such and exempted from the exact-match check — so an upgrade over a pre-existing `.gitignore` converges and stamps on the first pass. → [Getting started](getting-started/index.md#upgrading-an-existing-install)
+- **Merge-delivered files no longer trip the completeness check.** Files that are delivered by merging into your copy (your `.gitignore`, your governance overlay) are now recognized as such and exempted from the exact-match check — so an upgrade over a pre-existing `.gitignore` converges and stamps on the first pass. → Getting started
 
-- **A version-skipping upgrade delivers the complete set.** The upgrade engine now delivers everything the new version ships — including baselines your older install never had — not only what was already on disk. A multi-version jump now converges. → [Packaging & runtime](architecture/packaging-runtime.md)
+- **A version-skipping upgrade delivers the complete set.** The upgrade engine now delivers everything the new version ships — including baselines your older install never had — not only what was already on disk. A multi-version jump now converges. → Packaging & runtime
 
 - **The preview shows every blocker together.** A single `bash install.sh` preview now lists every required override in one place, and surfaces the genuine must-stop safety conditions (an unset `CLAUDE_HOME`, or a vault folder symlinked under the install target) in the same preview under a separate, non-waivable list — so you resolve everything before you commit to `--apply`.
 
-- **The upgrade runbook is copy-paste runnable.** The instructions now show the required `export CLAUDE_HOME`, document `--retrofit-existing` and `--backup-dir`, and add the divergent-branch fixup for old clones. → [Getting started](getting-started/index.md#upgrading-an-existing-install)
+- **The upgrade runbook is copy-paste runnable.** The instructions now show the required `export CLAUDE_HOME`, document `--retrofit-existing` and `--backup-dir`, and add the divergent-branch fixup for old clones. → Getting started
 
 - **Session continuity and config hygiene.** Checkpoints are written and read from one canonical place; dead configuration knobs were removed and the live ones correctly wired; and the schema now accepts the settings the resolvers actually read.
 
@@ -56,6 +56,6 @@ export CLAUDE_HOME=~/.claude
 bash install.sh --apply --backup-dir ~/.claude-upgrade-backup
 ```
 
-The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. If anything is interrupted, re-running `bash install.sh --apply` picks up where it left off and converges — there is nothing to clean up by hand. The full walkthrough is the **[Upgrading an existing install](getting-started/index.md#upgrading-an-existing-install)** runbook.
+The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. If anything is interrupted, re-running `bash install.sh --apply` picks up where it left off and converges — there is nothing to clean up by hand. The full walkthrough is the **Upgrading an existing install** runbook.
 
 > **If `git pull` reports "divergent branches" or a `(forced update)`:** clones made before 2026-06-05 cannot fast-forward, because the public history was rewritten once to purge an accidentally-committed personal path. Realign with `git fetch origin && git reset --hard origin/main` (or delete and re-clone) — a one-time fixup that never touches your installed `~/.claude` or your vault.

@@ -29,10 +29,10 @@ Because the installed foundation does not change, **you do not need to upgrade f
 All changes are documentation; none touch the install.
 
 - **A new `SECURITY.md`** — the scope of trust (brain-stem runs locally and makes no automatic network calls; the only network activity is user-invoked, to your own destinations), the install/overwrite surface, the vault-write blast radius, and how to report a vulnerability privately.
-- **A new Reference section** — a [command reference](reference/commands.md) for every command brain-stem adds, a global [glossary](reference/glossary.md), and an [FAQ](reference/faq.md).
-- **New getting-started pages** — a five-minute [quickstart](getting-started/quickstart.md), a [version-migrations guide](getting-started/migrations.md) describing what each release moves for you automatically, a standalone [uninstall how-to](getting-started/uninstall.md), and an optional [claude-mem page](getting-started/claude-mem.md).
-- **A "[Why brain-stem](getting-started/why-brain-stem.md)" keystone** and a "[Design decisions](decisions/index.md)" overview that make the case for the system and tie each choice to durable, independently checkable evidence.
-- **Context-library documentation** — a [context-and-memory](architecture/context-and-memory.md) umbrella and a [context-library](architecture/context-library.md) deep-dive for the three-surface model that shipped in v1.2.0.
+- **A new Reference section** — a command reference for every command brain-stem adds, a global glossary, and an FAQ.
+- **New getting-started pages** — a five-minute quickstart, a version-migrations guide describing what each release moves for you automatically, a standalone uninstall how-to, and an optional claude-mem page.
+- **A "Why brain-stem" keystone** and a "Design decisions" overview that make the case for the system and tie each choice to durable, independently checkable evidence.
+- **Context-library documentation** — a context-and-memory umbrella and a context-library deep-dive for the three-surface model that shipped in v1.2.0.
 - **Every architecture page** now opens with a "what the bare platform gives you → where it falls short → what brain-stem adds" frame and closes with its own evidence-and-alternatives section.
 - **The site navigation is now explicit and ordered**, and the documentation build is pinned to a known-good toolchain version.
 
@@ -42,7 +42,7 @@ All changes are documentation; none touch the install.
 
 Nothing is required. To read the new documentation, visit the site:
 
-> **<https://peter-tiktinsky.github.io/brain-stem/>**
+> **<https://peter-tiktinsky.github.io/brain-stem-docs/>**
 
 If you keep a local clone and want the refreshed project files (the new README and `SECURITY.md`), pull the latest source — there is no install step, because nothing about the install changed:
 

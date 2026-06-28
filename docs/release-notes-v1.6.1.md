@@ -38,7 +38,7 @@ All changes are documentation; none touch the install.
 
 Nothing is required. To read the updated documentation, visit the site:
 
-> **<https://peter-tiktinsky.github.io/brain-stem/>**
+> **<https://peter-tiktinsky.github.io/brain-stem-docs/>**
 
 If you keep a local clone and want the refreshed files, pull the latest source — there is no install step, because nothing about the install changed:
 

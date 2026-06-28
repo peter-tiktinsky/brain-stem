@@ -46,4 +46,4 @@ export CLAUDE_HOME=~/.claude
 bash install.sh --apply --backup-dir ~/.claude-upgrade-backup
 ```
 
-The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. The new library and binder pages are built from your existing files the first time the librarian runs, so there is nothing to migrate by hand. The full walkthrough is the **[Upgrading an existing install](getting-started/index.md#upgrading-an-existing-install)** runbook.
+The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. The new library and binder pages are built from your existing files the first time the librarian runs, so there is nothing to migrate by hand. The full walkthrough is the **Upgrading an existing install** runbook.

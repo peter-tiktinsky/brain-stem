@@ -46,4 +46,4 @@ export CLAUDE_HOME=~/.claude
 bash install.sh --apply --backup-dir ~/.claude-upgrade-backup
 ```
 
-The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. If you have old `episode_*.md` files, the upgrade moves them into `memory/episodic-legacy/` for you — they are preserved, just out of the way. The full walkthrough is the **[Upgrading an existing install](getting-started/index.md#upgrading-an-existing-install)** runbook.
+The preview writes zero files and shows the full plan; `--apply` performs the upgrade and saves anything it replaces into the backup directory first. If you have old `episode_*.md` files, the upgrade moves them into `memory/episodic-legacy/` for you — they are preserved, just out of the way. The full walkthrough is the **Upgrading an existing install** runbook.

@@ -1,45 +1,22 @@
 # brain-stem
 
 [![Latest release](https://img.shields.io/github/v/release/peter-tiktinsky/brain-stem?label=release)](https://github.com/peter-tiktinsky/brain-stem/releases)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#what-it-is)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://peter-tiktinsky.github.io/brain-stem-docs/installation.html)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**Claude Code gives you the slots; brain-stem fills them.**
+**The nervous system for Claude Code.**
 
-[Claude Code](https://www.anthropic.com/claude-code) is Anthropic's command-line program for running the Claude AI assistant on your own machine, where it can read and write files for you. It is deliberately a near-blank platform: it exposes extension points — a startup folder it reads on launch, a small file it auto-loads into memory, scripts that run before a write or when a session starts, a place to drop commands you can invoke — but it leaves them empty. Out of the box the assistant does not know who you are, does not remember anything between sessions, and has no opinion about what a well-formed file looks like.
+brain-stem provides Claude Code with a **brain** (a governed context & memory layer), optimizes its **body** (Claude Code's native planning, session management, and orchestration capabilities), and grows the **stem** that connects these surfaces. At install, brain-stem replaces separate, bolted-on tools with a **single integrated system** wired into how Claude runs every session — turning a generic Claude Code setup into **a truly personal AI that understands and evolves with you**.
 
-**brain-stem is the layer that wires those slots into a complete, opinionated, enforced setup.** You answer a short interview once (typed or spoken). It writes a single configuration file describing your role, where your notes live, and how you like to work — and ships a default-on set of runtime guards that keep your notes structurally consistent, remember what matters between sessions, and keep a long conversation on-track. You don't assemble a toolkit; you move into a furnished foundation and personalize it at known seams.
+Most "second brain" setups sit a knowledge store beside the assistant and trust discipline to keep it alive — so it *drifts*, and the assistant rarely reads it. But the store is only half the gap: Claude Code's other faculties — planning, project management, sessions, orchestration — ship just as siloed, each left for you to wire up by hand, if at all. **brain-stem closes both.** It makes the knowledge store part of how Claude works — most capture automatic, every manual write governed, what matters reloaded each session — and it tunes each native faculty to what research and practice show actually works, then connects them to the context/memory layer and to one another. You don't just get an optimized brain attached to the same unimproved tools; you get every component a **personal AI operating system** needs, each tuned to best practice and integrated with the rest.
 
----
+*This README is the on-ramp: the five-minute quickstart, the full stack of capabilities brain-stem ships, and a map of the documentation. The full documentation site is at <https://peter-tiktinsky.github.io/brain-stem-docs/>.*
 
-## What it is
+## Quickstart — five minutes, four moves
 
-brain-stem is a **personalization and governance layer for Claude Code** — a recorded, preview-first file install into the one folder Claude Code reads from (`~/.claude`), plus a guided first-run setup that builds you a **vault**: a folder of plain-text notes that you and the assistant share.
+### 1 — Preview (writes nothing)
 
-> macOS only. Single-user. Apache-2.0.
-
-It is **advisory by default**: the system teaches and reminds far more often than it blocks, and earns the right to be strict only where letting a bad write through would quietly corrupt your work. Nothing phones home; everything runs on your machine.
-
----
-
-## Plain-language vocabulary
-
-A few terms used throughout. Skim past any that are already familiar.
-
-- **Claude Code** — Anthropic's CLI for Claude. You type `claude` in a terminal and get a chat with the model that can run shell commands, edit files, and call tools. It reads `~/.claude/` for its configuration.
-- **Vault** — your folder of markdown notes. The term comes from [Obsidian](https://obsidian.md), which treats a directory of `.md` files as a connected knowledge base. You don't need Obsidian itself; any editor works.
-- **Manifest** — a single JSON file at `~/.claude/user-manifest.json` holding your name, vault path, role, and preferences. Skills read from it at invocation to personalize behavior — config, but generated for you and structured.
-- **Foundation pillars** — eight governance registries under `governance/` that define what counts as a valid vault state (frontmatter shape, tag taxonomy, naming, mandatory files, document dependencies, file-type contracts, vault writers, and plans). They ship composed into `governance/foundation-master.json` and are read by hooks at write time.
-- **Overlay** — per-adopter customization at `~/.claude/governance/overlay-master.json` that extends the foundation pillars without modifying them.
-- **Hook** — a shell command Claude Code runs at a lifecycle event (before a write, on session start, and so on). brain-stem ships a default-on hook set that blocks dangerous writes and surfaces context.
-- **Skill** — a slash command you type in Claude Code (e.g. `/onboard`, `/librarian`). Each is a directory under `~/.claude/skills/` with a `SKILL.md` body the assistant reads at invocation.
-- **Frontmatter** — the YAML block at the top of a markdown file (`---` to `---`) that carries structured metadata (`type`, `tags`, and so on).
-
----
-
-## Install
-
-Download the project and run the installer. **On its own, `install.sh` installs nothing** — it prints an action plan naming every file it would copy, then exits having written zero files. That preview is always safe to run.
+Download the project and run the installer with no flags. **On its own it installs nothing** — it prints an *action plan* listing every operation it would perform, then exits having written zero files. Always safe to run.
 
 ```bash
 git clone https://github.com/peter-tiktinsky/brain-stem.git
@@ -47,51 +24,173 @@ cd brain-stem
 bash install.sh
 ```
 
-Pipe the preview through `jq` to read it. When the plan looks right, name the install target and re-run with `--apply` (it refuses to guess where to write, so `CLAUDE_HOME` must be set explicitly):
+### 2 — Install
+
+Name where it should install (it refuses to guess), then re-run the same command with `--apply` — the explicit opt-in that turns the preview into the real install. It copies the foundation into `~/.claude` (the folder Claude Code reads on startup) and writes a receipt of everything it laid down.
 
 ```bash
-bash install.sh | jq .          # same preview, pretty-printed
 export CLAUDE_HOME=~/.claude
 bash install.sh --apply
 ```
 
-The full walkthrough — upgrading in place, installing into a non-empty folder, and uninstalling cleanly — is in **[Getting started](https://peter-tiktinsky.github.io/brain-stem/getting-started/)**.
+### 3 — Onboard
 
-## First run
-
-Installing puts the moving parts in place; it does not yet know *you*. Start a Claude Code session and run the one-time guided setup:
+Installing put the parts in place; it does not yet know *you*. Start a Claude Code session and run the one-time setup. A short two-part interview follows — a confirmation card of facts it already looked up, then a few questions in your own words — and from your answers it writes your preferences and builds your **context store**.
 
 ```
 /onboard
 ```
 
-It runs a short two-part interview — a confirmation card of facts it already looked up (name, email, timezone, a proposed vault location), then a few questions in your own words about who you are and how you want the assistant to work — and from your answers it writes your preferences and builds your vault. Full detail in **[Onboarding](https://peter-tiktinsky.github.io/brain-stem/getting-started/onboarding/)**.
+### 4 — Open your brain
 
----
+When onboarding finishes it prints the path to your new store. Open that folder in [Obsidian](https://obsidian.md) (*Open folder as vault*) — or any editor; it is just plain files. From now on, every session starts already knowing who you are, every write into your store is checked as it happens, and what matters is remembered between conversations.
 
-## What you get
+> [!NOTE]
+> **Need more than the happy path?** The [Install & upgrade guide](https://peter-tiktinsky.github.io/brain-stem-docs/installation.html) covers prerequisites, installing into a folder that already has files, upgrading in place, and error recovery. The full `/onboard` walkthrough is on [Onboarding](https://peter-tiktinsky.github.io/brain-stem-docs/onboarding.html).
 
-Six capabilities, each explained in plain language in the documentation:
+## What brain-stem ships
 
-| Capability | In one sentence | Learn more |
-|---|---|---|
-| **A governed vault** | A notes folder the assistant reads from and writes into, kept structurally consistent by a rulebook consulted at every save. | [Vault governance →](https://peter-tiktinsky.github.io/brain-stem/architecture/vault-governance/) |
-| **Memory that lasts** | A small, curated set of on-disk notes the assistant reads back at the start of every session, so it remembers what matters before you type a word. | [The memory model →](https://peter-tiktinsky.github.io/brain-stem/architecture/memory-model/) |
-| **A context library** | A universal shelf of reusable reference plus a per-project binder, so research and project state are framed and never lost. | [Context and memory →](https://peter-tiktinsky.github.io/brain-stem/architecture/context-and-memory/) |
-| **Plans** | A way to store a multi-step project on disk and shepherd it from a raw idea to a finished, verified, signed-off plan. | [Plans →](https://peter-tiktinsky.github.io/brain-stem/architecture/plans/) |
-| **Sessions that stay on-track** | Automatic save-points that let one long conversation survive its own memory being trimmed, and keep several open conversations out of each other's way. | [Sessions →](https://peter-tiktinsky.github.io/brain-stem/architecture/sessions/) |
-| **One-time setup** | A short guided interview (`/onboard`) that learns who you are, writes your preferences down, and builds your vault for you. | [Onboarding →](https://peter-tiktinsky.github.io/brain-stem/getting-started/onboarding/) |
+brain-stem ships a **comprehensive suite of capabilities, each wired into how Claude Code loads and runs — automatically, every session.** Two pieces set the stage once; the rest run continuously.
 
----
+### Set up once — your brain, and how you reach it
+
+- **[A governed context store](https://peter-tiktinsky.github.io/brain-stem-docs/vault-explorer.html)** — *your "brain."* The plain-text store you and the assistant both write into. A rulebook consulted at every save keeps it structurally consistent (allow · advise · deny), so the one place everything is captured into never drifts or rots.
+- **[Guided onboarding](https://peter-tiktinsky.github.io/brain-stem-docs/onboarding.html)** — *one-time setup.* A one-time-use onboarding skill that interviews you, documents who you are and your preferences, and builds your context store for you — so the foundation starts already personalized to you.
+- **[One canonical home](https://peter-tiktinsky.github.io/brain-stem-docs/index.html)** — *optional interface · portable.* Shortcuts gather every place your context lives — plans, the Library, project binders, your work area — into a single folder, tagging already wired. Open it in Obsidian to navigate your whole knowledge graph from one place, or point any other tool at it. It is plain files; nothing is locked in.
+
+### The capability suite — wired into every session
+
+#### [Self-organizing memory & knowledge](https://peter-tiktinsky.github.io/brain-stem-docs/context-and-memory.html)
+
+*Context & memory.* Claude organizes its own memory and knowledge — and weaves them into each other automatically, instead of leaving them as separate piles.
+
+- **Memory that survives, split three ways** — semantic, procedural, and episodic notes, at project and universal scope, read back at the start of every session.
+- **A context library** — reusable reference plus per-project binders that frame the work and never go stale.
+- **Operational and contextual, kept connected** — how Claude should act and what the work is, distinct but woven together rather than dumped in one bucket.
+- **Lessons across arenas** — a lesson learned in one project is promoted into universal rules and reference, so learning transfers to every future project.
+
+#### [Idea capture to autonomous execution](https://peter-tiktinsky.github.io/brain-stem-docs/project-management.html)
+
+*Project management.* Set up and run multi-step work on the most optimal, research-backed conventions — with every piece of context it produces captured, organized, and kept as living reference.
+
+- **Cheap idea capture** — jot any initiative down for almost nothing; it's triaged, stored, and maintained, then promotable into a full plan on demand.
+- **Research-backed plans** — ideas become well-formed plans whose research, decisions, and materials are organized so you can thoughtfully one-shot the work.
+- **Autonomous orchestration & scheduling** — ready plans run through a propose-and-gate orchestrator and scheduled skill runs, with human gates on anything irreversible.
+- **A project binder that compounds** — Claude indexes every plan in a project and rolls its key materials into persistent context that grows on its own; the more you work in a directory, the better its output gets. Universal materials promote up for reuse anywhere.
+
+#### [A doorman at every write](https://peter-tiktinsky.github.io/brain-stem-docs/write-time-governance.html)
+
+*Write-time governance.* Every file and folder is checked the moment it's created, so your store stays discoverable and trustworthy without anyone remembering to be careful.
+
+- **Allow · advise · deny** — most policy teaches with a reminder; hard blocks are reserved for writes that would corrupt structure.
+- **Conventions enforced at write time** — frontmatter, naming, folder layout, and required indexes, applied by machinery rather than left to discipline.
+- **Cross-document consistency** — paired documents are flagged when one drifts out of sync with another.
+- **Structural, not disciplinary** — the check fires deterministically every time, regardless of whether the assistant remembers the rule.
+
+#### [Conscious, durable sessions](https://peter-tiktinsky.github.io/brain-stem-docs/sessions.html)
+
+*Session management.* Claude keeps one long conversation alive, coordinates several at once, and cleans up after itself on the way out.
+
+- **Autosave for your train of thought** — checkpoints and a context-pressure ladder let a session survive its own memory being trimmed, or cold-start the next morning.
+- **Multi-session coordination** — concurrent windows track who's touching what and warn before two edit the same file.
+- **Conscious hand-offs** — Claude knows when to hand off to a fresh session, and reconciles what it changed before it does.
+- **Decision quality** — a nudge to research the options before committing to a consequential fork.
+
+#### [Outside information, brought in structured](https://peter-tiktinsky.github.io/brain-stem-docs/automated-capture.html)
+
+*Automated capture.* Connectors and a single-writer pipeline turn the information you already deal with into reusable, structured assets — without re-pasting it into every session.
+
+- **Deterministic by default** — parse, transform, write once; repeated processing stays cheap and trustworthy, with an opt-in AI lane for genuine judgment calls.
+- **One reconciler, many sources** — emails, transcripts, calendar data, scrapes — all routed through a single governed writer that never collides with your edits.
+- **Local and permanent** — raw source, processed outputs, and a queryable record stay on your machine, so you're never taxed for changing your mind.
+
+#### [Built to be bent to you](https://peter-tiktinsky.github.io/brain-stem-docs/system-personalization.html)
+
+*System personalization.* The whole foundation is made to be extended at designed seams — so you personalize it without forking it or losing your changes on an update.
+
+- **A governed overlay** — register your own file types, folders, tags, and writers on top of the sealed rulebook; your additions survive every upgrade.
+- **The work-folder guidebook** — a scaffolded home for any non-coding work, with flat and master layouts and worked examples.
+- **The friction inversion** — the most universal pieces are the most customizable, so you reshape exactly what's safe to reshape.
 
 ## Documentation
 
-Full documentation is published at **<https://peter-tiktinsky.github.io/brain-stem/>**. Good places to start:
+**Getting started** covers adoption and **Reference** is for look-ups. In between sits the heart of the site: **Orientation** is your gateway into the six **Architecture & capabilities** sections — the in-depth documentation of everything brain-stem provides. Every page is listed below. The full site is at <https://peter-tiktinsky.github.io/brain-stem-docs/>.
 
-- **[Why brain-stem](https://peter-tiktinsky.github.io/brain-stem/getting-started/why-brain-stem/)** — the one-page case for adopting: what it completes in the native Claude Code harness, and why each piece is built the way it is.
-- **[Getting started](https://peter-tiktinsky.github.io/brain-stem/getting-started/)** — the whole path from nothing to a working setup.
-- **[Core concepts](https://peter-tiktinsky.github.io/brain-stem/getting-started/concepts/)** — the mental model in plain language before you install anything.
-- **[Architecture](https://peter-tiktinsky.github.io/brain-stem/architecture/governance-engine/)** — the long-form explanation of how each part works, assuming no prior knowledge.
+### Getting started
+
+*What brain-stem is, and how to adopt it — install, onboard, upgrade, and uninstall.*
+
+- [Getting started](https://peter-tiktinsky.github.io/brain-stem-docs/getting-started.html) — this on-ramp: the quickstart, the capability suite, and this table of contents.
+- [Install & upgrade guide](https://peter-tiktinsky.github.io/brain-stem-docs/installation.html) — the complete install, upgrade, and migration runbook.
+- [Onboarding](https://peter-tiktinsky.github.io/brain-stem-docs/onboarding.html) — what `/onboard` does, and how to safely re-run it.
+- [Uninstalling](https://peter-tiktinsky.github.io/brain-stem-docs/uninstalling.html) — removing brain-stem cleanly and reversibly.
+- [Packaging & runtime](https://peter-tiktinsky.github.io/brain-stem-docs/packaging-runtime.html) — how the install is staged, recorded, reversed, and where its data lives.
+
+### Orientation
+
+*Your gateway into the architecture sections below — start here to see the whole system.*
+
+- [Introduction](https://peter-tiktinsky.github.io/brain-stem-docs/index.html) — what brain-stem is, the second-brain thesis, and the whole system in one picture.
+- [Explore your brain](https://peter-tiktinsky.github.io/brain-stem-docs/vault-explorer.html) — a click-through map of everything in your store on day one.
+- [Why brain-stem](https://peter-tiktinsky.github.io/brain-stem-docs/value-add.html) — the case for adopting, pillar by pillar.
+- [The research rationale](https://peter-tiktinsky.github.io/brain-stem-docs/research-rationale.html) — the evidence base behind the design.
+
+**Architecture & capabilities** — *in-depth documentation on each capability brain-stem ships; Orientation is the gateway in.*
+
+### Context & memory
+
+- [Context & memory](https://peter-tiktinsky.github.io/brain-stem-docs/context-and-memory.html) — the map: operational vs. contextual knowledge, at project or universal scope.
+- [Dual context layers](https://peter-tiktinsky.github.io/brain-stem-docs/context-library.html) — the Workshop, the Library, and how content promotes between them.
+- [The memory model](https://peter-tiktinsky.github.io/brain-stem-docs/memory-model.html) — three kinds of memory, two scopes, and the hot index under a hard cap.
+- [What loads each session](https://peter-tiktinsky.github.io/brain-stem-docs/session-loading.html) — exactly what context assembles at session start, and what stays on-demand.
+- [Why: context & memory](https://peter-tiktinsky.github.io/brain-stem-docs/context-memory-rationale.html) — the rationale behind the memory split and the load tiers.
+
+### Project management
+
+- [Project management](https://peter-tiktinsky.github.io/brain-stem-docs/project-management.html) — the operational side of getting work done.
+- [Project organization](https://peter-tiktinsky.github.io/brain-stem-docs/work-surface.html) — code repositories and Work folders, and how each rolls up into the binder.
+- [Plans](https://peter-tiktinsky.github.io/brain-stem-docs/plans.html) — the plan lifecycle from idea to machine-verified result.
+- [Orchestration & scheduling](https://peter-tiktinsky.github.io/brain-stem-docs/orchestration.html) — the propose-and-gate runner and the scheduling substrate.
+- [The project binder](https://peter-tiktinsky.github.io/brain-stem-docs/project-binder.html) — the per-project roll-up loaded at session start.
+- [Why: project management](https://peter-tiktinsky.github.io/brain-stem-docs/project-management-rationale.html) — the design decisions behind the section.
+
+### Write-time governance
+
+- [Write-time governance](https://peter-tiktinsky.github.io/brain-stem-docs/write-time-governance.html) — conventions enforced at the moment of every write.
+- [The governance engine](https://peter-tiktinsky.github.io/brain-stem-docs/governance-engine.html) — the doorman (allow, advise, deny) and its eight pillars.
+- [The single document](https://peter-tiktinsky.github.io/brain-stem-docs/single-document.html) — the rules that govern one file in isolation.
+- [Across documents & folders](https://peter-tiktinsky.github.io/brain-stem-docs/across-documents.html) — the rules that cross file boundaries.
+- [Why: write-time governance](https://peter-tiktinsky.github.io/brain-stem-docs/governance-rationale.html) — the reasoning behind the enforcement model.
+
+### Session management
+
+- [Session management](https://peter-tiktinsky.github.io/brain-stem-docs/sessions.html) — the session lifecycle, from start to close.
+- [Checkpoints](https://peter-tiktinsky.github.io/brain-stem-docs/checkpoints.html) — the context-pressure ladder and the Continuity Block.
+- [Multi-session coordination](https://peter-tiktinsky.github.io/brain-stem-docs/multi-session.html) — the shared registry and same-file warnings.
+- [Session close](https://peter-tiktinsky.github.io/brain-stem-docs/session-close.html) — deregistration, reconciliation, and the cleanup chain.
+- [The decision-quality protocol](https://peter-tiktinsky.github.io/brain-stem-docs/decision-quality.html) — research before you commit to a fork.
+- [Why: session management](https://peter-tiktinsky.github.io/brain-stem-docs/session-management-rationale.html) — the rationale behind checkpoints and the registry.
+
+### Automated capture
+
+- [Automated capture](https://peter-tiktinsky.github.io/brain-stem-docs/automated-capture.html) — connectors and writers that bring outside information in.
+- [The vault-writer system](https://peter-tiktinsky.github.io/brain-stem-docs/vault-writers.html) — the capture pipeline end to end.
+- [Why: automated capture](https://peter-tiktinsky.github.io/brain-stem-docs/automated-capture-rationale.html) — the design decisions behind the pipeline.
+
+### System personalization
+
+- [System personalization](https://peter-tiktinsky.github.io/brain-stem-docs/system-personalization.html) — the operational foundation for a personalized setup.
+- [Governance personalization](https://peter-tiktinsky.github.io/brain-stem-docs/governance-personalization.html) — the governed overlay seam for extending the rules.
+- [The work-folder guidebook](https://peter-tiktinsky.github.io/brain-stem-docs/work-folder-guidebook.html) — setting up and running any non-coding work.
+- [Why: system personalization](https://peter-tiktinsky.github.io/brain-stem-docs/personalization-rationale.html) — the reasoning behind the personalization model.
+
+### Reference
+
+*General look-ups for day-to-day use.*
+
+- [Commands](https://peter-tiktinsky.github.io/brain-stem-docs/commands.html) — every command brain-stem adds, categorized by activity.
+- [Glossary](https://peter-tiktinsky.github.io/brain-stem-docs/glossary.html) — every coined term in one place.
+- [FAQ](https://peter-tiktinsky.github.io/brain-stem-docs/faq.html) — short answers to the most common questions.
 
 ## Contributing
 

@@ -242,7 +242,7 @@ Maintenance release. Every functional governance value is byte-identical to v1.1
 
 ## [v1.1.1]
 
-Patch release. Makes the in-place upgrade engine actually deliver its fixes to **legacy adopters** — every install made before v1.1.0 introduced the version stamp. In v1.1.0 the per-file delivery path covered the hook, schema, template, and governance-scalar files, but a second copy path that ships whole directories (skills, the orchestrator, the installer support files, and the vault seed) silently skipped any file that already existed on a legacy install. The result: 18 changed files stayed at their old version even after re-running the upgrade. v1.1.1 closes that gap. Re-run `install.sh` from the updated source — see the [upgrade runbook](docs/getting-started/index.md#upgrading-an-existing-install) and the [v1.1.1 release notes](docs/release-notes-v1.1.1.md).
+Patch release. Makes the in-place upgrade engine actually deliver its fixes to **legacy adopters** — every install made before v1.1.0 introduced the version stamp. In v1.1.0 the per-file delivery path covered the hook, schema, template, and governance-scalar files, but a second copy path that ships whole directories (skills, the orchestrator, the installer support files, and the vault seed) silently skipped any file that already existed on a legacy install. The result: 18 changed files stayed at their old version even after re-running the upgrade. v1.1.1 closes that gap. Re-run `install.sh` from the updated source — see the [upgrade runbook](https://peter-tiktinsky.github.io/brain-stem-docs/installation.html) and the [v1.1.1 release notes](docs/release-notes-v1.1.1.md).
 
 ### Fixed
 

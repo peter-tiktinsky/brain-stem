@@ -54,7 +54,7 @@ The session architecture documentation describes this as a new **middle tier** b
 - **Anyone who closed sessions manually** is affected by Story 2: a manual `/librarian session-close` will no longer back up your vault. If your habit was "close, and it's pushed," replace it with "close, then run `/librarian backup`."
 - **People who rarely run `/librarian session-close`** gain the automatic integrity pass — their indexes, frontmatter, and plan-drift now stay honest without any action.
 
-> **<https://peter-tiktinsky.github.io/brain-stem/>**
+> **<https://peter-tiktinsky.github.io/brain-stem-docs/>**
 
 ---
 

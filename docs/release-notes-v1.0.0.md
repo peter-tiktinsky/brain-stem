@@ -13,14 +13,14 @@
 - **Safe, reversible uninstall.** `bash ~/.claude/uninstall.sh` backs the whole target up first, then removes only the untouched files it originally installed — **any file you edited is preserved and reported, never silently deleted.** It also stops only its own scheduled background jobs, leaving anything unrelated alone.
 - **Your existing configuration is preserved.** The install merges its settings into your existing Claude Code configuration field by field, and refuses to proceed if it would silently drop any of your keys.
 
-→ [Packaging & runtime](architecture/packaging-runtime.md)
+→ Packaging & runtime
 
 ## First-run setup
 
 - **One-command onboarding.** `/onboard` runs a short two-part interview — a confirmation card of facts the system already knows, plus a free-form description in your own words — and produces your settings file, your personal-preferences file, and a pre-built **brain vault**, then points you to open it in Obsidian.
 - **Run-once safety.** Onboarding refuses to run a second time by accident; redoing it takes an explicit `--force`, and even then your edited files are preserved rather than overwritten.
 
-→ [Getting started](getting-started/index.md) · [Onboarding](getting-started/onboarding.md)
+→ Getting started · Onboarding
 
 ## The governed vault & the governance engine
 
@@ -30,7 +30,7 @@
 - **Per-document contracts.** Specific document types (meeting notes, plan files, decision records, and more) each carry a small rulebook stating what they must contain, all enforced through the same guard.
 - **A safe pipeline for automated writers.** Systems that write into your vault can funnel through a single coordinating program — the *reconciler* — that performs every write in one all-or-nothing step (so a file is never caught half-written), and **your hand-edits always win** over an automated regeneration.
 
-→ [The governance engine](architecture/governance-engine.md) · [Vault governance](architecture/vault-governance.md)
+→ The governance engine · Vault governance
 
 ## Memory
 
@@ -38,7 +38,7 @@
 - **Two scopes, with a promotion path.** Per-project memory and global memory live side by side; a fact that proves universal can be promoted up into your global rules (propose-by-default, never touching your personal-preferences file).
 - **A recommended optional plugin.** brain-stem works fully on its own curated memory; an optional recall plugin can be added during setup for broader automatic recall.
 
-→ [The memory model](architecture/memory-model.md) · [Memory management](architecture/memory-management.md)
+→ The memory model · Memory management
 
 ## Plans & the orchestrator
 
@@ -47,7 +47,7 @@
 - **A cheap idea funnel.** Capture any idea without burning a project number; numbers are assigned only when an idea graduates into a real plan. `/new-plan`, `/backlog-triage`, `/backlog-research`, and `/backlog-hygiene` drive the funnel.
 - **A human-gated runner.** The orchestrator can execute a plan's tasks automatically, but proposes and waits for your go-ahead on anything risky — it is not an unattended daemon.
 
-→ [Plans](architecture/plans.md)
+→ Plans
 
 ## Sessions & continuity
 
@@ -55,17 +55,17 @@
 - **Multi-session coordination.** Several open conversations stay out of each other's way through a shared list (a *registry*), including a warning when another session has touched a file you are about to edit.
 - **One-command close-out.** `/librarian session-close` runs the end-of-session housekeeping — refreshing indexes, reconciling plans, and writing a short receipt — as an advisory routine that never blocks you.
 
-→ [Sessions](architecture/sessions.md)
+→ Sessions
 
 ## Vault maintenance
 
 - **The librarian.** `/librarian` bundles the vault-health sweeps that keep folder indexes current, regenerate the automated-writer catalogs, and flag tag and staleness drift — catching accumulated drift across the whole vault that the one-file-at-a-time write guard cannot see.
 
-→ [Vault governance](architecture/vault-governance.md)
+→ Vault governance
 
 ## Documentation
 
-- **This site.** A complete, zero-prior-knowledge documentation set: a [getting-started](getting-started/index.md) path for new adopters and a full [architecture](architecture/governance-engine.md) section explaining *why* each part is built the way it is.
+- **This site.** A complete, zero-prior-knowledge documentation set: a getting-started path for new adopters and a full architecture section explaining *why* each part is built the way it is.
 
 ---
 

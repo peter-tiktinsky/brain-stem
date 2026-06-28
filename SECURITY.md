@@ -56,4 +56,4 @@ Please do not open a public issue for a suspected vulnerability until it has bee
 
 ## Supported versions
 
-Security fixes target the **latest released version**. Because the install is preview-first and reversible, the recommended response to any fix is to upgrade in place (`git pull`, preview, `--apply`), as described in [Getting started](https://peter-tiktinsky.github.io/brain-stem/getting-started/).
+Security fixes target the **latest released version**. Because the install is preview-first and reversible, the recommended response to any fix is to upgrade in place (`git pull`, preview, `--apply`), as described in [the install & upgrade guide](https://peter-tiktinsky.github.io/brain-stem-docs/installation.html).
