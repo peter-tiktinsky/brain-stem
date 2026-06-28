@@ -1,4 +1,11 @@
-name: docs
+name: docs (redirect)
+
+# The brain-stem documentation moved to its own repo + site:
+#   https://peter-tiktinsky.github.io/brain-stem-docs/
+# This workflow publishes a redirect at the old URL (github.io/brain-stem) so
+# existing inbound links survive. redirect/index.html handles the root; GitHub
+# Pages serves redirect/404.html for any old deep path (a catch-all redirect to
+# the new documentation home). No mkdocs build — the docs are no longer here.
 
 on:
   push:
@@ -15,25 +22,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      - run: pip install -r requirements.txt
-      - run: mkdocs build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload redirect artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: redirect
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
