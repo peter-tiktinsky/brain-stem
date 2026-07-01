@@ -341,7 +341,7 @@ PLANS_HOME="${PLANS_HOME:-$HOME/.claude-plans}"
 g5_existing_plans=""
 g5_existing_count=0
 if [ -d "$PLANS_HOME" ]; then
-  for entry in "$PLANS_HOME"/[0-9][0-9]-*/; do
+  for entry in "$PLANS_HOME"/[0-9][0-9]*-*/; do
     [ -d "$entry" ] || continue
     base="${entry%/}"
     base="${base##*/}"

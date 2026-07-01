@@ -1,22 +1,17 @@
 #!/bin/bash
 # hooks/lib/registry.sh — Multi-session coordination shared constants + utility
 # functions. Sourced by hook scripts and registry-op.sh.
-#
-# Machine-local coordination: COORD_DIR is resolved via
-# hooks/lib/paths.sh under $CLAUDE_STATE_ROOT (machine-local ephemeral), not
-# in-vault. The coordination registry +
+# hooks/lib/paths.sh under $CLAUDE_STATE_ROOT (machine-local ephemeral), NOT
+# the's in-vault $VAULT_LOGS/.coordination. The coordination registry +
 # the four lockf locks (registry/manifest/tasks/reconcile.lock) live at
 # $CLAUDE_STATE_ROOT/.coordination/ — machine-local ephemeral. The
 # REGISTRY_FILE symbol exported to consumer hooks is UNCHANGED; consumer hooks
 # pick it up unchanged.
-#
-# This body lives at hooks/lib/registry.sh and sources hooks/lib/paths.sh
-# directly.
+# hooks/lib/registry.sh and sources hooks/lib/paths.sh directly.
 
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-# Hook-journal + output-validator peers live at hooks/lib/;
-# source them when present (graceful-degrade so registry.sh does
-# not hard-fail when its peers are absent).
+# Hook-journal + output-validator peers live at hooks/lib/ and land at
+# not hard-fail before its peers land).
 for _peer in hook-journal.sh validate-hook-output.sh; do
   _peer_path="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/$_peer"
   [ -r "$_peer_path" ] && source "$_peer_path"
@@ -24,8 +19,8 @@ done
 unset _peer _peer_path
 
 # Fail-OPEN fallbacks. The hook-journal + validate-hook-output peers are
-# deliberately NOT shipped (emission telemetry + the pre-emit JSON validator are
-# out of scope). The peer-loop
+# deliberately NOT shipped in brain-stem (clean-room drops emission telemetry
+# + the pre-emit JSON validator; named nowhere in the binding SoT). The peer-loop
 # above sources them when present (a dev/adopter who adds them), but the downstream
 # format_output_* calls are UNGUARDED — so without these fallbacks an absent peer
 # makes `validate_hook_output` undefined → rc=127 → format_output_deny emits NOTHING
@@ -42,7 +37,7 @@ fi
 
 # COORD_DIR is emitted by hooks/lib/paths.sh; honor an env
 # override but otherwise consume the paths.sh value (resolved under
-# $CLAUDE_STATE_ROOT). The four lockf locks derive from it.
+# $CLAUDE_STATE_ROOT per). The four lockf locks derive from it.
 COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
 REGISTRY_FILE="$COORD_DIR/session-registry.json"
 REGISTRY_LOCK="$COORD_DIR/registry.lock"
@@ -141,9 +136,51 @@ format_output_deny() {
   fi
 }
 
+# ---- PID liveness (— stale-peer detection) -------------------------
+# A pid is LIVE iff it is a positive integer AND the process exists (kill -0).
+# null / 0 / empty / non-numeric / dead -> not live. This is THE liveness predicate
+# for the bash boundary; session-close.sh mirrors it in python3 via os.kill(pid,0).
+pid_is_live() {
+  local p="$1"
+  case "$p" in
+    ''|null|0) return 1 ;;
+    *[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$p" 2>/dev/null
+}
+
+# Transient PID-liveness VIEW of the registry. Returns the registry JSON with every
+# `active` row whose recorded pid is not live `del`'d. VIEW-ONLY — it never writes the
+# registry file; `closing` / `closed-pending-reconciliation` rows are left intact
+# (physical deletion of any row stays owned by reconcile-sessions.sh under
+# reconcile.lock). Degrades to the input unchanged when jq is absent or nothing is
+# stale. Bash 3.2 clean; the while-read consumes a heredoc (not a pipe) so the
+# accumulated dead-sid list survives in the current shell.
+registry_live_view() {
+  local reg="$1"
+  command -v jq >/dev/null 2>&1 || { printf '%s' "$reg"; return 0; }
+  local active_list
+  active_list=$(printf '%s' "$reg" | jq -r '.sessions // {} | to_entries[] | select(.value.status == "active") | "\(.key)\t\(.value.pid)"' 2>/dev/null) || active_list=""
+  [ -n "$active_list" ] || { printf '%s' "$reg"; return 0; }
+  local dead_sids="" sid pid
+  while IFS=$'\t' read -r sid pid; do
+    [ -n "$sid" ] || continue
+    pid_is_live "$pid" || dead_sids="$dead_sids $sid"
+  done <<EOF
+$active_list
+EOF
+  [ -n "$dead_sids" ] || { printf '%s' "$reg"; return 0; }
+  local arr
+  arr=$(printf '%s\n' $dead_sids | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || arr=""
+  [ -n "$arr" ] || { printf '%s' "$reg"; return 0; }
+  printf '%s' "$reg" | jq --argjson dead "$arr" 'reduce $dead[] as $s (.; del(.sessions[$s]))' 2>/dev/null || printf '%s' "$reg"
+}
+
 # Peer summary string. Args: registry_json, own_session_id. Empty if solo.
+# Routes through registry_live_view so dead-pid `active` peers never count.
 get_peer_summary() {
-  local reg="$1" own_sid="$2" peer_count summaries
+  local own_sid="$2" peer_count summaries
+  local reg; reg=$(registry_live_view "$1")
   peer_count=$(echo "$reg" | jq --arg sid "$own_sid" \
     '[.sessions | to_entries[] | select(.key != $sid) | select(.value.status == "active")] | length')
 
@@ -160,8 +197,10 @@ get_peer_summary() {
 }
 
 # File overlap list. Args: registry_json, own_session_id. One file per line, empty if none.
+# Routes through registry_live_view so overlaps with dead-pid peers never warn.
 get_file_overlaps() {
-  local reg="$1" own_sid="$2"
+  local own_sid="$2"
+  local reg; reg=$(registry_live_view "$1")
   echo "$reg" | jq -r --arg sid "$own_sid" '
     (.sessions[$sid].touched_files // []) as $own |
     [.sessions | to_entries[] | select(.key != $sid) | select(.value.status == "active") |

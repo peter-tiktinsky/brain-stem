@@ -4,6 +4,20 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.9.1]
+
+Maintenance release — four defect and hardening fixes, all internal to how brain-stem runs. The session context-pressure reading no longer cries wolf on large-context models, the active-peer-session count no longer counts sessions that have already exited, plans numbered 100 and above can be created and graduated again, and the scheduled-job renderer now refuses to point a job's log at a macOS privacy-protected folder (which silently kills the job). **The installed foundation behaves the same in every other respect and there is nothing to migrate.** See the [v1.9.1 release notes](docs/release-notes-v1.9.1.md).
+
+### Fixed
+
+- **The context-pressure reading no longer reports a false ~100% on large-context models.** The session "context pressure" indicator divided usage by a fixed 200,000-token window, so on today's 1,000,000-token models it overstated how full the session was — often pinning to ~100% and triggering the mid-session checkpoint prompt when the session was only moderately full. It now resolves the true context window from the model family (1,000,000 for the current Opus / Sonnet / Fable fleet; 200,000 for Haiku), with a guard for any unrecognized model, so the percentage and the checkpoint prompt track real pressure. An explicit `CLAUDE_CONTEXT_WINDOW` override still wins.
+- **The active peer-session count ignores sessions that have already exited.** Concurrent-session detection counted every registered session as "active," including ones whose process had already died or was never recorded — so the "N active peer sessions" notice, and the file-overlap warnings built on it, were inflated. Sessions are now liveness-checked by process ID: dead and unrecorded rows are filtered from the count and reaped from the registry, so the number reflects sessions that are genuinely running.
+- **Plans numbered 100 and above can be created and graduated again.** The plan-slug pattern accepted only a two-digit number prefix, so creating or graduating a plan numbered `100-…` or higher was rejected. The pattern — and every place that re-checks it — now accepts two-or-more digits. *(Reaches most adopters only once they pass 99 plans; restores the intended behavior.)*
+
+### Changed
+
+- **Scheduled jobs fail loudly instead of dying silently on a privacy-protected log path.** On current macOS, a launchd job whose log file lands in a privacy-protected folder (Desktop, Documents, Downloads, iCloud Drive) cannot start — it aborts before running, with no output. The scheduled-job renderer now refuses to emit such a job and fails at render time with a clear error, and a release-time gate enforces the same rule on the shipped templates. The shipped templates already log to a safe location, so nothing changes for a standard install; this is a guard against a misconfigured log path. *(Hardening; no adopter action.)*
+
 ## [v1.9.0]
 
 Feature release — brain-stem now **self-orients at the start of a session**. When you open a session inside a registered work project (`~/work/<project>`) or against a plan's binder, brain-stem regenerates a short **situating brief** from the current state on disk and hands it to the assistant at startup, so it orients itself before you type anything. The same release makes each work project's `CLAUDE.md` a thin identity file with an **auto-maintained map of the project**, gives a work project's folders **self-maintaining indexes**, and creates a project's binder cover page **at registration** (previously the assistant was pointed at a page that was never minted). Everything is additive, automatic, and never writes into your authored content. See the [v1.9.0 release notes](docs/release-notes-v1.9.0.md).

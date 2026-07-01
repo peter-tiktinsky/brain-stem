@@ -221,7 +221,7 @@ with open(rules_path, encoding="utf-8") as fh:
     rules = json.load(fh)
 inbox_cfg = rules.get("inbox", {})
 inbox_slug_pattern = inbox_cfg.get("slug_pattern", r"^[a-z][a-z0-9-]+$")
-plan_slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2}-[a-z][a-z0-9-]+$")
+plan_slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2,}-[a-z][a-z0-9-]+$")
 inbox_dir = os.path.join(plans_root, "_inbox")
 
 

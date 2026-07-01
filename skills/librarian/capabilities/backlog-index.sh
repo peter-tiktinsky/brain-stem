@@ -131,7 +131,7 @@ with open(rules_path, encoding="utf-8") as fh:
 backlog_row = rules.get("backlog_row", {})
 disposition_enum = backlog_row.get("disposition_enum",
                                    ["FIX NOW", "ABSORB", "STANDALONE", "DEFERRED"])
-slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2}-[a-z][a-z0-9-]+$")
+slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2,}-[a-z][a-z0-9-]+$")
 slug_re = re.compile(slug_pattern)
 lifecycle_enum = rules.get("lifecycle", {}).get(
     "status_enum",

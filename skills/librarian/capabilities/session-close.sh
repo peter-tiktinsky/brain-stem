@@ -155,6 +155,25 @@ auto_detect_scope() {
 import json, os, sys
 p = sys.argv[1]
 me = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("CLAUDE_SESSION_ID", "")
+def alive(pid):
+    # PID-liveness mirror of registry.sh::pid_is_live: a dead/null-pid
+    # `active` row no longer forces `scoped`. ProcessLookupError -> dead;
+    # PermissionError -> alive (a real process we cannot signal); other/non-int -> dead.
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 try:
     d = json.load(open(p))
 except Exception:
@@ -165,7 +184,7 @@ for sid, entry in sessions.items():
     if sid == me:
         continue
     status = entry.get("status", "") if isinstance(entry, dict) else ""
-    if status == "active":
+    if status == "active" and alive(entry.get("pid")):
         n += 1
 print(n)
 ' "$SESSION_REGISTRY" "$me" 2>/dev/null || echo 0)

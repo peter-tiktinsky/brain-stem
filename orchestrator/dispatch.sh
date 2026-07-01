@@ -39,6 +39,16 @@ JOB_RUNNER="$SCRIPT_DIR/job-runner.sh"
 # --- Source queue library ---
 source "$QUEUE_LIB"
 
+# --- Source the shared TCC std-path denylist (sibling of paths.sh) ---
+# Located via SCRIPT_DIR (this script's own dir), so it resolves to the installed
+# hooks/lib/tcc-denylist.sh independent of any CLAUDE_HOME override.
+TCC_DENYLIST="$(cd "$SCRIPT_DIR/.." && pwd)/hooks/lib/tcc-denylist.sh"
+if [[ ! -r "$TCC_DENYLIST" ]]; then
+  echo "ERROR: tcc-denylist.sh not readable at $TCC_DENYLIST" >&2
+  exit 1
+fi
+source "$TCC_DENYLIST"
+
 # --- Parse args ---
 MODE=""        # plan | job | cron | batch | list-pending | cancel | hold | unhold | queue-status
 TARGET=""
@@ -285,6 +295,17 @@ run_delayed() {
     fire_min=$(date -v+"${delay_seconds}S" +%M 2>/dev/null)
     fire_day=$(date -v+"${delay_seconds}S" +%d 2>/dev/null)
     fire_month=$(date -v+"${delay_seconds}S" +%m 2>/dev/null)
+
+    # Fail closed if the resolved std-path lands in a TCC-protected dir — launchd
+    # opens StandardOut/ErrorPath BEFORE exec and aborts the spawn with EX_CONFIG(78)
+    # on a TCC target, silently killing the scheduled job. Refuse here, before the
+    # plist is written or loaded.
+    local std_out="$CLAUDE_LOG_DIR/dispatch-${slug}-stdout.log"
+    local std_err="$CLAUDE_LOG_DIR/dispatch-${slug}-stderr.log"
+    if tcc_stdpath_is_protected "$std_out" || tcc_stdpath_is_protected "$std_err"; then
+      echo "ERROR: refusing to schedule launchd job '${plist_name}': StandardOut/ErrorPath resolves under a TCC-protected dir ($TCC_MATCHED_PREFIX) — launchd would abort the spawn with EX_CONFIG(78). Point CLAUDE_LOG_DIR at a non-TCC dir (e.g. ~/.local/state/brain-stem/logs)." >&2
+      exit 1
+    fi
 
     cat > "$plist_path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

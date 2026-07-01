@@ -2,19 +2,17 @@
 # installer/render-launchd.sh — render a launchd plist from a template against
 # orchestration.json, plutil-lint, atomically install to a target dir, and
 # (production mode only) launchctl-bootstrap the resolved label.
-#
-# The minimum-viable foundation ships TWO launchd jobs:
+# brain-stem +. The minimum-viable foundation ships TWO
+# launchd jobs (.3:78 + installer band line 281):
 #   - writer-reconciler  (WatchPaths primary + relaxed StartInterval backstop)
 #   - doc-amender        (WatchPaths only — event-driven LLM lane)
-# Connector/non-foundation job cases (architect, digest-run, chat-scrape,
-# calendar-sync, meeting-processor, connector-runtime, inbox-processor) are
-# DROPPED — the inbox-processor job + its stale `--vault-root`/`--state-file`
-# cron-wrapper flags are RETIRED, reconciled to the writer-reconciler's actual
-# arg surface (the cron-wrapper at
+# The's connector/non-foundation job cases (architect, digest-run,
+# chat-scrape, calendar-sync, meeting-processor, connector-runtime,
+# inbox-processor) are DROPPED — the inbox-processor job + its stale
+# `--vault-root`/`--state-file` cron-wrapper flags are RETIRED, reconciled to
+# the writer-reconciler's actual arg surface (the cron-wrapper at
 # installer/cron-wrappers/writer-reconciler-cron.sh).
-#
 # Usage: render-launchd.sh [--staging-dir <path>] [--dry-run] <job>
-#
 # Modes (mutually composable):
 #   default                Production install. Writes to ~/Library/LaunchAgents/<Label>.plist,
 #                          unconditionally `launchctl bootout` then `launchctl bootstrap`.
@@ -23,13 +21,10 @@
 #                          initial-job-setup; launchctl bootstrap isolation).
 #   --dry-run              Renders + plutil-lints, prints rendered plist to stdout, NO
 #                          write/bootstrap. Composable with --staging-dir.
-#
 # <job> is a template basename (`writer-reconciler` | `doc-amender`); must match
 # `^[a-z][a-z0-9-]*$` and have a corresponding `templates/launchd/<job>.plist.tmpl`.
-#
-# LABEL_PREFIX defaults to `com.brain-stem` (matches namespace isolation —
+# LABEL_PREFIX defaults to `com.brain-stem` (matches G6 namespace isolation —
 # labels outside this prefix are refused by uninstall.sh).
-#
 # Exit codes:
 #   0  success
 #   2  bad invocation (missing/bad arg, missing template, dependency missing)
@@ -37,12 +32,10 @@
 #   4  rendered plist failed plutil -lint or atomic mv failed
 #   5  rendered Label extraction failed or Label format invalid
 #   6  launchctl bootstrap returned non-zero (production mode only)
-#
 # Dependencies: jq, plutil, launchctl (production mode only). Template
 # substitution is a portable sed render over the fixed, format-validated var set
-# (: the hard envsubst/GNU-gettext dependency was dropped — gettext is
+# (-ENV: the hard envsubst/GNU-gettext dependency was dropped — gettext is
 # not on stock macOS, so the launchd jobs hard-failed on a clean Mac).
-#
 # R-23: bash 3.2 compat. R-37 single-deliverable.
 
 set -u
@@ -121,6 +114,17 @@ if [ ! -r "$TEMPLATE" ]; then
   exit 2
 fi
 
+# --- source the shared TCC std-path denylist (sibling of paths.sh) ---
+# Located via repo_root (the same anchor as the template), so it resolves to the
+# installed hooks/lib/tcc-denylist.sh independent of any CLAUDE_HOME override.
+TCC_DENYLIST="$repo_root/hooks/lib/tcc-denylist.sh"
+if [ ! -r "$TCC_DENYLIST" ]; then
+  diag "tcc-denylist.sh not readable at $TCC_DENYLIST"
+  exit 2
+fi
+# shellcheck source=/dev/null
+. "$TCC_DENYLIST"
+
 # --- dependency check ---
 for tool in jq plutil; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -132,7 +136,7 @@ done
 
 # Portable template render: substitute each ${VAR} in the fixed, format-validated
 # allowlist with its resolved value. Replaces the dropped envsubst dependency
-#. Reads the same ${VAR} tokens envsubst does, so the templates are
+# (-ENV). Reads the same ${VAR} tokens envsubst does, so the templates are
 # unchanged. The replacement string is escaped for sed (\, the | delimiter, and &)
 # so values containing spaces, &, |, or \ render correctly; output is plutil-lint
 # gated regardless, so a malformed render is caught before any write.
@@ -166,10 +170,10 @@ else
 fi
 TIMEZONE="${TIMEZONE:-America/New_York}"
 
-# Writer-pipeline render vars (plist shapes).
+# Writer-pipeline render vars (.2; plist shapes).
 # WRITER_STAGING_ROOT: the SINGLE canonical EPHEMERAL staging area WatchPaths
-# fires on ($CLAUDE_STATE_ROOT/vault-staging =
-# ~/.local/state/brain-stem/vault-staging). Reconciles the 3-way
+# fires on (.2:74 = $CLAUDE_STATE_ROOT/vault-staging =
+# ~/.local/state/brain-stem/vault-staging). T-02 / reconciles the 3-way
 # divergence: this resolves to the SAME ephemeral root the reconciler +
 # cron-wrappers + staging-emit.sh default to (was the durable-rooted
 # $VAULT_WRITER_STATE_ROOT/staging — distinct tier, wrong target). The durable
@@ -182,7 +186,6 @@ WRITER_RECONCILER_BACKSTOP_SEC="${WRITER_RECONCILER_BACKSTOP_SEC:-3600}"
 
 case "$job" in
   writer-reconciler)
-    # WatchPaths primary + relaxed StartInterval backstop.
     # The reconciler is the sole R-34 mechanical destination writer; trigger is
     # the staging root WatchPaths + the hourly backstop. The retired
     # inbox-processor's --vault-root/--state-file flags do NOT apply — the
@@ -197,7 +200,6 @@ case "$job" in
     allowlist='$USER_HOME $CLAUDE_HOME $CLAUDE_LOG_DIR $TIMEZONE $LABEL_PREFIX $WRITER_STAGING_ROOT $WRITER_RECONCILER_BACKSTOP_SEC'
     ;;
   doc-amender)
-    # WatchPaths only (event-driven LLM lane; no StartInterval).
     allowlist='$USER_HOME $CLAUDE_HOME $CLAUDE_LOG_DIR $TIMEZONE $LABEL_PREFIX $WRITER_STAGING_ROOT'
     ;;
   *)
@@ -243,6 +245,20 @@ case "$label" in
     exit 5
     ;;
 esac
+
+# --- fail closed if a resolved std-path lands in a TCC-protected dir ---
+# launchd opens StandardOut/ErrorPath BEFORE exec; a TCC target makes it abort
+# the spawn with EX_CONFIG(78) and the job dies silently. Refuse the plist here
+# (loud) rather than emit one launchd will silently kill. Checks the RESOLVED
+# value extracted from the rendered plist (CLAUDE_LOG_DIR already substituted),
+# so a non-TCC template rendered with a TCC-valued CLAUDE_LOG_DIR is caught too.
+for tcc_stdkey in StandardOutPath StandardErrorPath; do
+  tcc_stdval="$(plutil -extract "$tcc_stdkey" raw -o - "$ephemeral_tmp" 2>/dev/null)"
+  if [ -n "$tcc_stdval" ] && tcc_stdpath_is_protected "$tcc_stdval"; then
+    diag "$tcc_stdkey resolves under a TCC-protected dir ($TCC_MATCHED_PREFIX): $tcc_stdval — launchd would abort the spawn with EX_CONFIG(78). Point CLAUDE_LOG_DIR at a non-TCC dir (e.g. ~/.local/state/brain-stem/logs)."
+    exit 4
+  fi
+done
 
 # --- dry-run: emit rendered plist to stdout, no write, no bootstrap ---
 if [ "$dry_run" -eq 1 ]; then

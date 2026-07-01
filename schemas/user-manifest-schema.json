@@ -174,13 +174,13 @@
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "At-next-boundary warn threshold. Default 45 (.4). Consumed by prompt-context.sh."
+              "description": "At-next-boundary warn threshold, as a percentage of the TRUE model context window (the .pct writer resolves the window per model family — Haiku 200k, the 1M fleet 1,000,000). Default 45 (.4). Consumed by prompt-context.sh."
             },
             "mandate_pct": {
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "Immediate-action mandate threshold. Default 48 (.4). Consumed by prompt-context.sh."
+              "description": "Immediate-action mandate threshold, as a percentage of the TRUE model context window (Haiku 200k, the 1M fleet 1,000,000). Default 48 (.4). Consumed by prompt-context.sh."
             },
             "hard_pct": {
               "type": ["integer", "null"],

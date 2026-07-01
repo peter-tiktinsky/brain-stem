@@ -15,7 +15,7 @@ argument-hint: "<backlog-item-name> [--budget <dollars>] [--promote <inbox-slug>
 # Backlog Research
 
 The research-backed mode of the ONE plan scaffolder, and the deep-feasibility stage
-of the orchestration funnel: `capture → backlog-triage → backlog-research →
+of the orchestration funnel (): `capture → backlog-triage → backlog-research →
 graduate to a plan → backlog-hygiene`. Once an idea has been triaged as NOVEL, the
 next question is "is this actually buildable, and what would it take?" This skill does
 the full pass in one session: it loads vault context, walks infrastructure
@@ -29,10 +29,10 @@ immediately. A per-session budget cap keeps research from spiralling.
 the **same** scaffolder; the mechanical scaffold/graduation is the landed R-34 helper
 `skills/new-plan/lib/promote-from-inbox.sh`. This skill does NOT re-implement
 graduation — `--promote` delegates to that one helper (no second copy). Flat depth-2 is
-the v1 DEFAULT: backlog-research does NOT select a master-vs-flat target —
+the v1 DEFAULT (): backlog-research does NOT select a master-vs-flat target —
 the scaffolder owns master/sub creation via its `--master` / `--add-subplan` modes.
 
-This skill operates on the **manifest-derived backlog**: pre-plan ideas live
+This skill operates on the **manifest-derived backlog** (): pre-plan ideas live
 as `{paths.plans_root}/_inbox/<slug>.md` notes (funnel status `new / triaged / briefed`);
 in-flight plans are `{paths.plans_root}/<NN>-<slug>/manifest.json` (`lifecycle.status`,
 the canonical 8-state enum). The unified pickup view `{paths.plans_root}/_backlog.md` is
@@ -55,12 +55,12 @@ When `vault.context_documents[]` is unset, it defaults to `["CLAUDE.md"]`.
 **Research mode — files written:**
 - `{paths.plans_root}/<NN>-<slug>/00-ideation-brief.md` — the canonical ideation brief. The ONLY home; brief visibility in the vault comes free via the existing `Vault/Plans/` → `{paths.plans_root}` directory symlink (no per-brief symlink).
 - `{paths.plans_root}/<NN>-<slug>/spec.md`, `tasks.md`, `handoff.md`, `manifest.json` — only when the recommendation is PROCEED or MERGE (scaffolded via the helper; research FILLS the content).
-- `{paths.plans_root}/<NN>-<slug>/manifest.json` — in-place mutation: `status` `researching` → `briefed`, `disposition` set/refreshed, `updated` to today, recommendation recorded in the manifest. (When researching a `triaged` inbox idea, the note is first graduated via `--promote`, which scaffolds the manifest; research then updates it.)
+- `{paths.plans_root}/<NN>-<slug>/manifest.json` — in-place mutation: `status` `researching` → `planned`, `disposition` set/refreshed, `updated` to today, recommendation recorded in the manifest. (When researching a `triaged` inbox idea, the note is first graduated via `--promote`, which scaffolds the manifest; research then updates it.)
 - On failure: a JSONL diagnostic at `{paths.hooks_state}/backlog-research-errors.jsonl`; no partial plan directory.
 
 **Never written:**
 - `{paths.plans_root}/_backlog.md` — librarian-owned (`writers_allowed: ["librarian"]`). Research mutates the manifest; regeneration of the rendered table is delegated to `librarian:backlog-index`.
-- No vault `Logs/` progress satellite and no per-brief vault symlink (both RETIRED — the plan dir is the single durable record and the `Vault/Plans/` directory symlink already makes the brief visible from the vault).
+- No vault `Logs/` progress satellite and no per-brief vault symlink (: both RETIRED — the plan dir is the single durable record and the `Vault/Plans/` directory symlink already makes the brief visible from the vault).
 
 **Schema:** `ideation-brief` against `governance/frontmatter-rules.json#types`; `plan-spec`, `plan-tasks`, `plan-handoff`, `plan-manifest` against `schemas/plans-schema.json` / `schemas/plan-manifest-schema.json`. Manifest `status` is one of the canonical 8-state `lifecycle.status_enum` (`researching / planned / in-progress / paused / completed / verified / closed / archived`).
 
@@ -81,7 +81,7 @@ When `vault.context_documents[]` is unset, it defaults to `["CLAUDE.md"]`.
 3. **Concrete file paths.** Every vault impact and infrastructure dependency must reference specific paths, not vague descriptions.
 4. **Delegate graduation.** `--promote` (and the PROCEED-time scaffold) call the shared `promote-from-inbox.sh` — never ship or re-implement a second graduation copy.
 5. **No modifications beyond the contract.** Research reads and analyzes. The only files it writes are the ideation brief, the draft plan artifacts (via the helper), and the plan-manifest `status`/`disposition`/recommendation update. Vault files, skills, infrastructure, and `_backlog.md` are read-only.
-6. **Flat-funnel for v1.** backlog-research does NOT pick master-vs-flat — the scaffolder's `--master` / `--add-subplan` modes own that (flat depth-2 is the default). Research always graduates to the flat depth-2 quartet.
+6. **Flat-funnel for v1.** backlog-research does NOT pick master-vs-flat — the scaffolder's `--master` / `--add-subplan` modes own that (DEFAULT). Research always graduates to the flat depth-2 quartet.
 7. **Source attribution.** Every external research finding includes a source URL or reference.
 
 ## Invocation
@@ -168,7 +168,7 @@ For every item, identify at least one alternative approach. Compare on implement
 
 ### 7. Write the ideation brief
 
-The canonical (and only) location is `{paths.plans_root}/<NN>-<slug>/00-ideation-brief.md` — scaffolded by the helper in Step 1. The plan folder is the single source of truth; the brief is visible in the vault via the standing `Vault/Plans/` directory symlink (no per-brief symlink is created).
+The canonical (and only) location is `{paths.plans_root}/<NN>-<slug>/00-ideation-brief.md` — scaffolded by the helper in Step 1. The plan folder is the single source of truth; the brief is visible in the vault via the standing `Vault/Plans/` directory symlink (no per-brief symlink is created —).
 
 Write `00-ideation-brief.md` with canonical frontmatter:
 ```yaml
@@ -191,14 +191,14 @@ If the recommendation is **PROCEED** or **MERGE**, FILL the scaffolded draft pla
 2. Fill `spec.md`. Set Status to `planned`. Include concrete file paths, design decisions, and constraints — complete enough to implement without re-reading the brief.
 3. Fill `tasks.md`. Break the work into 3-8 tasks with clear dependencies. Every task includes File References (absolute paths). Acceptance Criteria: 3-5 verb-first bullets each.
 4. Fill `manifest.json` against `schemas/plan-manifest-schema.json` — `project`, `spec_path`, task IDs `T-1`..`T-N`, sensible `max_budget_usd` per task, `parallel_group` where tasks are independent.
-5. Run `{foundation_repo}/orchestrator/validate-manifest.sh` as a self-check; fix the manifest before continuing if it fails.
+5. Validate the filled `manifest.json` against `{foundation_repo}/schemas/plan-manifest-schema.json` as a self-check; fix the manifest before continuing if it fails.
 
 Skip this step entirely if the recommendation is DEFER, MERGE-into-another, or KILL — draft plans for non-PROCEED items waste budget.
 
 ### 9. Update the plan manifest + delegate regeneration
 
 In `{paths.plans_root}/<NN>-<slug>/manifest.json`:
-1. Update `status`: `researching` → `briefed` (an 8-state `lifecycle.status_enum` value).
+1. Update `status`: `researching` → `planned` (an 8-state `lifecycle.status_enum` value).
 2. Set/refresh `disposition` (one of `FIX NOW / ABSORB / STANDALONE / DEFERRED`) to reflect the recommendation.
 3. Update `updated` to today and record the recommendation in the manifest's notes/summary field.
 4. Validate the edited manifest against `schemas/plan-manifest-schema.json` before write (block-and-log on failure).

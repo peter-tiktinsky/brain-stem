@@ -473,14 +473,14 @@ elif mode == "add-subplan":
     used_ids = [int(sp["sub_plan_id"]) for sp in existing if str(sp.get("sub_plan_id", "")).isdigit()]
     # also account for any NN- dirs already on disk
     for entry in os.listdir(master_dir):
-        m = re.match(r"^([0-9]{2})-", entry)
+        m = re.match(r"^([0-9]{2,})-", entry)
         if m and os.path.isdir(os.path.join(master_dir, entry)):
             used_ids.append(int(m.group(1)))
     sub_id = "%02d" % ((max(used_ids) + 1) if used_ids else 1)
 
     # collision: same sub-slug already present under the master?
     for entry in os.listdir(master_dir):
-        if re.sub(r"^[0-9]{2}-", "", entry) == sub_slug and os.path.isdir(os.path.join(master_dir, entry)):
+        if re.sub(r"^[0-9]{2,}-", "", entry) == sub_slug and os.path.isdir(os.path.join(master_dir, entry)):
             abort("sub-slug collision under master: %s already exists" % entry)
 
     sub_plan_dir = os.path.join(master_dir, "%s-%s" % (sub_id, sub_slug))

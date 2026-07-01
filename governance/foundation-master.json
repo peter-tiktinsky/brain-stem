@@ -492,8 +492,8 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-06-25T01:15:31Z",
-    "bundle_version": "4b472ac06aeb4f6f7c7e64b19fd73dbdbe0d9fe7468f21ca2816c30d9571f6f9",
+    "built_at": "2026-06-28T05:01:02Z",
+    "bundle_version": "a9b1c339e5406615be09eabbf6ed4bf3f4753ea7bc974803d73a83a56835e9a2",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-06-24T13:48:58Z",
@@ -2612,7 +2612,7 @@
     },
     "schema_version": "2.0.0",
     "slug_rules": {
-      "pattern": "^[0-9]{2}-[a-z][a-z0-9-]+$",
+      "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+$",
       "plan_root_numbering": "next-available-prefix-creation-order",
       "sub_plan_numbering": "execution-order-not-creation-order"
     },

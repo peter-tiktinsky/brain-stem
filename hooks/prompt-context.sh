@@ -50,11 +50,19 @@ CLEARING_WINDOW_SEC=600
 # --- T-13 (G3): manifest-driven thresholds for hooks.context_pressure ---
 # Reads warn_pct/mandate_pct from $CLAUDE_HOME/user-manifest.json (defaults 45/48
 # when absent or null). These are the ONLY context_pressure thresholds any hook
-# consumes: this hook enforces warn+mandate in-band. The stop-gate's 48/80/90
-# boundaries are FIXED constants in stop-checkpoint-check.sh by design (a safety
-# gate is not weakened by misconfig) — so `hard_pct` is schema-parity vocabulary
-# only and is intentionally NOT read here or by the stop-gate (neither this hook
-# nor the stop-gate reads that field).
+# consumes: this hook enforces warn+mandate in-band.
+# SEMANTICS: warn_pct/mandate_pct are percentages of the TRUE model context window.
+# The .pct in context-pressure.json is `used / actual-window` (the writer resolves
+# the window per model family — Haiku 200k, the 1M fleet 1,000,000 — not the former
+# spurious 200k default). At the 1M fleet, warn 45% / mandate 48% = ~450k / ~480k
+# tokens used, leaving ~520k of headroom at the mandate — ample for a checkpoint
+# write. The fractions are KEPT as-is: they remain meaningful window-relative
+# triggers, and re-tuning them for the larger window is a band-logic change that is
+# deliberately out of scope here (this plan only corrects the denominator).
+# The stop-gate's 48/80/90 boundaries are FIXED constants in stop-checkpoint-check.sh
+# by design (a safety gate is not weakened by misconfig). `hard_pct` is schema-parity
+# vocabulary only and is intentionally NOT read here or by the stop-gate
+# (neither this hook nor the stop-gate reads that field).
 USER_MANIFEST="${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json"
 WARN_PCT=45
 MANDATE_PCT=48
@@ -156,6 +164,14 @@ reg=$(lockf -k -t 2 "$REGISTRY_LOCK" cat "$REGISTRY_FILE" 2>/dev/null) || {
   fi
   exit 0
 }
+
+# Apply the PID-liveness view ONCE, immediately after the locked read, so the
+# fast-path peer count, the lib peer/overlap summaries, AND the is_close close-mode
+# active_count all see only sessions whose recorded pid is actually alive. Dead/null-
+# pid `active` rows are removed view-only (the registry file is NOT rewritten;
+# physical reaping stays with reconcile-sessions.sh). Degrades to `reg` unchanged
+# when jq is absent or no rows are stale.
+reg=$(registry_live_view "$reg")
 
 # Fast path: only our own session → silent
 peer_count=$(echo "$reg" | jq --arg sid "$SESSION_ID" \

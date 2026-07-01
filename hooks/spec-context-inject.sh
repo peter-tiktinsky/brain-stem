@@ -1,6 +1,5 @@
 #!/bin/bash
 # Hook: spec-context-inject — Inject the active plan's spec authority as context.
-#
 # PRIMARY firing: SessionStart (+ source:compact). The goal-anchor lands from turn 1
 # and re-fires after compaction (fixing post-compaction instruction loss). The
 # UserPromptSubmit slot is RETAINED only for cross-plan disambiguation (when a prompt
@@ -9,25 +8,20 @@
 # Behavior: master/sub plans are first-class (the master-spec payload is
 # load-bearing); the canonical status vocabulary gates firing; agent-reload
 # loads non-superseded decision_records[].
-#
 # Trigger: keys on the canonical `status == in-progress` (re-points off the
 # retired top_level_status). The hook fires for in-progress plans the foundation ships;
 # closed/superseded/completed/etc. plans are skipped.
-#
 # 3-way payload dispatch:
 #   flat  -> own spec head + manifest AC + non-superseded decision_records[]
 #   sub   -> own spec head + AC + master spec head + master sub_plans[] sibling-status
 #            + master dependencies + non-superseded decision_records[]
 #   master-> own spec head + sub_plans[] rollup + non-superseded decision_records[]
-#
 # Sentinel keyed (session x plan x source) so a compaction re-fires (a fresh
 # source:compact gets a distinct sentinel from the original source:startup).
-#
 # Injected text is FACTUAL, not imperative ("The authoritative spec for the active
-# plan is <path>. ...") per Anthropic hooks prompt-injection guidance.
-#
+# plan is <path>. ...") per + Anthropic hooks prompt-injection guidance.
 # Fail-open: silent on any error; never blocks. Size-capped below the hook-output
-# validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (portable;
+# validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (Cat-2 portable;
 # NO literal $HOME/.claude path in the body).
 
 set -euo pipefail
@@ -52,9 +46,7 @@ if [[ -z "$EVENT" ]]; then
   if [[ -n "$PROMPT" ]]; then EVENT="UserPromptSubmit"; else EVENT="SessionStart"; fi
 fi
 
-# ---------------------------------------------------------------------------
 # Plan resolution
-# ---------------------------------------------------------------------------
 # A "plan target" is a plan-tree directory: either a flat/master plan dir
 # (NN-slug) or a sub-plan dir (NN-slug/NN-subslug | NN-slug/SP-NN-subslug).
 # SessionStart: discover the single in-progress plan (goal-anchor).
@@ -62,15 +54,15 @@ fi
 # prompt (cross-plan disambiguation) — else stay silent (SessionStart already
 # anchored the active plan).
 
-PLAN_REL=""   # path relative to $HOME, e.g. .claude-plans/42-foo OR .claude-plans/42-foo/01-bar
+PLAN_REL=""   # path relative to $HOME, e.g. .claude-plans/93-foo OR .claude-plans/93-foo/-bar
 
 resolve_from_prompt() {
   local rel
   # Signal 1: explicit sub-plan path in the prompt
-  rel=$(printf '%s\n' "$PROMPT" | grep -oE '\.claude-plans/[0-9]{2,3}-[a-z0-9-]+/(SP-)?[0-9]{2}-[a-z0-9-]+' | head -1 || true)
+  rel=$(printf '%s\n' "$PROMPT" | grep -oE '\.claude-plans/[0-9]{2,}-[a-z0-9-]+/(SP-)?[0-9]{2,}-[a-z0-9-]+' | head -1 || true)
   if [[ -z "$rel" ]]; then
     # Signal 1b: explicit top-level plan path
-    rel=$(printf '%s\n' "$PROMPT" | grep -oE '\.claude-plans/[0-9]{2,3}-[a-z0-9-]+' | head -1 || true)
+    rel=$(printf '%s\n' "$PROMPT" | grep -oE '\.claude-plans/[0-9]{2,}-[a-z0-9-]+' | head -1 || true)
   fi
   if [[ -z "$rel" ]]; then
     # Signal 2: "Plan N SPM" framing + slug existence
@@ -145,14 +137,12 @@ TARGET_ABS="$HOME/$PLAN_REL"
 
 TARGET_MANIFEST="$TARGET_ABS/manifest.json"
 
-# ---------------------------------------------------------------------------
-# Closed-skip exit-case keyed on the canonical status vocabulary.
-# Non-canonical spellings are normalized: `complete`->`completed`;
+# B-03 (T-13): closed-skip exit-case keyed on the canonical vocabulary.
+# Re-point off the's non-canonical spellings: `complete`->`completed`;
 # DROP `cancelled` (not in the 8-state enum); KEEP `closed` + `superseded` +
-# `archived` (canonical terminal states). The hook reads `.status`
-# (NOT top_level_status). This is a schema-field
-# CANONICALIZATION, not a field rename (the schema retired top_level_status).
-# ---------------------------------------------------------------------------
+# `archived` (canonical terminal states). The hook already reads `.status`
+# (NOT top_level_status) — preserved. B-03 here is a schema-field
+# CANONICALIZATION, not a field rename (the schema retired top_level_status at).
 TARGET_STATUS=$(manifest_status "$TARGET_MANIFEST")
 case "$TARGET_STATUS" in
   closed|completed|verified|superseded|archived) exit 0 ;;
@@ -169,7 +159,7 @@ case "$MANIFEST_TYPE" in
   master)   PLAN_TYPE="master" ;;
   *)
     # fall back to structural detection: a sub-plan dir lives one level under a plan dir
-    if printf '%s' "$PLAN_REL" | grep -qE '^\.claude-plans/[0-9]{2,3}-[a-z0-9-]+/(SP-)?[0-9]{2}-[a-z0-9-]+$'; then
+    if printf '%s' "$PLAN_REL" | grep -qE '^\.claude-plans/[0-9]{2,}-[a-z0-9-]+/(SP-)?[0-9]{2,}-[a-z0-9-]+$'; then
       PLAN_TYPE="sub"
     fi
     ;;
@@ -181,21 +171,17 @@ case "$PLAN_TYPE" in
   *)   MASTER_ABS=""; MASTER_SLUG="" ;;
 esac
 
-# ---------------------------------------------------------------------------
 # Sentinel: (session x plan x source). A fresh compaction (source:compact) gets a
 # distinct sentinel from the original startup so it re-fires after compaction.
-# ---------------------------------------------------------------------------
 STATE_DIR="$CLAUDE_STATE_ROOT/spec-context-inject"
 SENTINEL_KEY="${SESSION_ID:0:8}-$(printf '%s' "$PLAN_REL" | tr '/.' '__')-${SOURCE}"
 SENTINEL="$STATE_DIR/$SENTINEL_KEY.flag"
 [[ -f "$SENTINEL" ]] && exit 0
 
-# ---------------------------------------------------------------------------
 # Context build — FACTUAL framing.
-# ---------------------------------------------------------------------------
 emit_decision_records() {
-  # On plan resume, load NON-superseded ADRs via the manifest pointer
-  # manifest.decision_records[]. Filters out status
+  # A-09 (T-12): on plan resume, load NON-superseded ADRs via the manifest pointer
+  # manifest.decision_records[] (refinement #4). Filters out status
   # superseded/deprecated entries. Graceful no-op when absent/empty.
   local mf="$1" recs
   [[ -f "$mf" ]] || return
@@ -233,14 +219,14 @@ if [[ -f "$TARGET_MANIFEST" ]]; then
   context+=$'\n''```'$'\n'
 fi
 
-# Agent-reload: own decision_records[]
+# A-09 agent-reload: own decision_records[]
 emit_decision_records "$TARGET_MANIFEST"
 
 # 3-way payload dispatch additions
 case "$PLAN_TYPE" in
   sub)
     # sub -> + master spec head + master sub_plans[] sibling-status + master dependencies.
-    # The master sub_plans[] is a read-replica (subplan-aggregate.sh output),
+    # The master sub_plans[] is's A-03 read-replica (subplan-aggregate.sh output),
     # read directly from the master manifest (reverse-read edge).
     if [[ -n "$MASTER_ABS" && -f "$MASTER_ABS/spec.md" ]]; then
       context+="
@@ -275,9 +261,7 @@ esac
 context+="
 The full \`spec.md\` (and \`00-ideation-brief.md\` if present) is the source of truth for scope, sequencing, and dependency questions."
 
-# ---------------------------------------------------------------------------
 # Size-cap below the hook-output validator bound (mechanism research-validated).
-# ---------------------------------------------------------------------------
 ctx_bytes=$(printf '%s' "$context" | wc -c | tr -d ' ')
 if [[ "$ctx_bytes" -gt 9728 ]]; then
   context=$(printf '%s' "$context" | head -c 9500)
@@ -286,9 +270,7 @@ if [[ "$ctx_bytes" -gt 9728 ]]; then
 [truncated at 9.5KB to fit the hook-output validator cap — read the full files directly for more]"
 fi
 
-# ---------------------------------------------------------------------------
 # Emit. Fail-open: a validator-reject suppresses the emission but does NOT block.
-# ---------------------------------------------------------------------------
 if format_output "$EVENT" "$context"; then
   mkdir -p "$STATE_DIR"
   touch "$SENTINEL"

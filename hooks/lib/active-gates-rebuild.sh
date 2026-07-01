@@ -1,34 +1,30 @@
 #!/bin/bash
-# active-gates-rebuild.sh — lives at hooks/lib/.
-#
+# active-gates-rebuild.sh — RELOCATED to hooks/lib/ (#3).
 # Co-located with the live-guard layer it audits (hooks/lib/live-guard.sh).
 # NOT registered in capability-registry.json (registering would falsely
-# conscript it into the librarian bijection + cron surface).
-#
-# Status-field re-point (inherited edge RESOLVES HERE): this body
+# conscript it into the librarian bijection + cron surface; #3); the
+# capability-registry-parity 40-vs-44 drift closes once this relocates out.
 # reads the CANONICAL `status` field, never the retired `top_level_status`.
 # Gate SELECTION keys on `live_mutation_scope.enabled` (the live-mutation gate
 # is orthogonal to plan status); where any plan-status read is needed it uses
-# the single canonical `status` field. Verified: zero
+# the single canonical `status` field per. Verified: zero
 # `top_level_status` references in this body.
-#
+# Original provenance: librarian capability (/81 T-8 full ship).
 # Walks plan-tree manifests; extracts live_mutation_scope blocks where
 # enabled=true; emits a flat active-gates.json read-replica consumed by
 # live-guard.sh fast-path. Compile-time scope-overlap detection (k8s/VS Code
 # lesson — never punt scope conflict to runtime in security gate). Sub-plan
 # UNION merging via inherits_from (additive-only on scope_paths/exempt_paths/
 # launchd_labels/g2_commit_denylist).
-#
-# Argument contract:
+# T-3.5 contract:
 #   --plans-root <path>  Override $HOME/.claude-plans walk root. PEER to
 #                        live-guard.sh's PLANS_ROOT_OVERRIDE env var.
 #   --output <path>      Override default output path.
 #   --schema-version <v> Force schema_version field; default 1.
 #   --strict             Fail (rc=2) on scope_overlap_check FAILED instead of
 #                        emitting the read-replica with FAILED status.
-#   --skip-overlap-check Emit deferred sentinel for downgrade testing.
-#
-# Behavior (this file):
+#   --skip-overlap-check Emit deferred-to-T-8 sentinel for downgrade testing.
+# T-8 ship (this file):
 #   - Compile-time scope_paths overlap detection across enabled MASTER gates.
 #     Sub-plans inheriting via inherits_from are NOT separate gates — they
 #     additively contribute to their master. Two MASTER gates whose scope_paths
@@ -44,10 +40,8 @@
 #     manifest mtime in $.metadata.youngest_manifest_mtime. live-guard.sh
 #     slow-path-fallback contract: if any plan-tree manifest mtime exceeds
 #     read-replica's $.regenerated_at, replica is stale → walk slow-path.
-#     Documented here for the PostToolUse hook to invalidate via re-invocation.
-#
+#     Documented here for T-13 PostToolUse hook to invalidate via re-invocation.
 # Output shape:
-#   {
 #     schema_version: 1,
 #     regenerated_at: "<iso8601>",
 #     regenerated_by: "active-gates-rebuild.sh",
@@ -56,10 +50,7 @@
 #     metadata: {
 #       master_gate_count, sub_plan_merge_count,
 #       youngest_manifest_mtime, scope_overlap_findings: [...]
-#     },
 #     gates: [<live_mutation_scope-with-plan_id-and-_merged_sub_plans>, ...]
-#   }
-#
 # Exit codes:
 #   0 — read-replica written successfully (overlap may be FAILED unless --strict)
 #   1 — unexpected internal error
@@ -166,7 +157,7 @@ fi
 SUB_PLAN_CONTRIBS_JSON='[]'
 
 if [[ -d "$PLANS_ROOT" ]]; then
-  for sp_manifest in "$PLANS_ROOT"/*/[0-9][0-9]-*/manifest.json; do
+  for sp_manifest in "$PLANS_ROOT"/*/[0-9][0-9]*-*/manifest.json; do
     [[ -e "$sp_manifest" ]] || continue
     sub_plan_slug=$(basename "$(dirname "$sp_manifest")")
     master_dir=$(basename "$(dirname "$(dirname "$sp_manifest")")")

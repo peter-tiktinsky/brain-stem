@@ -1,24 +1,23 @@
 #!/bin/bash
 # Hook/utility: reconcile-sessions — the coordination-registry reconciler.
-#
-# Reconciliation is effectively always-on:
+# C2-owned body (.6: reconciliation is effectively always-on;
 # session-deregister conditionally spawns this in the background, and
-# `/librarian … close` Step 2c also calls it. It is the registry PRODUCER that
+# `/librarian … close` Step 2c also calls it). It is the registry PRODUCER that
 # reaps stale + closed-pending peers so peer-awareness / R-42 / R-36 /
 # pre-compact files_modified / post-compaction restore stay live.
-#
-# Concurrency: lockf-guarded against reconcile.lock
-# (`/usr/bin/lockf -k -t 0` re-exec). A second
+# UNOWNED-SURFACE closure (feedback_f3_ownership_vs_tree_asis_port_gap): named
+# in + but absent from the1.1 hooks roster — T-04
+# authors the body AND adds the2 "Owns" +.1 roster line (T-12).
+# Concurrency: lockf-guarded against reconcile.lock (/3 lock roster;
+# feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec). A second
 # concurrent run hits contention (exit 75) and skips cleanly — reconciliation is
 # idempotent and another run already holds the lock.
-#
 # Reconcile rules (data-non-destructive on live processes):
 #   - stale (dead pid OR last_heartbeat older than STALE_THRESHOLD_SECS): drop.
 #   - closed: drop (the session ended cleanly; deregister already marked it).
 #   - closed-pending-reconciliation: drop (this run reconciles it).
 #   - active with a live pid + fresh heartbeat: keep.
 # After the sweep, clear pending_reconciliation + stamp last_reconciled.
-#
 # NEVER fail-hard. Invoked detached/background or via the librarian; exit 0.
 set -uo pipefail
 
@@ -61,17 +60,19 @@ for sid in $sids; do
       drop=true
       ;;
     *)
-      # active (or unknown). The dead-pid check provisionally marks the row for
- # drop, but a FRESH heartbeat is a HARD KEEP override: a live,
-      # actively-writing peer whose recorded pid we cannot kill -0 (e.g. the pid
-      # resolver missed, or the process re-exec'd) must NOT be reaped while it is
-      # still heartbeating. So the heartbeat check runs UNCONDITIONALLY (no longer
-      # gated behind drop=false) and is bidirectional: fresh -> drop=false (KEEP
-      # override), stale -> drop=true. Reap only when BOTH signals say gone.
-      if [ -n "$pid" ] && [ "$pid" != "0" ] && [ "$pid" != "null" ]; then
-        if ! kill -0 "$pid" 2>/dev/null; then
-          drop=true
-        fi
+      # active (or unknown). A NON-LIVE pid provisionally marks the row for drop, but
+      # a FRESH heartbeat is a HARD KEEP override (S2): a live, actively-writing peer
+      # whose recorded pid we cannot kill -0 (e.g. the pid resolver missed, or the
+      # process re-exec'd) must NOT be reaped while it is still heartbeating. So the
+      # heartbeat check runs UNCONDITIONALLY (no longer gated behind drop=false) and is
+      # bidirectional: fresh -> drop=false (KEEP override), stale -> drop=true. Reap
+      # only when BOTH signals say gone.
+      # null / 0 / missing / non-numeric / dead as NOT live -> drop=true. This closes
+      # the prior null-pid blind spot: the dead-pid check was gated behind
+      # `pid != 0 && pid != null`, so a null/0-pid row was reaped ONLY if its heartbeat
+      # was also stale; a null-pid row with no/fresh heartbeat survived forever.
+      if ! pid_is_live "$pid"; then
+        drop=true
       fi
       if [ -n "$hb" ] && [ "$hb" != "null" ]; then
         hb_epoch=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)

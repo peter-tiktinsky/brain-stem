@@ -13,9 +13,16 @@
 # stop-checkpoint-check.sh never diverge.
 # DESIGN NOTE: net-new (the spec names the consumer, not a producer). pct = the most
 # recent assistant turn's input-side context (input + cache_read + cache_creation
-# tokens) over the model's context window. Window: $CLAUDE_CONTEXT_WINDOW env wins;
-# else inferred 1,000,000 for a 1m-context model id, else 200,000 (the conservative
-# default — a 1m adopter who leaves it unset just gets earlier, safe checkpoints).
+# tokens) over the model's context window. Window resolution: $CLAUDE_CONTEXT_WINDOW
+# env wins; else a base-model-id -> window table keyed on the transcript's recorded
+# .message.model — the Haiku family resolves 200,000, while the 1M-context fleet
+# (Opus / Sonnet / Fable 4.x+) AND any UNRECOGNISED id default to 1,000,000. The
+# modern fleet is the safe default: dividing a routine 1M-context session by a 200k
+# denominator is what manufactured the spurious clamped-100% cry-wolf. A saturation
+# guard then raises any window smaller than the observed input to the covering tier,
+# so a future table mis-bucket can never reproduce that clamp. Resolution is by model
+# FAMILY, not a substring of a mode suffix: the bare transcript id never carries the
+# `[1m]` marker, so a `*1m*` match was dead code.
 # FAILURE MODE: graceful no-op. Returns non-zero and writes NOTHING when the
 # transcript is absent/unreadable, jq is missing, or no usage block exists — so the
 # bands degrade to exactly the pre-behavior (pct=0), never an error and never a
@@ -44,20 +51,38 @@ write_context_pressure() {
   case "$used" in ''|*[!0-9]*) return 1 ;; esac
   [ "$used" -gt 0 ] || return 1
 
+  # An explicit window arg ($3) or $CLAUDE_CONTEXT_WINDOW is an AUTHORITATIVE operator
+  # pin: it wins over the inferred table AND bypasses the saturation guard below (the
+  # guard corrects TABLE mis-bucketing, never an explicit human pin).
+  local authoritative=0
+  [ -n "$window" ] && authoritative=1
   if [ -z "$window" ]; then
     if [ -n "${CLAUDE_CONTEXT_WINDOW:-}" ]; then
-      window="$CLAUDE_CONTEXT_WINDOW"
+      window="$CLAUDE_CONTEXT_WINDOW"; authoritative=1
     else
       local model
       model=$(jq -rs '[ .[]? | objects | (.message? | objects | .model?) // empty ] | last // ""' "$transcript" 2>/dev/null)
+      # Base-model-id -> window table (match by FAMILY; the `[1m]` mode marker never
+      # reaches .message.model). Haiku family = 200k; the 1M fleet (Opus/Sonnet/Fable
+      # 4.x+) AND any unrecognised id default to 1,000,000 (the modern fleet).
       case "$model" in
-        *1m*|*1M*) window=1000000 ;;
-        *) window=200000 ;;
+        *haiku*|*Haiku*) window=200000 ;;
+        *) window=1000000 ;;
       esac
     fi
   fi
-  case "$window" in ''|*[!0-9]*) window=200000 ;; esac
-  [ "$window" -gt 0 ] || window=200000
+  # A non-numeric / non-positive value (incl. a garbage env pin) is not a usable pin:
+  # fall back to the modern-fleet default and drop the authoritative flag.
+  case "$window" in ''|*[!0-9]*) window=1000000; authoritative=0 ;; esac
+  [ "$window" -gt 0 ] || { window=1000000; authoritative=0; }
+
+  # Saturation guard: an INFERRED window smaller than the observed input can only
+  # produce a spurious clamped 100%. Raise any sub-1M inferred window to the covering
+  # 1M tier so the reported pct reflects the real fraction; a genuine over-1M session
+  # still floors at 100 via the final clamp. Integer-only; Bash 3.2 clean.
+  if [ "$authoritative" -eq 0 ] && [ "$used" -gt "$window" ] && [ "$window" -lt 1000000 ]; then
+    window=1000000
+  fi
 
   local pct
   pct=$(( used * 100 / window ))
