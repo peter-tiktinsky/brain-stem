@@ -1260,7 +1260,10 @@ EOF
   #     present — i.e. an actual upgrade is being previewed. WRITE-FREE: only tests
  # on-disk presence of the copied-once surfaces. Emitted in order.
   if [ -n "$upgrade_file_disp_preview" ]; then
-    for _up_rel in MEMORY.md rules/README.md; do
+    # governance/anchored-spoke-registry.json is SEED-ONCE / USER-PRESERVE-by-omission
+    # (dropped from foundation-manifest.json files[]; delivered seed-if-absent at Step 8.5)
+    # — surface it in the same informational class as the other copied-once surfaces.
+    for _up_rel in MEMORY.md rules/README.md governance/anchored-spoke-registry.json; do
       if [ -f "$CLAUDE_HOME/$_up_rel" ]; then
         upgrade_file_disp_preview="${upgrade_file_disp_preview}${_up_rel}	untouched
 "
@@ -2543,11 +2546,18 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   upgrade_foundation_file "$SOURCE_REPO/governance/foundation-manifest.json" "$CLAUDE_HOME/governance/foundation-manifest.json"   # foundation-replace disposition
   # R-05 system-utility canonicality registry
   upgrade_foundation_file "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/log-subtype-registry.json"   # foundation-replace disposition
-  # Anchored-spoke registry (R-ARCH-13/14): cwd→spoke-key map read at
-  # plan-creation time by new-plan.sh / promote-from-inbox.sh. Standalone runtime
-  # registry, same ship-class as log-subtype-registry.json (read standalone, NOT
-  # composed into foundation-master.json).
-  upgrade_foundation_file "$SOURCE_REPO/governance/anchored-spoke-registry.json" "$CLAUDE_HOME/governance/anchored-spoke-registry.json"
+  # Anchored-spoke registry (R-ARCH-13/14): cwd→spoke-key map read at plan-creation
+  # time by new-plan.sh / promote-from-inbox.sh. It is the adopter's SOURCE OF TRUTH
+  # for registered spokes, authored wholesale by new-plan / promote (never appended-to),
+  # so it is SEED-ONCE / USER-PRESERVE-by-omission: NOT in foundation-manifest.json
+  # files[] and NOT routed through upgrade_foundation_file (which would sidecar a
+  # populated registry to .foundation-local and reset it to the shipped 2-entry
+  # skeleton, dropping the adopter's real work-spokes). Fresh/absent install seeds the
+  # shipped skeleton; a populated install is left byte-identical (adopter spokes
+  # survive --apply). The shipped skeleton stays adopter-neutral (home + brain-stem).
+  if [ ! -e "$CLAUDE_HOME/governance/anchored-spoke-registry.json" ]; then
+    cp -f "$SOURCE_REPO/governance/anchored-spoke-registry.json" "$CLAUDE_HOME/governance/anchored-spoke-registry.json" 2>/dev/null || true
+  fi
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
   # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
   # File-type contracts subdir (k8s paramKind shape) — the 14 contract members.
@@ -3064,43 +3074,97 @@ if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
   fi
 fi
 
-# Step 11.7c: project:-field identity migration (R-ARCH-PID).
-# UPGRADE-LANE ONLY + idempotent. Existing adopter plan manifests carry the legacy
-# title-valued `project:` field; this migration repurposes it into the cwd-keyed
-# spoke key (the field-triad: title := old project display name, project := the
-# resolved spoke key). The corrected writers (new-plan.sh, promote-from-inbox.sh)
-# already stamp correct semantics for fresh plans, so a fresh install never needs
-# this; only existing adopters with legacy manifests do. The git-hook fallback
-# fixes (post-commit-harness-invalidate.sh / pre-commit-harness-validated.sh, which
-# no longer mis-consume project: as a plan identifier) ship in the same install
-# pass via the Step-10 file-delivery loops — this step migrates the on-disk data.
-#
-# IDEMPOTENT: a second run finds zero manifests with a title-valued project: and
-# rewrites nothing (the migration's own residue assertion). Malformed manifests
-# are skipped with a diagnostic, never half-written. The plans tree is git-tracked,
-# so the migration is diff-reviewable and reversible.
-#
+# Step 11.7c: project:-field identity migration (R-ARCH-PID). UPGRADE-LANE ONLY +
+# idempotent. A legacy adopter plan manifest can carry a human display name in the
+# `project:` field with NO `title:`. This migration is TITLE-RESCUE-ONLY: it copies
+# that display name into a new `title:` field and NEVER writes `project:` — a value
+# that is already a registered spoke key, or a genuinely unattributable legacy value,
+# is left untouched. The corrected writers (new-plan.sh, promote-from-inbox.sh) stamp
+# correct semantics for fresh plans, so a fresh install never needs this; only
+# existing adopters with legacy manifests do.
+# IDEMPOTENT: once the display name is rescued, a second run rewrites nothing.
+# Malformed manifests are skipped with a diagnostic, never half-written. The plans
+# tree is git-tracked, so the migration is diff-reviewable and reversible. The
+# migration's residue assertion FAILS if any `project:` value was mutated (never happens).
 # Resolves the migration script. tools/ is NOT part of the installed $CLAUDE_HOME
-# surface (it is a repo-transparency artifact, not a foundation-manifest files[]
-# member), so the $CLAUDE_HOME/tools/ candidate only resolves if a prior install
-# happened to stage it; the load-bearing resolution is the $SOURCE_REPO/tools/
-# fallback (the migration script is shipped in the public repo and run from there).
+# surface (a repo-transparency artifact, not a foundation-manifest files[] member),
+# so the $CLAUDE_HOME/tools/ candidate only resolves if a prior install staged it;
+# the load-bearing resolution is the $SOURCE_REPO/tools/ fallback. FOUNDATION_REPO is
+# passed only as a spoke-resolve.sh library-location hint — NOT a cwd spoke anchor.
 if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
   pid_migrate_script=""
   for _cand in "$CLAUDE_HOME/tools/migrate-project-identity.sh" \
                "$SOURCE_REPO/tools/migrate-project-identity.sh"; do
     [ -f "$_cand" ] && { pid_migrate_script="$_cand"; break; }
   done
-  if [ -n "$pid_migrate_script" ] && [ -d "$PLANS_HOME" ]; then
+
+  # Anchor guard (defense-in-depth). The pre-fix migration resolved a spoke from its
+  # cwd anchor and re-stamped the corpus; an upgrade whose SOURCE anchor fell through
+  # to the `home` catch-all (an unregistered project dir) WHILE the plan tree held real
+  # non-home spoke stamps was the shape that corrupted a live tree. The fixed migration
+  # is title-rescue-only and never re-stamps, so this is ADVISORY (a loud WARN),
+  # escalating to a skip only under BRAIN_STEM_MIGRATE_STRICT=1; BRAIN_STEM_MIGRATE_ANCHOR_OK=1
+  # silences it (explicit operator override). Deterministic: registry-membership
+  # resolution of the source anchor + an at-risk-corpus check (NOT a transcript/mtime
+  # heuristic). Fires only in the incident shape, so a normal upgrade stays quiet.
+  # Fail-safe: any resolution error leaves the (safe) migration to proceed.
+  pid_block_migrate=0
+  if [ -n "$pid_migrate_script" ] && [ -d "$PLANS_HOME" ] \
+     && [ "${BRAIN_STEM_MIGRATE_ANCHOR_OK:-0}" != "1" ]; then
+    _pid_srlib=""
+    for _c in "$CLAUDE_HOME/skills/new-plan/lib/spoke-resolve.sh" \
+              "$SOURCE_REPO/skills/new-plan/lib/spoke-resolve.sh"; do
+      [ -f "$_c" ] && { _pid_srlib="$_c"; break; }
+    done
+    if [ -n "$_pid_srlib" ]; then
+      _pid_anchor="${SOURCE_REPO:-$PWD}"
+      _pid_resolved="$( . "$_pid_srlib" 2>/dev/null; spoke_resolve_from_cwd "$_pid_anchor" 2>/dev/null )"
+      _pid_anchor_c="$( cd "$_pid_anchor" 2>/dev/null && pwd -P 2>/dev/null || printf '%s' "$_pid_anchor" )"
+      _pid_home_c="$( cd "$HOME" 2>/dev/null && pwd -P 2>/dev/null || printf '%s' "$HOME" )"
+      if [ "$_pid_resolved" = "home" ] && [ "$_pid_anchor_c" != "$_pid_home_c" ]; then
+        _pid_atrisk="$(
+          . "$_pid_srlib" 2>/dev/null
+          _reg="$(spoke_registry_path 2>/dev/null)"
+          [ -f "$_reg" ] || exit 0
+          python3 - "$_reg" "$PLANS_HOME" <<'PYG' 2>/dev/null
+import json, os, sys
+try:
+    keys = {s.get("spoke_key", "") for s in json.load(open(sys.argv[1])).get("spokes", [])} - {"home", ""}
+except Exception:
+    sys.exit(0)
+for dp, _, fn in os.walk(sys.argv[2]):
+    if "manifest.json" in fn:
+        try:
+            if json.load(open(os.path.join(dp, "manifest.json"))).get("project") in keys:
+                sys.stdout.write("1"); break
+        except Exception:
+            pass
+PYG
+        )"
+        if [ "$_pid_atrisk" = "1" ]; then
+          if [ "${BRAIN_STEM_MIGRATE_STRICT:-0}" = "1" ]; then
+            pid_block_migrate=1
+            warn "project:-field migration REFUSED (BRAIN_STEM_MIGRATE_STRICT): source anchor '$_pid_anchor' is unregistered (resolves to the 'home' fallback) and the plan tree carries non-home spoke stamps — strict mode blocks an unregistered-anchor upgrade (the migration is title-rescue-only; set BRAIN_STEM_MIGRATE_ANCHOR_OK=1 to allow)"
+          else
+            warn "project:-field migration: source anchor '$_pid_anchor' is unregistered (resolves to the 'home' fallback) and the plan tree carries non-home spoke stamps — the migration is TITLE-RESCUE-ONLY and will NOT re-stamp project: (set BRAIN_STEM_MIGRATE_STRICT=1 to block, BRAIN_STEM_MIGRATE_ANCHOR_OK=1 to silence)"
+          fi
+        fi
+      fi
+    fi
+  fi
+
+  if [ "$pid_block_migrate" = "0" ] && [ -n "$pid_migrate_script" ] && [ -d "$PLANS_HOME" ]; then
     if FOUNDATION_REPO="$CLAUDE_HOME" PLANS_ROOT="$PLANS_HOME" \
          bash "$pid_migrate_script" --plans-root "$PLANS_HOME" >/dev/null 2>"$CLAUDE_HOME/.pid-migrate.log"; then
-      info "project:-field identity migration: applied (R-ARCH-PID field-triad; idempotent)"
+      info "project:-field identity migration: applied (title-rescue-only; idempotent)"
     else
-      # Non-fatal: the migration self-asserts and reverts is the caller's job; on
-      # a residue/collision failure we warn and leave the tree as-is (git-reversible).
+      # Non-fatal: on a residue/collision failure we warn and leave the tree as-is
+      # (git-reversible). The migration's residue assertion catches any project: mutation.
       warn "project:-field identity migration: did not complete cleanly — see $CLAUDE_HOME/.pid-migrate.log (plans tree is git-reversible)"
     fi
     rm -f "$CLAUDE_HOME/.pid-migrate.log"
+  elif [ "$pid_block_migrate" = "1" ]; then
+    : # refused above under strict mode; the plan tree is left untouched
   else
     info "project:-field identity migration: script or plans tree absent — no-op"
   fi

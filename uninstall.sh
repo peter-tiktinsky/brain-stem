@@ -704,10 +704,16 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       case "$rel" in
         governance/baselines/foundation-manifest-v*.json) _bl_archive=1 ;;
       esac
+      # governance/anchored-spoke-registry.json is the seed-once adopter spoke registry:
+      # seed-if-absent at install, USER-PRESERVE-by-omission on --apply (NOT in files[], so
+      # an upgrade never resets it). Not being a files[] member, the per-file walk cannot
+      # classify it — remove it here on a full uninstall (same foundation-seeded, non-files[]
+      # class as the sidecars above) or governance/ never prunes empty (vp-3 RESIDUE:governance).
       if [ "$rel" = "governance/foundation-manifest.json" ] || \
          [ "$rel" = "governance/governance-action-log.jsonl" ] || \
          [ "$rel" = "governance/.installed-state.json" ] || \
          [ "$rel" = "governance/.installed-baseline-manifest.json" ] || \
+         [ "$rel" = "governance/anchored-spoke-registry.json" ] || \
          [ "$_bl_archive" = "1" ]; then
         if rm -f "$f" 2>/dev/null; then
           removed_count=$((removed_count + 1))

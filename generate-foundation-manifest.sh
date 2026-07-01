@@ -271,8 +271,13 @@ emit_pairs() {
   #   - librarian-capabilities/ ((a)) + onboarding-reference/ (R-20)
   d="$SOURCE_REPO/governance"
   if [ -d "$d" ]; then
-    # Top-level files that ship via Step 8.5 selective copy
-    for base in foundation-master.json overlay-master.json log-subtype-registry.json anchored-spoke-registry.json; do
+    # Top-level files that ship via Step 8.5 selective copy.
+    # anchored-spoke-registry.json is INTENTIONALLY excluded: it is the adopter's
+    # registered-spokes source of truth, delivered SEED-ONCE (USER-PRESERVE-by-omission)
+    # so an --apply upgrade never resets it. Being absent from files[] is what makes it
+    # seed-once; it stays a sanctioned manifest-absent ship file via
+    # tools/ship-tokens.sh SHIP_TREE_MANIFEST_ABSENT_ALLOW (atomic companion).
+    for base in foundation-master.json overlay-master.json log-subtype-registry.json; do
       [ -f "$d/$base" ] || continue
       printf 'governance/%s\tgovernance/%s\n' "$base" "$base"
     done

@@ -4,6 +4,15 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.9.2]
+
+Safety release — two upgrade-path fixes that stop an upgrade from overwriting state you have built up. Upgrading now preserves your registered projects (the spoke registry is seeded once on a fresh install and never reset on a later upgrade), and the project-identity migration is now shipped and rewritten so it can only rescue a genuinely-legacy plan title — it never re-stamps a plan's project identity. **Nothing about how you author your vault, projects, or plans changes, and there is nothing to migrate.** See the [v1.9.2 release notes](docs/release-notes-v1.9.2.md).
+
+### Fixed
+
+- **Upgrading preserves your registered projects.** brain-stem keeps a registry of the projects (spokes) you have registered. On an upgrade, that registry was being reset to the empty shipped default, so your registered projects went inactive until you restored them by hand. The registry is now seeded once when brain-stem is first installed and is never overwritten on a later upgrade, so your registered projects survive the upgrade untouched.
+- **The project-identity migration can no longer re-stamp a plan's project.** brain-stem ships a one-time migration that reconciles older plans to the current project-identity scheme. It is now included in the public release (it was previously absent, so it silently did nothing), and it has been rewritten to only rescue a plan's legacy title — it never rewrites a plan's project identity. A misconfigured run can no longer reassign correctly-attributed plans to the wrong project, and if the migration is ever launched from a location brain-stem does not recognize it now says so loudly instead of proceeding silently.
+
 ## [v1.9.1]
 
 Maintenance release — four defect and hardening fixes, all internal to how brain-stem runs. The session context-pressure reading no longer cries wolf on large-context models, the active-peer-session count no longer counts sessions that have already exited, plans numbered 100 and above can be created and graduated again, and the scheduled-job renderer now refuses to point a job's log at a macOS privacy-protected folder (which silently kills the job). **The installed foundation behaves the same in every other respect and there is nothing to migrate.** See the [v1.9.1 release notes](docs/release-notes-v1.9.1.md).

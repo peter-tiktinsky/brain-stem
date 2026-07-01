@@ -1,33 +1,42 @@
 #!/bin/bash
-# migrate-project-identity.sh — project:-field identity migration.
-# Repurposes the legacy title-valued `project:` manifest field into the cwd-keyed
-# spoke key (R-ARCH-PID field-triad, D2): for every plan-tree manifest.json,
-#   title   := old `project` value, WHEN `title` is absent (move the display name)
-#   project := the owning-spoke key resolved through the anchored-spoke registry
-# It is the same migration on both paths: a fresh install never needs it (the
-# corrected writers stamp correct semantics); existing adopters run it once as an
-# upgrade-engine step (install.sh Step 11.7c). IDEMPOTENT — a second run finds
-# zero manifests with a title-valued project and rewrites nothing.
-# SAFETY:
+# migrate-project-identity.sh — legacy display-name (title) rescue for plan manifests.
+# One narrow, lossless job: when a plan-tree manifest.json carries a human display
+# name in the `project:` field (a legacy shape) and has NO `title:` field, copy
+# that display name into a new `title:` field. It NEVER writes `project:` — a
+# genuinely unattributable legacy `project:` value is left untouched for a later,
+# human-adjudicated ownership pass to reclassify; a value that is already a
+# registered spoke key is left untouched by construction.
+# It is the same operation on both paths: a fresh install never needs it (the
+# writers stamp correct semantics); existing adopters run it once as an upgrade
+# step. IDEMPOTENT — once the display name is rescued into `title:`, a second run
+# finds nothing to move.
+# SAFETY (never-clobber-a-registered-key invariant):
+#   - The tool reads the registered spoke-key SET from the anchored-spoke registry
+#     and only rescues a `project:` value that is NOT a registered key (a legacy
+#     display name); a registered key is never treated as a display name.
+#   - `project:` is never rewritten. The display name is COPIED, not moved.
 #   - Malformed JSON manifests are SKIPPED with a diagnostic, never half-written.
-#   - Only files whose fields ACTUALLY change are rewritten (no formatting churn
-#     on untouched manifests — the plans tree is git-diffed).
-#   - Every other field is preserved byte-for-byte (json round-trip, insertion
-#     order preserved, indent=2 to match the writers' output).
-#   - Self-healing residue assertion: after the pass, ZERO manifests may remain
-#     with a title-valued project (value contains a space OR equals the title).
-#     Non-zero residue => exit 1 (the caller reverts via git).
+#   - Only files whose fields actually change are rewritten (no formatting churn).
+#   - Every other field is preserved byte-for-byte (surgical line edit; the rest
+#     of the file is never round-trip-reformatted).
+#   - Residue assertion (post-pass): a registry-membership self-consistency
+#     invariant — every `project:` value is byte-identical to its pre-pass value
+#     (the tool must never mutate `project:`). A wrong-spoke re-stamp would change
+#     a `project:` value and so FAIL the assertion (exit 1; the caller reverts).
 # USAGE:
 #   migrate-project-identity.sh [--plans-root <dir>] [--dry-run]
 # Env overrides:
 #   PLANS_ROOT           plan-tree root (else paths.sh PLANS_DIR, else ~/.claude-plans)
 #   SPOKE_REGISTRY_PATH  anchored-spoke registry (test isolation)
-#   FOUNDATION_REPO      repo root (to locate spoke-resolve.sh in dev/test)
+#   FOUNDATION_REPO      repo root, used ONLY to locate spoke-resolve.sh in dev/test
+#                        (a library-location hint — NOT a cwd spoke anchor)
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# FOUNDATION_REPO is a spoke-resolve.sh LIBRARY-LOCATION hint only (dev/test); it
+# is NOT a cwd spoke anchor. The tool resolves NO spoke from any cwd.
 REPO_ROOT="${FOUNDATION_REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 DRY_RUN="false"
@@ -36,7 +45,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --plans-root) PLANS_ROOT_ARG="${2:-}"; shift 2 ;;
     --dry-run)    DRY_RUN="true"; shift ;;
-    -h|--help)    /usr/bin/sed -n '2,33p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    /usr/bin/sed -n '2,41p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "migrate-project-identity: unexpected arg '$1'" >&2; exit 2 ;;
   esac
 done
@@ -52,9 +61,8 @@ if [[ ! -d "$PLANS_ROOT" ]]; then
   exit 2
 fi
 
-# Resolve the spoke-resolve.sh library (live -> FOUNDATION_REPO -> this repo).
-# This repo (tools/.. -> repo root) is the always-present fallback, independent
-# of FOUNDATION_REPO (which the resolver uses only as the cwd anchor).
+# Resolve the spoke-resolve.sh library (live -> FOUNDATION_REPO -> this repo) for
+# its registry-path helper ONLY — the tool never resolves a spoke from a cwd.
 SPOKE_LIB=""
 for _sr in \
   "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh" \
@@ -69,38 +77,35 @@ fi
 # shellcheck source=/dev/null
 source "$SPOKE_LIB"
 
-# The live total — read at run time, NEVER a hardcoded snapshot (AC step 1).
+# Locate the registry (SPOKE_REGISTRY_PATH override -> live -> repo) and read the
+# registered spoke-key SET as a JSON array, passed to the pass as an argv. The
+# tool decides "legacy display name" vs "registered key" purely from this set.
+REGISTRY_PATH="$(spoke_registry_path)" || REGISTRY_PATH=""
+KEYS_JSON="$(python3 - "$REGISTRY_PATH" <<'PY'
+import json, sys
+path = sys.argv[1]
+keys = []
+try:
+    reg = json.load(open(path, encoding="utf-8"))
+    keys = [s.get("spoke_key", "") for s in reg.get("spokes", []) if s.get("spoke_key")]
+except Exception:
+    keys = []
+print(json.dumps(keys))
+PY
+)"
+
 LIVE_COUNT=$(find "$PLANS_ROOT" -name manifest.json -type f 2>/dev/null | wc -l | tr -d ' ')
 echo "migrate-project-identity: $LIVE_COUNT manifest.json under $PLANS_ROOT" >&2
+echo "migrate-project-identity: registered spoke keys = $KEYS_JSON" >&2
 
-# Every plan in this tree is keyed to the launch anchor it was created from. The
-# migration resolves each manifest to a spoke key through the registry. For the
-# durable plans tree the launch anchor is fixed per-plan; we resolve the spoke
-# from the registry by treating the plans tree as the brain-stem spoke's history
-# (the anchor every existing plan was authored under), with parent_plan lineage
-# kept intact. The resolver is the single source of truth for the key, so a
-# collision in the registry blocks the whole migration before any write.
-SPOKE_KEY="$(spoke_resolve_from_cwd "$REPO_ROOT")" || {
-  echo "migrate-project-identity: spoke resolution blocked (registry collision) — aborting" >&2
-  exit 1
-}
-echo "migrate-project-identity: target spoke key = $SPOKE_KEY" >&2
-
-python3 - "$PLANS_ROOT" "$SPOKE_KEY" "$DRY_RUN" <<'PY'
+python3 - "$PLANS_ROOT" "$KEYS_JSON" "$DRY_RUN" <<'PY'
 import json, os, re, sys, tempfile
 
-plans_root, spoke_key, dry_run = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
-
-# A "title-valued project" heuristic (AC residue test): the value looks like a
-# human display name — it contains whitespace, OR it equals the manifest title.
-def is_title_valued(project, title):
-    if not isinstance(project, str) or not project:
-        return False
-    if " " in project:
-        return True
-    if title and project == title:
-        return True
-    return False
+plans_root, keys_json, dry_run = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+try:
+    registered_keys = set(json.loads(keys_json))
+except Exception:
+    registered_keys = set()
 
 manifests = []
 for dirpath, dirnames, filenames in os.walk(plans_root):
@@ -108,11 +113,14 @@ for dirpath, dirnames, filenames in os.walk(plans_root):
         manifests.append(os.path.join(dirpath, "manifest.json"))
 manifests.sort()
 
-# Matches a top-level (2-space-indented, default writer output) "project" line.
-# Captures (indent)(prefix up to the value)(json-encoded value)(trailing comma?).
+# Match a top-level (writer-default 2-space-indent) "project" line; capture the
+# json-encoded value so the title insert can be anchored next to it.
 PROJECT_LINE = re.compile(r'^([ \t]*)"project"(\s*:\s*)(.+?)(,?)\s*$')
 
+# Record the pre-pass project value per manifest for the immutability assertion.
+pre_project = {}
 changed, skipped, untouched = [], [], 0
+
 for path in manifests:
     try:
         with open(path, encoding="utf-8") as fh:
@@ -129,22 +137,20 @@ for path in manifests:
 
     old_project = m.get("project")
     old_title = m.get("title")
+    pre_project[path] = old_project
 
-    # Decide the migration semantics from the parsed object.
+    # Title-rescue ONLY: copy a legacy display name into `title:` when title is
+    # absent AND project holds a non-empty string that is NOT a registered spoke
+    # key. `project:` is NEVER written.
     move_title = (
         (old_title is None or old_title == "")
-        and isinstance(old_project, str) and old_project
-        and (is_title_valued(old_project, None) or old_project not in (spoke_key, "home"))
+        and isinstance(old_project, str) and old_project != ""
+        and old_project not in registered_keys
     )
-    restamp = m.get("project") != spoke_key
-    if not move_title and not restamp:
+    if not move_title:
         untouched += 1
         continue
 
-    # MINIMAL SURGICAL EDIT (preserve every other byte): rewrite ONLY the
-    # "project" line (+ insert a sibling "title" line when the display name
-    # moves). When "project" is absent, INSERT a "project" line at the head of
-    # the object. Never round-trip-reformat the rest of the file.
     lines = raw.split("\n")
     target_idx = None
     for i, line in enumerate(lines):
@@ -159,28 +165,23 @@ for path in manifests:
 
     new_lines = list(lines)
     if target_idx is not None:
-        # Replace the existing project line in place.
         mt = PROJECT_LINE.match(lines[target_idx])
-        indent, sep, trailing = mt.group(1), mt.group(2), mt.group(4)
-        new_lines[target_idx] = '%s"project"%s%s%s' % (indent, sep, json.dumps(spoke_key), trailing)
-        if move_title:
-            # Insert "title": <old project> immediately before the project line,
-            # same indent + always a trailing comma (project follows it).
-            new_lines.insert(target_idx, '%s"title"%s%s,' % (indent, sep, json.dumps(old_project)))
+        indent, sep = mt.group(1), mt.group(2)
+        # Insert "title": <old project> immediately BEFORE the project line, same
+        # indent, trailing comma (project follows). The project line is UNTOUCHED.
+        new_lines.insert(target_idx, '%s"title"%s%s,' % (indent, sep, json.dumps(old_project)))
     else:
-        # "project" is absent — find the opening brace line and insert a project
-        # line right after it (the head of the object), inferring indent/sep from
-        # the first existing key line for byte-consistency.
+        # project value present but no clean single-line match — insert title at
+        # the head of the object, inferring indent/sep from the first key line.
         brace_idx = None
         for i, line in enumerate(lines):
             if line.strip() == "{":
                 brace_idx = i
                 break
         if brace_idx is None:
-            skipped.append((path, "no clean opening-brace line for project insert"))
+            skipped.append((path, "no clean opening-brace line for title insert"))
             print("migrate-project-identity: SKIP (no insertable head) %s" % path, file=sys.stderr)
             continue
-        # Infer indent + separator from the next key line.
         indent, sep = "  ", ": "
         keyline = re.compile(r'^([ \t]+)"[^"]+"(\s*:\s*)')
         for j in range(brace_idx + 1, len(lines)):
@@ -188,25 +189,23 @@ for path in manifests:
             if km:
                 indent, sep = km.group(1), km.group(2)
                 break
-        ins = [indent + '"project"' + sep + json.dumps(spoke_key) + ","]
-        if move_title:
-            ins = [indent + '"title"' + sep + json.dumps(old_project) + ","] + ins
-        new_lines[brace_idx + 1:brace_idx + 1] = ins
+        new_lines[brace_idx + 1:brace_idx + 1] = [indent + '"title"' + sep + json.dumps(old_project) + ","]
 
     new_raw = "\n".join(new_lines)
     if new_raw == raw:
         untouched += 1
         continue
 
-    # Sanity: the surgical result MUST still parse, and carry the intended fields.
+    # The surgical result MUST still parse, carry the rescued title, and leave
+    # project byte-identical (the never-write-project invariant, per file).
     try:
         check = json.loads(new_raw)
     except Exception as exc:
         skipped.append((path, "surgical edit produced invalid JSON (%s)" % exc))
         print("migrate-project-identity: SKIP (surgical edit invalid) %s (%s)" % (path, exc), file=sys.stderr)
         continue
-    if check.get("project") != spoke_key or (move_title and check.get("title") != old_project):
-        skipped.append((path, "surgical edit did not yield expected fields"))
+    if check.get("title") != old_project or check.get("project") != old_project:
+        skipped.append((path, "surgical edit changed project or missed title"))
         print("migrate-project-identity: SKIP (surgical post-check failed) %s" % path, file=sys.stderr)
         continue
 
@@ -219,17 +218,22 @@ for path in manifests:
         os.chmod(tmp, 0o644)
         os.replace(tmp, path)
 
-# --- self-healing residue assertion (post-pass) -----------------------------
+# --- residue: project-immutability self-consistency invariant ---------------
+# Re-read every manifest; assert its project value is byte-identical to the
+# pre-pass value. The tool must never mutate project: — a changed value (a
+# wrong-spoke re-stamp) is residue and FAILS the pass.
 residue = []
 for path in manifests:
+    if path not in pre_project:
+        continue  # malformed/skipped — outside the immutability set
     try:
         with open(path, encoding="utf-8") as fh:
             m = json.load(fh)
     except Exception:
-        continue  # malformed already counted as skipped; not residue
+        continue
     if not isinstance(m, dict):
         continue
-    if is_title_valued(m.get("project"), m.get("title")):
+    if m.get("project") != pre_project[path]:
         residue.append(path)
 
 print(json.dumps({
@@ -241,11 +245,11 @@ print(json.dumps({
     "residue": len(residue),
     "residue_paths": residue[:20],
     "dry_run": dry_run,
-    "spoke_key": spoke_key,
+    "registered_keys": sorted(registered_keys),
 }))
 
 if residue and not dry_run:
-    print("migrate-project-identity: FAIL — %d manifests still carry a title-valued project"
+    print("migrate-project-identity: FAIL — %d manifests had project: mutated (must never happen)"
           % len(residue), file=sys.stderr)
     sys.exit(1)
 sys.exit(0)
