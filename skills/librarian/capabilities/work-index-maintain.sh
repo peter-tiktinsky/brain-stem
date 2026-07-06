@@ -101,15 +101,79 @@ done
 WORK_HOME="${WORK_HOME:-${BRAIN_STEM_WORK_HOME:-$HOME/work}}"
 case "$WORK_HOME" in */) WORK_HOME="${WORK_HOME%/}" ;; esac
 
-python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
+# --- shape-detection helper (single SoT for sub-project classification) --------
+# Source work-spoke-layout.sh so the per-spoke child descent walks ONLY true
+# sub-projects (dirs owning deliverables/ or reference/) — the same shared
+# predicate the other work walkers use. The sub list crosses into the python3
+# heredoc via a small manifest tempfile (path passed by argv).
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/work-spoke-layout.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/work-spoke-layout.sh"; } \
+  || { [ -r "$_REPO_LIB/work-spoke-layout.sh" ] && source "$_REPO_LIB/work-spoke-layout.sh"; } \
+  || { echo "work-index-maintain: shape helper work-spoke-layout.sh not found" >&2; exit 3; }
+
+CLASSIFY_MANIFEST="$(mktemp)" || { echo "work-index-maintain: mktemp failed" >&2; exit 3; }
+trap 'rm -f "$CLASSIFY_MANIFEST"' EXIT
+
+# Emit one target spoke's shape-qualified sub list (via the helper) into the manifest.
+_wim_emit_classification() {
+  local sp="$1" dir="$2" nm
+  classify_top_level "$dir"
+  {
+    printf 'SPOKE\t%s\n' "$sp"
+    while IFS= read -r nm || [ -n "$nm" ]; do
+      [ -n "$nm" ] && printf 'SUB\t%s\n' "$nm"
+    done <<EOF
+$WSL_SUBPROJECTS
+EOF
+    printf 'END\n'
+  } >> "$CLASSIFY_MANIFEST"
+}
+
+if [ -n "$SPOKE_FILTER" ]; then
+  _wim_emit_classification "$SPOKE_FILTER" "$WORK_HOME/$SPOKE_FILTER"
+elif [ -d "$WORK_HOME" ]; then
+  for _sp_path in "$WORK_HOME"/*; do
+    [ -d "$_sp_path" ] || continue
+    _sp_name=$(basename "$_sp_path")
+    case "$_sp_name" in .*) continue ;; esac
+    _wim_emit_classification "$_sp_name" "$_sp_path"
+  done
+fi
+
+python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date
 
-work_home, dry_s, spoke_filter = sys.argv[1:4]
+work_home, dry_s, spoke_filter, manifest_path = sys.argv[1:5]
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
+
+# Shape-qualified sub list per spoke, built bash-side via work-spoke-layout.sh
+# (the single shape-detection SoT). READ here — the child descent walks only these
+# true sub-projects, never re-deriving the classification with an inlined name test.
+SUBS = {}
+try:
+    with open(manifest_path, encoding="utf-8") as _mf:
+        _cur = None
+        for _line in _mf:
+            _line = _line.rstrip("\n")
+            if not _line:
+                continue
+            if "\t" in _line:
+                _tag, _val = _line.split("\t", 1)
+            else:
+                _tag, _val = _line, ""
+            if _tag == "SPOKE":
+                _cur = []
+                SUBS[_val] = _cur
+            elif _cur is None:
+                continue
+            elif _tag == "SUB":
+                _cur.append(_val)
+except Exception:
+    SUBS = {}
 
 START = "<!-- contents-enum:start -->"
 END = "<!-- contents-enum:end -->"
@@ -346,15 +410,11 @@ for spoke in target_spokes:
         process_dir(top_ref, spoke, spoke)
     # Per-sub-project deliverables/+reference/ — present on a MASTER spoke. Each
     # sub-project is a DIRECT child dir of the master (no literal sub-projects/ dir);
-    # index its own deliverables/+reference/ (parent_folder = sub name). A child dir
-    # that is itself deliverables/ or reference/ is the flat top-level handled above.
-    try:
-        children = sorted(d for d in os.listdir(spoke_dir)
-                          if not d.startswith(".")
-                          and d not in ("deliverables", "reference")
-                          and os.path.isdir(os.path.join(spoke_dir, d)))
-    except Exception:
-        children = []
+    # index its own deliverables/+reference/ (parent_folder = sub name). Only true
+    # sub-projects (owning deliverables/ or reference/) are descended — the shared
+    # shape predicate (work-spoke-layout.sh) via the manifest, so a plain non-sub
+    # folder (e.g. People/) is never descended and mints no _index.md.
+    children = sorted(SUBS.get(spoke, []))
     for sub in children:
         sub_dir = os.path.join(spoke_dir, sub)
         sub_deliv = os.path.join(sub_dir, "deliverables")

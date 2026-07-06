@@ -16,7 +16,7 @@
   },
 
   "frontmatter": {
-    "required": ["type", "tags", "updated"],
+    "required": ["type", "tags", "updated", "description", "created", "id", "schema_version"],
     "conditional_required": {
       "parent_folder": {
         "condition": "path_depth >= 2",
@@ -24,7 +24,7 @@
         "auto_populate_source": "post-write-verify.sh bootstrap step 2 — derived from $FILE_PATH dirname relative to $VAULT_ROOT"
       }
     },
-    "optional": ["provides", "description"],
+    "optional": ["provides"],
     "property_constraints": {
       "type": {
         "const": "index"
@@ -45,9 +45,24 @@
         "format": "date",
         "rationale": "ISO-8601 date; bumped by every maintenance pass"
       },
+      "created": {
+        "type": "string",
+        "format": "date",
+        "rationale": "ISO-8601 date; stamped once at bootstrap and immutable thereafter (property_types: date, R-64)"
+      },
       "description": {
         "type": "string",
-        "maxLength": 200
+        "maxLength": 200,
+        "rationale": "One-line folder summary; Bases card subtitle + RAG/MCP relevance pre-filter"
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "rationale": "System-generated stable immutable readable slug; survives moves/renames for export/MCP-boundary reconciliation (property_types: slug-string, R-64)"
+      },
+      "schema_version": {
+        "type": "integer",
+        "rationale": "Targetable format-migration version (property_types: int, R-64)"
       },
       "provides": {
         "type": "array",

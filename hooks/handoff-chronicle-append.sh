@@ -167,14 +167,23 @@ if not plan_slug.strip():
 # render IDENTICAL block text (idempotent absorption). The appender extracts only
 # the NEWEST session block (the highest session ordinal / latest date / last in
 # document order) and renders it once.
+# SESSION_HEADING_RE / SESSION_NUM_RE are byte-identical to the librarian
+# re-derive (skills/librarian/capabilities/plan-handoff-index.sh) — the recognizer
+# region is parity-gated. Heading shape is ANCHORED to the heading-text start
+# (narrative "...(Session N)" is not a false boundary); the ordinal parser
+# rejects a YYYY-MM-DD date and parses S-prefixed / colon forms.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+(.*\bsession\b.*?[0-9].*|[0-9]{4}-[0-9]{2}-[0-9]{2}.*)\s*$",
+    r"^(#{2,4})\s+"
+    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
+    r"|s[0-9]+\b"
+    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
+    r".*$",
     re.IGNORECASE,
 )
 NEXT_RE = re.compile(r"^\s*\**\s*next session\b", re.IGNORECASE)
 LOCKS_RE = re.compile(r"^#{2,4}\s+locks captured\b", re.IGNORECASE)
 DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNORECASE)
-SESSION_NUM_RE = re.compile(r"\bsession\s+([0-9]+)", re.IGNORECASE)
+SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
 DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
 
 
@@ -210,38 +219,61 @@ def harvest_subsection_line(lines, hdr_re):
 lines = text.splitlines()
 bounds = [i for i, l in enumerate(lines) if SESSION_HEADING_RE.match(l)]
 if not bounds:
-    emit({"finding": "handoff-chronicle-append-blocked", "file": handoff_arg,
-          "reason": "no-session-heading-found", "spoke": spoke, "plan": plan_slug,
-          "detected_at": today})
-    print("handoff-chronicle-append: no session heading in handoff; no write",
-          file=sys.stderr)
-    sys.exit(2)
-
-# parse every block, pick the newest by the same sort key as the re-derive.
-parsed = []
-for k, start in enumerate(bounds):
-    end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)
-    heading = lines[start].lstrip("# ").strip()
-    body_lines = lines[start + 1:end]
-    next_line = ""
-    for l in lines[start:end]:
+    # DT-2 chronicle-membership fallback (/HCM). A handoff with NO recognized
+    # session heading still JOINS the chronicle as EXACTLY ONE synthesized block —
+    # never blocked/dropped, never phantom-split. The summary/date are harvested from
+    # the BODY (after any leading YAML frontmatter) so a frontmatter-only handoff does
+    # not yield a `--- title: ... ---` metadata summary. Renders BYTE-IDENTICALLY to
+    # the plan-handoff-index.sh re-derive fallback so append/re-derive stay idempotent.
+    fb_body = lines
+    if fb_body and fb_body[0].strip() == "---":
+        for _i in range(1, len(fb_body)):
+            if fb_body[_i].strip() == "---":
+                fb_body = fb_body[_i + 1:]
+                break
+    fb_next = ""
+    for l in fb_body:
         if NEXT_RE.match(l):
-            next_line = re.sub(r"\s+", " ", l.strip())
+            fb_next = re.sub(r"\s+", " ", l.strip())
             break
-    summary = harvest_subsection_line(body_lines, LOCKS_RE)
-    src = "locks-captured"
-    if not summary:
-        summary = harvest_subsection_line(body_lines, DQP_RE)
-        src = "decision-quality-protocol-passes"
-    if not summary:
-        summary = first_nonblank_chars(body_lines, 200)
-        src = "fallback-first-200-chars"
-    snum = SESSION_NUM_RE.search(heading)
-    sdate = DATE_RE.search(heading)
-    skey = (int(snum.group(1)) if snum else -1,
-            sdate.group(1) if sdate else "", k)
-    parsed.append({"session": heading, "session_key": skey,
-                   "next_line": next_line, "summary": summary, "summary_src": src})
+    fb_summary = harvest_subsection_line(fb_body, LOCKS_RE)
+    fb_src = "locks-captured"
+    if not fb_summary:
+        fb_summary = harvest_subsection_line(fb_body, DQP_RE)
+        fb_src = "decision-quality-protocol-passes"
+    if not fb_summary:
+        fb_summary = first_nonblank_chars(fb_body, 200)
+        fb_src = "fallback-no-session-heading"
+    fb_date = DATE_RE.search("\n".join(fb_body))
+    parsed = [{"session": "(no recognized session heading)",
+               "session_key": (-1, fb_date.group(1) if fb_date else "", 0),
+               "next_line": fb_next, "summary": fb_summary, "summary_src": fb_src}]
+else:
+    # parse every block, pick the newest by the same sort key as the re-derive.
+    parsed = []
+    for k, start in enumerate(bounds):
+        end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)
+        heading = lines[start].lstrip("# ").strip()
+        body_lines = lines[start + 1:end]
+        next_line = ""
+        for l in lines[start:end]:
+            if NEXT_RE.match(l):
+                next_line = re.sub(r"\s+", " ", l.strip())
+                break
+        summary = harvest_subsection_line(body_lines, LOCKS_RE)
+        src = "locks-captured"
+        if not summary:
+            summary = harvest_subsection_line(body_lines, DQP_RE)
+            src = "decision-quality-protocol-passes"
+        if not summary:
+            summary = first_nonblank_chars(body_lines, 200)
+            src = "fallback-first-200-chars"
+        snum = SESSION_NUM_RE.search(heading)
+        sdate = DATE_RE.search(heading)
+        skey = (int(snum.group(1)) if snum else -1,
+                sdate.group(1) if sdate else "", k)
+        parsed.append({"session": heading, "session_key": skey,
+                       "next_line": next_line, "summary": summary, "summary_src": src})
 
 newest = max(parsed, key=lambda b: b["session_key"])
 

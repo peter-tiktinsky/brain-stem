@@ -46,6 +46,17 @@
 #       ac-index-mode-parity.sh (T-2) assert the same index-mode truth
 #       over the whole manifest-0755 set; this 7th class extends it into the
 #       capability registry's own parity audit.
+#   (h) the SKILL.md `### What full runs` backtick-roster set must EQUAL the
+#       registry `librarian-full` set ({cap : 'librarian-full' in
+#       invocation_modes}) — a strict bijection on the `full` cron roster.
+#       -> registry-parity-full-roster-drift
+#       Emits on BOTH directions: direction=missing-from-prose (a librarian-full
+#       cap absent from the SKILL roster) and direction=extra-in-prose (a SKILL
+#       roster name not librarian-full in the registry). HARD/RED (level error;
+#       counted in TOTAL; turns parity RED) mirroring class (a) — the `### What
+#       full runs` prose is a shipped-doc-correctness surface, not advisory. The
+#       cron dispatch itself is registry-driven; this class gates the DOC snapshot
+#       from drifting from the authoritative roster.
 # After T-13 (the 4 engine-auditors absent + parallel-run-audit struck) the
 # disk-orphan class reports zero orphans: registered-with-disk == on-disk. This
 # is the load-bearing substance's generator<->install ship-list
@@ -119,6 +130,7 @@ DRIFT_DISK_ORPHAN=0
 DRIFT_MANIFEST_FICTION=0
 ADVISORY_MANIFEST_FICTION=0
 DRIFT_CAP_INDEX_MODE=0
+DRIFT_FULL_ROSTER=0
 REPORT_LINES=""
 
 # Class (c): schema_version drift
@@ -290,9 +302,81 @@ else
   rm -f "$REG_KEYS_FILE" "$SKILL_KEYS_FILE"
 fi
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d; advisory manifest-write-fiction=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$ADVISORY_MANIFEST_FICTION"
+# Class (h): SKILL.md `### What full runs` roster <-> registry librarian-full set.
+# The `### What full runs` backtick-roster is a shipped-doc snapshot of the cron
+# `full` roster; it must EQUAL {cap : 'librarian-full' in invocation_modes}. Only
+# run when the SKILL.md is present (class (a) reports its absence otherwise).
+if [[ -f "$SKILL_MD" ]]; then
+  # Region-scoped extraction (argv-Python, R-24): the roster set is the backtick-
+  # wrapped tokens INSIDE the `### What full runs` region ONLY (from that heading up
+  # to the next `### `/`## `/`---` boundary) — NOT the whole file's backticks. The
+  # registry set is the librarian-full members. Both printed sorted, tab-separated
+  # as `<direction>\t<name>` mismatch rows (missing-from-prose / extra-in-prose).
+  FULL_ROSTER_DRIFT_FILE=$(mktemp -t full-roster-XXXXXX)
+  python3 - "$SKILL_MD" "$REGISTRY" > "$FULL_ROSTER_DRIFT_FILE" <<'PY'
+import json, re, sys
+skill_md, registry = sys.argv[1], sys.argv[2]
+
+# --- SKILL.md `### What full runs` region roster set -----------------------------
+try:
+    with open(skill_md, encoding="utf-8") as fh:
+        text = fh.read()
+except Exception:
+    sys.exit(0)  # unreadable SKILL.md — class (a) already covers its absence
+lines = text.splitlines()
+in_region = False
+roster_lines = []
+for ln in lines:
+    if ln.startswith("### ") and "What" in ln and "full" in ln and "runs" in ln:
+        in_region = True
+        continue
+    if in_region:
+        # region ends at the next section heading or a horizontal rule
+        if ln.startswith("### ") or ln.startswith("## ") or ln.strip() == "---":
+            break
+        # The ROSTER is the `> `-blockquote block ONLY — not the surrounding intro
+        # prose (which backticks `full` / `librarian-full` / `invocation_modes`) nor
+        # the trailing "NOT every capability" prose (which backticks the per-plan /
+        # non-full caps). Scope token extraction to the blockquote lines.
+        if ln.lstrip().startswith(">"):
+            roster_lines.append(ln)
+roster_text = "\n".join(roster_lines)
+# Backtick-wrapped tokens inside the blockquote roster. A cap name is [a-z0-9-]+.
+roster = set(re.findall(r"`([a-z0-9][a-z0-9-]*)`", roster_text))
+
+# --- registry librarian-full set -------------------------------------------------
+try:
+    with open(registry, encoding="utf-8") as fh:
+        reg = json.load(fh)
+except Exception:
+    sys.exit(0)
+caps = reg.get("capabilities", {})
+full = set(
+    k for k, v in caps.items()
+    if isinstance(v, dict) and "librarian-full" in (v.get("invocation_modes") or [])
+)
+
+for name in sorted(full - roster):
+    print("missing-from-prose\t%s" % name)   # a librarian-full cap absent from the SKILL roster
+for name in sorted(roster - full):
+    print("extra-in-prose\t%s" % name)        # a SKILL roster name not librarian-full in the registry
+PY
+  while IFS=$'\t' read -r direction name; do
+    [[ -z "$name" ]] && continue
+    DRIFT_FULL_ROSTER=$((DRIFT_FULL_ROSTER + 1))
+    if [[ "$MODE" != "dry-run" ]]; then
+      emit_finding "registry-parity-full-roster-drift" "$name" \
+        "level" "error" "direction" "$direction" \
+        "detail" "SKILL.md '### What full runs' roster != registry librarian-full set"
+    fi
+    REPORT_LINES="${REPORT_LINES}- registry-parity-full-roster-drift: $name ($direction)"$'\n'
+  done < "$FULL_ROSTER_DRIFT_FILE"
+  rm -f "$FULL_ROSTER_DRIFT_FILE"
+fi
+
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d; advisory manifest-write-fiction=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$ADVISORY_MANIFEST_FICTION"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else

@@ -60,7 +60,9 @@
 #   Pre-write validation steps:
 #     - the scrubbed article body must be non-empty after strip (else block).
 #     - the article frontmatter must carry every reference-type required field
-#       [type, tags, updated, routing, sources, originating_plan].
+#       (read from the registered `reference` type's required[] — the EFFECTIVE
+#       registry, which includes the universal typed cohort; see
+#       governance/frontmatter-rules.json#types.reference).
 #     - the manifest research_artifacts[] entry must validate against the schema.
 #     - the workshop home + library home must resolve (workshop-absent ->
 #       block-and-log, never crash).
@@ -214,8 +216,23 @@ if [[ -z "$LOG_APPENDER" ]]; then
   done
 fi
 
+# Resolve the SHARED description-derivation helper (hooks/lib/derive-description.sh):
+# a promoted article's universal-cohort `description:` is derived through the SAME
+# one-derivation-contract helper the forward-governance auto-stamp (post-write-verify.sh)
+# and the frontmatter-enforce backfill use, so the three cohort-writing paths agree.
+# CLAUDE_HOME-first, repo-lib fallback (dev authoring). Absent -> the python body
+# degrades to the concept-H1 fallback (never empty).
+DERIVE_DESC="${DERIVE_DESCRIPTION_HELPER:-}"
+if [[ -z "$DERIVE_DESC" ]]; then
+  for c in "$CLAUDE_HOME_RES/hooks/lib/derive-description.sh" \
+           "$_REPO_LIB/derive-description.sh"; do
+    if [[ -f "$c" ]]; then DERIVE_DESC="$c"; break; fi
+  done
+fi
+
 python3 - "$WORKSHOP_RES" "$LIBRARY_RES" "$PLANS_RES" "$MANIFEST_SCHEMA" \
-          "$FRONTMATTER_RULES" "$APPLY" "$DRY_RUN" "$TOPIC" "$LOG_APPENDER" "$FM_BUNDLE" <<'PY'
+          "$FRONTMATTER_RULES" "$APPLY" "$DRY_RUN" "$TOPIC" "$LOG_APPENDER" "$FM_BUNDLE" \
+          "$DERIVE_DESC" <<'PY'
 import json
 import os
 import re
@@ -235,6 +252,7 @@ dry_run = sys.argv[7] == "true"
 topic_filter = sys.argv[8]
 log_appender = sys.argv[9] if len(sys.argv) > 9 else ""
 fm_bundle_path = sys.argv[10] if len(sys.argv) > 10 else ""
+derive_desc_helper = sys.argv[11] if len(sys.argv) > 11 else ""
 
 
 def append_log_event(action, rel_path, note):
@@ -258,6 +276,57 @@ today = date.today().isoformat()
 now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# ---- universal typed cohort (lockstep w/ types.reference.required[]) ----------
+# The reference type's required[] gained description/created/id/schema_version.
+# A promoted article is a forward-CREATION path, so this capability STAMPS the
+# cohort at construction — the article is born compliant AND passes the REF_REQUIRED
+# pre-write validation. The three cohort-writing paths agree by construction:
+#   - created = TODAY (forward creation; NOT the T-8 git-backfill "never today"
+#     rule, which is for pre-existing files).
+#   - id = a deterministic readable slug from <topic>/<article> — immutable by
+#     construction (re-promotion regenerates the SAME slug; parity with the
+#     forward-governance sed-slug + the backfill slugify).
+#   - schema_version = the cohort constant, matching the value the forward-governance
+#     auto-stamp writes (hooks/post-write-verify.sh add_if_absent schema_version).
+#   - description = derived through the SHARED helper (hooks/lib/derive-description.sh).
+COHORT_SCHEMA_VERSION = 1
+
+
+def cohort_slug(text):
+    """Deterministic readable slug (parity with the backfill slugify + the
+    forward-governance sed slug: lowercase, non-alnum runs -> single hyphen)."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def derive_description(body_text, h1):
+    """One-line cohort description via the SHARED helper — one derivation contract
+    with forward-governance (post-write-verify.sh) + the backfill (frontmatter-
+    enforce.sh). The helper reads a FILE, so compose the article's on-disk body
+    (H1 + scrubbed body) into a temp file and call it the way frontmatter-enforce
+    does. Falls back to the concept H1 (never empty) when the helper is unavailable
+    (sandbox / missing lib)."""
+    fallback = (h1 or "").strip()
+    if not derive_desc_helper or not os.path.isfile(derive_desc_helper):
+        return fallback
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(suffix=".md")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("# %s\n\n%s\n" % (h1, body_text))
+        r = subprocess.run(["bash", derive_desc_helper, tmp],
+                           capture_output=True, text=True, timeout=25)
+        d = ((r.stdout or "").strip().split("\n") or [""])[0].strip()
+        return d or fallback
+    except Exception:
+        return fallback
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def emit(payload):
     out = os.environ.get("FINDINGS_OUTPUT", "")
     line = json.dumps(payload, ensure_ascii=False, separators=(", ", ": "))
@@ -271,12 +340,14 @@ def emit(payload):
 # ---- reference-type required fields (the EFFECTIVE type registry) ------------
 # Defensive default mirrors the registered C-FM-ART required set so the
 # capability stays correct even if the rules source is unreadable in a sandbox.
+# canonical read: the merged union (foundation-master + overlay) is
 # materialized by the merger in the shell wrapper and handed in as fm_bundle_path
 # (.frontmatter.types.reference shape). Read it FIRST so an adopter's overlay
 # amendments to the reference contract are honored; fall back to the loose pillar
 # (.types.reference shape) when the bundle/merger is unavailable (dev-repo
 # authoring or an explicit FRONTMATTER_RULES_PATH).
-REF_REQUIRED = ["type", "tags", "updated", "routing", "sources", "originating_plan"]
+REF_REQUIRED = ["type", "tags", "updated", "routing", "sources", "originating_plan",
+                "description", "created", "id", "schema_version"]
 _ref = None
 if fm_bundle_path and os.path.isfile(fm_bundle_path):
     try:
@@ -420,7 +491,8 @@ def derive_h1(body, article_name):
 
 
 def build_article(topic, article_name, scrubbed_body, routing, raw_sources,
-                  tags, plan_slug):
+                  tags, plan_slug, description, created, article_id,
+                  schema_version):
     """Compose the article markdown: reference frontmatter -> H1 = concept ->
     synthesized body -> [[name]] bare sibling wikilinks at the foot.
     NO leading in-document section index, NO auto-TOC (R-LIB-1)."""
@@ -439,6 +511,12 @@ def build_article(topic, article_name, scrubbed_body, routing, raw_sources,
     # only ever reached with a resolved promoting plan; the no-plan path is
     # block-and-logged before construction.
     fm.append("originating_plan: %s" % plan_slug)
+    # universal typed cohort (required[] gained these four). json.dumps on the
+    # description mirrors the routing line's valid-YAML double-quoting idiom.
+    fm.append("description: %s" % json.dumps(description, ensure_ascii=False))
+    fm.append("created: %s" % created)
+    fm.append("id: %s" % article_id)
+    fm.append("schema_version: %s" % schema_version)
     fm.append("---")
     # C-FM-ART body scaffold: a SINGLE H1 = the concept name. If the captured
     # source carried its own leading H1, drop it so the synthesized concept H1
@@ -456,7 +534,8 @@ def build_article(topic, article_name, scrubbed_body, routing, raw_sources,
 
 
 def article_frontmatter_dict(topic, article_name, routing, raw_sources, tags,
-                             plan_slug):
+                             plan_slug, description, created, article_id,
+                             schema_version):
     """The frontmatter as a dict for pre-write required-field validation."""
     fm = {
         "type": "reference",
@@ -468,6 +547,13 @@ def article_frontmatter_dict(topic, article_name, routing, raw_sources, tags,
     # originating_plan is REQUIRED unconditionally (C-FM-ART); a missing/empty
     # plan_slug surfaces in the required-field check and block-and-logs.
     fm["originating_plan"] = plan_slug
+    # universal typed cohort — stamped so the REF_REQUIRED pre-write check (which
+    # now reads these four from the effective registry) passes AND the promoted
+    # article is born cohort-compliant.
+    fm["description"] = description
+    fm["created"] = created
+    fm["id"] = article_id
+    fm["schema_version"] = schema_version
     return fm
 
 
@@ -650,6 +736,16 @@ for tdir in topic_dirs:
         tags = ["#%s/%s" % (topic, "library")]
         routing = synthesize_routing(topic, article_name, scrubbed)
 
+        # universal typed cohort (forward-CREATION path): stamp created=today, an
+        # immutable readable id slug from <topic>/<article>, the cohort schema_version,
+        # and a description via the SHARED helper. Computed BEFORE validation so the
+        # REF_REQUIRED check (which now includes these four) passes in BOTH propose
+        # and --apply, and the promoted article is born compliant.
+        cohort_h1 = derive_h1(scrubbed, article_name)
+        cohort_description = derive_description(scrubbed, cohort_h1)
+        cohort_created = today
+        cohort_id = cohort_slug("%s/%s" % (topic, article_name)) or "note"
+
         # pre-write validation: article frontmatter required-field set.
         # C-FM-ART (D3): originating_plan is REQUIRED unconditionally — the
         # F-PROMO chain is plan-bound by construction (PROMO-3 persists to
@@ -659,7 +755,8 @@ for tdir in topic_dirs:
         # block-and-logs below (C-OUT, R-FLOW-DISC-5), never writes the article
         # without the field.
         art_fm = article_frontmatter_dict(
-            topic, article_name, routing, raw_sources, tags, plan_slug)
+            topic, article_name, routing, raw_sources, tags, plan_slug,
+            cohort_description, cohort_created, cohort_id, COHORT_SCHEMA_VERSION)
         missing = [k for k in REF_REQUIRED if k not in art_fm or art_fm[k] in (None, "", [])]
         if missing:
             counts["blocked"] += 1
@@ -720,7 +817,8 @@ for tdir in topic_dirs:
 
         # PROMO-2: write the scrubbed universal article (atomic).
         article_md, _h1 = build_article(
-            topic, article_name, scrubbed, routing, raw_sources, tags, plan_slug)
+            topic, article_name, scrubbed, routing, raw_sources, tags, plan_slug,
+            cohort_description, cohort_created, cohort_id, COHORT_SCHEMA_VERSION)
         atomic_write(article_path, article_md)
 
         plan_sot_path = ""

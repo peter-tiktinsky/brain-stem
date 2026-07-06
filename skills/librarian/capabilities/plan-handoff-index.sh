@@ -206,8 +206,16 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
+            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
             emit({"finding": "plan-handoff-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
+            continue
+        # /(): keep only real plans. A real plan has a `status` field
+        # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
+        # accept clause subsumes the corpus_version/slots reject (those fixtures also
+        # lack status+spec.md); if a future corpus_version dir ever declares status,
+        # revisit — this clause alone would admit it.
+        if not (("status" in man) or os.path.exists(os.path.join(dp, "spec.md"))):
             continue
         found.append((dp, man))
     return found
@@ -229,12 +237,23 @@ def field(man, key, default=""):
 
 # --- session-block parsing (R-BIND-7) ---------------------------------------
 # A handoff.md is an append-only session record. Session blocks are delimited by
-# a session heading: an H2/H3 line that names a session (carries the word
-# "Session" with a number) OR a date-prefixed heading (### 2026-04-21 — ...). We
-# split on those boundaries; everything before the first session heading is a
-# preamble (the plan title / cold-start context) and is NOT a session block.
+# a session heading: an H2..H4 line whose TEXT BEGINS with a real session-entry
+# shape — "(Alignment )Session <N|SN|:...>", a bare "S<N>" ordinal, or a
+# date-prefixed "YYYY-MM-DD ..." heading. Everything before the first session
+# heading is a preamble (plan title / cold-start context) and is NOT a block.
+# The shape is ANCHORED to the heading-text start (not "any line mentioning
+# session + a digit") so a narrative subsection like "### Forward roadmap
+# (Session <N>+)" or "## Critical info for Session <N>" is NOT a false boundary
+#. The Session-followed-by-a-date form ("## Session 2026-06-24 — ...") is a
+# valid boundary but its date is parsed as the date sort-key, NOT the ordinal (
+# see SESSION_NUM_RE); S-prefixed ordinals ("", "Session") and the colon
+# form ("Session: ...") parse too.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+(.*\bsession\b.*?[0-9].*|[0-9]{4}-[0-9]{2}-[0-9]{2}.*)\s*$",
+    r"^(#{2,4})\s+"
+    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
+    r"|s[0-9]+\b"
+    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
+    r".*$",
     re.IGNORECASE,
 )
 # the `Next session...` carry-forward line, in any of its shipped forms
@@ -245,8 +264,12 @@ NEXT_RE = re.compile(r"^\s*\**\s*next session\b", re.IGNORECASE)
 # ### Decision-Quality Protocol passes.
 LOCKS_RE = re.compile(r"^#{2,4}\s+locks captured\b", re.IGNORECASE)
 DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNORECASE)
-# a session ordinal extractor for the newest-first sort key.
-SESSION_NUM_RE = re.compile(r"\bsession\s+([0-9]+)", re.IGNORECASE)
+# a session ordinal extractor for the newest-first sort key. Captures the ordinal
+# after "session" (optionally colon- or S-prefixed) OR a bare leading "S<N>"; the
+# trailing (?![0-9])(?!-DD-DD) guard rejects a YYYY-MM-DD date so a
+# "Session 2026-06-24" heading yields NO spurious 2026 ordinal — the date is
+# picked up by DATE_RE instead. ""/"Session"→69/74; "Session <N>a"→<N>.
+SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
 DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
 
 
@@ -296,6 +319,41 @@ def parse_blocks(text, src_rel):
     bounds = [i for i, l in enumerate(lines) if SESSION_HEADING_RE.match(l)]
     blocks = []
     if not bounds:
+        # DT-2 chronicle-membership fallback (/HCM). A handoff with NO recognized
+        # session heading (e.g. a STATUS-REPORT-6-shaped record) still JOINS the
+        # chronicle as EXACTLY ONE synthesized block — never dropped, never phantom-
+        # split. The summary/date are harvested from the BODY (after any leading YAML
+        # frontmatter) so a frontmatter-only handoff does not yield a `--- title: ...
+        # ---` metadata summary; the per-block path slices body_lines past the heading
+        # and so never sees frontmatter either. Ordering falls to any date in the body
+        # (else the -1 ordinal floor + document position). Renders BYTE-IDENTICALLY to
+        # the hooks/handoff-chronicle-append.sh fallback so append/re-derive stay idempotent.
+        fb_body = lines
+        if fb_body and fb_body[0].strip() == "---":
+            for _i in range(1, len(fb_body)):
+                if fb_body[_i].strip() == "---":
+                    fb_body = fb_body[_i + 1:]
+                    break
+        fb_next = ""
+        for l in fb_body:
+            if NEXT_RE.match(l):
+                fb_next = re.sub(r"\s+", " ", l.strip())
+                break
+        fb_summary = harvest_subsection_line(fb_body, LOCKS_RE)
+        fb_src = "locks-captured"
+        if not fb_summary:
+            fb_summary = harvest_subsection_line(fb_body, DQP_RE)
+            fb_src = "decision-quality-protocol-passes"
+        if not fb_summary:
+            fb_summary = first_nonblank_chars(fb_body, 200)
+            fb_src = "fallback-no-session-heading"
+        fb_date = DATE_RE.search("\n".join(fb_body))
+        blocks.append({
+            "session": "(no recognized session heading)",
+            "session_key": (-1, fb_date.group(1) if fb_date else "", 0),
+            "next_line": fb_next, "summary": fb_summary, "summary_src": fb_src,
+            "src_rel": src_rel,
+        })
         return blocks
     for k, start in enumerate(bounds):
         end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)

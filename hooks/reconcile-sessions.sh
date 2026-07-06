@@ -8,10 +8,15 @@
 # UNOWNED-SURFACE closure (feedback_f3_ownership_vs_tree_asis_port_gap): named
 # in + but absent from the1.1 hooks roster — T-04
 # authors the body AND adds the2 "Owns" +.1 roster line (T-12).
-# Concurrency: lockf-guarded against reconcile.lock (/3 lock roster;
-# feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec). A second
-# concurrent run hits contention (exit 75) and skips cleanly — reconciliation is
-# idempotent and another run already holds the lock.
+# Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
+# deadlock-free). OUTER = reconcile.lock process-dedup (/3 lock roster;
+# feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec) — a second concurrent
+# run hits contention (exit 75) and skips cleanly (reconciliation is idempotent).
+# INNER = the SHARED registry.lock (REGISTRY_LOCK, `-t 2`) held across the entire
+# read_registry..write_registry RMW span, so the reaper's sweep is mutually exclusive
+# with the registrar (track-vault-write.sh) and the integrity-backstop — closing the
+# lost-update race (two writers, two different locks, same file). The registrar only
+# ever takes REGISTRY_LOCK, so the outer-dedup -> inner-registry order never cycles.
 # Reconcile rules (data-non-destructive on live processes):
 #   - stale (dead pid OR last_heartbeat older than STALE_THRESHOLD_SECS): drop.
 #   - closed: drop (the session ended cleanly; deregister already marked it).
@@ -42,6 +47,25 @@ if [ -z "${RECONCILE_SESSIONS_LOCKED:-}" ] \
   exit 0
 fi
 
+# --- nested REGISTRY_LOCK guard (registry.lock) ------------------------------
+# Second, INNER self-reexec (distinct marker var so it never collides with the
+# outer reconcile.lock guard) that holds the SHARED REGISTRY_LOCK across the whole
+# read_registry..write_registry span below. This is what makes the reaper's RMW
+# mutually exclusive with the registrar + backstop (they all take REGISTRY_LOCK).
+# `-t 2` = block up to 2s; on contention/timeout any rc -> exit 0 (fail-open, NO
+# partial write — write_registry is not reached under a failed acquisition). When
+# lockf is absent the guard is skipped and the sweep runs unlocked (graceful-degrade,
+# exit 0), mirroring the outer guard. The sweep body ends at write_registry with NO
+# trailing spawn, so wrapping the whole post-outer-guard body is clean (nothing
+# mutates the registry after the inner lock releases).
+if [ -z "${RECONCILE_SESSIONS_REGISTRY_LOCKED:-}" ] \
+   && [ -n "${REGISTRY_LOCK:-}" ] \
+   && command -v lockf >/dev/null 2>&1; then
+  export RECONCILE_SESSIONS_REGISTRY_LOCKED=1
+  /usr/bin/lockf -k -t 2 "$REGISTRY_LOCK" "$0" "$@" || true
+  exit 0
+fi
+
 # --- reconcile sweep ---------------------------------------------------------
 now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 now_epoch=$(date +%s)
@@ -67,6 +91,7 @@ for sid in $sids; do
       # heartbeat check runs UNCONDITIONALLY (no longer gated behind drop=false) and is
       # bidirectional: fresh -> drop=false (KEEP override), stale -> drop=true. Reap
       # only when BOTH signals say gone.
+      # : the liveness test is the shared pid_is_live predicate, which treats
       # null / 0 / missing / non-numeric / dead as NOT live -> drop=true. This closes
       # the prior null-pid blind spot: the dead-pid check was gated behind
       # `pid != 0 && pid != null`, so a null/0-pid row was reaped ONLY if its heartbeat

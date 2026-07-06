@@ -28,17 +28,21 @@
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
 # The card is force-ingested every session (the SessionStart card-load hook reads
-# it as additionalContext), so it is bounded < 9728B (the format_output budget —
-# hooks/lib/registry.sh:106 MAX=9728) for a realistic roster. The roster/active-
-# focus/headline blocks are length-disciplined so the card stays well under budget;
-# if a degenerate roster would overflow, the body is trimmed defensively before the
-# write (the card never ships over budget).
+# it as additionalContext), so it self-bounds < 9728B — the force-ingest ceiling
+# for a SessionStart additionalContext payload. That bound is met STRUCTURALLY: the
+# orientation block renders first and is never trimmed, and the roster below is
+# non-terminal-filtered, parent-collapsed, and hard-capped. The generator does NOT
+# route its output through the format_output_allow() soft-truncate helper; it stays
+# under the ceiling by construction. If a pathological roster somehow overflowed,
+# the body would be trimmed defensively before the write as a can-never-fire last
+# resort (the card never ships over budget).
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/_situating.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a GENERATED roll-up surface, no
 #         survivorship region; re-run without source change == byte-identical).
 #         Frontmatter carries `type: index` (REUSE the existing index file-type per
+#         — no new file-type, no governance-type lockstep) PLUS `generated: true` (the
 #         generated sentinel that distinguishes the machine card from a curated
 #         index). The body carries the `_Auto-generated … Do not hand-edit._` line.
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
@@ -119,8 +123,16 @@ spoke_filter = spoke_filter or None
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
 
-# The force-ingest budget: the card MUST stay under this (registry.sh:106 MAX).
+# The force-ingest ceiling: the card self-bounds under this by convention (the
+# SessionStart additionalContext limit), met structurally by the render below —
+# not by routing through format_output_allow().
 MAX_CARD_BYTES = 9728
+
+# Hard-cap on rendered roster rows — a structural bound so a pathological spoke
+# roster cannot blow the force-ingest ceiling. Non-terminal filtering + parent
+# collapse keep a realistic spoke well under this; the cap only bites a degenerate
+# roster, replacing the overflow with a `+N more` line (never a byte-slice).
+ROSTER_CAP = 40
 
 
 def emit(d):
@@ -180,6 +192,13 @@ def walk_manifests(root):
             emit({"finding": "project-context-situating-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
+        # /(): keep only real plans. A real plan has a `status` field
+        # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
+        # accept clause subsumes the corpus_version/slots reject (those fixtures also
+        # lack status+spec.md); if a future corpus_version dir ever declares status,
+        # revisit — this clause alone would admit it.
+        if not (("status" in man) or os.path.exists(os.path.join(dp, "spec.md"))):
+            continue
         found.append((dp, man))
     return found
 
@@ -210,6 +229,10 @@ def field(man, key, default=""):
 # This is a non-native derivation; it is documented here (the only home) so a
 # reader knows the aggregate is computed, not stored.
 ACTIVE = "in-progress"
+# At-rest (terminal) plan statuses — a spoke is "closed" only when ALL its plans
+# are at rest. Reused by the roster's non-terminal filter: at-rest plans are
+# summarized by a count line + a chronicle pointer instead of listed row-by-row.
+AT_REST = {"closed", "archived", "superseded"}
 def aggregate_status(statuses):
     s = set(x for x in statuses if x)
     if not s:
@@ -222,7 +245,7 @@ def aggregate_status(statuses):
         return "planned"
     if "completed" in s or "verified" in s:
         return "completed"
-    if s <= {"closed", "archived", "superseded"}:
+    if s <= AT_REST:
         return "closed"
     return "unknown"
 
@@ -259,41 +282,53 @@ def current_task(man):
 
 
 # --- newest handoff headline ------------------------------------------------
-# The latest handoff headline is the most-recent session heading across the spoke's
-# handoff.md files. Reuse the sibling chronicle's session-heading recognizer (an
-# H2/H3 naming a session-with-number OR a date-prefixed heading). We pick the
-# handoff.md with the freshest mtime (a cheap, deterministic "latest" proxy) and
-# harvest its FIRST session heading (handoffs are append-only newest-first, so the
-# first session heading is the newest in that file).
+# The latest-handoff headline is the genuinely-newest session heading across ALL
+# handoff.md files in the spoke, selected by parsed session_key (session ordinal
+# DESC, then date DESC) — NOT the freshest-mtime file's FIRST heading. A handoff
+# whose newest block is not its first, or a spoke whose latest work landed in a file
+# with an older mtime, would otherwise publish a stale line. The recognizer is a
+# hand-copied 3rd copy of the chronicle pair's session-heading recognizer
+# (skills/librarian/capabilities/plan-handoff-index.sh + hooks/handoff-chronicle-
+# append.sh); the SESSION_HEADING_RE / SESSION_NUM_RE / DATE_RE triple is
+# byte-identical to that pair (the recognizer region is parity-gated) and parses the
+# same shapes: the heading is anchored to the heading-text start (a narrative
+# "...(Session N)" is not a boundary); the ordinal parser rejects a YYYY-MM-DD date
+# (the date is the date sort-key) and parses S-prefixed / colon forms.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+(.*\bsession\b.*?[0-9].*|[0-9]{4}-[0-9]{2}-[0-9]{2}.*)\s*$",
+    r"^(#{2,4})\s+"
+    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
+    r"|s[0-9]+\b"
+    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
+    r".*$",
     re.IGNORECASE,
 )
+SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
+DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
 def newest_handoff_headline(plan_dirs):
-    best = None  # (mtime, plan_slug, headline)
+    # Scan EVERY session heading in EVERY handoff.md; parse each heading's session
+    # ordinal + date; keep the maximum (ordinal DESC, then date DESC). Return the
+    # winning plan slug + its headline. No mtime, no first-heading shortcut.
+    best = None  # (session_num, date, plan_slug, headline)
     for slug, pdir in plan_dirs.items():
         hp = os.path.join(pdir, "handoff.md")
         if not os.path.isfile(hp):
             continue
-        try:
-            mt = os.path.getmtime(hp)
-        except Exception:
-            continue
         text = read_text(hp)
         if not text:
             continue
-        headline = ""
         for line in text.splitlines():
-            if SESSION_HEADING_RE.match(line):
-                headline = line.lstrip("# ").strip()
-                break
-        if not headline:
-            continue
-        if best is None or mt > best[0]:
-            best = (mt, slug, headline)
+            if not SESSION_HEADING_RE.match(line):
+                continue
+            headline = line.lstrip("# ").strip()
+            nm = SESSION_NUM_RE.search(headline)
+            num = int(nm.group(1)) if nm else -1
+            dm = DATE_RE.search(headline)
+            dt = dm.group(1) if dm else ""
+            if best is None or (num, dt) > (best[0], best[1]):
+                best = (num, dt, slug, headline)
     if best is None:
         return ("", "")
-    return (best[1], best[2])
+    return (best[2], best[3])
 
 
 # --- assemble per-spoke state -----------------------------------------------
@@ -312,9 +347,11 @@ for plan_dir, man in manifests:
     slug = slug_of(plan_dir)
     title = str(field(man, "title") or "").strip() or slug
     status = str(field(man, "status") or "").strip()
+    parent_plan = str(field(man, "parent_plan") or "").strip()
     st = spokes.setdefault(spoke, {"plans": [], "statuses": [], "active": [],
                                    "plan_dirs": {}})
-    st["plans"].append({"slug": slug, "title": title, "status": status})
+    st["plans"].append({"slug": slug, "title": title, "status": status,
+                        "parent_plan": parent_plan})
     st["statuses"].append(status.lower())
     st["plan_dirs"][slug] = plan_dir
     if status.lower() == ACTIVE:
@@ -335,14 +372,19 @@ def write_atomic(dirpath, target, body):
 
 
 def render_card(spoke, st):
-    plans = sorted(st["plans"], key=lambda p: p["slug"])
     agg = aggregate_status(st["statuses"])
     active = st["active"]
     a_slug, a_headline = newest_handoff_headline(st["plan_dirs"])
+    binder_home = os.path.join(PROJECTS, spoke)
 
     # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
 
+    # ORIENTATION BLOCK — rendered FIRST and NEVER trimmed. On an eager force-
+    # ingested surface the orientation (aggregate status + active focus + latest
+    # handoff + binder surfaces) is the load-bearing content; it must survive
+    # regardless of roster size. The roster renders LAST so any defensive trim
+    # (a can-never-fire last resort) sheds roster rows, never orientation.
     lines = [
         "---",
         "type: index",
@@ -365,20 +407,6 @@ def render_card(spoke, st):
         "> planned > completed > closed)." % agg,
         "",
     ]
-
-    # --- plan roster ---------------------------------------------------------
-    lines.append("## Plan roster")
-    lines.append("")
-    if plans:
-        lines.append("| Plan | Title | Status |")
-        lines.append("|---|---|---|")
-        for p in plans:
-            lines.append("| %s | %s | %s |"
-                         % (esc(p["slug"]), esc(p["title"]) or "—",
-                            esc(p["status"]) or "—"))
-    else:
-        lines.append("_No plans attributed to this spoke yet._")
-    lines.append("")
 
     # --- active focus --------------------------------------------------------
     lines.append("## Active focus")
@@ -404,19 +432,91 @@ def render_card(spoke, st):
 
     # --- binder + deliverables pointers (DERIVABLE only) --------------------
     # research-index.md / decision-log.md / handoff-chronicle.md are co-located in
-    # this same binder home (_projects/<spoke>/), so they are bare relative links.
-    # The deliverables path is the spoke-keyed ~/work/<spoke>/deliverables/ (the
-    # hub-template convention). NO library-refs, NO "active SoT" free pointer
-    # (non-derivable curation — stays in hub.md). NO work directory-map (the
-    # work-side directory-map domain).
+    # this same binder home (_projects/<spoke>/); each link is gated on the surface
+    # actually existing, so the card never renders a dead link to a not-yet-created
+    # binder file. The deliverables path is the spoke-keyed ~/work/<spoke>/
+    # deliverables/ (the hub-template convention). NO library-refs, NO "active SoT"
+    # free pointer (non-derivable curation — stays in hub.md). NO work directory-map.
     lines.append("## Binder surfaces")
     lines.append("")
-    lines.append("- Research: [research-index.md](research-index.md)")
-    lines.append("- Decisions: [decision-log.md](decision-log.md)")
-    lines.append("- Handoffs: [handoff-chronicle.md](handoff-chronicle.md)")
-    lines.append("- Curated cover (on-demand): [hub.md](hub.md)")
+    for label, fname in (("Research", "research-index.md"),
+                         ("Decisions", "decision-log.md"),
+                         ("Handoffs", "handoff-chronicle.md"),
+                         ("Curated cover (on-demand)", "hub.md")):
+        if os.path.exists(os.path.join(binder_home, fname)):
+            lines.append("- %s: [%s](%s)" % (label, fname, fname))
     lines.append("- Deliverables: `~/work/%s/deliverables/`" % spoke)
     lines.append("")
+
+    # PLAN ROSTER — rendered LAST and STRUCTURALLY BOUNDED. Keyed per-spoke off
+    # the manifest `project:` (the true-owner axis). The roster lists only
+    # non-terminal plans, collapses child sub-plans under their parent_plan, and
+    # is hard-capped with a `+N more` line; at-rest (closed/archived/superseded)
+    # plans are summarized by a count line + a handoff-chronicle pointer instead of
+    # listed row-by-row. This bounds the card without any byte-slicing.
+    lines.append("## Plan roster")
+    lines.append("")
+
+    all_plans = st["plans"]
+    terminal_count = sum(
+        1 for p in all_plans
+        if str(p.get("status") or "").strip().lower() in AT_REST)
+    nonterminal = [
+        p for p in all_plans
+        if str(p.get("status") or "").strip().lower() not in AT_REST]
+
+    # collapse: a plan whose parent_plan names another plan is a child; group the
+    # children under their parent and render ONE row per parent (with a child count)
+    # instead of a row per child.
+    children_of = {}
+    tops = []
+    for p in nonterminal:
+        par = str(p.get("parent_plan") or "").strip()
+        if par and par != p["slug"]:
+            children_of.setdefault(par, []).append(p)
+        else:
+            tops.append(p)
+
+    rows = []  # (slug, title, status, child_count)
+    handled = set()
+    for p in tops:
+        kids = children_of.get(p["slug"], [])
+        rows.append((p["slug"], p["title"], p["status"], len(kids)))
+        if kids:
+            handled.add(p["slug"])
+    # orphan parents: a parent named by children but with no non-terminal top-level
+    # row of its own (its own plan is terminal or absent) — synthesize one row.
+    for par in sorted(children_of):
+        if par in handled:
+            continue
+        rows.append((par, par, "", len(children_of[par])))
+
+    rows.sort(key=lambda r: r[0])
+
+    if rows:
+        lines.append("| Plan | Title | Status |")
+        lines.append("|---|---|---|")
+        for slug, title, status, kids in rows[:ROSTER_CAP]:
+            title_cell = esc(title) or "—"
+            if kids:
+                title_cell = "%s _(+%d sub-plan%s)_" % (
+                    title_cell, kids, "" if kids == 1 else "s")
+            lines.append("| %s | %s | %s |"
+                         % (esc(slug), title_cell, esc(status) or "—"))
+        extra = len(rows) - ROSTER_CAP
+        if extra > 0:
+            lines.append("| … | _+%d more non-terminal plan%s_ | … |"
+                         % (extra, "" if extra == 1 else "s"))
+    else:
+        lines.append("_No non-terminal plans attributed to this spoke._")
+    lines.append("")
+
+    if terminal_count:
+        lines.append(
+            "_%d terminal plan%s (closed/archived/superseded) not shown — see the "
+            "handoff chronicle (linked under Binder surfaces)._"
+            % (terminal_count, "" if terminal_count == 1 else "s"))
+        lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 

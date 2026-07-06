@@ -14,6 +14,7 @@
 #                   --subdir <name> → $WORK_HOME/<spoke>/<name>/{README.md, deliverables/,
 #                   reference/} under an existing spoke — NEVER a CLAUDE.md
 #                   (sub-projects are ORGANIZATIONAL UNITS, identity stays with the master,
+#                   /); the sub README carries a one-line launch advisory.
 #   schema        : the work CLAUDE.md carries project identity, a README/updates pointer,
 #                   a binder pointer, and an auto-maintained directory map bounded by the
 #                   work-map:start / work-map:end sentinels (generated:true — re-derived by
@@ -135,6 +136,10 @@ case "$LAYOUT" in flat|master) ;; *) die "invalid --layout '$LAYOUT' (expected f
 
 SPOKE_DIR="$WORK_HOME/$SPOKE"
 TODAY="$(date +%F)"
+# T-9 (sub-06): slug for the frontmatter cohort (id + #project/ tag) the
+# durable scaffolded files carry. CLAUDE.md stays EXEMPT (navigation/context file).
+SPOKE_SLUG="$(printf '%s' "$SPOKE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+[ -n "$SPOKE_SLUG" ] || SPOKE_SLUG="spoke"
 
 # --- --subdir arm: scaffold an ORGANIZATIONAL-UNIT sub-project under an existing spoke ---
 # A sub-project is NOT a full project: it mints README + deliverables/ + reference/
@@ -149,8 +154,19 @@ if [ -n "$SUBDIR" ]; then
     die "refusing to clobber existing sub-project: $SUB_DIR" 2
   fi
   mkdir -p "$SUB_DIR/deliverables" "$SUB_DIR/reference" || die "mkdir failed under $SUB_DIR"
-  # sub README — carries the one-line launch advisory; NO CLAUDE.md, NO hub.md.
+  # sub README — carries the one-line launch advisory + the T-9 cohort; NO CLAUDE.md, NO hub.md.
+  SUBDIR_SLUG="$(printf '%s' "$SUBDIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+  [ -n "$SUBDIR_SLUG" ] || SUBDIR_SLUG="sub"
   cat > "$SUB_DIR/README.md" <<EOF
+---
+type: navigation
+description: Scope, outcome, and definition-of-done for the $SPOKE/$SUBDIR sub-project.
+created: $TODAY
+updated: $TODAY
+tags: ["#project/$SPOKE_SLUG"]
+id: work-$SPOKE_SLUG-$SUBDIR_SLUG-readme
+schema_version: 1
+---
 # $SPOKE / $SUBDIR
 
 > Launch from \`~/work/$SPOKE/\`, not here — this sub-project has no launch context of its own.
@@ -197,6 +213,15 @@ fi
 # README + updates — minimal shape stubs (the foundation scaffolds the shape only; the
 # flat MVP ships NO starter templates per — the adopter owns the body content).
 cat > "$SPOKE_DIR/README.md" <<EOF
+---
+type: navigation
+description: Scope, outcome, and definition-of-done for the $SPOKE work spoke.
+created: $TODAY
+updated: $TODAY
+tags: ["#project/$SPOKE_SLUG"]
+id: work-$SPOKE_SLUG-readme
+schema_version: 1
+---
 # $SPOKE
 
 ## Scope
@@ -212,6 +237,15 @@ cat > "$SPOKE_DIR/README.md" <<EOF
 <how you know it is finished>
 EOF
 cat > "$SPOKE_DIR/updates.md" <<EOF
+---
+type: updates
+description: Append-only status, risk, and decision log for the $SPOKE work spoke.
+created: $TODAY
+updated: $TODAY
+tags: ["#project/$SPOKE_SLUG"]
+id: work-$SPOKE_SLUG-updates
+schema_version: 1
+---
 # $SPOKE — updates
 
 Append-only running log of status, risks, and decisions (newest last).

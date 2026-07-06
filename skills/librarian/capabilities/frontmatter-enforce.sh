@@ -117,6 +117,7 @@ export FM_FOUNDATION_MASTER="$FOUNDATION_MASTER"
 export FM_PRE_WRITE_GUARD="$PRE_WRITE_GUARD"
 export FM_POST_WRITE_VERIFY="$POST_WRITE_VERIFY"
 export FM_ENGAGEMENT_ALIASES_JSON="$(umr_get_object '.vault.engagement_aliases')"
+# T-9: parameterize projects-root directory name (closes A3-Gap #1).
 # Default "Engagements" preserves the install-convention default for
 # users who never declared the field.
 FM_PROJECTS_ROOT_DIRNAME_RAW="$(umr_get_string '.vault.projects_root_dirname' 2>/dev/null || true)"
@@ -134,6 +135,11 @@ export FM_STRATEGIC_DIRNAME="${FM_STRATEGIC_DIRNAME_RAW:-Strategic}"
 FM_PLANNING_DIRNAME_RAW="$(umr_get_string '.vault.planning_dirname' 2>/dev/null || true)"
 export FM_PLANNING_DIRNAME="${FM_PLANNING_DIRNAME_RAW:-Planning}"
 export FM_VAULT_ROOT="$VAULT_ROOT"
+# T-8: the SHARED description-derivation helper (reused from T-7) for the cohort
+# backfill's description field. CLAUDE_HOME-first, repo-lib fallback for dev.
+FM_DERIVE_DESC_RES="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/derive-description.sh"
+[ -f "$FM_DERIVE_DESC_RES" ] || FM_DERIVE_DESC_RES="$_REPO_LIB/derive-description.sh"
+export FM_DERIVE_DESC="$FM_DERIVE_DESC_RES"
 
 # --- Missing-vault guard ---
 # paths.sh leaves VAULT_ROOT empty on a fresh manifest-less adopter (paths.sh:17-19
@@ -143,6 +149,7 @@ export FM_VAULT_ROOT="$VAULT_ROOT"
 # os.listdir('') in canonical_scope_files() and raise FileNotFoundError under
 # set -euo pipefail, aborting session-close. Exit 0 = capability records ok/skipped,
 # never error.
+# T-5: READ the single-SoT VAULT_CONFIGURED boolean materialized at the
 # producer (paths.sh) rather than re-derive `[ -z … ] || [ ! -d … ]` inline. The
 # `:-0` fallback keeps the guard safe under set -u if paths.sh sourcing was
 # skipped (line 55 source is conditional) — fail closed (skip) on no vault.
@@ -156,13 +163,14 @@ DRIFT_OUT="$(mktemp -t fm-enforce-drift.XXXXXX)"
 trap 'rm -f "$DRIFT_OUT" ${_FM_UNION:+"$_FM_UNION"}' EXIT
 
 python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$DRIFT_OUT" <<'PY'
-import json, os, re, sys, time, fnmatch
+import json, os, re, sys, time, fnmatch, subprocess
 from datetime import datetime, timezone
 
 vault_scope, walk, mode, dry_run_s, drift_out_path = sys.argv[1:6]
 dry_run = (dry_run_s == "true")
 fix_mode = (mode == "fix")
 
+# T-9: parameterize projects-root directory name (closes A3-Gap #1).
 # Read from FM_PROJECTS_ROOT_DIRNAME env (set from .vault.projects_root_dirname
 # via umr_get_string above). Fall back to "Engagements" if empty/unset for
 # backward compatibility with users who never declared the field.
@@ -338,6 +346,7 @@ def _load_required_matrix():
 REQUIRED = _load_required_matrix()
 
 # Deliverables live under the Work/ surface (a symlink to the external work home).
+# FIX #7: build_scope() now passes os.walk(..., followlinks=(walk=="scope"))
 # so a SCOPED invocation (`frontmatter-enforce.sh --scope <vault>/Work`) descends
 # the Work/ symlink and reaches deliverables under Work/<spoke>/deliverables/;
 # the whole-vault default run keeps followlinks=False so Work/ stays symlink-inert
@@ -362,6 +371,7 @@ def _load_tag_prefixes():
 
 TAG_PREFIXES = _load_tag_prefixes()
 
+# T-3 (fix): DEDICATED tag-TAXONOMY exempt-list, loaded explicitly
 # from foundation-master.json#seed_taxonomy_exempt_paths_composed (composed from
 # tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths via
 # tools/build-foundation-master.sh). SEPARATE from the R-47 tag-PRESENCE exempt
@@ -387,7 +397,10 @@ def is_seed_taxonomy_exempt(rel):
     return any(fnmatch.fnmatch(rel, g) for g in SEED_TAXONOMY_EXEMPT_PATHS)
 
 # ---------- walk exemptions ----------
-EXEMPT_DIRS = ("/.git/", "/.obsidian/", "/.claude/", "/.claude/projects/", "/_test")
+# T-10: /memory/ joins the walk exemptions so the frontmatter cohort never reaches a
+# memory surface — memory-auto-stamp.sh owns created=today there, and the cohort's
+# git-date backfill would collide (location-based exclusion, parity with the T-8 backfill).
+EXEMPT_DIRS = ("/.git/", "/.obsidian/", "/.claude/", "/.claude/projects/", "/memory/", "/_test")
 def is_exempt(full_path, rel):
     if any(ex in "/" + full_path + "/" for ex in EXEMPT_DIRS):
         return True
@@ -439,9 +452,11 @@ def infer_tags(rel):
 def build_scope():
     files = []
     root = vault_scope if walk != "scope" else vault_scope
+    # T-1 (2 belt-and-suspenders): os.walk('') silently returns []
     # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
     if not root or not os.path.isdir(root):
         return files
+    # FIX #7: descend the Work/ symlink ONLY in the scoped Work-deliverable
     # audit lane; the whole-vault default run stays symlink-inert (regression guard).
     follow = (walk == "scope")
     # Symlink-loop guard: when following symlinks, track realpath(dirpath) and prune
@@ -489,6 +504,7 @@ def tag_violations(fm, rel=None):
     if not TAG_PREFIXES:
         # No allowlist configured (foundation default) — skip taxonomy check.
         return []
+    # T-3 (fix): skip the tag-not-in-taxonomy MEMBERSHIP arm for the
     # foundation-shipped vault-init seed surface — those seeds legitimately carry
     # adopter-tier dimensions the foundation taxonomy ships empty (by design).
     # Gates ONLY this membership arm; tags-not-list above still applies.
@@ -651,6 +667,7 @@ def load_drift_allowlist():
 def canonical_scope_files():
     """Vault root depth-1 + Skills/**"""
     out = []
+    # T-1 (2 LOAD-BEARING guard): os.listdir('') raises
     # FileNotFoundError on an empty vault_root, aborting session-close under
     # set -euo pipefail. Guard before the walk so a missing vault degrades to [].
     if not vault_root or not os.path.isdir(vault_root):
@@ -818,6 +835,7 @@ def drift_size_monitoring():
 
 # ---------- schema-type-hook-coverage-gap ----------
 def drift_schema_type_coverage():
+    # T-2: the dead FM_VAULT_SCHEMA read re-points at the
     # post-dissolution SoT — foundation-master.json#frontmatter.types (vault-schema
     # dissolved in T-4; frontmatter-rules.json:7 absorbed_from_vault_schema).
     # `or {}` is LOAD-BEARING: load_json returns None (not {}) on failure, so without
@@ -840,6 +858,7 @@ def drift_schema_type_coverage():
         pv = ""
     pg_types = set(m.group(1) for m in re.finditer(r"^\s+([a-z][a-z-]*)\)\s+SCHEMA_KEY=", pg, re.MULTILINE))
     pv_types = set(m.group(1) for m in re.finditer(r"^\s+'([a-z][a-z-]*)'\s*:\s*'", pv, re.MULTILINE))
+    # T-2 (static-arm gate): post-dissolution neither hook carries
     # static type arms (the regexes above match zero lines), so the coverage audit
     # is inapplicable — return empty rather than flood 6 false-positive
     # "missing in both hooks" findings (one per frontmatter.types key).
@@ -904,6 +923,93 @@ def reconcile(section, existing_list, new_findings, match_keys, id_prefix):
     # Resolved rows dropped (rows in existing_by_key but not in seen_keys).
     return merged
 
+# ---------- T-8: opt-in cohort backfill (Mechanism 2) ----------
+# The adopter-migration path: backfill the universal cohort onto EXISTING files —
+# created from git first-commit date (fallback birth/mtime, NEVER today), a generated
+# immutable id slug, schema_version, and a description via the SHARED T-7 helper.
+# Only ABSENT fields are proposed (created/id are immutable once present). dry-run /
+# --check emit the proposals WITHOUT writing; --fix applies. EXCLUDED (same location
+# scope as the write-time auto-stamp): memory files (created=today collision — audit
+# note #7), CLAUDE.md, _index.md (bootstrap owns its cohort), type: log (machine exhaust),
+# files without frontmatter (the per-file check flags those). Structural-over-band-aid:
+# one derivation contract shared with forward-governance.
+_COHORT_CREATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+def _cohort_created(full):
+    # git first-commit date (YYYY-MM-DD); fallback file birth/mtime; NEVER today.
+    try:
+        r = subprocess.run(
+            ["git", "-C", os.path.dirname(full) or ".", "log", "--reverse",
+             "--format=%ad", "--date=short", "--", os.path.basename(full)],
+            capture_output=True, text=True, timeout=6)
+        first = ((r.stdout or "").strip().split("\n") or [""])[0].strip()
+        if _COHORT_CREATED_RE.match(first):
+            return first
+    except Exception:
+        pass
+    try:
+        st = os.stat(full)
+        ts = getattr(st, "st_birthtime", None) or st.st_mtime
+        return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+def _cohort_desc(full):
+    helper = os.environ.get("FM_DERIVE_DESC", "")
+    if not helper or not os.path.isfile(helper):
+        return ""
+    try:
+        r = subprocess.run(["bash", helper, full], capture_output=True, text=True, timeout=25)
+        return ((r.stdout or "").strip().split("\n") or [""])[0].strip()
+    except Exception:
+        return ""
+
+def _yaml_scalar(v):
+    if isinstance(v, str) and (re.search(r":\s", v) or (v[:1] in "#&*!|>%@`[]{},\"'") or v != v.strip()):
+        return '"%s"' % v.replace('"', "'")
+    return v
+
+def run_cohort_backfill(files):
+    backfilled = 0
+    applied = 0
+    for full, rel in files:
+        relf = rel.replace(os.sep, "/")
+        base = os.path.basename(relf)
+        if base in ("CLAUDE.md", "_index.md"):
+            continue
+        if "/memory/" in ("/" + relf + "/"):
+            continue
+        fm, body, fm_end_line = parse_frontmatter(full)
+        if not fm:
+            continue  # no frontmatter → out of backfill scope (per-file check flags it)
+        if (fm.get("type") or "") == "log":
+            continue
+        proposed = {}
+        if "created" not in fm:
+            c = _cohort_created(full)
+            if c:
+                proposed["created"] = c
+        if "id" not in fm:
+            proposed["id"] = slugify(relf[:-3] if relf.endswith(".md") else relf) or "note"
+        if "schema_version" not in fm:
+            proposed["schema_version"] = 1
+        if "description" not in fm or (isinstance(fm.get("description"), str) and not fm["description"].strip()):
+            d = _cohort_desc(full)
+            if d:
+                proposed["description"] = _yaml_scalar(d)
+        if not proposed:
+            continue
+        backfilled += 1
+        will_apply = fix_mode and not dry_run
+        emit({"finding": "frontmatter-cohort-backfill", "file": rel,
+              "proposed": proposed, "classification": "auto-fix", "applied": will_apply})
+        if will_apply:
+            new_fm = dict(fm)
+            new_fm.update(proposed)
+            _rewrite_frontmatter(full, new_fm, body, fm_end_line)
+            applied += 1
+    return backfilled, applied
+
 # ---------- orchestrate ----------
 existing_drift = {}
 try:
@@ -913,6 +1019,7 @@ except Exception:
 
 files = build_scope()
 pf_count, fixed_count, manual_count, fixed_files = run_per_file(files)
+cohort_backfilled, cohort_applied = run_cohort_backfill(files)
 
 # Drift audits only run when walk != "scope" (i.e., full or recent, vault-wide)
 drift_sections = {}
@@ -944,6 +1051,7 @@ with open(drift_out_path, "w") as f:
 if dry_run:
     print(f"frontmatter-enforce: scanned={len(files)} findings={pf_count} "
           f"auto-fixed={fixed_count} manual={manual_count} "
+          f"cohort-backfill={cohort_backfilled}(applied={cohort_applied}) "
           f"drift_DC={len(drift_sections.get('provides_canonicality') or [])} "
           f"drift_SM={len(drift_sections.get('size_monitoring') or [])} "
           f"drift_ST={len(drift_sections.get('schema_type_coverage') or [])}")

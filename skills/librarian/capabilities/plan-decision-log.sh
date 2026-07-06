@@ -162,8 +162,16 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
+            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
             emit({"finding": "plan-decision-log-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
+            continue
+        # /(): keep only real plans. A real plan has a `status` field
+        # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
+        # accept clause subsumes the corpus_version/slots reject (those fixtures also
+        # lack status+spec.md); if a future corpus_version dir ever declares status,
+        # revisit — this clause alone would admit it.
+        if not (("status" in man) or os.path.exists(os.path.join(dp, "spec.md"))):
             continue
         found.append((dp, man))
     return found
@@ -196,7 +204,9 @@ def lineage_of(man, slug):
 STATUS_ENUM = {"proposed", "accepted", "rejected", "deprecated", "superseded"}
 
 spokes = {}             # spoke -> { lineage -> [rows] }
-# spoke -> set of ADR ids present in the projection (for forward-link xref).
+# ADR ordinals restart PER PLAN, so a forward-link ✓ qualifies against the ADR
+# ids of the row's OWN plan only — never a spoke-global union (a cross-plan
+# same-numbered ADR must not false-match). spoke -> { plan_slug -> set(adr ids) }.
 spoke_adr_ids = {}
 
 for plan_dir, man in manifests:
@@ -214,7 +224,7 @@ for plan_dir, man in manifests:
         continue
     lineage = lineage_of(man, slug)
     spokes.setdefault(spoke, {})
-    spoke_adr_ids.setdefault(spoke, set())
+    spoke_adr_ids.setdefault(spoke, {})
     grp = spokes[spoke].setdefault(lineage, [])
     for dr in drs:
         if not isinstance(dr, dict):
@@ -233,7 +243,8 @@ for plan_dir, man in manifests:
         }
         grp.append(row)
         if adr_id:
-            spoke_adr_ids[spoke].add(adr_id)
+            # key by the owning plan_slug: the ✓ qualifies same-plan only.
+            spoke_adr_ids[spoke].setdefault(slug, set()).add(adr_id)
 
         # R-BIND-6 append-immutability is a CONTENT property of the SUPERSEDED
         # status: never drop a superseded record; it MUST carry a forward-link.
@@ -262,7 +273,7 @@ def esc(cell):
     return (cell or "").replace("|", "\\|")
 
 
-def render_row(row, present_ids):
+def render_row(row, plan_adr_ids):
     adr = row["id"] or "—"
     title = esc(row["title"]) or "—"
     status = row["status"] or "—"
@@ -270,10 +281,13 @@ def render_row(row, present_ids):
     path = row["path"]
     pcell = md_link(path, path) if path else "—"
     # forward-link (R-BIND-6): a superseded record points forward at the ADR that
-    # replaced it; cross-reference to the in-projection row when present.
+    # replaced it; cross-reference to the in-projection row when present. The ✓
+    # qualifies against the ADR ids of the row's OWN plan only (ADR ordinals
+    # restart per plan) — a cross-plan same-numbered ADR is not a match.
     sb = row["superseded_by"]
+    own_plan_ids = plan_adr_ids.get(row["plan_slug"], set())
     if sb:
-        sbcell = "%s ✓" % sb if sb in present_ids else sb
+        sbcell = "%s ✓" % sb if sb in own_plan_ids else sb
     else:
         sbcell = "—"
     created = row["created"] or "—"
@@ -302,7 +316,8 @@ if spoke_filter and spoke_filter not in spokes:
 
 for spoke in target_spokes:
     lineages = spokes.get(spoke, {})
-    present_ids = spoke_adr_ids.get(spoke, set())
+    # per-plan ADR-id map for this spoke: { plan_slug -> set(adr ids) }.
+    plan_adr_ids = spoke_adr_ids.get(spoke, {})
     binder_home = os.path.join(PROJECTS, spoke)
     decision_log = os.path.join(binder_home, "decision-log.md")
 
@@ -341,7 +356,7 @@ for spoke in target_spokes:
         # stable row order: by plan-slug then ADR id then path.
         ordered = sorted(rows, key=lambda r: (r["plan_slug"], r["id"], r["path"]))
         for row in ordered:
-            body_lines.append(render_row(row, present_ids))
+            body_lines.append(render_row(row, plan_adr_ids))
             total_rows += 1
         body_lines.append("")
 

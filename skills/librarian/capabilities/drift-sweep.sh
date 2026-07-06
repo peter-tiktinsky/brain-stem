@@ -8,7 +8,7 @@
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or the
 #     --output sink. With --fix, the master sub_plans[] read-replica is repaired
-#     by delegating to subplan-aggregate.sh (A-03) — drift-sweep itself never
+#     by delegating to subplan-aggregate.sh — drift-sweep itself never
 #     hand-edits sub_plans[]; it invokes the canonical aggregator so the writer
 #     stays single-sourced.
 #   Failure mode: block-and-log; never write-and-hope. Per-file errors are soft

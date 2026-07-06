@@ -7,6 +7,7 @@
 #   1. body — the wired-but-unauthored PostToolUse Edit|Write body.
 #   2. R-44 _index Tier-1 vehicle — the regen entry-point is invocable here; the
 #      session-close CHAINING of it is/(out of scope).
+# — write-time Tier-1 _index.md bootstrap for REGISTERED Work
 # subdirs. A normal PostToolUse fire (no --index-regen flag) now bootstraps the
 # folder's _index.md when a deliverable lands in a registered Work subtree. The
 # property is perf-budgeted and fail-open; the gate chain (in fire order) is:
@@ -53,22 +54,117 @@ if [ "${1:-}" = "--index-regen" ]; then
   exit 0
 fi
 
-# ---: normal-fire Tier-1 _index.md bootstrap for registered Work subdirs ---
-# Read the PostToolUse stdin JSON ONCE; only tool_input.file_path is consumed
-# (PostToolUse also carries tool_response — ignored). Every branch below is
-# fail-open: a missing dep, empty path, or any error → exit 0 with no write.
-
-# Gate 1 — WORK_CONFIGURED perf floor: no Work surface configured → no work.
-if [ "${WORK_CONFIGURED:-0}" != "1" ]; then
-  exit 0
-fi
-
-# jq is required to read the stdin path + (later) the overlay rules. Absent → no-op.
+# jq is required to read the stdin path (cohort auto-stamp + the overlay rules).
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Read the PostToolUse stdin JSON ONCE — shared by the forward-governance cohort
+# auto-stamp (T-7) AND the _index bootstrap below. Only tool_input.file_path is
+# consumed (PostToolUse also carries tool_response — ignored). Fail-open throughout.
 PWV_INPUT="$(cat)"
 PWV_FILE_PATH="$(printf '%s' "$PWV_INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
 [ -n "$PWV_FILE_PATH" ] || exit 0
+
+# === T-7: forward-governance cohort auto-stamp (Mechanism 1) =================
+# Auto-stamp a vault-RESIDENT, frontmatter-bearing .md file with the universal
+# cohort at write-time — but ONLY the fields that are ABSENT (created + an immutable
+# readable id slug are stamped once and never regenerated on a re-write; the stored
+# id survives a later move/rename). Location-based scope: the file must be physically
+# under $VAULT_ROOT. EXCLUDED: memory files (memory-auto-stamp.sh owns created=today
+# there — a git-date backfill would collide), CLAUDE.md (navigation/context,
+# frontmatter-less), _index.md (the Tier-1/Tier-2 bootstrap stamps its own cohort),
+# and type: log (out-of-folder machine exhaust). Fast pre-gate: no python spawns
+# unless a cohort field is actually missing (steady state = one grep). The symlinked
+# Work/ surface is covered by the scaffolder (cohort-emitting) + the frontmatter-enforce
+# --fix backfill, not here. Fail-open: any error leaves the file untouched.
+if [ "${VAULT_CONFIGURED:-0}" = "1" ] && [ -n "${VAULT_ROOT:-}" ] \
+   && [ "${PWV_FILE_PATH#$VAULT_ROOT/}" != "$PWV_FILE_PATH" ] \
+   && [ "${PWV_FILE_PATH%.md}" != "$PWV_FILE_PATH" ] \
+   && [ -f "$PWV_FILE_PATH" ] \
+   && command -v python3 >/dev/null 2>&1; then
+  _cs_base="${PWV_FILE_PATH##*/}"
+  case "$PWV_FILE_PATH" in */memory/*) _cs_skip=1 ;; *) _cs_skip=0 ;; esac
+  if [ "$_cs_skip" = "0" ] && [ "$_cs_base" != "CLAUDE.md" ] && [ "$_cs_base" != "_index.md" ] \
+     && [ "$(head -1 "$PWV_FILE_PATH" 2>/dev/null)" = "---" ]; then
+    # Fast pre-gate — only proceed if a cohort field is actually missing.
+    _cs_fm="$(awk 'NR==1{next} /^---[[:space:]]*$/{exit} {print}' "$PWV_FILE_PATH" 2>/dev/null)"
+    _cs_need=0
+    for _cs_k in created id schema_version description; do
+      printf '%s\n' "$_cs_fm" | grep -qE "^${_cs_k}:" || { _cs_need=1; break; }
+    done
+    if [ "$_cs_need" = "1" ]; then
+      _cs_rel="${PWV_FILE_PATH#$VAULT_ROOT/}"
+      _cs_slug="$(printf '%s' "${_cs_rel%.md}" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//')"
+      [ -n "$_cs_slug" ] || _cs_slug="note"
+      _cs_today="$(date +%Y-%m-%d)"
+      _cs_desc=""
+      printf '%s\n' "$_cs_fm" | grep -qE '^description:' \
+        || _cs_desc="$(bash "$SCRIPT_DIR/lib/derive-description.sh" "$PWV_FILE_PATH" 2>/dev/null || true)"
+      python3 - "$PWV_FILE_PATH" "$_cs_today" "$_cs_slug" "$_cs_desc" 2>/dev/null <<'PYCS' || true
+import sys, os, re
+path, today, slug, desc = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+try:
+    with open(path, encoding="utf-8") as fh:
+        content = fh.read()
+except OSError:
+    sys.exit(0)
+if not content.startswith("---\n"):
+    sys.exit(0)   # no frontmatter → leave to the T-8 fixer
+end = content.find("\n---\n", 4)
+if end < 0:
+    sys.exit(0)
+fm_text = content[4:end]
+body = content[end + 5:]
+KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
+lines = fm_text.split("\n")
+keys = {}
+for i, ln in enumerate(lines):
+    m = KEY_RE.match(ln)
+    if m:
+        keys[m.group(1)] = i
+if not keys:
+    sys.exit(0)
+# type: log is out-of-folder machine exhaust — out of cohort scope.
+if "type" in keys:
+    tv = (KEY_RE.match(lines[keys["type"]]).group(2) or "").strip().strip('"').strip("'")
+    if tv == "log":
+        sys.exit(0)
+def add_if_absent(k, v):
+    if k not in keys and v != "":
+        lines.append("%s: %s" % (k, v))
+        keys[k] = len(lines) - 1
+add_if_absent("created", today)
+add_if_absent("id", slug)
+add_if_absent("schema_version", "1")
+if desc:
+    d = desc.replace('"', "'")
+    if re.search(r':\s', d) or d[:1] in "#&*!|>%@`[]{},":
+        d = '"%s"' % d
+    add_if_absent("description", d)
+new_content = "---\n" + "\n".join(lines) + "\n---\n" + body
+if new_content == content:
+    sys.exit(0)
+tmp = path + ".cohort-stamp.tmp"
+try:
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(new_content)
+    os.replace(tmp, path)
+except OSError:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    sys.exit(0)
+PYCS
+    fi
+  fi
+fi
+# === end T-7 cohort auto-stamp ==============================================
+
+# ---: normal-fire Tier-1 _index.md bootstrap for registered Work subdirs ---
+# Gate 1 — WORK_CONFIGURED perf floor: no Work surface configured → no _index work.
+if [ "${WORK_CONFIGURED:-0}" != "1" ]; then
+  exit 0
+fi
 
 # Gate 2 — physical-prefix prefilter (BEFORE any overlay read). Resolve the real
 # parent dir via `pwd -P` (matches the remap primitive; not realpath). The
@@ -256,7 +352,8 @@ parent = os.path.basename(os.path.dirname(dirpath)) if os.sep in rel_dir else ""
 fm_lines = ["---", "type: index"]
 if parent:
     fm_lines.append("parent_folder: %s" % parent)
-fm_lines += ["tags: [\"#scope/reference\"]", "updated: %s" % today, "---", ""]
+_cohort_slug = re.sub(r"[^a-z0-9]+", "-", (rel or folder).lower()).strip("-") or "index"
+fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
 body = "\n".join(fm_lines)
 body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
 body += "## Contents\n\n" + START + "\n"

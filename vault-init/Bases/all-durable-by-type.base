@@ -1,0 +1,22 @@
+# Starter Obsidian Base (Bases core plugin, Obsidian 1.9.10+).
+# Every durable note, grouped/sorted by type then newest-updated. Bases reads
+# frontmatter ONLY — this view exploits the universal typed cohort directly
+# (type / updated / description). No knowledge-graph engine required.
+filters:
+  and:
+    - 'type != null'
+    - '!file.folder.contains("Archive")'
+views:
+  - type: table
+    name: All durable by type
+    order:
+      - file.name
+      - type
+      - status
+      - updated
+      - description
+    sort:
+      - property: type
+        direction: ASC
+      - property: updated
+        direction: DESC

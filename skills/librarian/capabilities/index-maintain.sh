@@ -4,6 +4,7 @@
 # self-healing capability under the R-34 boundary.
 # NET-NEW librarian body (1.1 line 136 — replaces the phantom
 # doc-reference). Authored from the authoring-spec index-maintain.md
+# (REFERENCE only —(a)).
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
 #     missing/orphan rows, updated: bump, auto-bootstrap of a missing non-exempt
@@ -75,6 +76,7 @@ if [ -z "$GOV_DIR" ]; then
   done
 fi
 
+# Tier-1: mandatory-files-rules.json is repo-only —
 # it does NOT ship to a fresh adopter, where only the composed
 # governance/foundation-master.json bundle lands. Resolve the SHIPPED bundle via
 # ${CLAUDE_HOME:-$HOME/.claude} FIRST; the Python body reads the composed
@@ -133,6 +135,7 @@ def emit(d):
         sys.stdout.write(line + "\n")
 
 # --- block-and-log: load + validate the mandatory-files pillar -------------
+# Tier-1: bundle-first. The shipped foundation-master.json
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
@@ -262,6 +265,7 @@ def line_count(path):
 corrections = 0
 bootstraps = 0
 
+# FIX #7: followlinks=True so the Tier-2 sweep can descend the Work/
 # symlink (a vault-view of the external work-home) and reach a registered
 # (-de-exempted) Work subdir; without it's overlay-derived de-exemption
 # is inert (the walk never gets there). Work/** stays exempt-by-default (the
@@ -309,7 +313,8 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
         fm_lines = ["---", "type: index"]
         if parent:
             fm_lines.append("parent_folder: %s" % parent)
-        fm_lines += ["tags: [\"#scope/reference\"]", "updated: %s" % today, "---", ""]
+        _cohort_slug = re.sub(r"[^a-z0-9]+", "-", (rel or folder).lower()).strip("-") or "index"
+        fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
         body = "\n".join(fm_lines)
         body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
         body += "## Contents\n\n" + START + "\n"

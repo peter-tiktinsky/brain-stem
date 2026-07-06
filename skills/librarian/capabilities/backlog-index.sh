@@ -1,16 +1,17 @@
 #!/bin/bash
 # backlog-index — Regenerate <plans-root>/_backlog.md from plan manifests as a
-# manifest-derived read-replica. Librarian reader cap with the A-06 master-row
+# manifest-derived read-replica. Librarian reader cap with the master-row
 # policy + satellite-pointer retarget.
-# Librarian reader cap (A-06;1.1 line 126). Ported from the
-# backlog-index.sh with two A-06
+# Librarian reader cap (1.1 line 126). Ported from the
+# backlog-index.sh with two
 # additions:
 #   (1) MASTER-ROW POLICY: when a master plan with sub_plans[] is in the
 #       backlog, render only the MASTER row (its rollup READ from the
-#       sub_plans[] aggregate that subplan-aggregate.sh / A-03 populates);
+#       sub_plans[] aggregate that subplan-aggregate.sh / populates);
 #       sub-plan dirs do not get their own backlog rows.
 #   (2) SATELLITE-POINTER RETARGET: the per-row session-history
 #       pointer is the plan dir / master handoff.md — NOT the retired
+#       /<slug>.md satellite.
 #       The Notes cell is carried forward verbatim (the row sentinel pattern).
 # Output Contract
 #   Files written: <plans-root>/_backlog.md (sentinel-bounded table region;
@@ -79,6 +80,7 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
+# master-fallback (R4 / H-6): plans-rules.json is repo-only (
 # install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
 # two bundles (foundation-master + overlay-master), which governance consumers read as ONE
 # merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
@@ -133,10 +135,29 @@ disposition_enum = backlog_row.get("disposition_enum",
                                    ["FIX NOW", "ABSORB", "STANDALONE", "DEFERRED"])
 slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2,}-[a-z][a-z0-9-]+$")
 slug_re = re.compile(slug_pattern)
-lifecycle_enum = rules.get("lifecycle", {}).get(
-    "status_enum",
-    ["researching", "planned", "in-progress", "paused", "completed", "verified",
-     "closed", "archived", "superseded"])
+# single-SoT: the plan-status validation vocabulary is derived from the
+# CANONICAL SoT — schemas/plan-manifest-schema.json :: properties.status.enum
+# (9-state, INCLUDES `superseded`). governance/plans-rules.json ::
+# lifecycle.status_enum is an 8-state SUBSET (it factors `superseded` out into
+# the sibling terminal_from_any_non_archived key) and is NO LONGER read as the
+# validation authority here — reading it false-flagged a correctly-`superseded`
+# plan as manifest-status-orphan. The hardcoded 9-state list below is a
+# schema-absent LAST-RESORT fallback ONLY (defensive), never a second authority.
+_STATUS_ENUM_FALLBACK = [
+    "researching", "planned", "in-progress", "paused", "completed", "verified",
+    "closed", "archived", "superseded"]
+lifecycle_enum = None
+if schema_path and os.path.isfile(schema_path):
+    try:
+        with open(schema_path, encoding="utf-8") as fh:
+            _status_schema = json.load(fh)
+        _status_enum = _status_schema.get("properties", {}).get("status", {}).get("enum")
+        if isinstance(_status_enum, list) and _status_enum:
+            lifecycle_enum = _status_enum
+    except Exception:
+        lifecycle_enum = None
+if lifecycle_enum is None:
+    lifecycle_enum = _STATUS_ENUM_FALLBACK
 IN_BACKLOG = ("researching", "planned")
 
 validator = None
@@ -275,7 +296,7 @@ for entry in sorted(os.listdir(plans_root)):
               "detected_at": today, "first_seen": today})
         disposition = "MISSING"
 
-    # A-06 MASTER-ROW POLICY: a master with sub_plans[] renders one row whose
+    # MASTER-ROW POLICY: a master with sub_plans[] renders one row whose
     # status display is the master's own status; the per-sub rows are NOT
     # rendered (the master carries the rollup). Plain plans render normally.
     is_master = (manifest.get("type") == "master") or isinstance(manifest.get("sub_plans"), list)

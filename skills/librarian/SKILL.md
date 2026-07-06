@@ -46,17 +46,19 @@ is the rule CATEGORY axis, not a skill boundary.
 
 `full` is the audit-set sweep: it runs every capability whose `capability-registry.json`
 `invocation_modes` includes `librarian-full`. The **registry is the authoritative roster**
-(contract-of-record); the set below is a snapshot of the current release (28
+(contract-of-record); the set below is a snapshot of the current release (40
 capabilities) — consult `invocation_modes` for the live membership:
 
 > `governance-parity-audit`, `index-maintain`, `log-subtype-canonical`, `rules-index`,
-> `writers-index-refresh`, `writers-overlap-refresh`, `writers-health-audit`,
-> `plan-index`, `plan-parent-resolve`, `drift-sweep`,
-> `trinity-drift-detect`, `frontmatter-enforce`, `placement-validate`, `xref-check`,
-> `stale-detect`, `handoff-disposition-check`, `tag-coverage-audit`,
-> `sanctioned-schema-drift-detect`, `capability-registry-parity`,
-> `librarian-manifest-validate`, `skill-parity`, `waiver-audit`, `log-archive`, `backup`,
-> `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`.
+> `writers-index-refresh`, `writers-overlap-refresh`, `writers-health-audit`, `plan-index`,
+> `plan-parent-resolve`, `drift-sweep`, `trinity-drift-detect`, `frontmatter-enforce`,
+> `placement-validate`, `xref-check`, `stale-detect`, `handoff-disposition-check`,
+> `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `capability-registry-parity`, `librarian-manifest-validate`,
+> `skill-parity`, `waiver-audit`, `log-archive`, `backup`,
+> `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`,
+> `plan-research-index`, `plan-decision-log`, `plan-handoff-index`, `project-context-situating`,
+> `work-map-generate`, `work-index-maintain`, `binder-handoff-append-wrapper`, `chronicle-index`,
+> `pointer-currency-scan`, `plan-terminal-lag-check`, `library-index`, `library-log-rotate`.
 
 `full` is NOT "every capability". Notably it does **not** run `backlog-index` or
 `plan-archive` (see below), nor `tasks-render` / `subplan-aggregate` (those run per-plan,
@@ -146,7 +148,7 @@ Runtime: `capabilities/tasks-render.sh`.
 
 ## Capability: subplan-aggregate
 
-Pull-based master `sub_plans[]` aggregator (A-03) — reads each
+Pull-based master `sub_plans[]` aggregator () — reads each
 sub-plan's published status into the master's `sub_plans[]` read-replica
 (element shape `{sub_plan_id, slug, status, graduation_timestamp}`; the
 graduation_timestamp WRITER; coarse-bucket keying). Never
@@ -171,7 +173,7 @@ Runtime: `capabilities/drift-sweep.sh`.
 ## Capability: plan-index
 
 Regenerates `<plans-root>/_index.md` as a status-grouped navigation index;
-A-06 reader cap — READS the master `sub_plans[]` aggregate for the per-master
+reader cap — READS the master `sub_plans[]` aggregate for the per-master
 coarse-bucket rollup. The plan-index.md capability contract is governed by the
 registry `output_contract` (no governance/librarian-capabilities/ doc).
 Runtime: `capabilities/plan-index.sh`.
@@ -179,14 +181,14 @@ Runtime: `capabilities/plan-index.sh`.
 ## Capability: backlog-index
 
 Regenerates `<plans-root>/_backlog.md` from `{researching, planned}` manifests;
-A-06 reader cap — master-row-only policy (READS the aggregate) + satellite
+reader cap — master-row-only policy (READS the aggregate) + satellite
 -pointer retarget off the `<slug>.md` backlog-progress satellite to the plan dir /
 master `handoff.md`.
 Runtime: `capabilities/backlog-index.sh`.
 
 ## Capability: plan-archive
 
-Promotes closed plans to archived + appends to `<plans-root>/_archive.md`; A-06
+Promotes closed plans to archived + appends to `<plans-root>/_archive.md`;
 reader cap — master-subtree archival gate (a master archives only when every
 `sub_plans[]` entry is terminal). Data-driven cooldown; idempotent.
 Runtime: `capabilities/plan-archive.sh`.
@@ -296,6 +298,16 @@ Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
 Checks every close-out follow-up carries one of the 3 dispositions (FIX NOW /
 ABSORB / STANDALONE); emits disposition-gap findings. Ported as-is.
 Runtime: `capabilities/handoff-disposition-check.sh`.
+
+## Capability: plan-terminal-lag-check
+
+Close-time surface-and-walk enforcement (DT-3): emits a `plan-terminal-lag`
+finding when a plan's own status is non-terminal under a `parent_plan` master
+whose status IS terminal, and prompts the walk. Writes NO status — never
+auto-closes, never auto-stamps `verified` — and touches no aggregation. TERMINAL
+= {verified, closed, archived, superseded} (byte-identical to plan-archive.sh /
+trinity-drift-detect.sh / subplan-aggregate.sh; `completed` is not terminal).
+Runtime: `capabilities/plan-terminal-lag-check.sh`.
 
 ## Capability: plan-parent-resolve
 

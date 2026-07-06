@@ -1,16 +1,19 @@
 #!/bin/bash
 # hooks/lib/registry.sh — Multi-session coordination shared constants + utility
 # functions. Sourced by hook scripts and registry-op.sh.
+# (machine-local coordination): COORD_DIR is resolved via
 # hooks/lib/paths.sh under $CLAUDE_STATE_ROOT (machine-local ephemeral), NOT
 # the's in-vault $VAULT_LOGS/.coordination. The coordination registry +
 # the four lockf locks (registry/manifest/tasks/reconcile.lock) live at
 # $CLAUDE_STATE_ROOT/.coordination/ — machine-local ephemeral. The
 # REGISTRY_FILE symbol exported to consumer hooks is UNCHANGED; consumer hooks
 # pick it up unchanged.
+# amendment: top-level lib/ does NOT exist — this body lives at
 # hooks/lib/registry.sh and sources hooks/lib/paths.sh directly.
 
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 # Hook-journal + output-validator peers live at hooks/lib/ and land at
+# /; source them when present (graceful-degrade so registry.sh does
 # not hard-fail before its peers land).
 for _peer in hook-journal.sh validate-hook-output.sh; do
   _peer_path="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/$_peer"
@@ -41,9 +44,20 @@ fi
 COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
 REGISTRY_FILE="$COORD_DIR/session-registry.json"
 REGISTRY_LOCK="$COORD_DIR/registry.lock"
-MANIFEST_LOCK="$COORD_DIR/manifest.lock"
-TASKS_LOCK="$COORD_DIR/tasks.lock"
 RECONCILE_LOCK="$COORD_DIR/reconcile.lock"
+# REGISTRY_LOCK contract: EVERY read-modify-write of REGISTRY_FILE must hold
+# REGISTRY_LOCK across the ENTIRE read_registry..write_registry span, in addition to
+# any process-dedup lock (RECONCILE_LOCK / AUTO_CLOSE_LOCK). Two writers guarding the
+# same file with two DIFFERENT locks do not exclude each other — that is a lost-update
+# race. REGISTRY_LOCK is the single mutex for the registry resource; a process-dedup
+# lock is orthogonal (it collapses redundant concurrent runs of one producer, it does
+# NOT serialize distinct writers).
+# Four-lock roster: registry.lock (above) + reconcile.lock (above) are LIVE. The other
+# two roster resources are reserved:
+#   - manifest.lock — the manifest resource's mutex, contended directly by
+#     hooks/lib/manifest.sh via its own hardcoded literal path (no shared variable
+#     here; a registry.sh MANIFEST_LOCK declaration would be a dead DRY duplicate).
+#   - tasks.lock — RESERVED for a not-yet-built tasks/sqlite resource; no consumer yet.
 
 EMPTY_REGISTRY='{"sessions":{},"pending_reconciliation":false,"last_reconciled":""}'
 

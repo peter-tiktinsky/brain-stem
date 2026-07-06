@@ -21,7 +21,7 @@
 # Injected text is FACTUAL, not imperative ("The authoritative spec for the active
 # plan is <path>. ...") per + Anthropic hooks prompt-injection guidance.
 # Fail-open: silent on any error; never blocks. Size-capped below the hook-output
-# validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (Cat-2 portable;
+# validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (portable;
 # NO literal $HOME/.claude path in the body).
 
 set -euo pipefail
@@ -137,11 +137,11 @@ TARGET_ABS="$HOME/$PLAN_REL"
 
 TARGET_MANIFEST="$TARGET_ABS/manifest.json"
 
-# B-03 (T-13): closed-skip exit-case keyed on the canonical vocabulary.
+# (T-13): closed-skip exit-case keyed on the canonical vocabulary.
 # Re-point off the's non-canonical spellings: `complete`->`completed`;
 # DROP `cancelled` (not in the 8-state enum); KEEP `closed` + `superseded` +
 # `archived` (canonical terminal states). The hook already reads `.status`
-# (NOT top_level_status) — preserved. B-03 here is a schema-field
+# (NOT top_level_status) — preserved. here is a schema-field
 # CANONICALIZATION, not a field rename (the schema retired top_level_status at).
 TARGET_STATUS=$(manifest_status "$TARGET_MANIFEST")
 case "$TARGET_STATUS" in
@@ -180,7 +180,7 @@ SENTINEL="$STATE_DIR/$SENTINEL_KEY.flag"
 
 # Context build — FACTUAL framing.
 emit_decision_records() {
-  # A-09 (T-12): on plan resume, load NON-superseded ADRs via the manifest pointer
+  # (T-12): on plan resume, load NON-superseded ADRs via the manifest pointer
   # manifest.decision_records[] (refinement #4). Filters out status
   # superseded/deprecated entries. Graceful no-op when absent/empty.
   local mf="$1" recs
@@ -219,14 +219,14 @@ if [[ -f "$TARGET_MANIFEST" ]]; then
   context+=$'\n''```'$'\n'
 fi
 
-# A-09 agent-reload: own decision_records[]
+# agent-reload: own decision_records[]
 emit_decision_records "$TARGET_MANIFEST"
 
 # 3-way payload dispatch additions
 case "$PLAN_TYPE" in
   sub)
     # sub -> + master spec head + master sub_plans[] sibling-status + master dependencies.
-    # The master sub_plans[] is's A-03 read-replica (subplan-aggregate.sh output),
+    # The master sub_plans[] is's read-replica (subplan-aggregate.sh output),
     # read directly from the master manifest (reverse-read edge).
     if [[ -n "$MASTER_ABS" && -f "$MASTER_ABS/spec.md" ]]; then
       context+="

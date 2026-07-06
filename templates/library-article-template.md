@@ -7,6 +7,10 @@ sources:
   - <_raw/source-original-1.md>
   - <_raw/source-original-2.md>
 originating_plan: <plan-slug that promoted this article>
+description: <one-line — what this article is; the index subtitle>
+created: <YYYY-MM-DD>
+id: <stable-slug — immutable readable id derived from <topic>/<article>>
+schema_version: <cohort version — integer>
 revalidation_interval_days: <optional — 45 for fast tool-docs, 270 for stable concepts; omit to take the 90-day fallback>
 ---
 
@@ -20,7 +24,8 @@ This template is the SCAFFOLD the librarian instantiates at promotion — the li
 article is written by skills/librarian/capabilities/library-scrub.sh, not by hand.
 
 Frontmatter (type: reference, tier strict): REQUIRED type / tags / updated /
-routing / sources / originating_plan. OPTIONAL description / revalidation_interval_days
+routing / sources / originating_plan / description / created / id / schema_version
+(the last four are the universal typed cohort). OPTIONAL revalidation_interval_days
 / supersedes / depends_on / contradicts. size_limits is NOT a frontmatter field —
 length is governed by C-FTC-LIB-ART and enforced by the librarian library-index scan
 (over-threshold finding at the 400-line soft budget / 800 hard), never at write time.

@@ -4,6 +4,27 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.10.0]
+
+Foundation release — a new **typed frontmatter substrate** that makes your vault navigable in Obsidian, legible to Claude, and portable to external AI tools, alongside a broad round of correctness fixes to the per-project "binder" surfaces (the auto-generated situating cards, handoff chronicles, decision logs, and lifecycle checks) and to multi-session coordination. Most of this release is internal hardening; the one new authoring-facing capability — the frontmatter cohort and its opt-in backfill — is **warn-by-default, with nothing forced on you and nothing to migrate.** See the [v1.10.0 release notes](docs/release-notes-v1.10.0.md).
+
+### Added
+
+- **A typed universal frontmatter cohort + an opt-in auto-fixer.** brain-stem now defines a small, consistent set of frontmatter fields for durable notes in your vault — `type`, `description`, `created`, `updated`, `tags`, `id`, and `schema_version` — so the same note is navigable for you, legible to Claude, and exportable to external AI tools (RAG/MCP) without per-tool adapters. Files created through the system are stamped automatically; existing files stay untouched until you opt in. A shipped, adopter-runnable auto-fixer backfills the fields on demand (`created` from each file's first-commit date — never today's date, a stable generated `id`, and an auto-drafted one-line `description`). The default posture is **warn, not block** — you can dial your own vault to hard-enforce once you have backfilled.
+- **Obsidian Bases starter views.** brain-stem seeds Bases views that read this frontmatter, so your vault has a native, table-driven navigation surface out of the box.
+- **Work-spoke folders beyond sub-projects.** A work spoke can now carry top-level folders that are not sub-projects (`--add-folder`), for reference material and deliverables that do not belong to a single sub-project.
+
+### Fixed
+
+- **The per-project binder surfaces are correct and bounded.** The auto-generated project "situating card" (the at-a-glance orientation for a project) is now length-bounded instead of occasionally dumping a whole file; the "handoff chronicle" (the newest-first session log) recognizes every legitimate session-heading shape and no longer drops or mis-matches entries; the decision log no longer cross-links a decision to an identically-numbered decision in a different plan; and stale "latest handoff" pointers are refreshed on write.
+- **Plan lifecycle is enforced at close time.** When a project's parent is finished but a child plan is left non-terminal, brain-stem now surfaces the lag at session close instead of letting it drift silently.
+- **Multi-session coordination is race-free.** When several Claude sessions run against the same vault, the shared session registry that tracks them is now updated under a single mutual-exclusion lock, so a concurrent cleanup and a registration can no longer clobber each other.
+- **Governance and install hygiene.** A cluster of smaller correctness fixes: the plan-status vocabulary now has one source of truth, an empty project-parent field no longer mis-flags a plan, the release cleaner no longer over-strips adjacent text, launching from your home directory (an unsupported anti-pattern) now warns clearly, and several internal self-counting comments and manifest walks were corrected.
+
+### Changed
+
+- **Nothing you author changes, and there is nothing to migrate.** The frontmatter cohort is warn-by-default and the auto-fixer is opt-in; every existing file keeps working as-is.
+
 ## [v1.9.2]
 
 Safety release — two upgrade-path fixes that stop an upgrade from overwriting state you have built up. Upgrading now preserves your registered projects (the spoke registry is seeded once on a fresh install and never reset on a later upgrade), and the project-identity migration is now shipped and rewritten so it can only rescue a genuinely-legacy plan title — it never re-stamps a plan's project identity. **Nothing about how you author your vault, projects, or plans changes, and there is nothing to migrate.** See the [v1.9.2 release notes](docs/release-notes-v1.9.2.md).

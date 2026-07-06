@@ -15,6 +15,7 @@
 #     - <vault>/Wiki     -> symlink to plans_root/_library/   (R-ARCH-SYMLINK)
 #     - <vault>/Projects -> symlink to plans_root/_projects/  (R-ARCH-SYMLINK)
 #     - <vault>/Work     -> symlink to $WORK_HOME (// ~/work)  (R-ARCH-SYMLINK;
+#       — the 4th context surface, deliverable home. $WORK_HOME is an
 #       external unscaffolded root, mkdir -p'd here first so the link resolves [])
 #     - <vault>/.obsidian/app.json  userIgnoreFilters += Plans/_library,
 #       Plans/_projects, /Work\/<spoke>\/reference\// (R-BIND-EXCL; visibility
@@ -164,6 +165,7 @@ mkdir -p "$VAULT_ROOT" || { diag "mkdir vault root failed: $VAULT_ROOT"; exit 1;
 ( cd "$VAULT_INIT" && find . -type d ) | while IFS= read -r d; do
   mkdir -p "$VAULT_ROOT/$d" || { diag "mkdir $VAULT_ROOT/$d failed"; exit 1; }
 done || { diag "vault-init directory seed failed"; exit 1; }
+# (T-12): vault-init/ ships the MANDATORY committed static
 # Vault Writers/_index.md file. The copy loop seeds every committed file
 # except the .gitkeep dir-placeholders, so the Vault Writers/_index.md
 # idempotency MARKER (see :131) is produced on the first build — a re-run
@@ -254,6 +256,31 @@ fi
 APP_TMP="$APP_JSON.tmp.$$"
 printf '%s\n' "$APP_MERGED" > "$APP_TMP" || { rm -f "$APP_TMP"; diag "stage app.json failed"; exit 1; }
 mv -f "$APP_TMP" "$APP_JSON" || { rm -f "$APP_TMP"; diag "atomic rename app.json failed"; exit 1; }
+
+# --- 2c. Obsidian property types (T-12; UX typing for the cohort) ---
+# Seed .obsidian/types.json so Obsidian renders the governed cohort keys as the right
+# property KIND: created/updated as `date`, tags/aliases as the plural list forms.
+# brain-stem cannot ENFORCE Obsidian's own property types (C3) — the enforceable layer
+# is the T-5 write-time format regex (R-64); this is the UX mirror. No-clobber OBJECT-KEY
+# merge (distinct from the app.json ARRAY merge above): `SEED + (.types // {})` places the
+# adopter's existing declarations on the winning side, so a pre-existing types.json entry
+# is always preserved.
+TYPES_JSON="$OBSIDIAN_DIR/types.json"
+if [ -f "$TYPES_JSON" ]; then
+  EXISTING_TYPES="$(cat "$TYPES_JSON")"
+else
+  EXISTING_TYPES='{}'
+fi
+TYPES_MERGED="$(printf '%s' "$EXISTING_TYPES" | jq '
+  .types = ({"created":"date","updated":"date","tags":"tags","aliases":"aliases"} + (.types // {}))
+' 2>/dev/null)" || TYPES_MERGED=""
+if [ -z "$TYPES_MERGED" ]; then
+  diag "types.json object-key merge failed (invalid JSON at $TYPES_JSON?)"
+  exit 1
+fi
+TYPES_TMP="$TYPES_JSON.tmp.$$"
+printf '%s\n' "$TYPES_MERGED" > "$TYPES_TMP" || { rm -f "$TYPES_TMP"; diag "stage types.json failed"; exit 1; }
+mv -f "$TYPES_TMP" "$TYPES_JSON" || { rm -f "$TYPES_TMP"; diag "atomic rename types.json failed"; exit 1; }
 
 # --- 3. author <vault>/CLAUDE.md (round-trip subst map) ---
 esc() { printf '%s' "$1" | LC_ALL=C sed -e 's/[\\&|]/\\&/g' | tr -d '\n\r'; }

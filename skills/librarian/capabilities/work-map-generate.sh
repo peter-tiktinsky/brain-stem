@@ -101,15 +101,96 @@ done
 WORK_HOME="${WORK_HOME:-${BRAIN_STEM_WORK_HOME:-$HOME/work}}"
 case "$WORK_HOME" in */) WORK_HOME="${WORK_HOME%/}" ;; esac
 
-python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
+# --- shape-detection helper (single SoT for sub-project classification) --------
+# Source work-spoke-layout.sh so the sub-project/other-folder split reads ONE
+# shared predicate; the classification crosses into the python3 heredoc below via
+# a small manifest tempfile (path passed by argv — no exported python state).
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/work-spoke-layout.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/work-spoke-layout.sh"; } \
+  || { [ -r "$_REPO_LIB/work-spoke-layout.sh" ] && source "$_REPO_LIB/work-spoke-layout.sh"; } \
+  || { echo "work-map-generate: shape helper work-spoke-layout.sh not found" >&2; exit 3; }
+
+CLASSIFY_MANIFEST="$(mktemp)" || { echo "work-map-generate: mktemp failed" >&2; exit 3; }
+trap 'rm -f "$CLASSIFY_MANIFEST"' EXIT
+
+# Emit one target spoke's classification (via the helper) into the manifest.
+_wmg_emit_classification() {
+  local sp="$1" dir="$2" nm
+  classify_top_level "$dir"
+  {
+    printf 'SPOKE\t%s\n' "$sp"
+    printf 'MASTER\t%s\n' "$WSL_IS_MASTER"
+    printf 'DELIV\t%s\n' "$WSL_HAS_DELIV"
+    printf 'REF\t%s\n' "$WSL_HAS_REF"
+    while IFS= read -r nm || [ -n "$nm" ]; do
+      [ -n "$nm" ] && printf 'SUB\t%s\n' "$nm"
+    done <<EOF
+$WSL_SUBPROJECTS
+EOF
+    while IFS= read -r nm || [ -n "$nm" ]; do
+      [ -n "$nm" ] && printf 'OTHER\t%s\n' "$nm"
+    done <<EOF
+$WSL_OTHER_DIRS
+EOF
+    printf 'END\n'
+  } >> "$CLASSIFY_MANIFEST"
+}
+
+if [ -n "$SPOKE_FILTER" ]; then
+  _wmg_emit_classification "$SPOKE_FILTER" "$WORK_HOME/$SPOKE_FILTER"
+elif [ -d "$WORK_HOME" ]; then
+  for _sp_path in "$WORK_HOME"/*; do
+    [ -d "$_sp_path" ] || continue
+    _sp_name=$(basename "$_sp_path")
+    case "$_sp_name" in .*) continue ;; esac
+    _wmg_emit_classification "$_sp_name" "$_sp_path"
+  done
+fi
+
+python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" <<'PY'
 import json, os, sys, tempfile
 from datetime import date
 
-work_home, dry_s, spoke_filter = sys.argv[1:4]
+work_home, dry_s, spoke_filter, manifest_path = sys.argv[1:5]
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
+
+# Classification manifest (built bash-side via work-spoke-layout.sh — the single
+# shape-detection SoT). One record per target spoke; the shape split (sub-project
+# vs other folder) is READ here, never re-derived, so the classification can
+# never drift from the other work walkers.
+CLASSIFY = {}
+try:
+    with open(manifest_path, encoding="utf-8") as _mf:
+        _cur = None
+        for _line in _mf:
+            _line = _line.rstrip("\n")
+            if not _line:
+                continue
+            if "\t" in _line:
+                _tag, _val = _line.split("\t", 1)
+            else:
+                _tag, _val = _line, ""
+            if _tag == "SPOKE":
+                _cur = {"is_master": False, "has_deliv": False, "has_ref": False,
+                        "subprojects": [], "other_dirs": []}
+                CLASSIFY[_val] = _cur
+            elif _cur is None:
+                continue
+            elif _tag == "MASTER":
+                _cur["is_master"] = (_val == "1")
+            elif _tag == "DELIV":
+                _cur["has_deliv"] = (_val == "1")
+            elif _tag == "REF":
+                _cur["has_ref"] = (_val == "1")
+            elif _tag == "SUB":
+                _cur["subprojects"].append(_val)
+            elif _tag == "OTHER":
+                _cur["other_dirs"].append(_val)
+except Exception:
+    CLASSIFY = {}
 
 START = "<!-- work-map:start generated:true -->"
 START_PREFIX = "<!-- work-map:start"   # tolerate an attribute drift on the open marker
@@ -149,31 +230,24 @@ def write_atomic(dirpath, target, body):
     os.replace(tmp, target)
 
 
-# --- top-level disk scan (NOT recursive) ------------------------------------
-# Layout: MASTER iff the spoke has >=1 sub-project dir (a top-level dir that is NOT
-# deliverables/ or reference/) AND no top-level deliverables/+reference/ pair; FLAT
-# otherwise. dotfiles are ignored.
-def scan_spoke(spoke_dir):
-    top_dirs = []
-    try:
-        for name in sorted(os.listdir(spoke_dir)):
-            if name.startswith("."):
-                continue
-            if os.path.isdir(os.path.join(spoke_dir, name)):
-                top_dirs.append(name)
-    except Exception:
-        top_dirs = []
-    has_deliv = "deliverables" in top_dirs
-    has_ref = "reference" in top_dirs
-    subprojects = [d for d in top_dirs if d not in ("deliverables", "reference")]
-    is_master = bool(subprojects) and not (has_deliv and has_ref)
+# --- top-level layout projection (NOT recursive) ----------------------------
+# Layout MASTER/FLAT + the sub-project / other-folder split come from the shared
+# work-spoke-layout.sh helper (via the classification manifest) — a top-level dir
+# is a sub-project IFF it owns its own deliverables/ or reference/, and is_master
+# is (>=1 shape-qualified sub) AND NOT has_deliv AND NOT has_ref. README/updates
+# presence is a plain file check (not the shape idiom). Lists are sorted here so
+# render order is deterministic regardless of the bash-side glob order.
+def scan_spoke(spoke, spoke_dir):
+    c = CLASSIFY.get(spoke, {"is_master": False, "has_deliv": False,
+                             "has_ref": False, "subprojects": [], "other_dirs": []})
     has_readme = os.path.isfile(os.path.join(spoke_dir, "README.md"))
     has_updates = os.path.isfile(os.path.join(spoke_dir, "updates.md"))
     return {
-        "is_master": is_master,
-        "has_deliv": has_deliv,
-        "has_ref": has_ref,
-        "subprojects": subprojects,
+        "is_master": c["is_master"],
+        "has_deliv": c["has_deliv"],
+        "has_ref": c["has_ref"],
+        "subprojects": sorted(c["subprojects"]),
+        "other_dirs": sorted(c["other_dirs"]),
         "has_readme": has_readme,
         "has_updates": has_updates,
     }
@@ -193,6 +267,9 @@ def render_block_body(spoke, info):
                      "none of its own.")
         for sp in info["subprojects"]:
             lines.append("  - `%s/` — sub-project." % sp)
+        if info["other_dirs"]:
+            lines.append("- Other top-level folders (not sub-projects): %s"
+                         % ", ".join("`%s/`" % d for d in info["other_dirs"]))
     else:
         if info["has_deliv"]:
             lines.append("- `deliverables/` — polished, audience-facing work.")
@@ -270,7 +347,7 @@ for spoke in target_spokes:
         spokes_skipped += 1
         continue
 
-    info = scan_spoke(spoke_dir)
+    info = scan_spoke(spoke, spoke_dir)
     body = render_block_body(spoke, info)
     new_text, ok = splice_block(text, body)
     if not ok:

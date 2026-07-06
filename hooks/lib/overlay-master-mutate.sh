@@ -1,31 +1,33 @@
 #!/usr/bin/env bash
 # hooks/lib/overlay-master-mutate.sh — atomic-write library for mutating
 # $CLAUDE_HOME/governance/overlay-master.json under R-37 multi-pillar lockstep.
-#
 # Implements the atomic-write contract and the system.timezone slot.
-#
 # This body lives at hooks/lib/overlay-master-mutate.sh, co-located with its
 # consumer skills/govern/process.sh + the 4 modes. The merge-strategy-registry
 # is a sibling under hooks/lib/. Hook-portability: NO $HOME/.claude
 # literal — resolve via $CLAUDE_HOME (install-convention base).
-#
 # Invoked by:
 #   - /govern register skill (skills/govern/process.sh) — semantic-extension flow
 #   - Future overlay-mutating capabilities (Class A/B/C/D hook nudges)
-#
 # R-52 collision tiebreaker: when same key exists in foundation-master AND
 # overlay-master, overlay wins (adopter override semantics). The mutation
 # library does NOT enforce override-reason capture itself — that is the
 # /govern register skill body's responsibility (write-time UX). This library
 # trusts caller-supplied payloads conforming to the schema.
-#
 # R-37 multi-pillar bundling: N>1 pillar mutations in a single invocation
 # all apply atomically or NONE apply. Single tempfile; single atomic rename.
-#
 # bash 3.2 compatible (no `declare -A`, no `mapfile`, no `${var,,}`).
 # Canonical lock pattern: /usr/bin/lockf -k -t 0.
 
 set -u
+
+# ---- original argv capture (bash-3.2 empty-safe re-exec forwarding) ---
+# Capture the ORIGINAL argv into an indexed array immediately after set -u,
+# BEFORE the parse loop below consumes $@ via shift, so the lockf re-exec can
+# forward it verbatim + empty-safe. This replaces the hand-rolled unquoted
+# REEXEC_ARGS string rebuild that let a --target 'Work/<spoke>/**' word-split /
+# glob-expand against cwd at the re-exec. Indexed array = bash-3.2-safe.
+_BS_ORIG_ARGV=("$@")
 
 # ---- path base (Hook-portability: $CLAUDE_HOME, no $HOME/.claude literal) ----
 
@@ -132,7 +134,6 @@ EOF
 }
 
 # ---- failure-mode helper ----------------------------------------------------
-#
 # Called from pre-commit failure paths to ensure block-and-log discipline:
 # tempfile already deleted by caller; this writes an action-log row with the
 # failure reason so librarian governance-parity-audit surfaces the rejection.
@@ -295,33 +296,14 @@ LOCK_FILE="$OVERLAY_DIR/.overlay-master.lock"
 
 if [ -z "${OVERLAY_MASTER_LOCKED:-}" ]; then
   export OVERLAY_MASTER_LOCKED=1
-  # Build re-exec argv: forward all params verbatim.
-  set -- "$@"
-  # Build forwarded args (PILLARS/PAYLOAD_FILES are space-delimited token lists).
-  REEXEC_ARGS=""
-  # Re-iterate pillars + payloads via paired walk.
-  i=1
-  for p in $PILLARS; do
-    # find ith payload by word index
-    pf=$(printf '%s\n' $PAYLOAD_FILES | awk -v n="$i" 'NR==n')
-    REEXEC_ARGS="$REEXEC_ARGS --pillar $p --payload-file $pf"
-    i=$((i + 1))
-  done
-  if [ -n "$KIND" ]; then
-    REEXEC_ARGS="$REEXEC_ARGS --kind $KIND"
-  fi
-  if [ -n "$TARGET" ]; then
-    REEXEC_ARGS="$REEXEC_ARGS --target $TARGET"
-  fi
-  if [ -n "$PROPOSED_BY" ]; then
-    REEXEC_ARGS="$REEXEC_ARGS --proposed-by $PROPOSED_BY"
-  fi
-  if [ "$DRY_RUN" = "1" ]; then
-    REEXEC_ARGS="$REEXEC_ARGS --dry-run"
-  fi
-  # shellcheck disable=SC2086
+  # Forward the ORIGINAL argv verbatim + empty-safe (bash-3.2 indexed array): no
+  # hand-rolled string rebuild, so each arg stays one token and a caller-supplied
+  # --target 'Work/<spoke>/**' can no longer word-split / glob-expand against cwd
+  # at the re-exec. overlay-master-mutate is not itself exposed to the
+  # empty edge (PILLAR_COUNT=0 is rejected above) but adopts the same convergent
+  # idiom as writer-reconciler + doc-amender for a single re-exec form.
   rc=0
-  /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" $REEXEC_ARGS || rc=$?
+  /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" "${_BS_ORIG_ARGV[@]+"${_BS_ORIG_ARGV[@]}"}" || rc=$?
   if [ "$rc" -ne 0 ]; then
     if [ "$rc" = "75" ]; then
       printf 'overlay-master-mutate.sh: lock contention on %s\n' "$LOCK_FILE" >&2

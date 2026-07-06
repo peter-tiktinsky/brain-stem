@@ -29,8 +29,10 @@ set -euo pipefail
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/registry.sh"
 
+#: paths.sh leaves VAULT_ROOT empty on a manifest-less fresh
 # adopter (paths.sh:17-19 missing-vault graceful-degrade contract). The
 # VAULT_CONFIGURED boolean is materialized ONCE at the producer (paths.sh,
+# T-5) and READ here — so the vault-write detection gates below do
 # NOT collapse `"$VAULT_ROOT/"*` to `/*` (which matches every absolute path
 # → bogus "new top-level vault folder 'Users/'" advisory + spurious /govern
 # register on a first non-vault write). When VAULT_CONFIGURED=1 every gate
@@ -445,6 +447,7 @@ fi
 # === end plan status enforcement =========================================
 
 # === R-27 depth-3 sub-plan-root status assertion ====
+# §Consequences (a)/(b)/(c): R-27's enforcement extends to depth-3
 # sub-plan roots. Depth-3 sub-plan spec.md/manifest.json are governed PEERS
 # carrying their OWN canonical status (vocabulary), NOT status-derived
 # shadows of the master. A sub-plan can be `paused` independently of its master.
@@ -479,6 +482,7 @@ $R27D3_NEW"
         ;;
     esac
 
+    # canonical 8-state enum (+ superseded terminal).
     R27D3_ENUM="researching planned in-progress paused completed verified closed archived superseded"
     R27D3_STATUS_OK=0
     R27D3_STATUS_VAL=""
@@ -670,6 +674,65 @@ fi
 # === end (a) manifest status-transition substance branch ===========
 
 
+# === HCM-3 handoff.md section_schema write-time DENY (sub 04 / T-3) ==
+# Stops the per-spoke handoff-chronicle degrading to an all-fallback projection: a
+# NEW session ENTRY appended to a plan-tree handoff.md must use a heading shape the
+# chronicle recognizer actually parses (skills/librarian/capabilities/
+# plan-handoff-index.sh + hooks/handoff-chronicle-append.sh SESSION_HEADING_RE),
+# which is exactly the shape governance/file-type-contracts/handoff.md.json ::
+# section_schema enumerates. The ERE below expresses the SAME accepted shapes as
+# that contract section_schema; it is hardcoded here so enforcement agrees with the
+# fixed recognizer NOW (the single foundation-master.json rebuild that composes the
+# contract for other consumers is R1-DEFERRED per sub 04).
+# SCOPE (false-positive floor, per the R-27 advisory-first precedent): fires ONLY
+# on a NEWLY-ADDED H2 heading that STARTS with the canonical `Session` /
+# `Alignment Session` entry keyword but does NOT conform. Narrative H2s that merely
+# MENTION a session ("## Next session prompt", "## Critical info for Session <N>",
+# "## Files modified this session") do not START with the keyword and are never
+# flagged; the container "## Sessions" (plural) has no word-boundary after
+# "Session" and is never flagged. ONLY the NEW content (Edit new_string / Write
+# content) is inspected — legacy/conforming appends are NEVER retro-scanned.
+# Matching is case-insensitive (grep -qiE) so it agrees with the recognizer's
+# re.IGNORECASE — a lowercase malformed "## session recap" is caught too.
+# Escape hatch: HANDOFF_SECTION_SCHEMA_OK=1 allows the append AND logs the override
+# to hook-audit.log (like R-27); the block still runs under the escape hatch so the
+# bypass is auditable (do NOT re-add an OK!=1 clause to the guard — that made the
+# audit-log branch dead code).
+if [[ "$FILE_PATH" == *"/.claude-plans/"*"/handoff.md" ]]; then
+  HS_NEW=""
+  if [[ "$TOOL_NAME" == "Write" ]]; then
+    HS_NEW=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
+  elif [[ "$TOOL_NAME" == "Edit" ]]; then
+    HS_NEW=$(echo "$INPUT" | jq -r '.tool_input.new_string // empty')
+  fi
+  if [[ -n "$HS_NEW" ]]; then
+    # session-entry-INTENT: an H2 whose text STARTS with (Alignment )?Session as a
+    # whole word. CONFORM: the accepted session-heading shapes (== contract
+    # section_schema). A line that is INTENT but not CONFORM is a malformed entry.
+    HS_INTENT='^##[[:space:]]+(Alignment[[:space:]]+)?Session([^A-Za-z0-9]|$)'
+    HS_SCHEMA='^##[[:space:]]+((Alignment[[:space:]]+)?Session[[:space:]]*(:|S?[0-9])|S[0-9]|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])'
+    HS_OFFENDER=""
+    while IFS= read -r _hl; do
+      if printf '%s\n' "$_hl" | grep -qiE "$HS_INTENT"; then
+        if ! printf '%s\n' "$_hl" | grep -qiE "$HS_SCHEMA"; then
+          HS_OFFENDER="$_hl"
+          break
+        fi
+      fi
+    done <<< "$HS_NEW"
+    if [[ -n "$HS_OFFENDER" ]]; then
+      if [[ "${HANDOFF_SECTION_SCHEMA_OK:-0}" == "1" ]]; then
+        { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | HANDOFF_SECTION_SCHEMA_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
+      else
+        HS_REASON="handoff.md section_schema: the new session heading '${HS_OFFENDER}' does not conform to the chronicle recognizer's session-heading shape (governance/file-type-contracts/handoff.md.json :: section_schema). A non-conforming heading is DROPPED from the per-spoke handoff-chronicle (degrading it to an all-fallback projection). Use one of: '## Session <N> — <title>', '## Session S<N> — <title>', '## Session <YYYY-MM-DD> — <title>', '## Alignment Session <N> — <title>', or a date-prefixed '## <YYYY-MM-DD> — <title>'. Escape hatch: export HANDOFF_SECTION_SCHEMA_OK=1 (logged to hook-audit.log)."
+        format_output_deny "PreToolUse" "$HS_REASON"
+        exit 0
+      fi
+    fi
+  fi
+fi
+# === end HCM-3 handoff.md section_schema DENY =============================
+
 # === Plan-artifact frontmatter advisory (R-40) ============================
 # R-40 plan-frontmatter type advisory
 # Tier 1 advisory per R-35 stage-gated promotion framework.
@@ -745,6 +808,7 @@ PYEOF
       if [[ "$PL_EXPECTED_TYPE" == "spec" ]]; then
         SE_STATUS_VAL=$(printf '%s\n' "$PL_CONTENT" | grep -m1 -E '^\*\*Status:\*\*' | sed -E 's/^\*\*Status:\*\*[[:space:]]*//; s/[[:space:]]*$//')
         if [[ -n "$SE_STATUS_VAL" ]]; then
+          # : resolve lifecycle.status_enum from the SHIPPED foundation-master.json
           # bundle slot (.plans.lifecycle.status_enum) via ${CLAUDE_HOME:-$HOME/.claude}.
           # No repo-only-FOUNDATION_REPO-first resolution; the bundle
           # carries the slot adopter-side. $PLANS_RULES_PATH test-override accepted
@@ -870,6 +934,7 @@ fi
 # Enforces the Anthropic-documented load contract for MEMORY.md: first 200
 # lines OR first 25KB loaded at session start; entries past the cap silently
 # drop. Per-line >200 chars = drift signal. Advisory only at MVP per
+# -default ADVISORY ([[feedback_no_calendar_gates]] volume-driven
 # gate; promotion to BLOCK gated on 30d adoption data).
 # Schema source: governance/mandatory-files-rules.json#mandates._memory_md_cap.
 if [[ "$FILE_PATH" == *"/.claude/projects/"*"/memory/MEMORY.md" ]] && \
@@ -898,6 +963,7 @@ PYEOF
     MEM_LINES=$(printf '%s\n' "$MEM_CONTENT" | wc -l | tr -d ' ')
     MEM_BYTES=$(printf '%s' "$MEM_CONTENT" | wc -c | tr -d ' ')
     MEM_LONG_LINES=$(printf '%s\n' "$MEM_CONTENT" | awk 'length > 200 {c++} END{print c+0}')
+    # : R-59 byte cap from the SHIPPED foundation-master.json slot
     # (.mandatory_files.mandates._memory_md_cap.thresholds.max_bytes) via
     # ${CLAUDE_HOME:-$HOME/.claude} — single-source on adopters. Hardcoded 25600
     # is the fallback only when the slot is absent (harmless: slot value == pillar).
@@ -1029,6 +1095,7 @@ PYEOF
       FM_NAME=$(echo "$FRONTMATTER" | grep -E '^name:' | head -1 | sed 's/^name:[[:space:]]*//' || true)
       FM_DESC=$(echo "$FRONTMATTER" | grep -E '^description:' | head -1 | sed 's/^description:[[:space:]]*//' || true)
       FM_TYPE=$(echo "$FRONTMATTER" | grep -E '^type:' | head -1 | sed 's/^type:[[:space:]]*//' || true)
+      # / memory-schema 2.0.0: last_validated is the REQUIRED decay
       # field; last_verified is a legacy READ-ALIAS only (accepted, never required).
       FM_VALIDATED=$(echo "$FRONTMATTER" | grep -E '^last_validated:' | head -1 | sed 's/^last_validated:[[:space:]]*//' || true)
       FM_VERIFIED=$(echo "$FRONTMATTER" | grep -E '^last_verified:' | head -1 | sed 's/^last_verified:[[:space:]]*//' || true)
@@ -1036,6 +1103,7 @@ PYEOF
       [[ -z "$FM_NAME" ]] && MISSING="${MISSING}\n- name: missing (required)"
       [[ -z "$FM_DESC" ]] && MISSING="${MISSING}\n- description: missing (required)"
 
+      # / TRIAD: type validates against the retrieval-axis triad
       # (semantic|episodic|procedural), NOT the filename-prefix provenance set.
       if [[ -z "$FM_TYPE" ]]; then
         MISSING="${MISSING}\n- type: missing (required — use semantic|episodic|procedural)"
@@ -1044,6 +1112,7 @@ PYEOF
       fi
 
       TODAY=$(date +%Y-%m-%d)
+      # : require last_validated (last_verified satisfies it as a read-alias
       # during adopter migration). Advisory-only — flags when absent; the actual
       # auto-stamp is hooks/memory-auto-stamp.sh (schema consumer #2).
       FM_VALIDATED_EFFECTIVE="${FM_VALIDATED:-$FM_VERIFIED}"
@@ -1094,6 +1163,7 @@ PYEOF
   fi
 fi
 
+# T-3 (2026-05-14) — foundation-master.json bundle-at-load
 # Single governance read source per hook invocation. Replaces direct reads of:
 #   - schemas/vault-schema.json    (DISSOLVED T-4 — types absorbed into pillars)
 #   - schemas/gate-config.json     (DISSOLVED T-3 — r32/r47 slices absorbed)
@@ -1138,6 +1208,8 @@ if [[ -n "$BUNDLE_JSON" ]]; then
   GATE_R47_PREFIX_REGEX=$(echo "$GATE_R47_TAG_DIMENSIONS" | awk 'NF{printf "%s|", $0}' | sed 's/|$//')
 fi
 
+# T-3 retrofit: foundation+overlay union view at TOP LEVEL.
+# +-T-1/T-2 confined the helper invocation to the 3-tier vault
 # block. T-3 lifts the load here so Branch #1/#2 below can
 # consume the same union view without a separate helper round-trip — single
 # invocation per hook fire instead of N. Per spec risk row (helper ~50ms
@@ -1186,6 +1258,7 @@ fi
 DOC_DEP_CTX=""
 
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ -n "$BUNDLE_JSON" ]]; then
+  #: VAULT_CONFIGURED gate — the DD_REL derivation below uses
   # "${FILE_PATH#$VAULT_ROOT/}" whose partial self-guard at the next line does
   # NOT fully protect an empty VAULT_ROOT; skip the doc-dependency match block
   # entirely when no vault is configured.
@@ -1271,17 +1344,20 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # Class A: new top-level folder (depth ≥ 1).
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH" -ge "1" ]]; then
     # Foundation system folders.
+    # FIX #1: Work is a foundation system folder (the vault-view
     # of ~/work surfaced by build-brain-vault.sh). A remapped governed Work
     # write (Work/<spoke>/…) must NOT fire the Class A "new top-level folder"
     # advisory — Work/ is a known surface, and spoke registration is handled by
     # /govern register --kind project, not the generic folder-register prompt.
     B1_FOUNDATION_FOLDERS=$'Archive\nPlans\nSkills\nVault Writers\nWork'
+    # T-3: augment with foundation+overlay path_routing keys via union
     # view. Single jq pass over UNION_JSON captures BOTH the foundation-side
     # top-level `.path_routing` (legacy denorm slot; retires in T-6) AND the
     # pillar-nested `.frontmatter.path_routing` (overlay-extended path).
     # Replaces the prior 3-source manual union (BUNDLE jq + direct overlay
     # file read) with one helper-mediated read; overlay R-52 enforcement runs
     # through the helper.
+    # FIX #2: read the REGISTERED top-level segments from the
     # path_routing RULES, not the metadata KEYS. The pillar-nested shape is
     # `.frontmatter.path_routing.rules[].pattern` (e.g. "Clients/**" → top-level
     # "Clients"); the prior `keys[]?` read metadata keys (`rules`, `_description`,
@@ -1309,6 +1385,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
     B1_C_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
     if [[ -n "$B1_C_CONTENT" ]]; then
       B1_C_TYPE=$(printf '%s\n' "$B1_C_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' | grep -E '^type:' | head -1 | sed -E 's/^type:[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//' || true)
+      # T-3: single union-view read covers pillar-nested `.frontmatter.types`
       # (overlay-extended) plus alias keys. T-6 part-2: dropped top-level
       # `.types` + `.r32_type_aliases` reads (legacy denorm slots retired);
       # aliases now read from pillar-nested `.frontmatter.r32_type_aliases`.
@@ -1342,6 +1419,7 @@ fi
 # per.
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B2_BASENAME=$(basename "$FILE_PATH" .md)
+  # T-3: TZ + pillar 7 universal read via union view (replaces direct
   # overlay file read at-and direct vault-writers-rules.json file
   # read at-). Foundation pillar 7 is composed into the bundle at
   # `.vault_writers`; overlay can extend via `.vault_writers.*` per per-leaf
@@ -1414,6 +1492,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] &&
       ;;
     *)
       B3_CONTRACT="${CLAUDE_HOME:-$HOME/.claude}/governance/file-type-contracts/vault-writer.md.json"
+      # T-3 audit: prior code at this site set B3_RULES to vault-writers-
       # rules.json but never consumed it. Branch #3 validation reads exclusively
       # from B3_CONTRACT (the file-type-contract pillar 6 file); the pillar 7
       # vault_writers content is consumed by Branch #2 above. Dead-var assignment
@@ -1497,6 +1576,7 @@ fi
 # Tier 2: Block with explanation (DENY)
 # Tier 3: Allow with mandatory follow-up warning
 # Bundle (foundation-master.json) is the SOLE governance read source per
+# T-3 (2026-05-14); R-37 reconciliation entry 5 closed.
 
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
 
@@ -1585,11 +1665,14 @@ print(content, end='')
         # land via overlay-master.frontmatter.path_routing.rules[] at /adopt time,
         # not as hardcoded foundation defaults.
 
+        # T-3 retrofit: foundation+overlay union view for R-32 type-DENY.
+        # T-3 lifted helper invocation to top-level (single-load per
         # hook fire); this block now derives R-32-specific accepted-types
         # from the already-loaded $UNION_JSON. Fall-back to foundation-only
         # allowlist if UNION_JSON degenerated to BUNDLE_JSON (helper missing).
         R32_UNION_ACCEPTED_TYPES=""
         if [[ -n "$UNION_JSON" ]]; then
+          # T-6 part-2: alias keys now read from pillar-nested
           # `.frontmatter.r32_type_aliases` (was top-level `.r32_type_aliases`).
           R32_UNION_ACCEPTED_TYPES=$(jq -r \
             '(.frontmatter.types // {} | keys[]?), (.frontmatter.r32_type_aliases // {} | keys[]?)' \
@@ -1603,6 +1686,7 @@ print(content, end='')
           R32_UNION_ACCEPTED_TYPES="$GATE_R32_ACCEPTED_TYPES"
         fi
 
+        # T-1 retrofit: foundation+overlay union view for R-32 TAXONOMY
         # tag-prefix DENY (Tier 2 at the tag-conformance check below). Mirrors
         # the R-32 TYPE-allowlist single-load + variable-hold pattern.
         # Derives R32_TAXONOMY_UNION_PREFIXES from union .tagging.taxonomy.
@@ -1627,6 +1711,7 @@ print(content, end='')
           R32_TAXONOMY_UNION_LIST="$GATE_R47_PREFIX_LIST"
         fi
 
+        # T-2 retrofit: foundation+overlay union view for R-47 advisory
         # (Tier 1 tag-presence soft-warn below). Mechanical mirror of the
         # T-1 pattern at this same scope. Derives union-side variants of the
         # GATE_R47_EXEMPT_PATHS (consumer: exemption walk at the R-47 branch)
@@ -1651,6 +1736,7 @@ print(content, end='')
         # frontmatter-rules.json#retired_types[<type>].replacement, BEFORE the
         # generic UNKNOWN TYPE check below (avoids misleading "add to types"
         # error for types that are explicitly retired).
+        # T-3: reads from UNION_JSON (foundation+overlay union) so an
         # adopter overlay can declare additional retired types via /govern
         # register. Foundation-only fallback preserved if helper unavailable.
         FM_TYPE_RETIRED="false"
@@ -1674,6 +1760,7 @@ print(content, end='')
         # Empty bundle → DENY skipped (fail-OPEN, same posture as missing bundle).
         # FM_TYPE_RETIRED guard avoids double-DENY when retired-type message
         # already fired above (better UX: user sees the retired-specific deny).
+        # T-3: reads R32_UNION_ACCEPTED_TYPES (foundation+overlay union)
         # via lib/foundation-overlay-load.sh so /govern register-time type
         # extensions land in the allowlist. Closes union-read enforcement
         # gap for this branch; generalizes to other branches.
@@ -1703,6 +1790,7 @@ print(content, end='')
         fi
 
         # --- R-33: Folder placement advisory (Tier 1, never blocks) ---
+        # T-2 (2026-05-21): data-driven via UNION_JSON. Reads expected_path
         # patterns from $UNION_JSON.frontmatter.types[$FM_TYPE].expected_path
         # (foundation seed + adopter overlay). Types without expected_path
         # (14 of 21 in foundation seed: briefing, context, index, navigation,
@@ -1769,6 +1857,7 @@ print(content, end='')
         # R-47 exempt_paths sourced from gate-config.json::r47.exempt_paths (T-6).
         # Positive-list semantics (T-3, 2026-04-22): unenumerated
         # paths default to advisory. Patterns are vault-relative globs.
+        # T-2: consumes union-derived R47_UNION_EXEMPT_PATHS so adopter
         # /govern register additions land in the exempt-path set; advisory
         # wording sources R32_TAXONOMY_UNION_LIST (union prefix list emitted
         # by the T-1 block above) for consistent overlay-aware text.
@@ -1789,6 +1878,7 @@ print(content, end='')
         fi
 
         # --- R-48: Wikilink write-time advisory (Tier 1, never blocks) ---
+        # Sub-plan 05 T-2 (2026-04-21). Vault-scoped (already gated by
         # outer REL_PATH checks). Scans CONTENT for [[target]] and [[target|alias]]
         # patterns; emits advisory when target doesn't resolve to a file in the
         # vault. Complements T-6 wikilink-repair.sh (post-hoc capability)
@@ -1893,17 +1983,29 @@ PYEOF
           REQUIRED_FIELDS=$(jq -r --arg key "$SCHEMA_KEY" '.frontmatter.types[$key].required // [] | .[]' <<<"$BUNDLE_JSON" 2>/dev/null)
           if [[ -n "$REQUIRED_FIELDS" ]]; then
             MISSING_FIELDS=""
+            COHORT_SOFT_MISSING=""
             while IFS= read -r field; do
               if ! fm_has "$field"; then
-                # 'updated' missing is handled by Tier 1, not a hard block
-                if [[ "$field" != "updated" ]]; then
-                  MISSING_FIELDS="${MISSING_FIELDS}${field}, "
-                fi
+                # Soft-tier cohort fields WARN at Tier 1, never hard-block (R-64 / T-5).
+                # 'updated' keeps its pre-existing silent Tier-1 carve-out; the four new
+                # cohort fields (created/description/id/schema_version) join it in the
+                # non-block set and surface a single Tier-1 advisory below.
+                case "$field" in
+                  updated) : ;;
+                  created|description|id|schema_version)
+                    COHORT_SOFT_MISSING="${COHORT_SOFT_MISSING}${field}, " ;;
+                  *)
+                    MISSING_FIELDS="${MISSING_FIELDS}${field}, " ;;
+                esac
               fi
             done <<< "$REQUIRED_FIELDS"
             MISSING_FIELDS="${MISSING_FIELDS%, }"
             if [[ -n "$MISSING_FIELDS" ]]; then
               TIER2_MSGS="${TIER2_MSGS}Missing required fields [${MISSING_FIELDS}] for file type '${SCHEMA_KEY}'.\n"
+            fi
+            COHORT_SOFT_MISSING="${COHORT_SOFT_MISSING%, }"
+            if [[ -n "$COHORT_SOFT_MISSING" ]]; then
+              TIER1_MSGS="${TIER1_MSGS}[R-64 COHORT FIELD] File type '${SCHEMA_KEY}' is missing soft-tier cohort field(s): ${COHORT_SOFT_MISSING}. These WARN but do not block — forward-governance auto-stamp and the frontmatter-enforce --fix backfill populate created/description/id/schema_version; add them manually or run the fixer. Advisory only — not blocking.\n"
             fi
           fi
 
@@ -1935,11 +2037,51 @@ PYEOF
           fi
         fi
 
+        # --- R-64 property-type format-regex validation (Tier 1 advisory) -------
+        # Read the value-type declarations from the bundle (.frontmatter.property_types,
+        # minted T-2) and validate any PRESENT cohort value against its declared type
+        # (date/list/id-slug/int). WARN-only — never DENY (the value is present, only
+        # mis-typed); this is the enforceable value-typing layer (the seeded
+        # .obsidian/types.json is UX-only). Absent property_types (a pre-R1 master that
+        # has not yet re-composed the pillar) → PROP_TYPES is empty and the loop body
+        # never runs (graceful no-op). Mirrors the R-40 Tier-1 advisory emitter shape.
+        PROP_TYPES=$(jq -r '.frontmatter.property_types // {} | to_entries[]? | select((.key|startswith("_"))|not) | "\(.key)\t\(.value)"' <<<"$BUNDLE_JSON" 2>/dev/null)
+        if [[ -n "$PROP_TYPES" ]]; then
+          while IFS=$'\t' read -r pt_field pt_type; do
+            [[ -z "$pt_field" ]] && continue
+            fm_has "$pt_field" || continue
+            pt_val=$(fm_val "$pt_field")
+            pt_val="${pt_val%\"}"; pt_val="${pt_val#\"}"
+            pt_val="${pt_val%\'}"; pt_val="${pt_val#\'}"
+            pt_bad=""
+            case "$pt_type" in
+              date)
+                if [[ -n "$pt_val" ]] && ! [[ "$pt_val" =~ ^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]([T\ ][0-9].*)?$ ]]; then
+                  pt_bad="expected a date (YYYY-MM-DD)"; fi ;;
+              int)
+                if [[ -n "$pt_val" ]] && ! [[ "$pt_val" =~ ^[0-9]+$ ]]; then
+                  pt_bad="expected an integer"; fi ;;
+              slug-string)
+                if [[ -n "$pt_val" ]] && ! [[ "$pt_val" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+                  pt_bad="expected a slug (lowercase, dash-separated)"; fi ;;
+              list)
+                # inline non-empty value must be a [..] sequence; empty inline = a
+                # block-style YAML list (valid) — fm_val returns empty for block lists.
+                if [[ -n "$pt_val" ]] && [[ "${pt_val:0:1}" != "[" ]]; then
+                  pt_bad="expected a list (YAML sequence)"; fi ;;
+            esac
+            if [[ -n "$pt_bad" ]]; then
+              TIER1_MSGS="${TIER1_MSGS}[R-64 PROPERTY TYPE] Field '${pt_field}: ${pt_val}' — ${pt_bad} (property_types: ${pt_type}). Advisory only — not blocking.\n"
+            fi
+          done <<< "$PROP_TYPES"
+        fi
+
         # Check tags conform to taxonomy prefixes (hard block if clearly wrong).
         # Prefix grammar single-sourced from gate-config.json::r47.tag_dimensions
         # per gate-config _tag_dimensions_note (T-6, 2026-05-08): same array
         # drives R-47 advisory above AND this Tier 2 R-32 tag-conformance DENY.
         # Empty config → DENY skipped (fail-OPEN, matches R-32 type-allowlist).
+        # T-1: consumes union-derived R32_TAXONOMY_UNION_REGEX (foundation
         # + overlay deep-merge) so adopter /govern register --kind tag-extension
         # registrations land in the allowlist. Closes union-read enforcement
         # gap (Surprise #3) for this branch.
@@ -2038,8 +2180,9 @@ Skills"
 fi
 
 # --- WARNING: Multi-session file overlap detection ---
+# (T-7): the registry is the machine-local coordination registry
 # REGISTRY_FILE ($COORD_DIR/session-registry.json), exported by the lib/registry.sh
-# source at :33 — NOT the-retired in-vault $VAULT_ROOT/Logs/.coordination
+# source at :33 — NOT the in-vault $VAULT_ROOT/Logs/.coordination
 # path (written by no producer → the -f gate below was always false → this advisory
 # was dead). track-vault-write.sh stores tool_input.file_path ABSOLUTE into
 # touched_files (no relativization), so the query must compare the ABSOLUTE path

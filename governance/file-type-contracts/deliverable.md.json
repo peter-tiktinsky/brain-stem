@@ -2,12 +2,12 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "brain-stem/governance/file-type-contracts/deliverable.md.json",
   "title": "deliverable (Work/<spoke>/deliverables/<name>.md) lifecycle contract",
-  "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement is AUDIT-TIME via the librarian suite over the Work/ symlink view — a deliverable authored from a work-spoke launch lands outside the vault root, so no write-time guard fires, and a deliverable is never machine-written. Note the bounded exception: foundation capabilities DO machine-write generated, sentinel-bounded files into the work root (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files, each carrying a generated sentinel). Those generated surfaces are NOT deliverables and are out of this contract's scope; they are disjoint from the deliverable class, so the audit-time-only, never-machine-written boundary for human/agent-authored deliverables is unchanged.",
+  "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement fires at BOTH layers: write-time on REGISTERED-spoke Work/ writes — the pre-write-guard.sh remap prelude rewrites a registered Work/<spoke>/ write onto the vault path BEFORE the 3-tier schema block, so the write IS governed — with the librarian suite over the Work/ symlink view as the audit-time backstop for everything else (unregistered spokes, hand-authored files reached via the scoped symlink walk). A deliverable is never machine-written. Note the bounded exception: foundation capabilities DO machine-write generated, sentinel-bounded files into the work root (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files, each carrying a generated sentinel). Those generated surfaces are NOT deliverables and are out of this contract's scope; they are disjoint from the deliverable class, so the never-machine-written boundary for human/agent-authored deliverables is unchanged.",
   "version": "1.0.0",
   "status": "runtime",
   "frontmatter_contract_source": "governance/frontmatter-rules.json#types.deliverable",
   "_design_notes": {
-    "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root; no write-time guard fires on deliverables authored outside the vault root, and a deliverable is never machine-written. The work root is not write-untouched, however: foundation capabilities machine-write generated, sentinel-bounded files into it (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files). Those generated surfaces are a disjoint artifact class — not deliverables — and are out of this contract's scope; the deliverable surface (human/agent-authored README/updates and the deliverable files themselves) stays audit-time-only and never machine-written.",
+    "consumer": "skills/librarian audit suite (index-maintain / placement-validate / frontmatter-enforce / xref-check) covers Work/** at audit-time via a scoped invocation (--scope <vault>/Work) — the whole-vault walk does not recurse into the Work/ symlink, so deliverables are reached the same way library-index reaches the _library root. Write-time governance ALSO fires on a REGISTERED-spoke Work/ write: the pre-write-guard.sh remap prelude rewrites the registered Work/<spoke>/ path onto the vault view BEFORE the 3-tier block, so the write is governed; the librarian audit-time pass is the backstop for unregistered spokes and hand-authored files. A deliverable is never machine-written. The work root is not write-untouched, however: foundation capabilities machine-write generated, sentinel-bounded files into it (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files). Those generated surfaces are a disjoint artifact class — not deliverables — and are out of this contract's scope; the deliverable surface (human/agent-authored README/updates and the deliverable files themselves) stays never machine-written.",
     "thin_contract_note": "Models the minimal-viable file-type stub shape (frontmatter + lifecycle, free-form body), NOT the rich library-article body-structure shape — deliverables are too heterogeneous for a single body contract. Per-deliverable-kind structure governance is an archetype subtype layered via overlay-master.json, not part of this base contract.",
     "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + governance/frontmatter-rules.json#types.deliverable (the type registration) + governance/foundation-master.json forward-composed move in one commit."
   },
@@ -17,12 +17,24 @@
     "path_glob": "$VAULT_ROOT/Work/**/*.md"
   },
 
-  "routing": "A markdown file under the Work/ surface that declares type: deliverable in its frontmatter activates this contract; placement under Work/** is an audit-time advisory (the type's expected_path), never a write-time matcher.",
+  "routing": "A markdown file under the Work/ surface that declares type: deliverable in its frontmatter activates this contract. Placement under Work/** is an audit-time placement advisory (the type's expected_path), not the write-time trigger; write-time governance fires instead via the pre-write-guard.sh registered-spoke remap prelude, which rewrites a registered Work/<spoke>/ write onto the vault path so the 3-tier schema block governs it.",
 
   "frontmatter_enums": {
     "type": ["deliverable"],
     "status": ["draft", "delivered", "superseded"],
     "audience": ["internal", "external"]
+  },
+
+  "frontmatter": {
+    "_note": "The real required[] enforcement surface is governance/frontmatter-rules.json#types.deliverable; this block mirrors the universal typed cohort + its value-typing for legibility. Value-typing is enforced write-time by the pre-write-guard.sh property-type format regex (R-64).",
+    "cohort": ["type", "description", "created", "updated", "tags", "id", "schema_version"],
+    "property_types": {
+      "created": "date",
+      "updated": "date",
+      "tags": "list",
+      "id": "slug-string",
+      "schema_version": "int"
+    }
   },
 
   "write_shape": "replace",

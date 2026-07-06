@@ -193,6 +193,10 @@ SENTINEL_ARG=0
 #   sentinel ceremony — reuse the existing sentinel, don't reinvent).
 UPGRADE_MODE=0
 MIGRATE_MAJOR=0
+# OPT-IN frontmatter cohort auto-fixer under --upgrade.
+# Default OFF (never auto-forced); when set on an --apply upgrade, runs the shipped
+# frontmatter-enforce.sh --fix backfill AFTER the managed files land (new hooks).
+FRONTMATTER_FIX=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply)                APPLY_MODE=1 ;;
@@ -203,6 +207,7 @@ while [ $# -gt 0 ]; do
     --backup-dir=*)         BACKUP_DIR="${1#--backup-dir=}" ;;
     --retrofit-existing)    RETROFIT_EXISTING=1 ;;
     --upgrade)              UPGRADE_MODE=1 ;;
+    --frontmatter-fix)      FRONTMATTER_FIX=1 ;;
     --migrate-major)        MIGRATE_MAJOR=1 ;;
     --i-understand-overwrite-risk) SENTINEL_ARG=1 ;;
     I-UNDERSTAND-OVERWRITE-RISK)   SENTINEL_ARG=1 ;;
@@ -2605,10 +2610,10 @@ fi
 # edit vault-init/ in target shape; install/adopt copies wholesale; what you
 # see in vault-init/ is what the adopter gets. cp_clobber posture matches the
 # rest of the foundation-known tree (cp -n default; --force-all → cp -f).
-# sha256-protected via governance/foundation-manifest.json. Subdir scaffolds
-# (Vault Writers/ + Logs/Archive/) ship
-# as empty dirs with .gitkeep until adopter writes content. Authoring contract
-# for what may live under vault-init/ at docs/vault-init-authoring.md.
+# sha256-protected via governance/foundation-manifest.json. The subdir scaffold
+# (Vault Writers/) ships with its seed content (an _index.md) so the adopter
+# starts with a populated writers surface, not an empty placeholder. Authoring
+# contract for what may live under vault-init/ at docs/vault-init-authoring.md.
 # The per-plan backlog satellite is retired: backlog +
 # archive now live as librarian-emitted files at ${PLANS_DIR:-$HOME/.claude-plans}/_backlog.md
 # + _archive.md under Plans Pillar governance (writers_allowed: ["librarian"]
@@ -2891,10 +2896,12 @@ else
   info "rules/README.md seeded at $rules_readme_target"
 fi
 
-# Step 11.7a: the two generic three-surface rules/ entries (R-ARCH-RULES).
-# Exactly TWO generic, cwd-parameterized, always-on entries live in
-# $CLAUDE_HOME/rules/: a binder pointer and a pre-research library-check fallback.
-# Both are UNSCOPED (no `paths:` key) so they load every session — the #21858
+# Step 11.7a: the generic rules/ entries (R-ARCH-RULES).
+# The generic, cwd-parameterized, always-on entries seeded into
+# $CLAUDE_HOME/rules/ are enumerated by the `# Entry N —` markers below (each
+# marker heads one `seed_rules_entry` call), the source of truth for which
+# entries ship — add or remove an entry there and this header stays true.
+# All are UNSCOPED (no `paths:` key) so they load every session — the #21858
 # user-scope `paths:`-glob limitation makes glob-scoping unreliable here.
 # These are installed by install.sh (R-ARCH-5 reconcile: install.sh runs outside
 # the Edit-blocking sensitive-file gate), on BOTH paths in this same Step 11.7
@@ -3013,6 +3020,41 @@ write — it is a proactive on-ramp, not a gate. This entry is generic and alway
 it never names a specific project and never blocks.
 RULE_WORKPROJ
 seed_rules_entry "20-work-project-register.md" "$rules_work_project_register"
+
+# Entry 4 — bounded cross-cutting-spoke on-ramp (R-ARCH-RULES #4). Steers
+# cross-cutting personal-system work AWAY from $HOME: never launch from the home
+# directory; create a dedicated bounded dir (e.g. ~/system) and register it as a
+# spoke, the same way a code-tree or ~/work project is registered. Sibling to the
+# work-project on-ramp (20-work-project-register.md) and the cwd==$HOME SessionStart
+# warning (session-start-home-launch-warn.sh) — cross-referenced for discoverability.
+# Generic — never names a specific dir. Advisory only (never blocks).
+read -r -d '' rules_bounded_spoke <<'RULE_BOUNDEDSPOKE' || true
+# Cross-cutting personal-system work — give it a bounded spoke, never $HOME
+
+Some work belongs to no single project — cross-cutting personal-system tasks
+(tuning your own config, notes that span projects, one-off scripts). The tempting
+shortcut is to launch Claude Code from your home directory. Do NOT: launching from
+`$HOME` puts your ENTIRE home tree in the agent's file-operation scope, collapses
+the project `.claude/` onto the global `~/.claude`, and routes the session into the
+anchorless `home` catch-all identity. (A SessionStart advisory warns whenever a
+session is launched from `$HOME`.)
+
+Instead, give cross-cutting work a bounded home of its own:
+
+  1. Create a dedicated, bounded directory for it — e.g. `~/system` (any single
+     bounded dir works; this rule never mandates a specific name).
+  2. Register it as a spoke, exactly the way you register a code-tree or a `~/work`
+     project (see the work-project registration on-ramp): add a spoke entry in the
+     anchored-spoke registry and drop a one-line identity `CLAUDE.md` in the dir so
+     its purpose is self-describing.
+  3. Launch Claude Code FROM that directory — never from `$HOME`.
+
+The bounded dir keeps the agent's file-operation scope small, keeps project and
+global config distinct, and routes the session to an owned spoke instead of the
+catch-all. This entry is generic and always-on; it never names a specific directory
+and never blocks.
+RULE_BOUNDEDSPOKE
+seed_rules_entry "25-bounded-spoke-for-cross-cutting-work.md" "$rules_bounded_spoke"
 
 # Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
 # Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat
@@ -3910,6 +3952,18 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
   printf 'deferred: G6 install-side explicit label sentinel (transitively preserved); claude-mem preservation full implementation; top-level exit codes 20 (conflict-manifest) / 22 (rsync-backup) / 60 (grep-audit consumer)\n'
 } > "$log_path" || { diag "G10: provenance log write failed at $log_path"; exit 11; }
 
+# OPT-IN frontmatter cohort backfill. Reached only on a
+# completed --apply (so the NEW frontmatter-enforce.sh is in place). Runs ONLY when
+# the adopter explicitly passed --frontmatter-fix — never auto-forced. Non-fatal: a
+# backfill hiccup never fails an already-successful install.
+if [ "$FRONTMATTER_FIX" = "1" ]; then
+  _fm_fixer="$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh"
+  if [ -f "$_fm_fixer" ]; then
+    info "opt-in frontmatter cohort backfill (--frontmatter-fix): running the shipped auto-fixer over the vault…"
+    bash "$_fm_fixer" --fix --full || diag "frontmatter cohort backfill returned non-zero (non-fatal; install already complete)"
+  fi
+fi
+
 info "install complete. next-steps:"
 # The next-steps must reference ONLY shipped runnables. The minimum-viable foundation
 # ships render-launchd.sh (a SINGLE-job renderer: `render-launchd.sh <job>`, job in
@@ -3921,6 +3975,9 @@ info "  - render plists for ALL declared jobs (post-onboarding) — loop the shi
 info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging \"\$job\"; done"
 info "  - render a single job manually:"
 info "    \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging <job-id>"
+info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
+info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --full --dry-run   # preview proposed created/id/schema_version/description"
+info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --fix --full        # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
 info "  - claude-mem bundle: deferred"
 info "  - G6 install-side explicit label sentinel: deferred (transitively preserved via cp -R installer/; render-launchd.sh enforces at runtime)"
 info "  - top-level exit codes 20/22/60: deferred to v2.1 (conflict-manifest, rsync-backup, grep-audit consumer)"

@@ -1,15 +1,12 @@
 # frontmatter.sh — shared YAML frontmatter parsing for librarian capabilities.
-#
 # First consumer: plan-parent-resolve. Existing capabilities inline their own
 # awk/grep/sed combos; migration to this helper is deferred to a future
 # librarian-internal consolidation session.
-#
 # Usage:
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/frontmatter.sh"
 #   fm_has_frontmatter "$file"
 #   val=$(fm_get_field "$file" "parent_plan")
 #   fm_has_field "$file" "status" && echo "has status"
-#
 # Contract:
 # - All functions are read-only.
 # - All functions tolerate missing files (return 1 / empty).
@@ -44,6 +41,13 @@ fm_get_field() {
         sub("^"f"[[:space:]]*:[[:space:]]*", "")
         # Strip trailing whitespace
         sub("[[:space:]]+$", "")
+        # : coerce bare YAML null tokens to empty (mirrors the JSON path,
+        # which turns JSON null into "" via an isinstance(str) check). A quoted
+        # "null" is a legitimate string value and is NOT coerced — it retains its
+        # quotes here because the parser does not unquote.
+        if ($0 == "null" || $0 == "Null" || $0 == "NULL" || $0 == "~") {
+          $0 = ""
+        }
         print
         exit
       }

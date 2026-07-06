@@ -135,7 +135,7 @@ Your scope is strictly the per-session `checkpoint.md`. Overwrite it. Never appe
 
 ---
 
-## Cat-2 portability note (for the S2 install-verify gate)
+## portability note (for the S2 install-verify gate)
 
 This skill writes to `$CLAUDE_STATE_ROOT`-resolved per-session paths (not hardcoded `$HOME/.claude` literals). It is one of the surfaces the S2 hook-portability verify-gate checks alongside the C2 literal-sourcing hooks; the verify-gate owns the mechanic.
 

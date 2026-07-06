@@ -1,12 +1,12 @@
 #!/bin/bash
 # plan-archive — Promote closed plans to archived; append to
-# <plans-root>/_archive.md. Librarian reader cap with the A-06 master-subtree
+# <plans-root>/_archive.md. Librarian reader cap with the master-subtree
 # archival gate.
-# Librarian reader cap (A-06;1.1 line 127). Ported from the
-# plan-archive.sh with the A-06
+# Librarian reader cap (1.1 line 127). Ported from the
+# plan-archive.sh with the
 # MASTER-SUBTREE ARCHIVAL GATE added: a master plan is archive-eligible only
 # when EVERY entry in its sub_plans[] read-replica (READ from the aggregate
-# subplan-aggregate.sh / A-03 populates) is in a terminal status
+# subplan-aggregate.sh / populates) is in a terminal status
 # (verified/closed/archived/superseded). A master with any non-terminal sub is
 # held back even if its own status is closed.
 # Two-axis trigger: eligibility is event-driven (manifest status == closed);
@@ -228,7 +228,7 @@ def insert_row(content, quarter, row):
     return "\n".join(lines)
 
 def master_subtree_complete(manifest):
-    """A-06 master-subtree gate: True iff not a master, or every sub_plans[]
+    """master-subtree gate: True iff not a master, or every sub_plans[]
     entry is terminal. Returns (eligible_bool, incomplete_subs[])."""
     subs = manifest.get("sub_plans")
     is_master = (manifest.get("type") == "master") or isinstance(subs, list)
@@ -266,7 +266,7 @@ for slug in candidates:
     if str(manifest.get("status", "")).strip() != "closed":
         continue
 
-    # A-06 master-subtree gate.
+    # master-subtree gate.
     eligible, incomplete = master_subtree_complete(manifest)
     if not eligible:
         emit({"finding": "master-subtree-incomplete", "file": slug, "plan_slug": slug,

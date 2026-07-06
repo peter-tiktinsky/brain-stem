@@ -1,17 +1,17 @@
 {
   "schema_version": "1.0.0",
-  "_description": "Anchored-spoke registry: the source of truth mapping Claude Code launch directories (cwd anchors) to stable spoke keys. The plan-creation skills (new-plan, backlog-research / promote-from-inbox) resolve the session cwd through this registry to stamp the manifest `project:` field — the owning-spoke machine identity. The spoke key is NEVER the bare directory basename; it is the registry-resolved key. Plans launched from the home anchor resolve to the literal `home` catch-all. Adopters add a spoke entry per project they launch Claude Code from.",
+  "_description": "Anchored-spoke registry: the source of truth mapping Claude Code launch directories (cwd anchors) to stable spoke keys. The plan-creation skills (new-plan, backlog-research / promote-from-inbox) resolve the session cwd through this registry to stamp the manifest `project:` field — the owning-spoke machine identity. The spoke key is NEVER the bare directory basename; it is the registry-resolved key. The `home` spoke is the fallback IDENTITY for an anchorless cwd (one that matches no registered anchor) — it is NOT a sanctioned launch directory; launch Claude Code from a registered spoke, never the home directory itself. Adopters add a spoke entry per project they launch Claude Code from.",
   "_design_notes": {
     "consumer": "skills/new-plan/new-plan.sh + skills/new-plan/lib/promote-from-inbox.sh (write-time `project:` stamp); skills/librarian/capabilities/plan-parent-resolve.sh (project-identity-drift re-validation)",
-    "resolution": "A spoke key is resolved by matching the session cwd against each entry's `cwd_anchors[]` (longest-anchor-wins). No match resolves to the `home` catch-all. Two distinct cwd anchors MUST NOT resolve to the same spoke key — a collision blocks plan creation with a diagnostic naming both anchors and the shared key (collision-safe resolver).",
+    "resolution": "A spoke key is resolved by matching the session cwd against each entry's `cwd_anchors[]` (longest-anchor-wins). A cwd matching no anchor falls back to the literal `home` identity — the anchorless catch-all, NOT a sanctioned launch anchor (`home` declares no `cwd_anchors`, so the home directory is never registered as a launch surface). Two distinct cwd anchors MUST NOT resolve to the same spoke key — a collision blocks plan creation with a diagnostic naming both anchors and the shared key (collision-safe resolver).",
     "override": "Plan creation accepts a `--project <spoke-key>` override for a deliberate cross-project continuation; the value MUST resolve to an existing entry below, else creation blocks listing the valid keys (no silent fallback).",
     "binder_home": "Each spoke key keys a project binder at ~/.claude-plans/_projects/<spoke-key>/."
   },
   "spokes": [
     {
       "spoke_key": "home",
-      "cwd_anchors": ["~", "$HOME"],
-      "description": "Home catch-all. Plans launched from the home directory (no project anchor) resolve here."
+      "cwd_anchors": [],
+      "description": "Fallback identity for an anchorless cwd (one matching no registered spoke anchor). This is an IDENTITY catch-all, NOT a sanctioned launch anchor: it declares no `cwd_anchors`, so the home directory is never registered as a launch surface. A session whose cwd matches no anchor still resolves its `project:` stamp here via the resolver's literal-`home` fallback. Launch Claude Code from a registered spoke, not the home directory."
     },
     {
       "spoke_key": "brain-stem",

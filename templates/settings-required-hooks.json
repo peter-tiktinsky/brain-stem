@@ -58,6 +58,12 @@
       "timeout": 5
     },
     {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "~/.claude/hooks/post-handoff-refresh.sh",
+      "timeout": 5
+    },
+    {
       "event": "UserPromptSubmit",
       "matcher": null,
       "command": "~/.claude/hooks/prompt-context.sh",
@@ -119,6 +125,12 @@
       "event": "SessionStart",
       "matcher": null,
       "command": "~/.claude/hooks/session-start-project-context.sh",
+      "timeout": 5
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "command": "~/.claude/hooks/session-start-home-launch-warn.sh",
       "timeout": 5
     },
     {

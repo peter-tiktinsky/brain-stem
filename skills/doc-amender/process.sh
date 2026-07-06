@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # skills/doc-amender/process.sh — event-driven LLM-amendment runner for
 # prompt-guided edits to fan-in destinations (the writer-pipeline LLM lane,
+# .2).
 # Ported from the skills/doc-amender/process.sh;
 # (lib defaults repointed to the shipped hooks/lib/ per; staging root resolved
 # via $CLAUDE_STATE_ROOT — no bare ~/.claude or literal).
+# T-03 (Layer-1 consumer runtime port).
 # Reads amender-eligible packets from staging, joins them against
 # governance/doc-dependencies.json writer-fan-in entries; for an eligible
 # packet it runs the operator-authored prompt asset through `claude -p`
@@ -22,9 +24,17 @@
 
 set -u
 
+# Capture the ORIGINAL argv (indexed array) immediately after set -u, BEFORE the
+# parse loop consumes $@ via shift, so the lockf re-exec forwards it verbatim +
+# empty-safe. This site reaches the re-exec with an EMPTY original argv on a
+# zero-CLI-arg WatchPaths tick, so the "${arr[@]+...}" form is load-bearing under
+# set -u (a bare "${arr[@]}" throws unbound-variable on bash 3.2.57) —.
+_DA_ORIG_ARGV=("$@")
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
+# : the shared libs live at hooks/lib/ (brain-stem has no top-level lib/).
 # Resolve via $CLAUDE_HOME at runtime (installed layout) with a repo fallback.
 _DA_CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 _DA_STATE_ROOT="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"
@@ -186,20 +196,16 @@ LOCK_FILE="$STAGING_ROOT/.doc-amender.lock"
 
 if [ -z "${DOC_AMENDER_LOCKED:-}" ]; then
   export DOC_AMENDER_LOCKED=1
-  # Forward original argv inside the locked re-exec.
-  inner_args=""
-  if [ -n "$STAGING_ROOT" ];           then inner_args="$inner_args --staging-root $STAGING_ROOT"; fi
-  if [ -n "$PROMPT_ROOT" ];            then inner_args="$inner_args --prompt-root $PROMPT_ROOT"; fi
-  if [ -n "$DOC_DEPS_FILE" ];          then inner_args="$inner_args --doc-deps-file $DOC_DEPS_FILE"; fi
-  if [ -n "$STAGING_EMIT" ];           then inner_args="$inner_args --staging-emit $STAGING_EMIT"; fi
-  if [ -n "$MANIFEST_RECORD" ];        then inner_args="$inner_args --manifest-record $MANIFEST_RECORD"; fi
-  if [ -n "$COMPOSE_DETERMINISTIC" ];  then inner_args="$inner_args --compose-deterministic $COMPOSE_DETERMINISTIC"; fi
-  if [ -n "$AUDIT_LOG" ];              then inner_args="$inner_args --audit-log $AUDIT_LOG"; fi
-  if [ "$DRY_RUN" = "1" ];             then inner_args="$inner_args --dry-run"; fi
-  if [ "$ONCE" = "1" ];                then inner_args="$inner_args --once"; fi
-  # shellcheck disable=SC2086
-  if ! /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" $inner_args; then
-    rc=$?
+  # Forward the ORIGINAL argv verbatim + empty-safe (bash-3.2 indexed array): no
+  # hand-rolled string rebuild, so a space-containing arg can no longer word-split
+  # at the re-exec, and a zero-CLI-arg WatchPaths tick forwards an empty array
+  # safely under set -u. Convergent idiom shared with overlay-master-mutate.sh
+  # + writer-reconciler/process.sh: rc=0 / || rc=$? captures the real inner exit
+  # code (the prior `if ! ...; then rc=$?` read the !-negated status). The unrelated
+  # SC2086 at the staging-emit producer call below is out of scope (not a $0 re-exec).
+  rc=0
+  /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" "${_DA_ORIG_ARGV[@]+"${_DA_ORIG_ARGV[@]}"}" || rc=$?
+  if [ "$rc" -ne 0 ]; then
     if [ "$rc" = "75" ]; then
       printf 'process.sh: lock contention on %s; another doc-amender fire in flight\n' "$LOCK_FILE" >&2
       exit 4

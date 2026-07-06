@@ -522,8 +522,8 @@
         "writes": [
           "{PLANS_ROOT}/<master>/manifest.json :: sub_plans[] (pull-based read-replica; graduation_timestamp WRITER)"
         ],
-        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field, A-02)",
-        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying per B-04",
+        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field,)",
+        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying per",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -609,7 +609,7 @@
           "{PLANS_ROOT}/_index.md (status-grouped navigation index)"
         ],
         "schema": "plan-index.md contract (governed by THIS registry output_contract; no governance/librarian-capabilities/plan-index.md, no _index.json pillar-8 entry)",
-        "validation": "A-06 reader cap — READS the master sub_plans[] aggregate (B-04 coarse-bucket rollup); >0-plan-root + group-count assertions before write",
+        "validation": "reader cap — READS the master sub_plans[] aggregate (coarse-bucket rollup); >0-plan-root + group-count assertions before write",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -637,7 +637,7 @@
           "{PLANS_ROOT}/_backlog.md (backlog sentinel region)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "A-06 reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
+        "validation": "reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -666,7 +666,7 @@
           "{PLANS_ROOT}/<slug>/manifest.json (status flip closed -> archived)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "A-06 reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
+        "validation": "reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -971,6 +971,34 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/handoff-disposition-check.sh"
+    },
+    "plan-terminal-lag-check": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
+        "validation": "DT-3 surface-and-walk: emits plan-terminal-lag when a plan is non-terminal under a TERMINAL parent_plan master; writes NO status (never auto-closes / auto-stamps verified); TERMINAL byte-identical to plan-archive.sh:148 / trinity-drift-detect.sh:83 / subplan-aggregate.sh:134 (parity-gated by ac-terminal-set-parity.sh)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-terminal-lag-check.sh"
     },
     "plan-parent-resolve": {
       "tier": "mechanical",
@@ -1495,6 +1523,7 @@
         "capabilities/placement-validate.sh",
         "capabilities/stale-detect.sh",
         "capabilities/handoff-disposition-check.sh",
+        "capabilities/plan-terminal-lag-check.sh",
         "capabilities/plan-index.sh",
         "capabilities/plan-parent-resolve.sh",
         "capabilities/rename-detect.sh",

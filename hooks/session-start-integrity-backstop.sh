@@ -12,11 +12,18 @@
 # Ownership boundary: registry REAPING stays owned by reconcile-sessions.sh — this
 # backstop adds ONLY the integrity pass the reaper never runs; it never deletes a
 # row.
-# Concurrency: lockf-guarded against a dedicated auto-close-backstop.lock (the
-# feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec; -t 0 = non-blocking
+# Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
+# deadlock-free). OUTER = a dedicated auto-close-backstop.lock process-dedup guard
+# (feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec; -t 0 = non-blocking
 # so two concurrently-starting sessions don't both sweep the same dead one — the
-# loser hits contention and skips cleanly). The `auto_close_swept_at` marker covers
-# the sequential case.
+# loser hits contention and skips cleanly; the `auto_close_swept_at` marker covers
+# the sequential case). INNER = the SHARED registry.lock (REGISTRY_LOCK, `-t 2`) held
+# across ONLY the read_registry..write_registry RMW span, so the backstop's sweep is
+# mutually exclusive with the registrar + reaper (they all take REGISTRY_LOCK) —
+# closing the lost-update race. The inner lock is RELEASED before the detached
+# session-close.sh spawn (which itself takes REGISTRY_LOCK): the sweep runs in a
+# re-exec'd child that hands its `found` result to the lock-released parent via a
+# sentinel file, and the parent spawns after the lock releases (see the guards below).
 # NEVER blocks SessionStart (spawns the close detached); NEVER fail-hard; exits 0
 # on every path. Graceful no-op when jq/lockf/registry are absent.
 set -uo pipefail
@@ -45,6 +52,48 @@ if [ -z "${AUTO_CLOSE_BACKSTOP_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1;
   /usr/bin/lockf -k -t 0 "$AUTO_CLOSE_LOCK" "$0" "$@" >/dev/null 2>&1 || true
   # Any rc (incl. 75 contention) -> exit 0: the backstop is best-effort and must
   # never disrupt SessionStart.
+  exit 0
+fi
+
+# --- nested REGISTRY_LOCK guard (registry.lock), released BEFORE the spawn ----
+# Second, INNER self-reexec (distinct marker) that holds the SHARED REGISTRY_LOCK
+# across ONLY the read_registry..write_registry RMW span below — so the backstop's
+# sweep is mutually exclusive with the registrar + reaper (they all take
+# REGISTRY_LOCK), closing the lost-update race. `-t 2`; on contention/timeout any rc
+# -> exit 0 (fail-open, NO partial write). When lockf is absent the guard is skipped
+# and the sweep runs unlocked (graceful-degrade), mirroring the outer guard.
+# CRITICAL (spawn-release): the detached session-close.sh spawn sits AFTER
+# write_registry, and session-close.sh itself takes REGISTRY_LOCK via its own
+# registry writers. If the spawn ran while THIS hook still held REGISTRY_LOCK, the
+# detached child would stall behind (or self-deadlock against) the parent's held
+# lock. So the inner lock is scoped to END at write_registry: the re-exec'd child
+# does read..sweep..write_registry and communicates whether a crashed row was found
+# via a sentinel file under COORD_DIR (NOT an exit code — that collides with lockf's
+# 75 contention code), then EXITS, releasing the inner lock. The PARENT (this branch,
+# after lockf returns and the lock is RELEASED) reads the sentinel and does the
+# detached spawn in the lock-released context.
+# Honor an inherited sentinel path (the re-exec'd child MUST use the SAME path the
+# parent set — so do not recompute it with the child's own $$; ${VAR:-default}
+# preserves the exported value across the re-exec).
+AUTO_CLOSE_FOUND_SENTINEL="${AUTO_CLOSE_FOUND_SENTINEL:-${AUTO_CLOSE_LOCK%.lock}.found.$$}"
+if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
+   && [ -n "${REGISTRY_LOCK:-}" ] \
+   && command -v lockf >/dev/null 2>&1; then
+  export AUTO_CLOSE_REGISTRY_LOCKED=1
+  export AUTO_CLOSE_FOUND_SENTINEL
+  rm -f "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+  # Child runs read..sweep..write_registry under REGISTRY_LOCK, writes the sentinel,
+  # and returns (it never reaches the spawn — the marker gates it below). On lockf
+  # return the inner lock is RELEASED.
+  /usr/bin/lockf -k -t 2 "$REGISTRY_LOCK" "$0" "$@" >/dev/null 2>&1 || true
+  # --- lock RELEASED here. Spawn the detached close ONCE if the child found a crash.
+  if [ -f "$AUTO_CLOSE_FOUND_SENTINEL" ]; then
+    rm -f "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
+    if [ -f "$SESSION_CLOSE" ]; then
+      ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+    fi
+  fi
   exit 0
 fi
 
@@ -95,15 +144,26 @@ for sid in $sids; do
   found=1
 done
 
-# If at least one crashed row was found, persist the swept markers and run the
-# (global, commit-free) integrity chain ONCE, detached. The orchestrator's own 60s
-# idempotent_guard collapses any redundant run; the chain is global so a single run
-# covers every crashed session swept this pass.
+# If at least one crashed row was found, persist the swept markers. write_registry
+# is the LAST operation under the inner REGISTRY_LOCK — the detached session-close.sh
+# spawn is DELIBERATELY NOT here: when this body runs under the inner lock re-exec
+# (AUTO_CLOSE_REGISTRY_LOCKED set), the spawn would inherit the held REGISTRY_LOCK and
+# the detached child (which takes REGISTRY_LOCK itself) would stall behind it. Instead
+# the `found` result is handed to the lock-RELEASED parent via the sentinel file, and
+# the parent spawns after lockf returns (see the nested guard above). When lockf is
+# absent (no inner re-exec — this body runs inline, unlocked), we spawn HERE directly,
+# since there is no held lock to release (graceful-degrade path).
 if [ "$found" -eq 1 ]; then
   [ -n "$reg" ] && write_registry "$reg"
-  SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
-  if [ -f "$SESSION_CLOSE" ]; then
-    ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+  if [ -n "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] && [ -n "${AUTO_CLOSE_FOUND_SENTINEL:-}" ]; then
+    # Locked re-exec: hand the found flag to the lock-released parent; DO NOT spawn.
+    : > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+  else
+    # Unlocked (lockf-absent) inline path: no held lock to release -> spawn here.
+    SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
+    if [ -f "$SESSION_CLOSE" ]; then
+      ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+    fi
   fi
 fi
 

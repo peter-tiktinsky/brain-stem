@@ -163,8 +163,16 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
+            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
             emit({"finding": "plan-research-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
+            continue
+        # /(): keep only real plans. A real plan has a `status` field
+        # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
+        # accept clause subsumes the corpus_version/slots reject (those fixtures also
+        # lack status+spec.md); if a future corpus_version dir ever declares status,
+        # revisit — this clause alone would admit it.
+        if not (("status" in man) or os.path.exists(os.path.join(dp, "spec.md"))):
             continue
         found.append((dp, man))
     return found

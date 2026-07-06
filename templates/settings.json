@@ -64,6 +64,11 @@
             "type": "command",
             "command": "~/.claude/hooks/post-work-map-refresh.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-handoff-refresh.sh",
+            "timeout": 5
           }
         ]
       }
@@ -128,6 +133,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-start-project-context.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-home-launch-warn.sh",
             "timeout": 5
           }
         ]

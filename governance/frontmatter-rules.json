@@ -1,7 +1,30 @@
 {
-  "schema_version": "2.0.0",
+  "schema_version": "2.1.0",
   "pillar": "frontmatter",
-  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40 plus the type registry, tier compliance, and path-routing rules. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
+  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40, R-64 plus the type registry, tier compliance, path-routing rules, and the universal typed cohort + property_types value-typing declarations. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
+  "cohort": {
+    "_description": "The universal typed frontmatter cohort applied to durable in-folder notes. Scope is LOCATION-BASED: every file resident in (or symlinked into, e.g. Work/) the brain folder (vault root) is in scope; machine files parked outside the brain folder (logs, XDG state) are exempt by location, not by type. The per-type required[] lists are the real enforcement surface; universal_required (tier_compliance) is documentary. Value-typing is the write-time property_types format regex (R-64).",
+    "fields": [
+      "type",
+      "description",
+      "created",
+      "updated",
+      "tags",
+      "id",
+      "schema_version"
+    ],
+    "scope": "location-based",
+    "in_scope": "brain-folder resident + symlinked-in subtrees (e.g. Work/)",
+    "exempt": "out-of-folder machine files (logs, XDG state); memory files (memory-auto-stamp.sh stamps created=today, so the cohort/git-date backfill would collide)"
+  },
+  "property_types": {
+    "_description": "Value-type declarations for the universal typed cohort, consumed write-time by pre-write-guard.sh's R-64 property-typing format-regex branch (Tier 1 advisory; warn-not-DENY under the shipped default). date = ^YYYY-MM-DD; list = a YAML sequence; slug-string = ^[a-z0-9]+(-[a-z0-9]+)*$; int = ^[0-9]+$. Mirrored (UX-only) into a seeded .obsidian/types.json — brain-stem can seed but cannot enforce Obsidian's own property types; the enforceable layer is this format regex.",
+    "created": "date",
+    "updated": "date",
+    "tags": "list",
+    "id": "slug-string",
+    "schema_version": "int"
+  },
   "_design_notes": {
     "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
     "absorbed_from_vault_schema": [
@@ -133,6 +156,23 @@
       },
       "drift_allowlist_path": "hooks/drift-allowlist.json",
       "manifest_mirror_path": "librarian-manifest.json drift_findings.provides_canonicality"
+    },
+    {
+      "id": "R-64",
+      "home": "frontmatter",
+      "category": "C1",
+      "tier": "1",
+      "enforcement_layer": [
+        "pre-write-guard.sh property-type format-regex branch (Tier 1 advisory; warn-not-DENY under the shipped default)",
+        "governance/frontmatter-rules.json `property_types` (value-type declarations)",
+        "librarian frontmatter-coverage-audit (audit-time typing-drift tracking)"
+      ],
+      "status": "active",
+      "source": "governance/frontmatter-rules.json :: _rules (SoT)",
+      "failure_mode": "Cohort fields written with a malformed value type — a free-text `created`, a scalar `tags`, a spaced `id`, a non-integer `schema_version` — are syntactically present but semantically unusable: date-range queries, list membership, slug reconciliation, and schema-version migrations all silently misfire. Obsidian Bases, an MCP server over the vault, and a RAG/GraphRAG exporter read the raw frontmatter and inherit the malformed value. Without a write-time typing signal the drift is invisible until a downstream consumer breaks. The Tier 1 advisory surfaces the type mismatch at the moment of capture so the author can correct the shape; it never blocks — the value is present, only mis-typed.",
+      "rule_text": "Cohort fields declared in governance/frontmatter-rules.json `property_types` MUST carry their declared value type: `created`/`updated` a `date` (^YYYY-MM-DD), `tags` a `list` (YAML sequence), `id` a `slug-string` (^[a-z0-9]+(-[a-z0-9]+)*$), `schema_version` an `int` (^[0-9]+$). Pre-write-guard emits a Tier 1 advisory `[R-64 PROPERTY TYPE]` when a present cohort value does not match its declared type; the advisory never blocks (warn is the shipped default; per-vault hard-DENY is an opt-in override). The new cohort fields (`description`/`created`/`id`/`schema_version`) join `updated` in the soft-tier non-block set — a missing cohort field warns, it does not DENY. The enforceable typing layer is this write-time format regex; the seeded `.obsidian/types.json` is a UX-only mirror (brain-stem cannot enforce Obsidian's own property types). Adding or changing a `property_types` declaration requires R-37 atomic lockstep with the pre-write-guard.sh typing branch.",
+      "advisory_only": true,
+      "property_types_source": "governance/frontmatter-rules.json#property_types"
     }
   ],
   "tier_compliance": {
@@ -143,8 +183,12 @@
       "applies_to": "type entries with tier=strict in this pillar's `types` block",
       "universal_required": [
         "type",
+        "description",
+        "created",
+        "updated",
         "tags",
-        "updated"
+        "id",
+        "schema_version"
       ],
       "conditional_required": [
         "status"
@@ -218,13 +262,17 @@
     "_adopter_extension_path": "overlay-master.frontmatter.path_routing.rules[]"
   },
   "types": {
-    "_description": "Canonical type registry — 7 foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
+    "_description": "Canonical type registry — the foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
     "index": {
       "tier": "strict",
       "required": [
         "type",
         "tags",
-        "updated"
+        "updated",
+        "description",
+        "created",
+        "id",
+        "schema_version"
       ],
       "conditional_required": {
         "parent_folder": {
@@ -234,25 +282,27 @@
         }
       },
       "optional": [
-        "provides",
-        "description"
+        "provides"
       ],
       "body_structure_contract": "governance/file-type-contracts/_index.md.json",
       "canonical_scope": true
     },
     "deliverable": {
       "tier": "strict",
-      "_description": "Durable, human/agent-authored work product under the Work/ surface (Work/<spoke>/deliverables/<name>.md) — the durable + human-authored context surface. Lifecycle frontmatter (status, audience) and enums are governed by governance/file-type-contracts/deliverable.md.json; the body is free-form because deliverables are heterogeneous. Enforcement is audit-time via the librarian suite over the Work/ symlink view; a deliverable authored from a work-spoke launch lands outside the vault root, so write-time governance does not fire.",
+      "_description": "Durable, human/agent-authored work product under the Work/ surface (Work/<spoke>/deliverables/<name>.md) — the durable + human-authored context surface. Lifecycle frontmatter (status, audience) and enums are governed by governance/file-type-contracts/deliverable.md.json; the body is free-form because deliverables are heterogeneous. Enforcement fires at BOTH layers: write-time on REGISTERED-spoke Work/ writes — the pre-write-guard.sh remap prelude rewrites a registered Work/<spoke>/ write onto the vault path BEFORE the 3-tier schema block, so the write IS governed — with the librarian suite over the Work/ symlink view as the audit-time backstop for everything else (unregistered spokes, hand-authored files reached via the scoped symlink walk). A deliverable is never machine-written; the bounded exception is the sentinel-bounded generated files (the work-side directory map + the work-subfolder _index.md navigation files), a disjoint artifact class that is out of the deliverable contract. `expected_path` (Work/**) is an audit-time placement advisory, not a write-time matcher.",
       "required": [
         "type",
         "tags",
         "updated",
         "project",
         "status",
-        "audience"
+        "audience",
+        "description",
+        "created",
+        "id",
+        "schema_version"
       ],
       "optional": [
-        "description",
         "supersedes"
       ],
       "body_structure_contract": "governance/file-type-contracts/deliverable.md.json",
@@ -333,10 +383,13 @@
         "updated",
         "routing",
         "sources",
-        "originating_plan"
+        "originating_plan",
+        "description",
+        "created",
+        "id",
+        "schema_version"
       ],
       "optional": [
-        "description",
         "revalidation_interval_days",
         "supersedes",
         "depends_on",

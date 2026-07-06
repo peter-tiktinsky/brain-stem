@@ -236,6 +236,7 @@ TODAY=$(date +%Y-%m-%d)
 
 FINDINGS_COUNT=0
 ERRORS_COUNT=0
+# T-4 (B-1 #3; closes the run_capability silent-skip class): count
 # capabilities whose BODY IS PRESENT ON DISK but is NON-EXEC (the dead-R-40
 # placement-validate class — public v1.1.1 shipped placement-validate.sh at
 # git-index 100644, so a real adopter session-close recorded `placement-validate:
@@ -287,6 +288,7 @@ run_capability() {
     record_capability "$name" "stub" "test-mode"
     return 0
   fi
+  # T-4 (B-1 #3): distinguish body-present-but-non-exec from genuinely
   # absent. A present-but-non-exec cap is a delivery-mode defect (the dead-R-40
   # placement-validate class) — record `error` (which bumps ERRORS_COUNT) AND
   # flag it so the orchestrator exits non-zero, instead of silently skipping it
@@ -308,6 +310,7 @@ run_capability() {
   local out_file cap_stdout rc
   out_file="${TMPDIR:-/tmp}/session-close-cap-$name-$$.out"
   cap_stdout="${TMPDIR:-/tmp}/session-close-cap-$name-$$.stdout"
+  # T-1: wire the per-run findings sink. Export FINDINGS_OUTPUT so
   # caps that honor it append findings NDJSON directly to the shared sink; for
   # the stdout-fallback class (a findings cap that prints findings to stdout when
   # FINDINGS_OUTPUT is unset), this cap's stdout is also appended to the SAME
@@ -367,6 +370,7 @@ run_reconcile_sweep() {
     record_capability "reconcile-sessions" "dry-run" "would invoke: $RECONCILE_SESSIONS_SH"
     return 0
   fi
+  # T-1: set FINDINGS_OUTPUT in the capability environment and route
   # any findings stdout to the shared per-run sink (uniform with run_capability)
   # instead of discarding it to /dev/null; stderr still discarded (sweep emits
   # its own sub-logs, not findings NDJSON).
@@ -381,8 +385,9 @@ run_reconcile_sweep() {
 # ---- build-dogfood detection (T-02 G2 reconcile) -------------
 # governance-parity-audit is R-37's enforcement vehicle but its 6
 # repo-only pillar inputs + unshipped narrative spokes are unsatisfiable on an
-# adopter (LOCKED G2: pre-launch INTERNAL only; gap-register-lib /
+# adopter (LOCKED G2: pre-launch INTERNAL only; gap-register /
 # backward-obs). Operator-recommended G2<->resolution (ratified at
+# ): chain it ONLY on the build's own dogfood session-close, EXCLUDED from
 # the shipped adopter chain. Signal = the foundation source repo present at
 # $FOUNDATION_REPO (default ~/Code/brain-stem) with a governance/ pillar tree —
 # the build box, never an adopter install.
@@ -396,6 +401,7 @@ is_build_dogfood() {
 # own scope via CLI flags per their SKILL.md contracts.
 
 step2_integrity() {
+  # = ACTIVE-SPOKE-ONLY: resolve the active spoke
   # ONCE for the binder-maintenance block below. The binder generators (the 3
   # plan-* re-derivers + the situating card + the handoff-chronicle append) are
   # scoped to the ACTIVE SPOKE ONLY — whole-tree re-derive is reserved for the
@@ -431,6 +437,7 @@ step2_integrity() {
   run_capability xref-check
   run_capability placement-validate
   run_capability stale-detect
+  # T-7: pointer-currency scan — advisory, propose-only,
   # CHANGE-GATED. Verifies every plain-text absolute-path pointer in MEMORY.md +
   # memory topic-files + rules/*.md still resolves on disk (INVERTS memory-
   # staleness). --session-close fires the change-gate: it SILENT no-ops unless a
@@ -439,6 +446,7 @@ step2_integrity() {
   # write so its findings flow into the per-run sink with the rest of step 2.
   run_capability pointer-currency-scan --session-close
   run_capability handoff-disposition-check
+  # T-4: maintain the episodic chronicle. Chained AFTER
   # handoff-disposition-check so the handoff/close-out block is already written —
   # the one-line-summary backfill harvests it. Read-mostly: pointer-metadata
   # refresh + 50KB rotation + placeholder backfill (advisory; no 5s hook
@@ -453,6 +461,7 @@ step2_integrity() {
   # block idempotently (the re-derive owns the whole file; the append is absorbed).
   run_capability binder-handoff-append-wrapper --spoke "$active_spoke"
   run_capability plan-index
+  # ACTIVE-SPOKE-ONLY: wire the 3 binder
   # generators — today triggered by ZERO session events (orphaned). They re-derive
   # the active spoke's research-index.md / decision-log.md / handoff-chronicle.md
   # from fresh plan source. All three are run_capability-compatible (block-and-log,
@@ -481,7 +490,20 @@ step2_integrity() {
   # idempotent + writes ONLY _index.md files under $WORK_HOME/<spoke>/.../{deliverables,
   # reference}/ (defensive skip for an absent spoke / target subfolder / marker-less index).
   run_capability work-index-maintain --spoke "$active_spoke"
+  # sub 09 (G-LIFECYCLE) T-1: close-time plan-terminal-lag
+  # SURFACE-AND-WALK. Emits a `plan-terminal-lag` finding when a plan is
+  # non-terminal under a TERMINAL parent_plan master and PROMPTS the walk in its
+  # report — it does NOT auto-close, never auto-stamps `verified` (the
+  # dogfood-harness machine-gate is preserved), and touches no aggregation
+  # (unchanged). Runs AFTER the binder card (@project-context-situating) and
+  # adjacent to plan-parent-resolve: like drift-sweep below, the lag scan reads
+  # plan+master manifests fresh, so it fires after the read-replicas regenerate.
+  # Findings flow into the per-run sink via run_capability's FINDINGS_OUTPUT
+  # wiring; the cap exits non-zero on findings (mirroring handoff-disposition-check)
+  # while session-close stays advisory (run_capability records it and returns 0).
+  run_capability plan-terminal-lag-check
   run_capability plan-parent-resolve
+  # (T-03): chain the vault-health writers-* refreshers (/.6,
   # R-44 _index regen). writers-index-refresh -> Vault Writers/_index.md catalog;
   # writers-overlap-refresh -> _overlap-matrix.md. writers-health-audit is NOT
   # chained here — it is a findings-JSONL no-vault-write sweep (cron_block:daily,
@@ -491,11 +513,13 @@ step2_integrity() {
   # capability-registry.json.
   run_capability writers-index-refresh
   run_capability writers-overlap-refresh
+  # (a) (T-04): auto-fire the master<->sub reconciler (pull-based
   # derived aggregation;/R-61/R-62). drift-sweep --plans --fix runs
   # ONLY the master<->sub aggregation axis and repairs each master's sub_plans[]
   # read-replica via subplan-aggregate (single-writer invariant). Without this the
   # master sub_plans[] never auto-reconciles.
   run_capability drift-sweep --plans --fix
+  # (T-02): R-37's enforcement vehicle, build-dogfood only.
   if is_build_dogfood; then
     run_capability governance-parity-audit
   fi
@@ -525,6 +549,7 @@ step2b_rename_cascade() {
     return 0
   fi
   # Capture NDJSON once, feed both downstream consumers.
+  # T-1: set FINDINGS_OUTPUT in the capability environment so any
   # findings these caps emit land in the shared per-run sink. rename-detect's
   # STDOUT is its rename-record data pipeline (captured to $tmp_nd, fed to the
   # downstream consumers) — NOT findings — so it must stay on stdout; setting
@@ -557,6 +582,7 @@ step2b_rename_cascade() {
 }
 
 # ---- Step 2d: trinity-drift-detect ------------------------------------------
+# T-4 (2026-04-22). After 2c pending-reconciliation, walk all plan
 # dirs for spec/manifest/tasks-ledger drift. Advisory. Uses shared find-emission
 # contract (FINDINGS_OUTPUT honored). Scoped runs still invoke — detection is
 # cheap + read-only.
@@ -565,6 +591,8 @@ step2d_trinity_drift() {
 }
 
 # ---- (former Step 3: sync-check / Step 4c: architect-triage) ---------------
+# (T-01 + T-04 fix-tail): sync-check and architect-triage are
+# -CUT capabilities (bodies absent + unregistered). Their run_capability
 # calls were removed (T-01), the emptied step functions were dropped, and their
 # orchestration-tail invocations struck (T-04 fix-tail), so the chain no longer
 # carries dead "skip: not-installed" references. The registry session-close
@@ -648,6 +676,7 @@ step2b_rename_cascade
 run_reconcile_sweep
 step2d_trinity_drift
 
+# T-1 (closes3-notwired-swallowed-1): count the per-run findings
 # sink AFTER the capability chain and BEFORE write_log emits `findings-total:`.
 # FINDINGS_COUNT is no longer left at its 0 init — it reflects the real count of
 # findings every chained capability routed to RUN_FINDINGS_NDJSON. Clean vault
@@ -660,6 +689,7 @@ write_log
 
 rm -f "$RUN_FINDINGS_NDJSON"
 
+# T-4 (B-1 #3): session-close stays advisory (Exit 0 always) for runtime
 # capability errors and benign environmental degradation — but a REQUIRED cap
 # whose body is PRESENT ON DISK yet NON-EXEC is a delivery-mode defect the gate
 # MUST observe (the dead-R-40 placement-validate class that shipped GREEN in

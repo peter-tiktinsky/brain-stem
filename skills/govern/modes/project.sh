@@ -259,16 +259,18 @@ _proj_workindex_mint() {
 # Project-specific blocks (registry_anchor + scaffold) folder.sh has neither.
 # The depth guard runs here too so an out-of-bound cwd never even proposes.
 mode_propose() {
-  local layout first_sub under add_sub adopt cwd
-  layout="flat"; first_sub=""; under=""; add_sub=""; adopt="0"; cwd="${PWD}"
+  local layout first_sub under add_sub add_folder role adopt cwd
+  layout="flat"; first_sub=""; under=""; add_sub=""; add_folder=""; role=""; adopt="0"; cwd="${PWD}"
   while [ $# -gt 0 ]; do
     case "$1" in
-      --layout)    layout="$2";    shift 2 ;;
-      --first-sub) first_sub="$2"; shift 2 ;;
-      --under)     under="$2";     shift 2 ;;
-      --add-sub)   add_sub="$2";   shift 2 ;;
-      --adopt)     adopt="1";      shift ;;
-      --cwd)       cwd="$2";       shift 2 ;;
+      --layout)     layout="$2";     shift 2 ;;
+      --first-sub)  first_sub="$2";  shift 2 ;;
+      --under)      under="$2";      shift 2 ;;
+      --add-sub)    add_sub="$2";    shift 2 ;;
+      --add-folder) add_folder="$2"; shift 2 ;;
+      --role)       role="$2";       shift 2 ;;
+      --adopt)      adopt="1";       shift ;;
+      --cwd)        cwd="$2";        shift 2 ;;
       --proposed-by) PROPOSED_BY="$2"; shift 2 ;;
       *) shift ;;
     esac
@@ -276,6 +278,32 @@ mode_propose() {
 
   local wh; wh="$(_proj_work_home)"
   local wh_canon; wh_canon="$(_proj_canon "$wh")"
+
+  # --add-folder sub-mode (grow-later): mint a PLAIN top-level folder (NOT a
+  # sub-project) under Work/<spoke>. No depth guard on cwd; the spoke is named.
+  # Must dispatch BEFORE the add-sub branch (which fires on --under alone).
+  if [ -n "$add_folder" ]; then
+    if [ -z "$under" ]; then
+      printf 'project.mode_propose: --under <spoke> required with --add-folder <name>\n' >&2
+      return 2
+    fi
+    case "$add_folder" in
+      */*|.*|"") printf 'project.mode_propose: invalid folder name: %s (no slashes, no leading dot)\n' "$add_folder" >&2; return 2 ;;
+    esac
+    # The overlay routing rule for the folder: default type-slug = the folder-name
+    # slug (folder.sh's own basename default, e.g. People -> people); --role, when
+    # given, OVERRIDES it as an explicit label. role="" => folder.sh default is used.
+    jq -nc \
+      --arg spoke "$under" --arg folder "$add_folder" \
+      --arg role "$role" \
+      '{kind:"project", op:"add-folder", spoke:$spoke, folder:$folder,
+        role:($role | if . == "" then null else . end),
+        notes:["Mints a PLAIN top-level folder Work/<spoke>/<name> — NO deliverables/reference, NO README, NO CLAUDE.md, NO registry write (an organizational unit, not a sub-project or a spoke).",
+               "Emits its overlay routing rule Work/<spoke>/<name>/** by default (mirrors --add-sub); the routing type-slug is the folder-name slug, or the --role label when given.",
+               "Re-derives the master work-map so the folder appears under \"Other top-level folders (not sub-projects):\".",
+               "Re-running on an existing folder BLOCKS via the mode own [ -e ] && die guard (non-destructive)."]}'
+    return 0
+  fi
 
   # --under sub-mode (grow-later): no depth guard on cwd; spoke is named.
   if [ -n "$under" ] || [ -n "$add_sub" ]; then
@@ -500,6 +528,63 @@ mode_commit() {
       #    deliverables/_index.md + reference/_index.md exist immediately. Best-effort.
       _proj_workindex_mint "$spoke"
       printf 'project: added sub-project %s under %s — scaffold + overlay rule committed (master work-map auto-derived from disk).\n' "$sub" "$spoke" >&2
+      return 0
+      ;;
+
+    add-folder)
+      local folder role folder_dir
+      spoke=$(jq -r '.spoke' "$proposal")
+      folder=$(jq -r '.folder' "$proposal")
+      role=$(jq -r '.role // ""' "$proposal")
+      if [ -z "$spoke" ] || [ "$spoke" = "null" ] || [ -z "$folder" ] || [ "$folder" = "null" ]; then
+        printf 'project.mode_commit: add-folder proposal missing .spoke/.folder\n' >&2
+        return 2
+      fi
+      case "$folder" in
+        */*|.*|"") printf 'project.mode_commit: invalid folder name: %s (no slashes, no leading dot)\n' "$folder" >&2; return 2 ;;
+      esac
+      if [ ! -d "$wh/$spoke" ]; then
+        printf 'project.mode_commit: spoke dir not found for add-folder: %s\n' "$wh/$spoke" >&2
+        return 3
+      fi
+      folder_dir="$wh/$spoke/$folder"
+      # OWN block-on-existing guard — mirrors scaffold.sh's clobber-refusal
+      # (`[ -e ] && [ ! -L ] && die`). --add-folder does NOT route through
+      # scaffold.sh's --subdir arm (which mints deliverables/reference); it mkdir's a
+      # plain folder directly, so it carries its own guard. A symlink is tolerated;
+      # a real existing dir BLOCKS (idempotent, non-destructive re-run).
+      if [ -e "$folder_dir" ] && [ ! -L "$folder_dir" ]; then
+        printf 'project.mode_commit: refusing to clobber existing folder: %s (block-on-existing; re-run is non-destructive)\n' "$folder_dir" >&2
+        return 2
+      fi
+      # 1. mkdir a PLAIN non-sub folder — NO deliverables/reference, NO README, NO
+      #    CLAUDE.md, NO registry write (an organizational unit, not a spoke).
+      mkdir -p "$folder_dir" || {
+        printf 'project.mode_commit: mkdir failed for add-folder: %s\n' "$folder_dir" >&2
+        return 3
+      }
+      # 2. Emit the routing rule (default a=YES). Default type-slug is the
+      #    folder-name slug via folder.sh's own basename default; --role overrides it
+      #    as an explicit label. The --target stays QUOTED end-to-end through
+      #    _proj_emit_overlay_rule[_literal] -> overlay-master-mutate.sh.
+      if [ -n "$role" ]; then
+        _proj_emit_overlay_rule_literal "Work/$spoke/$folder/**" "$role" || return $?
+      else
+        _proj_emit_overlay_rule "Work/$spoke/$folder" || return $?
+      fi
+      # 3. Re-derive the master work-map so the folder appears under "Other top-level
+      #    folders". Best-effort: block-and-log, ignore rc (mirrors add-sub).
+      _proj_workmap_cap=""
+      for _wmc in "$_PROJECT_REPO_ROOT/skills/librarian/capabilities/work-map-generate.sh" \
+                  "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/work-map-generate.sh"; do
+        if [ -f "$_wmc" ]; then _proj_workmap_cap="$_wmc"; break; fi
+      done
+      if [ -n "$_proj_workmap_cap" ]; then
+        WORK_HOME="$wh" FINDINGS_OUTPUT="/dev/null" \
+          bash "$_proj_workmap_cap" --spoke "$spoke" >/dev/null 2>&1 || true
+      fi
+      printf 'project: added folder %s under %s — plain non-sub folder + routing rule committed (NO registry write; master work-map re-derived). Defaults: emit-rule=YES, type-slug=%s, block-on-existing=own-guard.\n' \
+        "$folder" "$spoke" "${role:-<folder-name slug>}" >&2
       return 0
       ;;
 

@@ -3,6 +3,9 @@ type: index
 tags: ["#vault-writers"]
 updated: 2026-06-01
 description: "Index of the Vault Writers cluster — the catalog of systems that write into this vault."
+created: 2026-06-01
+id: index-vault-writers
+schema_version: 1
 ---
 
 # Vault Writers

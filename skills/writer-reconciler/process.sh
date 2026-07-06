@@ -14,6 +14,13 @@
 
 set -u
 
+# Capture the ORIGINAL argv (indexed array) immediately after set -u, BEFORE the
+# parse loop consumes $@ via shift, so the lockf re-exec forwards it verbatim +
+# empty-safe. This site reaches the re-exec with an EMPTY original argv on a
+# zero-CLI-arg tick, so the "${arr[@]+...}" form is load-bearing under set -u
+# (a bare "${arr[@]}" throws unbound-variable on bash 3.2.57) —.
+_WR_ORIG_ARGV=("$@")
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
@@ -115,15 +122,15 @@ fi
 LOCK_FILE="$STAGING_ROOT/.writer-reconciler.lock"
 if [ -z "${WRITER_RECONCILER_LOCKED:-}" ]; then
   export WRITER_RECONCILER_LOCKED=1
-  inner_args=""
-  [ -n "$STAGING_ROOT" ]      && inner_args="$inner_args --staging-root $STAGING_ROOT"
-  [ -n "$DESTINATION_FILTER" ] && inner_args="$inner_args --destination $DESTINATION_FILTER"
-  [ "$RULES_FILE" != "$DEFAULT_RULES_FILE" ] && inner_args="$inner_args --rules-file $RULES_FILE"
-  [ -n "$AUDIT_LOG" ]         && inner_args="$inner_args --audit-log $AUDIT_LOG"
-  [ "$DRY_RUN" = "1" ]        && inner_args="$inner_args --dry-run"
-  # shellcheck disable=SC2086
-  if ! /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" $inner_args; then
-    rc=$?
+  # Forward the ORIGINAL argv verbatim + empty-safe (bash-3.2 indexed array): no
+  # hand-rolled string rebuild, so a space-containing --staging-root/--destination
+  # can no longer word-split at the re-exec, and a zero-CLI-arg tick forwards an
+  # empty array safely under set -u. Convergent idiom shared with
+  # overlay-master-mutate.sh + doc-amender/process.sh: rc=0 / || rc=$? captures the
+  # real inner exit code (the prior `if ! ...; then rc=$?` read the !-negated status).
+  rc=0
+  /usr/bin/lockf -k -t 0 "$LOCK_FILE" "$0" "${_WR_ORIG_ARGV[@]+"${_WR_ORIG_ARGV[@]}"}" || rc=$?
+  if [ "$rc" -ne 0 ]; then
     if [ "$rc" = "75" ]; then
       printf 'process.sh: lock contention on %s; another reconciler tick in flight\n' "$LOCK_FILE" >&2
       exit 4
@@ -170,6 +177,7 @@ fi
 # NOT objects — so read the scalar directly. The prior `.dedup.strategy`/`.survivorship.default`/
 # `.merge.strategy` paths object-indexed a string (jq rc=5, NOT caught by `//`) -> EMPTY values;
 # harmless while writer-reconciler hard-exited on a clean adopter (loose spoke absent), but the
+# merged-.vault_writers fallback made the cap RUN, and an empty $survivorship silently
 # bypasses the operator-edit-wins preservation gate (~:436) -> operator-data-loss. (
 # comprehensive PATTERN-B [HIGH].)
 UNIVERSAL_DEDUP=$(jq -r '.processing_defaults.dedup // "content-hash"' "$RULES_FILE")
@@ -354,6 +362,7 @@ emit_daily_processing_and_manifest_row() {
   jsonl_file="$daily_dir/$dest_slug.jsonl"
 
   # Manifest history query (for write_bucket derivation + supersession id).
+  # : the manifest lib lives at hooks/lib/ (brain-stem has no top-level lib/);
   # this resolves the divergent process.sh path to the shipped hooks/lib/
   # substrate (T-01 /), reconciling against install.sh:700 hooks/lib/.
   local manifest_record manifest_path

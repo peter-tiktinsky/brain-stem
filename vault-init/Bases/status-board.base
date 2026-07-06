@@ -1,0 +1,18 @@
+# Starter Obsidian Base (Bases core plugin, Obsidian 1.9.10+).
+# A per-status board over durable notes that carry a `status` lifecycle field —
+# each status value reads as its own card group (the kanban surface). Keys on the
+# cohort `status` + `type` + `updated` frontmatter; no plugin beyond Bases.
+filters:
+  and:
+    - 'status != null'
+views:
+  - type: cards
+    name: Status board
+    groupBy: status
+    order:
+      - file.name
+      - type
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

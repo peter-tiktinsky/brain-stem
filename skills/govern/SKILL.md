@@ -47,7 +47,8 @@ code path. Plans-tree creation is ORTHOGONAL — use `/new-plan` or
 /govern register --kind project --layout flat
 /govern register --kind project --layout master --first-sub <name>
 # Grow later (sub-modes — no new --kind):
-/govern register --kind project --under <spoke> --add-sub <name>   # add a sub-project to an existing spoke
+/govern register --kind project --under <spoke> --add-sub <name>              # add a sub-project to an existing spoke
+/govern register --kind project --under <spoke> --add-folder <name> [--role <slug>]  # add a plain non-sub folder (routing rule, no registry write)
 /govern register --kind project --adopt                           # promote a sub to a top-level spoke (post operator git mv)
 ```
 
@@ -92,6 +93,15 @@ no re-scaffold).
   the work directory-map generator on the next refresh. On a FLAT
   spoke: WARN + advise manual relocation of existing top-level deliverables
   (— never auto-moved).
+- `--under <spoke> --add-folder <name> [--role <slug>]` — mint a PLAIN top-level
+  folder `Work/<spoke>/<name>` that is NOT a sub-project: no `deliverables/` or
+  `reference/`, no `README`, no `CLAUDE.md`, and NO `anchored-spoke-registry.json`
+  entry (a non-sub folder is an organizational unit, not a spoke). Emits its
+  routing rule `Work/<spoke>/<name>/**` by default (via the union leaf, like
+  `--add-sub`); the routing type-slug defaults to the folder-name slug, or the
+  `--role <slug>` label when given. Re-derives the master work-map so the folder
+  appears under "Other top-level folders (not sub-projects):", NOT as a
+  sub-project. Re-running on an existing folder BLOCKS (non-destructive).
 - `--adopt` — sub→top-level promotion: the operator `git mv` is EMITTED (not
   executed), then register the depth-1 spoke + scaffold the MISSING-ONLY work
   `CLAUDE.md` + mint the binder hub (existing `README`/`deliverables`/`reference`
@@ -119,7 +129,7 @@ deliberation/commit/skip arcs:
 | `tag-extension` | `tagging.taxonomy.dimension_prefixes` | (none) | `tag-extension` |
 | `writer` | `vault_writers` (no-op `{}` payload for atomic action-log) | `Vault Writers/<slug>.md` writer-reference file | `writer` |
 | `doc-amender-prompt` | (none — outside-vault state-tier asset) | `$VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md` (CREATE-ONLY) + optional `doc-dependencies.json` writer-fan-in entry | `doc-amender-prompt` |
-| `project` | `frontmatter.path_routing.rules` (vault-view overlay rule; union shape, committed as `--kind folder`) | `anchored-spoke-registry.json` (standalone direct-patch, atomic temp+rename — master only) + `$WORK_HOME/<spoke>/` scaffold (flat MVP OR master + sub) — NEVER the vault-root `CLAUDE.md` tree | `folder` (overlay rule); registry patch writes NO action-log row |
+| `project` | `frontmatter.path_routing.rules` (vault-view overlay rule; union shape, committed as `--kind folder`) | `anchored-spoke-registry.json` (standalone direct-patch, atomic temp+rename — master only) + `$WORK_HOME/<spoke>/` scaffold (flat MVP OR master + sub) — NEVER the vault-root `CLAUDE.md` tree. `--add-folder` mints a plain non-sub folder + routing rule ONLY (NO registry write, NO `CLAUDE.md` tree append) | `folder` (overlay rule); registry patch writes NO action-log row |
 
 ### doc-amender-prompt Output Contract (the 5th class — Skill Creation Rules)
 
