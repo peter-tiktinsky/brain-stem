@@ -300,6 +300,25 @@ sys.stdout.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
     return 6
   fi
 
+  # propose-and-confirm the daily writers-health-audit cron dispatch
+  # at writer registration (operator ruling 2026-07-09). DORMANT-UNTIL-OPT-IN: emit a one-time
+  # proposal when the durable activation key is `unset` (never proposed — covers first-writer)
+  # OR `declined` (re-proposable) — NEVER when `enabled` (already opted in; default-on for all
+  # subsequent writers). No re-prompt within this registration. The model surfaces the
+  # WRITER-HEALTH-PROPOSE line and records the accept/decline by setting
+  # behavioral.hook_preferences.writers_health_check in the user-manifest (installer/cron-dispatch.sh
+  # reads it). NO session-close.sh edit -> this stays out of the R2 cluster.
+  local _wh_um _wh_key
+  _wh_um="${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}"
+  _wh_key="unset"
+  if command -v jq >/dev/null 2>&1 && [ -f "$_wh_um" ]; then
+    _wh_key="$(jq -r '.behavioral.hook_preferences.writers_health_check // "unset"' "$_wh_um" 2>/dev/null || echo unset)"
+    [ -n "$_wh_key" ] && [ "$_wh_key" != "null" ] || _wh_key="unset"
+  fi
+  if [ "$_wh_key" != "enabled" ]; then
+    printf 'WRITER-HEALTH-PROPOSE: a vault writer is now registered. Enable the daily writer health check (writers-health-audit)? Accepting sets it default-on for every subsequent writer you add; declining leaves it dormant (re-proposable, never nagging). Record the choice by setting behavioral.hook_preferences.writers_health_check to "enabled" (accept) or "declined" (decline) in %s.\n' "$_wh_um"
+  fi
+
   # Now invoke library with empty {} payload purely for atomic action-log row.
   local empty_payload="$tmpdir/empty.json"
   printf '{}\n' > "$empty_payload"

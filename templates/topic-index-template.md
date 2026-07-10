@@ -44,7 +44,9 @@ Body (C-IDX body_structure):
 -->
 
 <!-- contents-enum:start -->
+
 | File | Lines | Type | Description |
 |---|---|---|---|
 | [[<article>.md]] | <~lines> | reference | <routing one-liner / description / H1> |
+
 <!-- contents-enum:end -->

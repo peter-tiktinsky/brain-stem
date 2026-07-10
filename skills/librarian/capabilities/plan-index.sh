@@ -282,8 +282,20 @@ for entry in sorted(PLANS_DIR.iterdir()):
         doc = read_manifest(entry)
         if doc:
             spec_path = doc.get("spec_path", "") or ""
-            if spec_path and not (spec_path == "spec.md" or str(entry) in spec_path):
-                continue
+            # a manifest's spec_path may be stored as the
+            # bare `spec.md`, an absolute path, or a tilde path
+            # (`~/.claude-plans/<slug>/spec.md`, as ~17 live manifests do). The
+            # old `str(entry) in spec_path` containment dropped every tilde-stored
+            # row (the literal `~` never contains the absolute plan dir) and could
+            # substring-admit a foreign plan. Normalize both sides (expanduser +
+            # realpath) and match the spec_path's OWN plan dir against `entry`: a
+            # self-referential tilde/absolute spec_path admits its row, while a
+            # spec_path pointing at a DIFFERENT plan dir is still dropped.
+            if spec_path and spec_path != "spec.md":
+                spec_plan_dir = os.path.realpath(
+                    os.path.dirname(os.path.expanduser(spec_path)))
+                if os.path.realpath(str(entry)) != spec_plan_dir:
+                    continue
     if PARENT_FILTER:
         if PARENT_FILTER not in parent_plan_chain(entry):
             continue

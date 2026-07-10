@@ -56,9 +56,23 @@ FINDINGS=""
 SCANNED=0
 ISSUES=0
 
-while IFS= read -r rel_path; do
-  [[ -z "$rel_path" ]] && continue
-  FULL="$VAULT_ROOT/$rel_path"
+while IFS= read -r touched; do
+  [[ -z "$touched" ]] && continue
+  # track-vault-write.sh records an ABSOLUTE file_path in
+  # touched_files; the prior FULL="$VAULT_ROOT/$rel_path" double-rooted it (a
+  # non-existent path) so the -f guard below skipped EVERY touched file and R-36
+  # covered 0. Resolve the absolute path directly; derive the vault-relative form
+  # via registry.sh vault_relative() for the .md / Logs-exclusion scope checks and
+  # the finding display. A path NOT under VAULT_ROOT yields an empty relative and
+  # is skipped (scope preserved). A legacy relative entry keeps the old join.
+  if [[ "$touched" == /* ]]; then
+    FULL="$touched"
+    rel_path="$(vault_relative "$touched")"
+    [[ -z "$rel_path" ]] && continue
+  else
+    rel_path="$touched"
+    FULL="$VAULT_ROOT/$rel_path"
+  fi
 
   [[ ! -f "$FULL" ]] && continue
   [[ "$rel_path" != *.md ]] && continue

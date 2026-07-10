@@ -2,9 +2,10 @@
 # frontmatter-enforce — Validate and optionally fix frontmatter on vault files.
 # Sources `hooks/lib/findings.sh` + `hooks/lib/manifest.sh`.
 # Two phases per invocation:
-#   1. Per-file validation — walks scope, checks required fields per 26-row type
-#      table, empty optionals, tag taxonomy. Emits `frontmatter-*` findings via
-#      emit_finding (stdout / FINDINGS_OUTPUT).
+#   1. Per-file validation — walks scope, checks required fields per the composed
+#      foundation+overlay type table (foundation-master.frontmatter.types unioned with
+#      overlay-master.frontmatter.types via the R-52 merger), empty optionals, tag
+#      taxonomy. Emits `frontmatter-*` findings via emit_finding (stdout / FINDINGS_OUTPUT).
 #   2. Drift audits (vault-wide, unless --scope):
 #        (a) provides-canonicality-drift    — DC-NNN
 #        (b) size-warning-{soft,strong} + size-guard-violation — SM-NNN
@@ -158,9 +159,47 @@ if [ "${VAULT_CONFIGURED:-0}" != "1" ]; then
   exit 0
 fi
 
+# --- source the shared vault-view walker for the SCOPED lane ---
+# The Work-deliverable audit lane (`--scope "$VAULT_ROOT/Work"`) reaches the ~390 Work
+# bodies behind the Work/ symlink via the ONE shared scoped-followlinks primitive
+# (hooks/lib/vault-view-walk.sh), replacing the per-capability os.walk re-implementation
+# the 129 audit found. The walker emits ABSOLUTE LOGICAL vault-view paths only when rooted
+# at the VAULT ROOT — a scope symlink passed directly would `pwd -P`-resolve to the physical
+# target and break the Work/<spoke>/... scope-relative shape build_scope() needs — so we
+# walk VAULT_ROOT and PRUNE every sibling top-level surface except the scope-top, bounding
+# the reach to the scoped subtree. build_scope() reads this list when walk=="scope"; when
+# the lib is unavailable the list is empty and build_scope() FALLS THROUGH to the FIX #7
+# os.walk(followlinks=(walk=="scope")) lane (graceful degradation).
+FM_SCOPE_WALK_LIST=""
+if [ "$WALK" = "scope" ] && [ -n "${VAULT_ROOT:-}" ] && [ -d "$VAULT_ROOT" ]; then
+  _VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+  [ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
+  if [ -r "$_VVW_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_VVW_LIB"
+    if command -v vault_view_walk >/dev/null 2>&1; then
+      _scope_rel="${VAULT_SCOPE#$VAULT_ROOT}"; _scope_rel="${_scope_rel#/}"
+      _scope_top="${_scope_rel%%/*}"
+      _vvw_exempts=()
+      if [ -n "$_scope_top" ]; then
+        for _sib in "$VAULT_ROOT"/*/; do
+          [ -d "$_sib" ] || continue
+          _sib="${_sib%/}"; _sib_bn="${_sib##*/}"
+          [ "$_sib_bn" = "$_scope_top" ] && continue
+          _vvw_exempts[${#_vvw_exempts[@]}]="$_sib_bn/**"
+        done
+      fi
+      FM_SCOPE_WALK_LIST="$(mktemp -t fm-enforce-scope.XXXXXX)"
+      vault_view_walk "$VAULT_ROOT" ${_vvw_exempts[@]+"${_vvw_exempts[@]}"} \
+        > "$FM_SCOPE_WALK_LIST" 2>/dev/null || true
+    fi
+  fi
+fi
+export FM_SCOPE_WALK_LIST
+
 # Tmp file for merged drift_findings JSON emitted by the python block below.
 DRIFT_OUT="$(mktemp -t fm-enforce-drift.XXXXXX)"
-trap 'rm -f "$DRIFT_OUT" ${_FM_UNION:+"$_FM_UNION"}' EXIT
+trap 'rm -f "$DRIFT_OUT" ${_FM_UNION:+"$_FM_UNION"} ${FM_SCOPE_WALK_LIST:+"$FM_SCOPE_WALK_LIST"}' EXIT
 
 python3 - "$VAULT_SCOPE" "$WALK" "$MODE" "$DRY_RUN" "$DRIFT_OUT" <<'PY'
 import json, os, re, sys, time, fnmatch, subprocess
@@ -455,6 +494,41 @@ def build_scope():
     # T-1 (2 belt-and-suspenders): os.walk('') silently returns []
     # (no crash), but guard explicitly so a non-vault/empty root degrades to no-op.
     if not root or not os.path.isdir(root):
+        return files
+    # the SCOPED Work-deliverable lane enumerates via the ONE
+    # shared vault-view walker (hooks/lib/vault-view-walk.sh) — the primitive that
+    # replaces the per-capability symlink-view re-implementation (129 audit). The bash
+    # section materialized its file list to FM_SCOPE_WALK_LIST rooted at VAULT_ROOT (so
+    # paths stay in the LOGICAL Work/<spoke>/... vault-view shape, sibling surfaces
+    # pruned). We filter to the scope subtree and compute rel against the walker's
+    # pwd -P-normalized root. When the walker lib is unavailable FM_SCOPE_WALK_LIST is
+    # empty and we FALL THROUGH to the FIX #7 os.walk(followlinks=(walk=="scope")) lane
+    # below (graceful degradation; the recent/full whole-vault lanes always stay
+    # symlink-inert — the regression guard).
+    scope_walk_list = os.environ.get("FM_SCOPE_WALK_LIST", "")
+    if walk == "scope" and scope_walk_list and os.path.isfile(scope_walk_list):
+        walk_base = os.path.realpath(vault_root)
+        _vs = vault_scope.rstrip("/")
+        _vr = vault_root.rstrip("/")
+        if _vs == _vr or not _vs.startswith(_vr + "/"):
+            logical_scope_prefix = walk_base
+        else:
+            logical_scope_prefix = os.path.join(walk_base, _vs[len(_vr) + 1:])
+        try:
+            with open(scope_walk_list) as _wf:
+                walk_lines = _wf.read().split("\n")
+        except Exception:
+            walk_lines = []
+        for full in walk_lines:
+            if not full or not full.endswith(".md"):
+                continue
+            if not (full == logical_scope_prefix
+                    or full.startswith(logical_scope_prefix + os.sep)):
+                continue
+            rel = os.path.relpath(full, walk_base)
+            if is_exempt(full, rel):
+                continue
+            files.append((full, rel))
         return files
     # FIX #7: descend the Work/ symlink ONLY in the scoped Work-deliverable
     # audit lane; the whole-vault default run stays symlink-inert (regression guard).

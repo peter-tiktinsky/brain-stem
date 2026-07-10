@@ -1,10 +1,11 @@
 #!/bin/bash
 # project-context-situating — generate the per-spoke GENERATED situating card:
 # <plans-root>/_projects/<spoke>/_situating.md — the eager, force-ingested binder
-# surface that lets a session self-orient the instant it opens in a spoke. This is
-# NOT hub.md: hub.md is template-scaffolded-then-curated and read on-demand; the
-# situating card is the GENERATED, machine-derived eager surface. This capability
-# NEVER writes hub.md (it preserves C-HUB / R-BIND "no capability generates hub.md").
+# surface that lets a session self-orient the instant it opens in a spoke. The
+# situating card is the SOLE binder cover — the project binder is 100%
+# machine-derived, generated entirely from each contributing plan's manifest, with
+# no hand-curated cover surface.
+#
 # The card is DERIVED entirely from each contributing plan's manifest.json (the
 # fields declared in schemas/plan-manifest-schema.json). Only plans whose manifest
 # `project:` key == the target spoke contribute (per-spoke, the sibling-generator
@@ -17,16 +18,19 @@
 #   - the latest handoff headline (most recent handoff.md across the spoke),
 #   - pointers to research-index.md / decision-log.md / handoff-chronicle.md
 #     (co-located in the binder home) + the deliverables path ~/work/<spoke>/deliverables/.
+#
 # EXCLUDE (hard): the card NEVER emits the non-derivable library-refs or the free
-# "active SoT" pointer (non-derivable curation that stays in the on-demand hub, curated by the
-# user). The card NEVER emits any work-spoke directory-map / "what-lives-where"
+# "active SoT" pointer (non-derivable curation the card deliberately omits). The
+# card NEVER emits any work-spoke directory-map / "what-lives-where"
 # content — that is the work-map generator's domain (D disjoint roles); the card
 # is the BINDER surface, the work-map is the WORK surface.
+#
 # The plans home resolves robustly the way sibling capabilities resolve it —
 # PLANS_ROOT/PLANS_DIR override, else paths.sh, never a hardcoded user-home
 # literal. The _projects/ scaffold proper is the install unit's scope; this
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
+#
 # The card is force-ingested every session (the SessionStart card-load hook reads
 # it as additionalContext), so it self-bounds < 9728B — the force-ingest ceiling
 # for a SessionStart additionalContext payload. That bound is met STRUCTURALLY: the
@@ -36,6 +40,7 @@
 # under the ceiling by construction. If a pathological roster somehow overflowed,
 # the body would be trimmed defensively before the write as a can-never-fire last
 # resort (the card never ships over budget).
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/_situating.md   (atomic temp+os.replace;
@@ -67,18 +72,21 @@
 #     exit 0; no partial/garbage write. Never write-and-hope.
 #   Maintainer-provenance (R-GOV-3): _situating.md is a librarian-maintained
 #     GENERATED artifact; this capability is its sole originating writer. It NEVER
-#     writes hub.md, research-index.md, decision-log.md, handoff-chronicle.md, the
+#     writes research-index.md, decision-log.md, handoff-chronicle.md, the
 #     research/ symlink farm, plan manifests, any plan handoff.md / _research/ /
 #     decisions/ content, or anything under ~/work/. It reads plan manifests (+ the
 #     newest handoff.md headline) and writes ONLY _situating.md.
+#
 # CLI:
 #   project-context-situating.sh                 # regenerate every spoke's card
 #   project-context-situating.sh --spoke <key>   # regenerate one spoke's card only
 #   project-context-situating.sh --dry-run       # findings + would-be writes, NO write
 #   project-context-situating.sh --help
+#
 # Env overrides (testing):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh)
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv, never
 # piped stdin — feedback_python_heredoc_argv). Read-only manifest walk + atomic
 # file write(s).
@@ -113,11 +121,16 @@ done
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 
-python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
+# the work-spoke home, so the deliverables pointer can be
+# existence-gated (WORK_HOME override for test isolation; default ~/work).
+WORK_HOME_RES="${WORK_HOME:-$HOME/work}"
+case "$WORK_HOME_RES" in */) WORK_HOME_RES="${WORK_HOME_RES%/}" ;; esac
+
+python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" "$WORK_HOME_RES" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date
 
-plans_root, dry_s, spoke_filter = sys.argv[1:4]
+plans_root, dry_s, spoke_filter, work_home = sys.argv[1:5]
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
@@ -305,10 +318,13 @@ SESSION_HEADING_RE = re.compile(
 SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
 DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
 def newest_handoff_headline(plan_dirs):
-    # Scan EVERY session heading in EVERY handoff.md; parse each heading's session
-    # ordinal + date; keep the maximum (ordinal DESC, then date DESC). Return the
-    # winning plan slug + its headline. No mtime, no first-heading shortcut.
-    best = None  # (session_num, date, plan_slug, headline)
+    # PER-SLUG maxima: for EACH plan slug, scan every session heading in its own
+    # handoff.md, parse the session ordinal + date, and keep THAT slug's maximum
+    # (ordinal DESC, then date DESC). Returns {slug: headline} — one newest headline
+    # per plan, NOT a single global winner, so the card can render one latest-handoff
+    # pointer per in-progress Active-focus bullet (member b). A single mid-scan global
+    # `best` would collapse all plans to one line. No mtime, no first-heading shortcut.
+    best = {}  # slug -> (session_num, date, headline)
     for slug, pdir in plan_dirs.items():
         hp = os.path.join(pdir, "handoff.md")
         if not os.path.isfile(hp):
@@ -324,11 +340,10 @@ def newest_handoff_headline(plan_dirs):
             num = int(nm.group(1)) if nm else -1
             dm = DATE_RE.search(headline)
             dt = dm.group(1) if dm else ""
-            if best is None or (num, dt) > (best[0], best[1]):
-                best = (num, dt, slug, headline)
-    if best is None:
-        return ("", "")
-    return (best[2], best[3])
+            cur = best.get(slug)
+            if cur is None or (num, dt) > (cur[0], cur[1]):
+                best[slug] = (num, dt, headline)
+    return {slug: v[2] for slug, v in best.items()}
 
 
 # --- assemble per-spoke state -----------------------------------------------
@@ -374,7 +389,7 @@ def write_atomic(dirpath, target, body):
 def render_card(spoke, st):
     agg = aggregate_status(st["statuses"])
     active = st["active"]
-    a_slug, a_headline = newest_handoff_headline(st["plan_dirs"])
+    handoffs = newest_handoff_headline(st["plan_dirs"])  # {slug: newest headline}
     binder_home = os.path.join(PROJECTS, spoke)
 
     # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
@@ -399,8 +414,8 @@ def render_card(spoke, st):
         "_Auto-generated by `librarian project-context-situating`. Do not hand-edit._",
         "",
         "Force-ingested binder orientation for the `%s` spoke. Machine-derived from "
-        "each contributing plan's manifest. The curated on-demand surface is "
-        "`hub.md` (this card never replaces it)." % spoke,
+        "each contributing plan's manifest — the sole, 100%% machine-derived binder "
+        "cover." % spoke,
         "",
         "**Project status (aggregate, by rule): `%s`** — derived from the per-plan "
         "statuses below (no native aggregate field; precedence: in-progress > paused "
@@ -421,11 +436,22 @@ def render_card(spoke, st):
         lines.append("_No in-progress plan in this spoke._")
     lines.append("")
 
-    # --- latest handoff headline --------------------------------------------
+    # --- latest handoff pointers (one PER in-progress Active-focus bullet) ---
+    # PER-PLAN, not a single global line: each in-progress plan (the Active-focus
+    # bullets above) renders its OWN newest-handoff pointer, aligned to that bullet;
+    # a plan with no handoff.md contributes no row. These rows live in the
+    # never-trimmed orientation zone, so they stay compact (DT-1 <9728B; 140 sub-07).
     lines.append("## Latest handoff")
     lines.append("")
-    if a_headline:
-        lines.append("- **%s**: %s" % (esc(a_slug), esc(a_headline)))
+    handoff_rows = []
+    for a in active:
+        hl = handoffs.get(a["slug"])
+        if hl:
+            handoff_rows.append("- **%s**: %s" % (esc(a["slug"]), esc(hl)))
+    if handoff_rows:
+        lines.extend(handoff_rows)
+    elif active:
+        lines.append("_No session handoff recorded for an in-progress plan in this spoke yet._")
     else:
         lines.append("_No session handoff recorded in this spoke yet._")
     lines.append("")
@@ -435,17 +461,21 @@ def render_card(spoke, st):
     # this same binder home (_projects/<spoke>/); each link is gated on the surface
     # actually existing, so the card never renders a dead link to a not-yet-created
     # binder file. The deliverables path is the spoke-keyed ~/work/<spoke>/
-    # deliverables/ (the hub-template convention). NO library-refs, NO "active SoT"
-    # free pointer (non-derivable curation — stays in hub.md). NO work directory-map.
+    # deliverables/. NO library-refs, NO "active SoT" free pointer (non-derivable
+    # curation the card deliberately omits). NO work directory-map.
     lines.append("## Binder surfaces")
     lines.append("")
     for label, fname in (("Research", "research-index.md"),
                          ("Decisions", "decision-log.md"),
-                         ("Handoffs", "handoff-chronicle.md"),
-                         ("Curated cover (on-demand)", "hub.md")):
+                         ("Handoffs", "handoff-chronicle.md")):
         if os.path.exists(os.path.join(binder_home, fname)):
             lines.append("- %s: [%s](%s)" % (label, fname, fname))
-    lines.append("- Deliverables: `~/work/%s/deliverables/`" % spoke)
+    # existence-gate the deliverables pointer, mirroring the
+    # binder-surface gate above. A binder-only spoke with no ~/work/<spoke>/deliverables/
+    # otherwise force-ingested a DEAD pointer every session. (The hub.md-pointer half of
+    # the deliverables-hub pointer is DISSOLVED (de-hub); the card no longer emits a hub.md pointer.)
+    if os.path.isdir(os.path.join(work_home, spoke, "deliverables")):
+        lines.append("- Deliverables: `~/work/%s/deliverables/`" % spoke)
     lines.append("")
 
     # PLAN ROSTER — rendered LAST and STRUCTURALLY BOUNDED. Keyed per-spoke off

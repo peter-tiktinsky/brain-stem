@@ -94,7 +94,7 @@
       "status": "active",
       "source": "governance/naming-rules.json :: _rules (SoT; home naming, category C3 — the canonical home != category divergence)",
       "failure_mode": "Plans without numeric prefix or status break librarian plan-index regeneration. Shame slugs degrade plan-index, backlog routing, and search-by-name.",
-      "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) a status marker (`**Status:**` header bullet, YAML `status:` frontmatter, or `manifest.json` top-level `status` field with a value in the canonical 8-state lifecycle.status_enum). The spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
+      "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) an authoritative status. The status is satisfied by any of: a `**Status:**` header bullet, YAML `status:` frontmatter, a `manifest.json` top-level `status` field, OR — for `spec.md` and `00-ideation-brief.md` — a sibling `manifest.json` carrying a top-level `status` field. spec.md/00-ideation-brief.md are manifest-derived: the manifest is the single status SoT, so an artifact carrying no inline status defers to its plan's manifest and DENYs only when the manifest carries no status either. Flat-root plans and README.md have no sibling manifest and keep the inline `**Status:**`/`status:` requirement; a `manifest.json` write keeps its OWN top-level `status`. Status values use the canonical 8-state lifecycle.status_enum; the spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
       "slug_requirements": {
         "case": "lowercase only",
         "separator": "kebab-case",
@@ -107,7 +107,8 @@
       "status_acceptance": [
         "**Status:** header bullet",
         "YAML status: frontmatter",
-        "manifest.json top-level status field"
+        "manifest.json top-level status field",
+        "sibling manifest.json status (spec.md + 00-ideation-brief.md are manifest-derived under the single status SoT — a no-inline-status artifact defers to its plan manifest; DENY only when the sibling manifest has no status)"
       ],
       "sanctioned_creation_paths": [
         "/new-plan",
@@ -122,7 +123,7 @@
         "{plans_root}/*/*/spec.md",
         "{plans_root}/*/*/manifest.json"
       ],
-      "_enforcement_scope_depth3_note": "The last two globs ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json) extend R-27's enforcement to depth-3 sub-plan roots — depth-3 sub-plan spec.md/manifest.json are governed peers carrying their OWN canonical status, NOT status-derived shadows of the master. A sub-plan can be paused independently of its master; the master sub_plans[] aggregate reflects each sub's published status. The hook substance asserts: (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/; (b) target is spec.md or manifest.json; (c) manifest.json carries status: present + value in the lifecycle.status_enum.",
+      "_enforcement_scope_depth3_note": "The last two globs ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json) extend R-27's enforcement to depth-3 sub-plan roots. A depth-3 sub-plan manifest.json is a governed peer carrying its OWN canonical status, NOT a status-derived shadow of the master; a sub-plan can be paused independently of its master, and the master sub_plans[] aggregate reflects each sub's published status. A depth-3 sub-plan spec.md is manifest-derived under the single status SoT — it defers to its sibling manifest's status rather than carrying its own. The hook substance asserts: (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/; (b) target is spec.md or manifest.json; (c) for manifest.json, status: present + value in the lifecycle.status_enum; (d) for spec.md, an inline **Status:**/YAML status: OR a sibling manifest.json status — DENY fires only when neither an inline marker nor a sibling-manifest status is present.",
       "whitelist": [
         "_index.md",
         "_backlog.md",

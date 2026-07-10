@@ -57,13 +57,22 @@ done
 
 SCOPE_ROOT="${SCOPE:-$VAULT_ROOT}"
 
-# Read cluster folder from user-manifest (vault.cluster_folder); fall through
-# when unset — cluster-specific placement rules skip cleanly when CLUSTER_DIR is empty.
+# Read cluster folder from user-manifest (vault.cluster_folder).
 CLUSTER_DIR=""
 _USER_MANIFEST="${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}"
 if [[ -r "$_USER_MANIFEST" ]] && command -v jq >/dev/null 2>&1; then
   CLUSTER_DIR=$(jq -r '.vault.cluster_folder // ""' "$_USER_MANIFEST" 2>/dev/null || echo "")
 fi
+# vault.cluster_folder is a field NO manifest ever sets, so with
+# a {root} vault manifest CLUSTER_DIR was "" and Placement Rules 2/3/5 were INERT —
+# People placement never fired. Fall back to the REAL vault-layout cluster surface: the
+# projects-root dirname (vault.projects_root_dirname, default "Engagements"), the SAME
+# parameterized surface frontmatter-enforce's People/project detection keys on. This
+# makes the predicate evaluate against the real vault layout instead of silently no-oping.
+if [[ -z "$CLUSTER_DIR" && -r "$_USER_MANIFEST" ]] && command -v jq >/dev/null 2>&1; then
+  CLUSTER_DIR=$(jq -r '.vault.projects_root_dirname // ""' "$_USER_MANIFEST" 2>/dev/null || echo "")
+fi
+[[ -n "$CLUSTER_DIR" ]] || CLUSTER_DIR="Engagements"
 unset _USER_MANIFEST
 export CLUSTER_DIR
 
@@ -73,6 +82,44 @@ export CLUSTER_DIR
 MANIFEST_SUBTREE_OUT="$(mktemp -t placement-subtree-XXXXXX)"
 export MANIFEST_SUBTREE_OUT
 
+# === NEW plans-tree scope: plans-root closed-namespace rule ===================
+# placement-validate is vault-scoped by default (SCOPE_ROOT defaults to $VAULT_ROOT).
+# When invoked as `placement-validate.sh --scope "$PLANS_ROOT"` (SCOPE_ROOT resolves to
+# the plans tree), run the plans-root-namespace rule instead of the vault rules: flag any
+# plans-root entry classifying `nonconforming` against plans-rules.json :: root_namespace
+# (the sweep-side backstop for the honest residual — the write-time arm does NOT guard Bash
+# writes), and flag a manifest-less NN-<slug> dir as advisory (the NN-squat residual). Uses
+# the SAME classifier the write-time guard reads (hooks/lib/plan-path.sh::classify_root_entry).
+PV_PLANS_MODE=0
+if [[ -n "${PLANS_DIR:-}" ]] && [[ "${SCOPE_ROOT%/}" == "${PLANS_DIR%/}" ]]; then PV_PLANS_MODE=1; fi
+
+if [[ "$PV_PLANS_MODE" == "1" ]]; then
+  # shellcheck source=/dev/null
+  { [ -r "$CLAUDE_HOME_RES/hooks/lib/plan-path.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/plan-path.sh"; } \
+    || source "$_REPO_LIB/plan-path.sh"
+  PV_SCANNED=0; PV_FINDINGS=0; PV_OPEN=""
+  for _pe in "$SCOPE_ROOT"/*; do
+    [ -e "$_pe" ] || continue
+    _base="$(basename "$_pe")"
+    PV_SCANNED=$((PV_SCANNED + 1))
+    _class="$(classify_root_entry "$_base")"
+    if [[ "$_class" == "nonconforming" ]]; then
+      _line=$(jq -nc --arg e "$_base" '{finding:"plans-root-namespace-violation", entry:$e, issue:"plans-root entry not in root_namespace allowlist (closed namespace); re-home to its owning context via the funnel", classification:"manual"}')
+      if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
+      PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $_base"
+    elif [[ "$_class" == "plan" ]] && [ -d "$_pe" ] && [ ! -f "$_pe/manifest.json" ]; then
+      _line=$(jq -nc --arg e "$_base" '{finding:"manifest-less-nn-dir", entry:$e, issue:"NN-<slug> plan dir carries no manifest.json (NN-squat honest residual — advisory)", classification:"advisory"}')
+      if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
+      PV_FINDINGS=$((PV_FINDINGS + 1))
+    fi
+  done
+  [[ "$DRY_RUN" == "true" ]] && printf 'placement-validate: scanned=%d findings=%d (plans-root-namespace)\n' "$PV_SCANNED" "$PV_FINDINGS"
+  _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null)
+  [ -n "$_PV_OPEN_JSON" ] || _PV_OPEN_JSON='[]'
+  jq -nc --argjson sc "$PV_SCANNED" --argjson fc "$PV_FINDINGS" --argjson oe "$_PV_OPEN_JSON" \
+    --arg ls "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+    '{last_scan:$ls, scanned:$sc, findings_count:$fc, scope:"plans-root-namespace", open_entries:$oe}' > "$MANIFEST_SUBTREE_OUT"
+else
 python3 - "$SCOPE_ROOT" "$DRY_RUN" <<'PY'
 import json, os, re, sys, datetime
 
@@ -196,6 +243,8 @@ if subtree_out:
     with open(subtree_out, "w") as f:
         f.write(json.dumps(subtree))
 PY
+fi
+# === end plans-tree scope branch =============================================
 
 # Persist the placement summary subtree to the librarian-manifest. This makes
 # the registry's declared writes_manifest_subtree: "drift_findings.placement"
@@ -207,8 +256,17 @@ PY
 # error — but G2 (plan 110) moved the manifest under $CLAUDE_STATE_ROOT/manifests and
 # its lock under $COORD_DIR (both always creatable), so the persist no longer needs a
 # non-empty VAULT_LOGS. Gate only on having a finding subtree to write.
+# SCOPE-KEYED subtree: the vault sweep and the plans-root-namespace sweep both persist
+# here, and manifest_set REPLACES its target leaf wholesale — a shared flat key let every
+# graceful session close (which runs the vault-scoped sweep) erase the plans-root record
+# the session-start reader needs, silencing the reminder loop. Each scope owns its own
+# leaf under .drift_findings.placement; sibling scopes are never clobbered.
 if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then
-  manifest_set '.drift_findings.placement' "$(cat "$MANIFEST_SUBTREE_OUT")"
+  if [[ "${PV_PLANS_MODE:-0}" -eq 1 ]]; then
+    manifest_set '.drift_findings.placement.plans_root' "$(cat "$MANIFEST_SUBTREE_OUT")"
+  else
+    manifest_set '.drift_findings.placement.vault' "$(cat "$MANIFEST_SUBTREE_OUT")"
+  fi
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"
 

@@ -86,6 +86,24 @@ PLANS_SCOPE="${PLANS_DIR:-$HOME/.claude-plans}"
 MANIFEST_SUBTREE_OUT="$(mktemp -t stale-subtree-XXXXXX)"
 export MANIFEST_SUBTREE_OUT
 
+# materialize a vault-view walk-list so the python vault walk
+# DESCENDS the vault Work/ symlink (-> ~/work) via the shared walker (vault_view_walk).
+# os.walk(followlinks=False) refused it AND WORK_HOME was never a root, so the Work/ subtree
+# had no stale detector. The python body reads SD_WALK_LIST and FALLS BACK to os.walk when it
+# is empty (floor). Mirrors rename-cascade.sh:79-104's walker retrofit.
+SD_WALK_LIST=""
+_VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+[ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
+if [ -n "$VAULT_SCOPE" ] && [ -d "$VAULT_SCOPE" ] && [ -r "$_VVW_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$_VVW_LIB"
+  if command -v vault_view_walk >/dev/null 2>&1; then
+    SD_WALK_LIST="$(mktemp -t sd-walk.XXXXXX)"
+    vault_view_walk "$VAULT_SCOPE" >> "$SD_WALK_LIST" 2>/dev/null || true
+  fi
+fi
+export SD_WALK_LIST
+
 python3 - "$VAULT_SCOPE" "$PLANS_SCOPE" "$RECENT" "$DRY_RUN" <<'PY'
 import json, os, re, sys, time
 from datetime import datetime, timezone
@@ -133,80 +151,153 @@ def parse_fm(path):
 # Structural exempt-dir defaults (always exempt; not user-configurable).
 EXEMPT_DIRS = ("/Archive/", "/.git/", "/.claude/projects/", "/_test")
 
-counts = {"stale": 0, "todo": 0, "stale-status": 0, "trinity-lag": 0, "binder-stale": 0}
+# work-body freshness rule constants — a Work/<spoke>/ body file
+# whose `updated:` regen date lags by more than WORK_STALE_DAYS is stale (threshold mirrors
+# rule #4). No `updated:` date -> no finding (same posture as rules #4/#9).
+WORK_STALE_DAYS = 14
+WORK_BODY_BASENAMES = ("overview.md", "prd.md", "updates.md", "README.md")
+
+counts = {"stale": 0, "todo": 0, "stale-status": 0, "trinity-lag": 0,
+          "binder-stale": 0, "work-stale": 0, "binder-conformance": 0,
+          "orphan-spoke-binder": 0, "library-article-stale": 0}
 scanned = 0
 
-# ---------- vault walk (rules 1-6) ----------
-for dirpath, dirnames, filenames in os.walk(vault_scope):
-    dirnames[:] = [d for d in dirnames if not d.startswith('.')]
-    if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
+# ---------- vault walk (rules 1-4 + work-body freshness) ----------
+# enumerate via the shared vault-view walker (SD_WALK_LIST, built bash-side from
+# vault_view_walk) so the vault Work/ symlink is DESCENDED (os.walk followlinks=False
+# refused it). The walker emits vault-view LOGICAL paths (Work/<spoke>/...), so the
+# rel-keyed rules below reach the Work/ subtree. FALL BACK to os.walk when the list is
+# empty (floor) — mirrors rename-cascade.sh's os.walk fallback.
+vault_files = []
+_wl_path = os.environ.get("SD_WALK_LIST", "")
+_wl_lines = []
+if _wl_path and os.path.isfile(_wl_path):
+    try:
+        with open(_wl_path) as _wf:
+            _wl_lines = _wf.read().split("\n")
+    except Exception:
+        _wl_lines = []
+for _ln in _wl_lines:
+    if not _ln or not _ln.endswith(".md"):
         continue
-    for fn in filenames:
-        if not fn.endswith(".md"):
+    if any(ex in _ln + "/" for ex in EXEMPT_DIRS):
+        continue
+    vault_files.append(_ln)
+if not vault_files:
+    for dirpath, dirnames, filenames in os.walk(vault_scope):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
             continue
-        full = os.path.join(dirpath, fn)
-        rel = os.path.relpath(full, vault_scope)
-        if recent and days_since_mtime(full) > 7:
-            continue
-        scanned += 1
-        fm, body = parse_fm(full)
+        for fn in filenames:
+            if fn.endswith(".md"):
+                vault_files.append(os.path.join(dirpath, fn))
 
-        # Rule 1: Daily notes — processed: false AND older than 2 days
-        if rel.startswith("Daily/") and fn.endswith(".md") and "Briefing" not in fn:
-            if fm.get("processed", "").lower() == "false" and days_since_mtime(full) > 2:
-                emit({"finding": "stale", "file": rel,
-                      "category": "stale", "reason": "Daily note processed: false and >2d old"})
-                counts["stale"] += 1
-                continue
+# The vault-view walker normalizes its root via `pwd -P` (physical path), while
+# vault_scope is the raw argv value — on macOS these differ (/var -> /private/var), so a
+# naive os.path.relpath yields a `../`-traversal instead of the Work/<spoke>/... shape.
+# Compute rel against BOTH the raw and the realpath'd scope prefix (the walker emits the
+# LOGICAL Work/ prefix, so do NOT realpath `full` — that would resolve the Work symlink).
+_vs_raw = vault_scope.rstrip("/")
+_vs_rp = os.path.realpath(vault_scope).rstrip("/")
+def _to_rel(full):
+    if _vs_rp and full.startswith(_vs_rp + "/"):
+        return full[len(_vs_rp) + 1:]
+    if _vs_raw and full.startswith(_vs_raw + "/"):
+        return full[len(_vs_raw) + 1:]
+    return os.path.relpath(full, vault_scope)
 
-        # Rule 2: People file TODO marker
-        if "/People/" in rel and "<!-- TODO: enrich context -->" in body:
+for full in vault_files:
+    fn = os.path.basename(full)
+    if not fn.endswith(".md"):
+        continue
+    rel = _to_rel(full)
+    if recent and days_since_mtime(full) > 7:
+        continue
+    scanned += 1
+    fm, body = parse_fm(full)
+
+    # Rule 1: Daily notes — processed: false AND older than 2 days
+    if rel.startswith("Daily/") and fn.endswith(".md") and "Briefing" not in fn:
+        if fm.get("processed", "").lower() == "false" and days_since_mtime(full) > 2:
             emit({"finding": "stale", "file": rel,
-                  "category": "todo", "reason": "People file has TODO: enrich context marker"})
-            counts["todo"] += 1
+                  "category": "stale", "reason": "Daily note processed: false and >2d old"})
+            counts["stale"] += 1
+            continue
 
-        # Rule 3: People file — no Timeline entry in last 30d (active only)
-        if "/People/" in rel and fm.get("status", "").lower() not in ("complete", "archived", "historical", "closed"):
-            m = re.search(r"^## Timeline.*?\n(.*?)(?=\n## |\Z)", body, re.DOTALL | re.MULTILINE)
-            if m:
-                timeline = m.group(1)
-                dates = re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", timeline)
-                if dates:
-                    newest = max(dates)
-                    try:
-                        dt = datetime.strptime(newest, "%Y-%m-%d")
-                        delta = (datetime.now() - dt).days
-                        if delta > 30:
-                            emit({"finding": "stale", "file": rel,
-                                  "category": "stale",
-                                  "reason": f"No Timeline entry since {newest} ({delta}d ago)"})
-                            counts["stale"] += 1
-                    except ValueError:
-                        pass
+    # Rule 2: People file TODO marker
+    if "/People/" in rel and "<!-- TODO: enrich context -->" in body:
+        emit({"finding": "stale", "file": rel,
+              "category": "todo", "reason": "People file has TODO: enrich context marker"})
+        counts["todo"] += 1
 
-        # Rule 4: Project file — updated older than 14 days (active only)
-        if "/Projects/" in rel and fm.get("updated"):
-            if fm.get("status", "").lower() in ("", "active", "in-progress"):
+    # Rule 3: People file — no Timeline entry in last 30d (active only)
+    if "/People/" in rel and fm.get("status", "").lower() not in ("complete", "archived", "historical", "closed"):
+        m = re.search(r"^## Timeline.*?\n(.*?)(?=\n## |\Z)", body, re.DOTALL | re.MULTILINE)
+        if m:
+            timeline = m.group(1)
+            dates = re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", timeline)
+            if dates:
+                newest = max(dates)
                 try:
-                    dt = datetime.strptime(fm["updated"][:10], "%Y-%m-%d")
+                    dt = datetime.strptime(newest, "%Y-%m-%d")
                     delta = (datetime.now() - dt).days
-                    if delta > 14:
+                    if delta > 30:
                         emit({"finding": "stale", "file": rel,
                               "category": "stale",
-                              "reason": f"Project 'updated' is {delta}d old (active)"})
+                              "reason": f"No Timeline entry since {newest} ({delta}d ago)"})
                         counts["stale"] += 1
                 except ValueError:
                     pass
 
-        # Rule 5 (retired): meeting-note extracted from foundation
-        # (type + contract + Meetings/ surface parked to internal/parked/).
+    # Rule 4: Project file — updated older than 14 days (active only)
+    if "/Projects/" in rel and fm.get("updated"):
+        if fm.get("status", "").lower() in ("", "active", "in-progress"):
+            try:
+                dt = datetime.strptime(fm["updated"][:10], "%Y-%m-%d")
+                delta = (datetime.now() - dt).days
+                if delta > 14:
+                    emit({"finding": "stale", "file": rel,
+                          "category": "stale",
+                          "reason": f"Project 'updated' is {delta}d old (active)"})
+                    counts["stale"] += 1
+            except ValueError:
+                pass
 
-        # Rule 6 (retired at G3): residual vault Logs/ — the vault no longer ships
-        # a Logs/ folder; the run-log home is $CLAUDE_LOG_DIR (relocated, G4/G7).
+    # Rule: Work-body freshness — a Work/<spoke>/ body file
+    # (overview/prd/updates/README) whose `updated:` regen date lags by more than
+    # WORK_STALE_DAYS. Reached only now that the Work/ symlink is descended (the
+    # walk-list). No `updated:` date -> no finding (same posture as rules #4/#9).
+    parts = rel.split("/")
+    if len(parts) >= 3 and parts[0] == "Work" and fn in WORK_BODY_BASENAMES:
+        up = fm.get("updated", "")
+        if up:
+            try:
+                dt = datetime.strptime(up[:10], "%Y-%m-%d")
+                delta = (datetime.now() - dt).days
+                if delta > WORK_STALE_DAYS:
+                    emit({"finding": "stale", "file": rel,
+                          "category": "work-stale",
+                          "spoke": parts[1],
+                          "reason": "Work body '%s' updated %dd ago (>%dd)"
+                                    % (fn, delta, WORK_STALE_DAYS)})
+                    counts["work-stale"] += 1
+            except ValueError:
+                pass
+
+    # Rule 5 (retired): meeting-note extracted from foundation
+    # (type + contract + Meetings/ surface parked to internal/parked/).
+
+    # Rule 6 (retired at G3): residual vault Logs/ — the vault no longer ships
+    # a Logs/ folder; the run-log home is $CLAUDE_LOG_DIR (relocated, G4/G7).
 
 # ---------- plans walk (rule 7) ----------
 COMPLETION_FM = re.compile(r"^status:\s*(complete|completed|implemented|done)\s*$", re.IGNORECASE | re.MULTILINE)
 COMPLETION_HDR = re.compile(r"^\*\*Status:\*\*\s*(Complete|COMPLETE|Completed|Implemented|Done)\b", re.IGNORECASE | re.MULTILINE)
+# DERIVE (manifest is the sole status SoT): for manifest-backed plans, rule 7 reads
+# completion from the manifest status, not the (now stripped) artifact frontmatter.
+# COMPLETION_FM/COMPLETION_HDR are retained ONLY for the flat-root-plan inline path
+# (flat single-file plans have no manifest and keep an inline **Status:**/status:).
+COMPLETION_MANIFEST_SET = {"completed", "complete", "done", "implemented"}
 LAST_VERIFIED_FM = re.compile(r"^last_verified:\s*(20\d{2}-\d{2}-\d{2})\s*$", re.IGNORECASE | re.MULTILINE)
 LAST_VERIFIED_HDR = re.compile(r"^\*\*Last Verified:\*\*\s*(20\d{2}-\d{2}-\d{2})\b", re.IGNORECASE | re.MULTILINE)
 
@@ -219,6 +310,26 @@ def is_plan_root(rel):
     if len(parts) == 2 and parts[1] in PLAN_ROOT_BASENAMES:
         return True
     return False
+
+# library-article freshness. is_plan_root filters
+# _library/<topic>/*.md articles out of the plans walk, so they had no staleness owner
+# (path-gated-predicate). A topic article — depth >= 2 under _library, EXCLUDING _index.md,
+# the _raw/ provenance subtree, and log-archive/ — whose `updated:` lags LIBRARY_STALE_DAYS
+# emits library-article-stale. No `updated:` -> no finding (same posture as rules #4/#9).
+# Threshold: library reference articles are curated knowledge (mirrors the memory
+# semantic/procedural 180d interval), slower-decaying than the 14d project/binder family.
+LIBRARY_STALE_DAYS = 180
+
+def is_library_article(rel):
+    parts = rel.split("/")
+    if len(parts) < 3 or parts[0] != "_library":
+        return False
+    if "_raw" in parts or "log-archive" in parts:
+        return False
+    base = parts[-1]
+    if base == "_index.md" or base.startswith("."):
+        return False
+    return base.endswith(".md")
 
 def has_handoff_ac(plan_dir):
     h = os.path.join(plan_dir, "handoff.md")
@@ -239,17 +350,54 @@ for dirpath, dirnames, filenames in os.walk(plans_scope):
             continue
         full = os.path.join(dirpath, fn)
         rel = os.path.relpath(full, plans_scope)
+        # library-article freshness rule (before the is_plan_root
+        # gate that filters topic articles out).
+        if is_library_article(rel):
+            lfm, _lb = parse_fm(full)
+            up = str(lfm.get("updated", "")).strip()
+            if up:
+                try:
+                    ldt = datetime.strptime(up[:10], "%Y-%m-%d")
+                    ldelta = (datetime.now() - ldt).days
+                    if ldelta > LIBRARY_STALE_DAYS:
+                        emit({"finding": "library-article-stale", "file": rel,
+                              "category": "library-article-stale", "severity": "warn",
+                              "reason": "library article 'updated' is %dd old (>%dd)"
+                                        % (ldelta, LIBRARY_STALE_DAYS),
+                              "resolution_hint": "review + refresh the article, then bump its "
+                                                 "updated: frontmatter (or re-validate the topic)"})
+                        counts["library-article-stale"] += 1
+                except ValueError:
+                    pass
+            continue
         if not is_plan_root(rel):
             continue
         try:
             content = open(full).read()
         except Exception:
             continue
-        # Split frontmatter + body
+        # Split frontmatter + body (retained for the flat-plan inline path + the
+        # verification-evidence scan below).
         fm_end = content.find("\n---", 3) if content.startswith("---") else -1
         fm_text = content[:fm_end] if fm_end > 0 else ""
         body = content[fm_end+4:] if fm_end > 0 else content
-        is_complete = bool(COMPLETION_FM.search(fm_text) or COMPLETION_HDR.search(body))
+        # DERIVE (manifest is the sole status SoT): plan artifacts no longer carry
+        # status: frontmatter. For manifest-backed plans, read completion from the
+        # sibling manifest.json status; dedupe to spec.md so a completed plan surfaces
+        # once, not once per plan-root artifact. Flat-root plans (no sibling manifest)
+        # keep their inline **Status:**/status: marker (COMPLETION_FM/HDR still govern).
+        man_p = os.path.join(os.path.dirname(full), "manifest.json")
+        if os.path.isfile(man_p):
+            if os.path.basename(full) != "spec.md":
+                continue
+            try:
+                _md = json.loads(open(man_p).read())
+                _mstatus = str(_md.get("status", "")).strip().lower() if isinstance(_md, dict) else ""
+            except Exception:
+                _mstatus = ""
+            is_complete = _mstatus in COMPLETION_MANIFEST_SET
+        else:
+            is_complete = bool(COMPLETION_FM.search(fm_text) or COMPLETION_HDR.search(body))
         if not is_complete:
             continue
         # Check verification evidence
@@ -388,7 +536,11 @@ for plan_dir in walk_plan_dirs(plans_scope):
 # project-freshness rule; D4 R-FLOW-MAINT-1 names no numeric threshold, so the
 # shipped staleness-family convention governs).
 BINDER_STALE_DAYS = 14
-BINDER_BASENAMES = ("research-index.md", "decision-log.md", "handoff-chronicle.md")
+# _situating.md joins the binder-staleness net. The situating
+# card is force-ingested every session (session-start-project-context.sh) yet carried
+# ZERO staleness net (type-table-ceiling); it is a full-file regenerated card carrying
+# `updated:` frontmatter, so it participates in rule #9 exactly like the other read-replicas.
+BINDER_BASENAMES = ("research-index.md", "decision-log.md", "handoff-chronicle.md", "_situating.md")
 BINDER_UPDATED_RE = re.compile(r"^updated:\s*(20\d{2}-\d{2}-\d{2})\s*$", re.MULTILINE)
 
 projects_root = os.path.join(plans_scope, "_projects")
@@ -433,8 +585,70 @@ if os.path.isdir(projects_root):
         binder_home = os.path.join(projects_root, spoke)
         if not os.path.isdir(binder_home):
             continue
+
+        # Rule #10: binder read-replica frontmatter conformance.
+        # research-index/decision-log/handoff-chronicle/_situating ship schema:null and no
+        # VAULT_ROOT validator reaches _projects, so the read-replica surface had no
+        # conformance owner (missing-owner). Validate the GENERATOR-EMITTED frontmatter shape
+        # (type:index + tags + updated + parent_folder) for each PRESENT read-replica, plus the
+        # generated:true sentinel on _situating.md specifically (GROUNDED on disk: only the card
+        # carries generated:true; the 3 index binders deliberately omit it, so requiring it
+        # universally would false-flag every real binder). NOT a new file-type-contract (the
+        # generated bodies stay schema:null by design). Runs for ALL spokes (active + orphan).
+        for base in BINDER_BASENAMES:
+            bp = os.path.join(binder_home, base)
+            if not os.path.isfile(bp):
+                continue
+            try:
+                bfm, _bbody = parse_fm(bp)
+            except Exception:
+                bfm = {}
+            cmissing = [k for k in ("type", "tags", "updated", "parent_folder")
+                        if not str(bfm.get(k, "")).strip()]
+            tv = str(bfm.get("type", "")).strip()
+            if tv and tv != "index":
+                cmissing.append("type:index")
+            if base == "_situating.md" and str(bfm.get("generated", "")).strip().lower() != "true":
+                cmissing.append("generated:true")
+            if cmissing:
+                crel = os.path.relpath(bp, plans_scope)
+                emit({"finding": "binder-conformance", "file": crel,
+                      "category": "binder-frontmatter-invalid", "severity": "warn",
+                      "spoke": spoke,
+                      "missing_or_invalid": sorted(set(cmissing)),
+                      "reason": "binder read-replica frontmatter is non-conformant to the "
+                                "generated index-type shape (type:index + tags + updated + "
+                                "parent_folder; generated:true on _situating.md) — the "
+                                "_projects read-replica surface has no other conformance owner",
+                      "resolution_hint": "re-run the owning binder generator (plan-research-index"
+                                         " / plan-decision-log / plan-handoff-index / "
+                                         "project-context-situating) for spoke '%s'" % spoke})
+                counts["binder-conformance"] += 1
+
         activity = spoke_activity.get(spoke)
         if activity is None:
+            # Rule #11: orphan-spoke-binder reconciler. A
+            # _projects/<spoke>/ dir carrying real binder files but matching NO live manifest
+            # project: key (the SAME attribution the generators use — a plan contributes iff
+            # its manifest project: == <spoke>) is an ORPHAN (missing-owner): the generators
+            # only regenerate spokes WITH contributing plans, so an orphan spoke binder
+            # persisted undetected. An empty/absent binder home is first-run state, not an
+            # orphan (no finding). MUST run against re-stamped project: keys (post-139-Wave-B migration).
+            present = [b for b in BINDER_BASENAMES
+                       if os.path.isfile(os.path.join(binder_home, b))]
+            if present:
+                orel = os.path.relpath(binder_home, plans_scope)
+                emit({"finding": "orphan-spoke-binder", "file": orel,
+                      "category": "orphan-spoke-binder", "severity": "warn",
+                      "spoke": spoke,
+                      "binder_files": present,
+                      "reason": "a _projects/%s/ binder home carries read-replica files but no "
+                                "live plan declares project: %s (no contributing plan) — an "
+                                "orphan spoke binder with no reconciling owner" % (spoke, spoke),
+                      "resolution_hint": "if spoke '%s' is retired, remove its _projects/ binder "
+                                         "home; else confirm a contributing plan carries "
+                                         "project: %s (post-139-Wave-B re-stamp)" % (spoke, spoke)})
+                counts["orphan-spoke-binder"] += 1
             # no contributing plans -> not staleness
             continue
         for base in BINDER_BASENAMES:
@@ -508,3 +722,4 @@ if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then
   manifest_set '.drift_findings.stale' "$(cat "$MANIFEST_SUBTREE_OUT")"
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"
+[ -n "${SD_WALK_LIST:-}" ] && rm -f "$SD_WALK_LIST"

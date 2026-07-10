@@ -41,7 +41,7 @@
 #             body. Bodies are NEVER concatenated — exactly one harvested line.
 # Ordering (R-BIND-7 "newest-first"): within a handoff.md the session blocks are
 # emitted newest-first (a block parsed later in the file — a higher session number
-# / later date — sorts ABOVE an earlier one), and across the spoke the handoffs
+# later date — sorts ABOVE an earlier one), and across the spoke the handoffs
 # are ordered by (descending session-key, plan-slug) so the most recent session
 # across all spoke plans heads the chronicle. Append-only semantics (R-BIND-7):
 # the chronicle is never pruned/rewritten destructively — a re-derive rebuilds the
@@ -91,7 +91,7 @@
 #     artifact (R-BIND-4); this capability writes ONLY its declared ROLE surface —
 #     the librarian RE-DERIVE role (full rebuild of the whole file incl. the
 #     sentinel region). It NEVER performs the hook's role (a routine
-#     append-one-block-at-the-head). It NEVER writes hub.md, research-index.md,
+#     append-one-block-at-the-head). It NEVER writes research-index.md,
 #     decision-log.md, the research/ symlink farm, plan manifests, or any plan
 #     handoff.md / _research/ content. It reads handoff.md and writes ONLY
 #     handoff-chronicle.md.
@@ -127,7 +127,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,140p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-handoff-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -258,7 +258,7 @@ SESSION_HEADING_RE = re.compile(
 )
 # the `Next session...` carry-forward line, in any of its shipped forms
 # (**Next session:** / **Next session does:** / **Next session start conditions:**
-# / **Next session entry point:** ...). The verbatim line is harvested.
+# **Next session entry point:** ...). The verbatim line is harvested.
 NEXT_RE = re.compile(r"^\s*\**\s*next session\b", re.IGNORECASE)
 # the canonical harvest subsections (R-BIND-7): ### Locks captured /
 # ### Decision-Quality Protocol passes.

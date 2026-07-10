@@ -65,22 +65,19 @@ else
   close_row "$SESSION_ID"
 fi
 
-# --- 2. Conditional reconcile spawn (.6) -----------------------------------
-# Spawn reconcile-sessions.sh in the background only when a closed-pending peer
-# exists (another session left the registry pending). The spawn is detached so
-# SessionEnd never blocks on the reconcile. reconcile.lock keeps concurrent
-# reconciles mutually exclusive (the reconciler itself acquires it).
+# --- 2. Unconditional reconcile spawn at SessionEnd (T-8,.6) ------
+# Spawn reconcile-sessions.sh detached UNCONDITIONALLY at every SessionEnd. The old
+# gate (spawn ONLY when a closed-pending-reconciliation peer existed) never tripped on
+# `status:active` ghosts keyed to a shared long-lived pid, so stale rows accumulated
+# until someone ran the reaper by hand (the 2026-07-08 83-row live corpus — 82 reaped
+# by a manual run). The sweep is idempotent + heartbeat-authoritative (T-1), and the
+# reconciler's own OUTER reconcile.lock (-t 0) dedups concurrent runs, so an
+# unconditional spawn is safe. Detached so SessionEnd never blocks; reap OWNERSHIP stays
+# with reconcile-sessions.sh — this hook only triggers it. Exits 0 on every path.
 RECONCILER="$SCRIPT_DIR/reconcile-sessions.sh"
 if [ -x "$RECONCILER" ] || [ -f "$RECONCILER" ]; then
-  reg=$(read_registry)
-  pending_peers=$(printf '%s' "$reg" | jq -r --arg sid "$SESSION_ID" \
-    '[.sessions | to_entries[]
-       | select(.key != $sid)
-       | select(.value.status == "closed-pending-reconciliation")] | length' 2>/dev/null)
-  if [ -n "$pending_peers" ] && [ "$pending_peers" -gt 0 ] 2>/dev/null; then
-    # Detached background spawn; never block the SessionEnd path.
-    ( "$RECONCILER" >/dev/null 2>&1 & ) || true
-  fi
+  # Detached background spawn; never block the SessionEnd path.
+  ( "$RECONCILER" >/dev/null 2>&1 & ) || true
 fi
 
 # --- 3. Auto-close integrity spawn (T-2) ----------------------------
@@ -101,7 +98,10 @@ if [ -f "$SESSION_CLOSE" ]; then
     fresh_receipt=$(find "$AC_LOG_DIR" -name 'session-close-*.md' -type f -mmin -1 2>/dev/null | head -1)
   fi
   if [ -z "$fresh_receipt" ]; then
-    ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+    # T-4: thread THIS session's id explicitly so the detached close self-IDs
+    # its OWN registry row (not a sibling's under a shared ancestor pid) instead of the
+    # demoted pid ancestor-walk. SESSION_ID is resolved at :28-31 above.
+    ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
   fi
 fi
 

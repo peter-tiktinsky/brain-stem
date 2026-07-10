@@ -47,7 +47,6 @@
 #
 # bash-3.2-safe (R-23): no associative arrays, no mapfile, no process
 # substitution in the hot path.
-# =============================================================================
 set -u
 
 _mig_log() { printf 'migrations: %s\n' "$1" >&2; }
@@ -111,7 +110,7 @@ run_migrations() {
   local target="${TARGET_VERSION:-}"
   local floor_is_real="${FLOOR_IS_REAL:-0}"
 
-  # legacy/fresh sentinel -> v0.0.0 floor (run the full chain from 0001;).
+  # legacy/fresh sentinel -> v0.0.0 floor (run the full chain from 0001).
   # In this lane min_from is NEVER a skip reason — the floor is unknown, and
   # every migration is authored to tolerate the oldest/empty precondition.
   local floor="$installed"

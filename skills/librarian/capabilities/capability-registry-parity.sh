@@ -1,10 +1,14 @@
 #!/bin/bash
 # capability-registry-parity — Audit capability-registry.json against SKILL.md
 # headings + on-disk capability scripts. Mechanical-tier; Monday cron.
-# Librarian capability strengthened to enforce disk->registry (a new 5th
-# drift class), closing the orphan gap that let unregistered auditors slip
-# through. The existing 4 drift classes are PRESERVED.
-# Audits 5 drift classes:
+#
+# Enforces BOTH directions of registry<->reality parity, including the
+# disk->registry orphan direction that closed the gap letting unregistered
+# auditors slip through.
+#
+# Audits the drift classes enumerated below — the lettered list IS the roster
+# (deliberately not counted: a literal count re-opens the/
+# self-count-drift class; ac-governance-self-count-consistency.sh gates it):
 #   (a) SKILL.md `## Capability: <name>` headings <-> registry keys (strict bijection)
 #       -> registry-parity-bijection-drift
 #   (b) Every shipped entry's `script` field points to an existing file
@@ -44,7 +48,7 @@
 #       adopter install — no index to read), this class is SKIPPED (no false
 #       drift); it is the BUILD-DOGFOOD / ship-gate arm. ship-gate sub-gate 5 +
 #       ac-index-mode-parity.sh (T-2) assert the same index-mode truth
-#       over the whole manifest-0755 set; this 7th class extends it into the
+#       over the whole manifest-0755 set; this class extends it into the
 #       capability registry's own parity audit.
 #   (h) the SKILL.md `### What full runs` backtick-roster set must EQUAL the
 #       registry `librarian-full` set ({cap : 'librarian-full' in
@@ -57,23 +61,28 @@
 #       full runs` prose is a shipped-doc-correctness surface, not advisory. The
 #       cron dispatch itself is registry-driven; this class gates the DOC snapshot
 #       from drifting from the authoritative roster.
+#
 # After T-13 (the 4 engine-auditors absent + parallel-run-audit struck) the
 # disk-orphan class reports zero orphans: registered-with-disk == on-disk. This
 # is the load-bearing substance's generator<->install ship-list
 # parity gate asserts on (R-37-documentary AC CONTRIBUTOR; primary owner).
+#
 # Output Contract
 #   Files written: findings (NDJSON via hooks/lib/findings.sh) + a markdown
 #     summary to stdout.
 #   Failure mode: report-only (exit 0; drift findings emitted as JSON;
 #     non-zero finding count does NOT change exit). exit 2 only on unknown flag.
+#
 # Usage:
 #   capability-registry-parity.sh                 # check (default)
 #   capability-registry-parity.sh --check         # explicit
 #   capability-registry-parity.sh --dry-run       # summary only, no findings
+#
 # Env overrides (testing):
 #   LIBRARIAN_ROOT_OVERRIDE   relocate librarian/ root for fixture tests
 #   FINDINGS_OUTPUT           append findings here instead of stdout
 #   EXPECTED_SCHEMA_VERSION   override expected schema_version (default: 1)
+#
 # Bash 3.2 clean per R-23.
 
 set -uo pipefail
@@ -87,6 +96,11 @@ LIBRARIAN_ROOT="${LIBRARIAN_ROOT_OVERRIDE:-$LIBRARIAN_ROOT_DEFAULT}"
 REGISTRY="$LIBRARIAN_ROOT/capability-registry.json"
 SKILL_MD="$LIBRARIAN_ROOT/SKILL.md"
 CAPABILITIES_DIR="$LIBRARIAN_ROOT/capabilities"
+
+# the govern skill's executable modes/ inventory (a capability-like
+# surface with NO registry) audited for disk<->declaration bijection. GOVERN_ROOT_OVERRIDE for
+# fixture tests; else the sibling skills/govern/ (one level up from LIBRARIAN_ROOT).
+GOVERN_ROOT="${GOVERN_ROOT_OVERRIDE:-$(cd "$LIBRARIAN_ROOT/../govern" 2>/dev/null && pwd)}"
 
 EXPECTED_SCHEMA_VERSION="${EXPECTED_SCHEMA_VERSION:-1}"
 
@@ -131,6 +145,7 @@ DRIFT_MANIFEST_FICTION=0
 ADVISORY_MANIFEST_FICTION=0
 DRIFT_CAP_INDEX_MODE=0
 DRIFT_FULL_ROSTER=0
+DRIFT_GOVERN_MODES=0
 REPORT_LINES=""
 
 # Class (c): schema_version drift
@@ -374,9 +389,58 @@ PY
   rm -f "$FULL_ROSTER_DRIFT_FILE"
 fi
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d; advisory manifest-write-fiction=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$ADVISORY_MANIFEST_FICTION"
+# govern-modes parity — the disk<->declaration bijection for the
+# govern skill's executable modes/. Each skills/govern/modes/*.sh must be a declared --kind in
+# process.sh's `case "$KIND" in` dispatcher (which sources MODES_DIR/$KIND.sh), and every
+# declared --kind must have a modes/<kind>.sh. An undeclared mode .sh OR a declared-but-absent
+# mode emits govern-modes-drift, in BOTH directions. Was: govern modes/ entirely unaudited
+# (LIBRARIAN_ROOT-scoped only). The librarian classes a-h above are UNCHANGED.
+GOVERN_PROCESS="$GOVERN_ROOT/process.sh"
+GOVERN_MODES_DIR="$GOVERN_ROOT/modes"
+if [[ -n "$GOVERN_ROOT" && -f "$GOVERN_PROCESS" && -d "$GOVERN_MODES_DIR" ]]; then
+  # Declared modes: the KIND case-arm (the pipe-separated valid kinds ending in `)`), extracted
+  # from the first arm line after `case "$KIND" in`.
+  GM_DECLARED_RAW="$(awk '/case[[:space:]]+"\$KIND"[[:space:]]+in/{f=1;next} f&&/\)/{print;exit}' "$GOVERN_PROCESS")"
+  GM_DECLARED="$(printf '%s' "$GM_DECLARED_RAW" | tr -d '[:space:]' | sed 's/).*$//')"
+  GM_DECL_FILE="$(mktemp -t gm-decl-XXXXXX)"
+  GM_DISK_FILE="$(mktemp -t gm-disk-XXXXXX)"
+  printf '%s' "$GM_DECLARED" | tr '|' '\n' | grep -vE '^(plan)?$' | sort -u > "$GM_DECL_FILE"
+  for _mf in "$GOVERN_MODES_DIR"/*.sh; do
+    [ -f "$_mf" ] || continue
+    b="$(basename "$_mf")"; printf '%s\n' "${b%.sh}"
+  done | sort -u > "$GM_DISK_FILE"
+  # undeclared: on disk, not declared.
+  while IFS= read -r _m; do
+    [[ -z "$_m" ]] && continue
+    if ! grep -qxF "$_m" "$GM_DECL_FILE"; then
+      DRIFT_GOVERN_MODES=$((DRIFT_GOVERN_MODES + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-govern-modes-drift" "$_m" \
+          "level" "error" "direction" "undeclared-mode" \
+          "detail" "skills/govern/modes/$_m.sh on disk but not a declared --kind in process.sh"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-govern-modes-drift: $_m (undeclared-mode)"$'\n'
+    fi
+  done < "$GM_DISK_FILE"
+  # declared-but-absent: declared, no modes/<kind>.sh.
+  while IFS= read -r _m; do
+    [[ -z "$_m" ]] && continue
+    if ! grep -qxF "$_m" "$GM_DISK_FILE"; then
+      DRIFT_GOVERN_MODES=$((DRIFT_GOVERN_MODES + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-govern-modes-drift" "$_m" \
+          "level" "error" "direction" "declared-but-absent" \
+          "detail" "--kind $_m declared in process.sh but no skills/govern/modes/$_m.sh on disk"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-govern-modes-drift: $_m (declared-but-absent)"$'\n'
+    fi
+  done < "$GM_DECL_FILE"
+  rm -f "$GM_DECL_FILE" "$GM_DISK_FILE"
+fi
+
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER + DRIFT_GOVERN_MODES))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d govern-modes=%d; advisory manifest-write-fiction=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$DRIFT_GOVERN_MODES" "$ADVISORY_MANIFEST_FICTION"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else

@@ -21,7 +21,21 @@ set -euo pipefail
 FOUNDATION_REPO="${FOUNDATION_REPO:-$HOME/Code/brain-stem}"
 LIVE_SCHEMAS="${LIVE_SCHEMAS:-$HOME/.claude/schemas}"
 
-SANCTIONED=(plans-schema plan-manifest-schema)
+# DERIVE SANCTIONED from the shipped schema set
+# (foundation-manifest.json .files[] schemas/*.json) rather than a 2-entry hardcode — the other
+# 11+ shipped schemas were unguarded (type-table-ceiling). A live/source byte-divergence on ANY
+# shipped schema now emits DRIFT. Falls back to the original 2-entry list when the manifest is
+# unreadable (loud-safe; the 2 originals always gate).
+SANCTIONED=()
+_SSDD_MANIFEST="${SSDD_MANIFEST:-$FOUNDATION_REPO/governance/foundation-manifest.json}"
+if command -v jq >/dev/null 2>&1 && [ -f "$_SSDD_MANIFEST" ]; then
+  while IFS= read -r _s; do
+    [ -n "$_s" ] && SANCTIONED+=("$_s")
+  done < <(jq -r '.files[].path | select(startswith("schemas/") and endswith(".json")) | sub("^schemas/";"") | sub("\\.json$";"")' "$_SSDD_MANIFEST" 2>/dev/null || true)
+fi
+if [ "${#SANCTIONED[@]}" -eq 0 ]; then
+  SANCTIONED=(plans-schema plan-manifest-schema)
+fi
 
 JSON_MODE=false
 for arg in "$@"; do

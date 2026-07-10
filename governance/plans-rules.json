@@ -145,6 +145,48 @@
       ]
     }
   },
+  "root_namespace": {
+    "_description": "CLOSED plans-root namespace. The plans-tree root admits ONLY the entry classes enumerated in allowed_entry_classes — nothing else. This is the single source of truth read by the write-time root-allowlist guard (hooks/pre-write-guard.sh, positioned before R-27), the sweep-side rule (skills/librarian/capabilities/placement-validate.sh), and the shared classifier hooks/lib/plan-path.sh::classify_root_entry. A root entry matching no allowed class is non-conforming: ask->deny at write-time (advisory-to-blocking rollout), flagged by the sweep. Rationale: session outputs with no owning plan otherwise invent root surfaces whose records get no lifecycle; a closed namespace routes durable artifacts to their owning context instead.",
+    "closed": true,
+    "allowed_entry_classes": {
+      "plan_dirs": {
+        "kind": "dir",
+        "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+$",
+        "_description": "NN-<slug> plan directories (conforming-active; R-27-governed prefix + status)."
+      },
+      "legacy_flat_plans": {
+        "kind": "file",
+        "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+\\.md$",
+        "_description": "Depth-1 flat NN-<slug>.md plans — kept in place, not retroactively invalidated (each carries inbound citations). CLOSED class: the scaffolder mints directories only, so no new flat-plan members can appear through the sanctioned path."
+      },
+      "root_files": {
+        "kind": "file",
+        "members": [
+          "_index.md",
+          "_backlog.md",
+          "_archive.md"
+        ],
+        "_description": "Librarian-generated root registry files (also enumerated under root_files above)."
+      },
+      "funnel_registry_surfaces": {
+        "kind": "dir",
+        "members": [
+          "_inbox",
+          "_projects",
+          "_library"
+        ],
+        "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). ENFORCEMENT-MAP.md is deliberately NOT an enumerated surface — the governance JSON pillar is the live rule source of truth; the historical map is not a durable root registry."
+      },
+      "dot_entries": {
+        "kind": "any",
+        "match": "leading-dot",
+        "class_exempt": true,
+        "_description": "Leading-dot entries (.git, .gitignore, .DS_Store, .active-plan, dotfiles) are class-exempt so the closed namespace does not fight VCS/OS/pointer machinery."
+      }
+    },
+    "grandfathered": [],
+    "rollout": "ask"
+  },
   "plan_folder_quartet": {
     "required": [
       "spec.md",

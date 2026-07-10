@@ -90,6 +90,31 @@ write_registry() {
   mv "$tmp" "$REGISTRY_FILE"
 }
 
+# heartbeat_row <sid> — T-3: refresh ONLY this session's last_heartbeat.
+# This is a registry READ-MODIFY-WRITE, so the CALLER MUST hold REGISTRY_LOCK across
+# the full read_registry..write_registry span (the host hook's `--do-heartbeat` lockf
+# re-exec provides that; a bare call is the fail-open unlocked fallback). UPSERTS the
+# row if a peer's reconcile physically reaped an idle-but-live session (mirrors
+# track-vault-write.sh's upsert); updates ONLY last_heartbeat — pid / status /
+# touched_files / started are preserved on an existing row (a fresh upsert gets the
+# minimal `active` shell + this heartbeat, no started, exactly like track-vault-write).
+# Fail-open + set -e-safe (every step guarded / `|| updated=""` / explicit return 0) so
+# it can never non-zero-propagate under a `set -euo pipefail` host and abort the R-26 valve.
+heartbeat_row() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local sid="${1:-}" now reg updated
+  [ -n "$sid" ] || return 0
+  ensure_coord_dir 2>/dev/null || true
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  reg=$(read_registry)
+  updated=$(printf '%s' "$reg" | jq \
+    --arg sid "$sid" --arg hb "$now" '
+    .sessions[$sid] = ((.sessions[$sid] // {status: "active", touched_files: []})
+      + {last_heartbeat: $hb})' 2>/dev/null) || updated=""
+  if [ -n "$updated" ]; then write_registry "$updated"; fi
+  return 0
+}
+
 # Format hookSpecificOutput JSON. Args: event_name, context_text.
 # Returns 0 + emits payload to stdout on validator-pass.
 # Returns 1 + emits NOTHING on validator-reject (caller's emission suppressed).
@@ -163,6 +188,65 @@ pid_is_live() {
   kill -0 "$p" 2>/dev/null
 }
 
+# ---- Heartbeat-authoritative liveness verdict (T-1) ---------
+# iso8601_to_epoch <iso8601-Z-string> -> prints a UTC epoch (integer seconds), or
+# 0 when the input is empty / "null" / unparseable. PORTABLE across BSD/macOS
+# (`date -u -jf`) AND GNU/Linux (`date -u -d`): a BSD-only `date -jf` silently
+# returns 0 on Linux, which would revert a Linux adopter to the pid-only path
+# (the class the tz-fix + this parse close). Tries the BSD form first, falls back
+# to the GNU form, then floors to 0 — preserving the `-u` UTC read + the `|| echo 0`
+# safety the reaper carried inline. Bash 3.2 clean; no wall-clock beyond the parse.
+iso8601_to_epoch() {
+  local iso="${1:-}" e
+  case "$iso" in ''|null) printf '0'; return 0 ;; esac
+  e=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null) \
+    || e=$(date -u -d "$iso" +%s 2>/dev/null) \
+    || e=0
+  case "$e" in ''|*[!0-9]*) e=0 ;; esac
+  printf '%s' "$e"
+}
+
+# session_liveness_verdict <pid> <last_heartbeat> <started> <now_epoch>
+# Returns 0 (LIVE) / 1 (DEAD). This is THE single keep/drop verdict every liveness
+# consumer routes through (registry_live_view, reconcile-sessions.sh, session-close.sh
+# alive(), session-start-integrity-backstop.sh) so all four agree on one input.
+# HEARTBEAT-AUTHORITATIVE; pid demoted to advisory:
+#   fresh_hb                       -> LIVE
+#   stale_hb                       -> DEAD  (INCLUDING the live-pid + stale-hb phantom
+#                                            quadrant: DEAD is the load-bearing choice —
+#                                            it renders the non-unique shared pid INERT,
+#                                            which is the fix. A phantom row on a
+#                                            live shared pid whose heartbeat has gone
+#                                            stale is dropped; two genuinely-live sessions
+#                                            sharing one pid both stay because both
+#                                            heartbeat fresh.)
+#   absent/unparseable hb, but
+#     `started` present            -> floor staleness off `started` (always written at
+#                                     session-register.sh:47) so a no-heartbeat row still
+#                                     AGES instead of surviving forever (reconciles with
+#                                     ac-session-registry-liveness AC-E's no-hb rows)
+#   hb AND started both absent/     -> pid_is_live shim ONLY — a backward-compat path for a
+#     unparseable                     pre-heartbeat (prior-version) registry; NEVER the
+#                                     primary verdict, so pid is never a keep-signal while
+#                                     any heartbeat OR started floor is present.
+# `now` is passed as an epoch (seconds) by the caller — the verdict reads no wall clock,
+# so all consumers score a row against the SAME instant. STALE_THRESHOLD_SECS is the
+# shared 1800s manifest-driven threshold (fallback 1800). Bash 3.2 clean.
+session_liveness_verdict() {
+  local pid="${1:-}" hb="${2:-}" started="${3:-}" now="${4:-0}" e th
+  th="${STALE_THRESHOLD_SECS:-1800}"
+  e=$(iso8601_to_epoch "$hb")
+  if [ "$e" -gt 0 ]; then
+    if [ $(( now - e )) -le "$th" ]; then return 0; else return 1; fi
+  fi
+  e=$(iso8601_to_epoch "$started")
+  if [ "$e" -gt 0 ]; then
+    if [ $(( now - e )) -le "$th" ]; then return 0; else return 1; fi
+  fi
+  pid_is_live "$pid" && return 0
+  return 1
+}
+
 # Transient PID-liveness VIEW of the registry. Returns the registry JSON with every
 # `active` row whose recorded pid is not live `del`'d. VIEW-ONLY — it never writes the
 # registry file; `closing` / `closed-pending-reconciliation` rows are left intact
@@ -174,12 +258,20 @@ registry_live_view() {
   local reg="$1"
   command -v jq >/dev/null 2>&1 || { printf '%s' "$reg"; return 0; }
   local active_list
-  active_list=$(printf '%s' "$reg" | jq -r '.sessions // {} | to_entries[] | select(.value.status == "active") | "\(.key)\t\(.value.pid)"' 2>/dev/null) || active_list=""
+  # T-2: pull pid + last_heartbeat + started per active row so the keep/drop
+  # decision routes through the HEARTBEAT-authoritative session_liveness_verdict (T-1)
+  # rather than the bare pid_is_live. pid is no longer a keep-signal: a phantom row on
+  # a live SHARED pid with a stale/absent heartbeat is DROPPED (the over-count
+  # fix); two genuinely-live sessions sharing one pid (both fresh hb) are BOTH kept
+  # (the case a pid-dedup band-aid gets wrong); a fresh-hb row is kept even if its pid
+  # reads dead (no idle under-count). VIEW-ONLY — never writes the registry.
+  active_list=$(printf '%s' "$reg" | jq -r '.sessions // {} | to_entries[] | select(.value.status == "active") | "\(.key)\t\(.value.pid)\t\(.value.last_heartbeat // "")\t\(.value.started // "")"' 2>/dev/null) || active_list=""
   [ -n "$active_list" ] || { printf '%s' "$reg"; return 0; }
-  local dead_sids="" sid pid
-  while IFS=$'\t' read -r sid pid; do
+  local dead_sids="" sid pid hb started now_epoch
+  now_epoch=$(date +%s)
+  while IFS=$'\t' read -r sid pid hb started; do
     [ -n "$sid" ] || continue
-    pid_is_live "$pid" || dead_sids="$dead_sids $sid"
+    session_liveness_verdict "$pid" "$hb" "$started" "$now_epoch" || dead_sids="$dead_sids $sid"
   done <<EOF
 $active_list
 EOF

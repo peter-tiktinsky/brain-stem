@@ -23,16 +23,15 @@ This is the source repo. The live install at `~/.claude/` is distributed FROM he
 - `vault-init/` — the seed vault structure an adopter starts from
 - `orchestrator/` — dispatch + plan-runner engine
 - `installer/` — render-launchd / render-cron mechanics
-- `git-hooks/` — author-side git hooks (not installed on adopter machines)
 - `tools/` — release-time tooling (not installed)
-- `internal/` — tests, docker, lima harnesses (GitHub-only, never shipped)
+- `internal/` — tests, docker, and lima harnesses; maintainer development repo only, not part of the public distribution
 
 ## Run the test harness
 
-Tests live under `internal/tests/`. Run them in isolation — never against your live `~/.claude/` paths.
+The test harness lives under `internal/tests/` in the maintainer development repo and is not part of this public tree — contributions are validated against it before release. If you are working in the development repo, run tests in isolation — never against your live `~/.claude/` paths.
 
 ## Conventions
 
 - macOS only, single-user, Apache-2.0.
 - Plaintext everywhere; no generated binaries in history.
-- Any foundation source edit requires a manifest regen before release (enforced by the author-side git hooks).
+- Any foundation source edit requires a manifest regen before release (enforced by a pre-commit hook in the maintainer's development repo).

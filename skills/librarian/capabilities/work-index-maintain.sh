@@ -50,7 +50,7 @@
 #   Maintainer-provenance (R-GOV-3): the `_index.md` files under
 #     $WORK_HOME/<spoke>/.../{deliverables,reference}/ are librarian-maintained; this
 #     capability is their sole originating writer. It writes ONLY `_index.md` files in
-#     those directories. It NEVER writes README.md, updates.md, CLAUDE.md, hub.md,
+#     those directories. It NEVER writes README.md, updates.md, CLAUDE.md,
 #     deliverable/reference bodies, or anything under the plans root (PLANS_ROOT).
 # CLI:
 #   work-index-maintain.sh                  # mint/refresh every spoke's index files
@@ -91,7 +91,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,99p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "work-index-maintain: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -112,9 +112,39 @@ case "$WORK_HOME" in */) WORK_HOME="${WORK_HOME%/}" ;; esac
   || { echo "work-index-maintain: shape helper work-spoke-layout.sh not found" >&2; exit 3; }
 
 CLASSIFY_MANIFEST="$(mktemp)" || { echo "work-index-maintain: mktemp failed" >&2; exit 3; }
-trap 'rm -f "$CLASSIFY_MANIFEST"' EXIT
+DEEXEMPT_UNION=""
+trap 'rm -f "$CLASSIFY_MANIFEST" "${DEEXEMPT_UNION:-}"' EXIT
 
-# Emit one target spoke's shape-qualified sub list (via the helper) into the manifest.
+# --- de-exemption SoT: the Work-subtree _index.md mandate TARGETS beyond
+#     {deliverables,reference} are DERIVED from the overlay path_routing.rules[]
+#     (mandatory-files-rules.json:40 — a Work/** folder registered via the adopter's
+#     overlay is RE-INCLUDED in the _index.md mandate). Resolve the SHIPPED foundation-
+#     master bundle + merge the overlay via foundation-overlay-load.sh (same posture as
+#     index-maintain / library-index): the merged union's frontmatter.path_routing.rules
+#     carry every de-exemption glob. FALL BACK to reading $GOV_DIR/overlay-master.json
+#     DIRECTLY (the de-exemption SoT) when no bundle/merger (dev-repo / test). The SHIPPED
+#     overlay is EMPTY ({}) so this yields ZERO new targets by default (no engagement
+#     vocab; preserves the _g4_park empty-skeleton invariant). GOVERNANCE_DIR overrides.
+GOV_DIR_RES="${GOVERNANCE_DIR:-$CLAUDE_HOME_RES/governance}"
+DEEXEMPT_BUNDLE=""
+for _cand in "$CLAUDE_HOME_RES/governance/foundation-master.json" "$GOV_DIR_RES/foundation-master.json"; do
+  [ -f "$_cand" ] && { DEEXEMPT_BUNDLE="$_cand"; break; }
+done
+_OVL="${FOUNDATION_OVERLAY_LOAD:-$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh}"
+[ -x "$_OVL" ] || _OVL="$_REPO_ROOT/hooks/lib/foundation-overlay-load.sh"
+if [ -x "$_OVL" ] && [ -n "$DEEXEMPT_BUNDLE" ] && [ -f "$DEEXEMPT_BUNDLE" ]; then
+  DEEXEMPT_UNION="$(mktemp 2>/dev/null || true)"
+  if [ -n "$DEEXEMPT_UNION" ] && bash "$_OVL" --foundation-path "$DEEXEMPT_BUNDLE" \
+        --overlay-path "$(dirname "$DEEXEMPT_BUNDLE")/overlay-master.json" --force-override > "$DEEXEMPT_UNION" 2>/dev/null \
+        && [ -s "$DEEXEMPT_UNION" ]; then
+    DEEXEMPT_BUNDLE="$DEEXEMPT_UNION"
+  elif [ -n "$DEEXEMPT_UNION" ]; then rm -f "$DEEXEMPT_UNION"; DEEXEMPT_UNION=""; fi
+fi
+OVERLAY_DIRECT="$GOV_DIR_RES/overlay-master.json"
+
+# Emit one target spoke's shape-qualified sub list + the plain OTHER folders (via the
+# helper) into the manifest. The OTHER dirs (WSL_OTHER_DIRS — e.g. People/, Meetings/)
+# are the de-exemption candidates the python body matches against the overlay globs.
 _wim_emit_classification() {
   local sp="$1" dir="$2" nm
   classify_top_level "$dir"
@@ -124,6 +154,11 @@ _wim_emit_classification() {
       [ -n "$nm" ] && printf 'SUB\t%s\n' "$nm"
     done <<EOF
 $WSL_SUBPROJECTS
+EOF
+    while IFS= read -r nm || [ -n "$nm" ]; do
+      [ -n "$nm" ] && printf 'OTHER\t%s\n' "$nm"
+    done <<EOF
+$WSL_OTHER_DIRS
 EOF
     printf 'END\n'
   } >> "$CLASSIFY_MANIFEST"
@@ -140,23 +175,28 @@ elif [ -d "$WORK_HOME" ]; then
   done
 fi
 
-python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" <<'PY'
-import json, os, re, sys, tempfile
+python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" "$DEEXEMPT_BUNDLE" "$OVERLAY_DIRECT" <<'PY'
+import fnmatch, json, os, re, sys, tempfile
 from datetime import date
 
 work_home, dry_s, spoke_filter, manifest_path = sys.argv[1:5]
+deexempt_bundle = sys.argv[5] if len(sys.argv) > 5 else ""
+overlay_direct = sys.argv[6] if len(sys.argv) > 6 else ""
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
 
-# Shape-qualified sub list per spoke, built bash-side via work-spoke-layout.sh
-# (the single shape-detection SoT). READ here — the child descent walks only these
-# true sub-projects, never re-deriving the classification with an inlined name test.
+# Shape-qualified sub list + plain OTHER folders per spoke, built bash-side via
+# work-spoke-layout.sh (the single shape-detection SoT). READ here — the child descent
+# walks only these true sub-projects, never re-deriving the classification with an
+# inlined name test; OTHERS are the de-exemption candidates (People/, Meetings/, ...).
 SUBS = {}
+OTHERS = {}
 try:
     with open(manifest_path, encoding="utf-8") as _mf:
         _cur = None
+        _cur_other = None
         for _line in _mf:
             _line = _line.rstrip("\n")
             if not _line:
@@ -167,13 +207,58 @@ try:
                 _tag, _val = _line, ""
             if _tag == "SPOKE":
                 _cur = []
+                _cur_other = []
                 SUBS[_val] = _cur
+                OTHERS[_val] = _cur_other
             elif _cur is None:
                 continue
             elif _tag == "SUB":
                 _cur.append(_val)
+            elif _tag == "OTHER" and _cur_other is not None:
+                _cur_other.append(_val)
 except Exception:
     SUBS = {}
+    OTHERS = {}
+
+# --- de-exemption globs: the overlay path_routing.rules[] patterns. Bundle-
+# first (the overlay-merged union honors an adopter's amendments), then the direct
+# overlay fallback (dev-repo/test). The SHIPPED overlay is empty -> [] -> zero new
+# targets by default (no engagement vocab; _g4_park empty-skeleton invariant preserved).
+def _rules_from(obj):
+    globs = []
+    rules = (((obj.get("frontmatter") or {}).get("path_routing") or {}).get("rules") or [])
+    if isinstance(rules, list):
+        for r in rules:
+            if isinstance(r, dict):
+                pat = r.get("pattern")
+                if isinstance(pat, str) and pat:
+                    globs.append(pat)
+    return globs
+
+registered_globs = []
+if deexempt_bundle and os.path.isfile(deexempt_bundle):
+    try:
+        with open(deexempt_bundle, encoding="utf-8") as _bf:
+            registered_globs = _rules_from(json.load(_bf))
+    except Exception:
+        registered_globs = []
+if not registered_globs and overlay_direct and os.path.isfile(overlay_direct):
+    try:
+        with open(overlay_direct, encoding="utf-8") as _of:
+            registered_globs = _rules_from(json.load(_of))
+    except Exception:
+        registered_globs = []
+
+def _deexempt_match(rel):
+    # fnmatch + `/**`-matches-own-base (index-maintain _glob_match parity, :233-242);
+    # the overlay folder-de-exemption patterns are brace-free `*`-globs (per the
+    # frontmatter-rules.json path_routing _rule_shape_contract), so no brace expansion.
+    for g in registered_globs:
+        if fnmatch.fnmatch(rel, g):
+            return True
+        if g.endswith("/**") and fnmatch.fnmatch(rel, g[:-3]):
+            return True
+    return False
 
 START = "<!-- contents-enum:start -->"
 END = "<!-- contents-enum:end -->"
@@ -254,28 +339,51 @@ def tag_spoke(spoke):
     return t or "spoke"
 
 
+# reserved control/scaffold filenames the work surface owns,
+# excluded from CONTENT rows — CLAUDE.md/File-Index.md are index/control files; README.md/
+# updates.md are work-map-owned. A genuine deliverable would not use these reserved names,
+# so the exclusion cannot mask a legitimately-placed content file (the ac fixture proves a
+# real .md/.pptx deliverable is still listed alongside an excluded CLAUDE.md).
+CONTROL_FILES = ("_index.md", "CLAUDE.md", "File-Index.md", "README.md", "updates.md")
+
+
 def enum_rows(dirpath):
-    # Deterministic projection of the directory's contents: every .md child (not
-    # _index.md, not dotfiles), sorted, as a contents-enum row. Mirrors index-maintain's
-    # bootstrap row shape (| [[name]] | lines | type | description |). Description is
-    # left blank (curation-owned, never machine-filled).
+    # Deterministic projection of the directory's contents as contents-enum rows.
+    # RECURSE nested subfolders + enumerate NON-.md deliverables (.pptx/.pdf/.xlsx)
+    # (was: flat, .md-only). Exclude the reserved CONTROL_FILES from content rows.
+    # name = dir-relative path (a nested file surfaces as subdir/name); .md strips the
+    # extension for the wikilink (unchanged for root .md), non-.md keeps its extension.
+    # Description left blank (curation-owned). Sorted for determinism + idempotent re-runs.
+    if not os.path.isdir(dirpath):
+        return None
+    entries = []
     try:
-        children = sorted(f for f in os.listdir(dirpath)
-                          if f.endswith(".md") and f != "_index.md" and not f.startswith("."))
+        for dp, dns, fns in os.walk(dirpath):
+            dns[:] = sorted(d for d in dns if not d.startswith("."))
+            for f in fns:
+                if f.startswith(".") or f in CONTROL_FILES:
+                    continue
+                full = os.path.join(dp, f)
+                entries.append((os.path.relpath(full, dirpath), full))
     except Exception:
         return None
     rows = []
-    for c in children:
-        cp = os.path.join(dirpath, c)
-        rows.append("| [[%s]] | %d | %s | |" % (c[:-3], line_count(cp), file_type(cp) or "—"))
+    for rel, full in sorted(entries):
+        disp = rel[:-3] if rel.endswith(".md") else rel
+        rows.append("| [[%s]] | %d | %s | |" % (disp, line_count(full), file_type(full) or "—"))
     return rows
 
 
 def render_enum_region(rows):
     # The text BETWEEN the markers (the markers themselves are emitted by mint/splice).
-    body = "\n" + TABLE_HEADER + "\n"
+    # A blank line after the start-sentinel + a symmetric blank before the end-sentinel
+    # mint/splice place the markers adjacent to this region, so the region
+    # owns the surrounding blank lines that keep the GFM table render valid in the
+    # consuming viewer (Obsidian-class parsers refuse a table adjacent to an HTML block).
+    body = "\n\n" + TABLE_HEADER + "\n"
     if rows:
         body += "\n".join(rows) + "\n"
+    body += "\n"
     return body
 
 
@@ -423,6 +531,16 @@ for spoke in target_spokes:
             process_dir(sub_deliv, spoke, sub)
         if os.path.isdir(sub_ref):
             process_dir(sub_ref, spoke, sub)
+    # mint/refresh an _index.md for a DE-EXEMPTED plain folder
+    # (People/, Meetings/, ...) — a WSL_OTHER_DIRS folder whose vault-view path
+    # Work/<spoke>/<folder> matches an overlay path_routing de-exemption glob. Derived from
+    # the mandate SoT (NOT a hardcoded People/ list); the shipped empty overlay yields NO
+    # matches (zero new targets — preserves the _g4_park invariant). An adopter's registered
+    # glob de-exempts its folder. parent_folder = spoke (a top-level folder under the spoke).
+    for other in sorted(OTHERS.get(spoke, [])):
+        rel = "Work/%s/%s" % (spoke, other)
+        if _deexempt_match(rel):
+            process_dir(os.path.join(spoke_dir, other), spoke, spoke)
 
 print("work-index-maintain: written=%d skipped=%d dry_run=%s"
       % (written, skipped, dry_run), file=sys.stderr)

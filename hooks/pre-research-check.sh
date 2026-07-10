@@ -81,9 +81,13 @@ LIBRARY="${LIBRARY_DIR:-${PLANS_DIR:-$PLANS_ROOT}/_library}"
 case "$LIBRARY" in */) LIBRARY="${LIBRARY%/}" ;; esac
 ROOT_INDEX="$LIBRARY/_index.md"
 
-# Library absent or root index absent -> silent no-op allow (PRE-1 graceful).
-[ -d "$LIBRARY" ] || exit 0
-[ -f "$ROOT_INDEX" ] || exit 0
+# Coverage sources (PRE-1): the _library corpus AND the
+# binder research-index (_projects/<spoke>/research-index.md) + per-plan
+# <plan>/_research/ homes — all rooted under $PLANS_ROOT. Proceed when the plans
+# tree exists; a fully-absent plans tree -> silent no-op allow (graceful). The
+# python enumeration is fail-open PER-SOURCE, so a missing _library simply yields
+# no library topics (and if no source yields coverage, the emit stays silent).
+[ -d "$PLANS_ROOT" ] || exit 0
 
 # --- measurement sink (R-FLOW-DISC-2) ---------------------------------------
 OBS_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}/pre-research-check"
@@ -95,11 +99,11 @@ OBS_FILE="$OBS_DIR/observations.jsonl"
 # pointer fallback (PRE-4 #2) are computed in one argv-based python3 pass
 # (R-24). The hook stays advisory: it only PRINTS the assembled signal; the
 # emission path below is allow-only.
-SIGNAL="$(python3 - "$LIBRARY" "$ROOT_INDEX" "$PROMPT_LC" "$OBS_FILE" <<'PY'
+SIGNAL="$(python3 - "$LIBRARY" "$ROOT_INDEX" "$PROMPT_LC" "$OBS_FILE" "$PLANS_ROOT" <<'PY'
 import json, os, re, sys
 from datetime import date, datetime, timezone
 
-library, root_index, prompt_lc, obs_file = sys.argv[1:5]
+library, root_index, prompt_lc, obs_file, plans_root = sys.argv[1:6]
 today = date.today()
 DEFAULT_INTERVAL = 90            # R-FLOW-PRE-3 fallback when undeclared
 # PRE-4 #2 cap = the shipped 9,728B format_output_allow MAX (registry.sh:106).
@@ -190,6 +194,59 @@ for t in entries:
     topic_stale = any(a["stale"] for a in arts)
     topics.append({"topic": t, "n": len(arts), "score": score,
                    "age": topic_age, "stale": topic_stale, "arts": arts})
+
+# --- also enumerate binder + per-plan _research/ coverage ---
+# The library is not the only research home. A binder research-index
+# (_projects/<spoke>/research-index.md) and per-plan <plan>/_research/*.md dirs
+# (the 140/11 research_artifacts[] + 152/T-6 DT-4 canonical home) carry research
+# coverage too; enumerate them so a research-intent prompt covered ONLY by binder
+# or plan research still gets a dedup signal. Advisory-only: these join the topics
+# list and flow through the SAME allow-only emit path. Fail-open (any error skips
+# the source); no deny/Stop path is added (inject-or-silent is the hook contract).
+# (bash-3.2 R-23: this heredoc body stays apostrophe/backtick-free.)
+projects_dir = os.path.join(plans_root, "_projects")
+try:
+    _spokes = sorted(os.listdir(projects_dir))
+except Exception:
+    _spokes = []
+for _sp in _spokes:
+    if _sp.startswith("."):
+        continue
+    _ri = os.path.join(projects_dir, _sp, "research-index.md")
+    if not os.path.isfile(_ri):
+        continue
+    _body = read(_ri, 4096)
+    _fm = parse_fm(_body)
+    _ad = age_days(_fm.get("updated", ""))
+    _hay = _sp.replace("-", " ") + " " + _body.lower()
+    _haywords = set(re.findall(r"[a-z0-9][a-z0-9-]{2,}", _hay))
+    _score = len(words & _haywords)
+    topics.append({"topic": "binder:%s" % _sp, "n": 1, "score": _score,
+                   "age": _ad, "stale": False, "arts": [], "kind": "binder"})
+
+# per-plan <plan>/_research/*.md (skip _-prefixed roster dirs like _library/_projects)
+try:
+    _plans = sorted(os.listdir(plans_root))
+except Exception:
+    _plans = []
+for _pl in _plans:
+    if _pl.startswith(".") or _pl.startswith("_"):
+        continue
+    _rdir = os.path.join(plans_root, _pl, "_research")
+    if not os.path.isdir(_rdir):
+        continue
+    try:
+        _rfiles = [f for f in sorted(os.listdir(_rdir))
+                   if f.endswith(".md") and f != "_index.md" and not f.startswith(".")]
+    except Exception:
+        _rfiles = []
+    if not _rfiles:
+        continue
+    _hay = _pl.replace("-", " ") + " " + " ".join(f[:-3].replace("-", " ") for f in _rfiles)
+    _haywords = set(re.findall(r"[a-z0-9][a-z0-9-]{2,}", _hay))
+    _score = len(words & _haywords)
+    topics.append({"topic": "plan-research:%s" % _pl, "n": len(_rfiles), "score": _score,
+                   "age": None, "stale": False, "arts": [], "kind": "plan"})
 
 if not topics:
     sys.exit(0)   # no covered topics -> emit nothing (silent allow)

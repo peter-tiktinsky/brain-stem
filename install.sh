@@ -1515,9 +1515,9 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 6, "op": "DISSOLVED", "rationale": "top-level onboarding/ dissolved into skills/onboarder/; producers ride Step 5 cp -R"},
     {"step": 7, "op": "cp", "target": ($claude_home + "/orchestrator/"), "source": ($source_repo + "/orchestrator/"), "rationale": "ship orchestrator subtree (--plan route retained; dispatch.sh keeps --job|--cron|--batch|--plan)"},
     {"step": 8, "op": "cp", "target": ($claude_home + "/installer/"), "source": ($source_repo + "/installer/"), "rationale": "ship installer subtree (LABEL_PREFIX com.brain-stem preserved transitively via render-launchd.sh)"},
-    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (14). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
+    {"step": 8.5, "op": "cp-selective", "target": ($claude_home + "/governance/"), "source": ($source_repo + "/governance/ (named)"), "rationale": "selective copy: foundation-master + overlay-master + foundation-manifest + log-subtype-registry + file-type-contracts/ (registry-complete set). governance-action-log.jsonl is bootstrap-created at Step 1.6 (not copied). NOT shipped: librarian-capabilities/, onboarding-reference/ (R-20). 7 pillar JSONs + _index.json stay repo-only"},
     {"step": 8.7, "op": "cp", "target": ($claude_home + "/vault-init/"), "source": ($source_repo + "/vault-init/"), "rationale": "ship vault-init/ seed tree. The per-plan satellite is retired (not in the ship surface). Welcome.md absent. sha256-protected via governance/foundation-manifest.json"},
-    {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{12 named}.json"), "rationale": "ship the 12 named schemas (the Step 9 loop is ground-truth) + README. memory-schema, rules-schema, and review-queue-schema are resolved at runtime by installed consumers ($CLAUDE_HOME/schemas/...) so they ship; only foundation-master-schema stays authoring-side"},
+    {"step": 9, "op": "cp", "target": ($claude_home + "/schemas/"), "source": ($source_repo + "/schemas/{named}.json"), "rationale": "ship the named adopter schemas (the Step 9 loop is ground-truth) + README. memory-schema, rules-schema, and review-queue-schema are resolved at runtime by installed consumers ($CLAUDE_HOME/schemas/...) so they ship; only foundation-master-schema stays authoring-side"},
     {"step": 10, "op": "cp", "target": ($claude_home + "/templates/"), "source": ($source_repo + "/templates/{settings,2 CLAUDE.md,MEMORY,rules-readme,plan/capture templates,handoff}+{launchd,settings-fragments}/"), "rationale": "ship templates + launchd tmpl + settings-fragments. The 2 CLAUDE.md templates ship sha256-protected; onboarder author-claude-home.sh consumes — NOT install-seeded"},
     {"step": 11, "op": "DROPPED", "rationale": "claude-mem NOT bundled (adopter-installed via marketplace); plugins/ + false README gone"},
     {"step": 11.5, "op": "DROPPED", "rationale": "global CLAUDE.md pre-seed struck; skills/onboarder/scripts/author-claude-home.sh is the authoritative writer"},
@@ -2565,7 +2565,7 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   fi
   # NOTE: governance-action-log.jsonl is NOT copied here — it is bootstrap-CREATED
   # at Step 1.6 under $CLAUDE_HOME/governance/ (finding: bootstrap-not-copy).
-  # File-type contracts subdir (k8s paramKind shape) — the 14 contract members.
+  # File-type contracts subdir (k8s paramKind shape) — every governance/file-type-contracts/*.json member.
  # cp -R dropped from the upgrade path → per-file files[] walk.
   if [ -d "$SOURCE_REPO/governance/file-type-contracts" ]; then
     mkdir -p "$CLAUDE_HOME/governance/file-type-contracts"
@@ -2712,7 +2712,7 @@ fi
 # Only foundation-master-schema stays foundation-repo authoring-side: it is the
 # canonical runtime validation layer the composed bundle is built from (pillars
 # compose into the bundle at release time; the bundle ships, the pillars don't).
-for schema in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema memory-schema rules-schema review-queue-schema; do
+for schema in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema memory-schema rules-schema review-queue-schema file-type-contract-schema; do
   src="$SOURCE_REPO/schemas/$schema.json"
   if [ ! -f "$src" ]; then
     diag "schema missing in source: $schema.json"
@@ -2736,7 +2736,7 @@ done
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
 # MIGRATE-STATE surface), a distinct path the templates walk never touches.
-for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md hub-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
+for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
   upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition
@@ -2934,34 +2934,30 @@ seed_rules_entry() {
 }
 
 # Entry 1 — binder pointer (R-ARCH-RULES #1). Cwd-parameterized: resolves the
-# CURRENT spoke's _projects/<spoke>/ binder surfaces. Generic — never names a
-# specific spoke; the launch directory selects the spoke at read time. Two binder
-# surfaces: the force-ingested situating card (eager, automatic) and the curated
-# hub cover page (on-demand). Neither is re-dumped here.
+# CURRENT spoke's _projects/<spoke>/ binder surface. Generic — never names a
+# specific spoke; the launch directory selects the spoke at read time. The binder is
+# 100% machine-derived: the sole cover is the force-ingested situating card (eager,
+# automatic). Not re-dumped here.
 read -r -d '' rules_binder_pointer <<'RULE_BINDER' || true
-# Project binder — the situating card is eager, the hub is on-demand
+# Project binder — the situating card is the sole, eager, machine-derived cover
 
-When working inside a registered project spoke, the spoke's binder has two cover
-surfaces with distinct loading:
+When working inside a registered project spoke, the spoke's binder has ONE cover
+surface, the force-ingested situating card:
 
-  1. The situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is
-     AUTO-FORCE-INGESTED at session start — you already have the machine-derived
-     orientation (the spoke's plan roster, aggregate status, active focus, and the
-     latest handoff headline) WITHOUT reading anything. It is generated from the
-     plans' manifests, so it is always current.
-
-  2. The hub cover page (`~/.claude-plans/_projects/<spoke>/hub.md`) is the curated,
-     ON-DEMAND surface. Read it for curated depth the card does not carry: the
-     library references, the active source-of-truth pointer, and narrative context.
+  The situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is
+  AUTO-FORCE-INGESTED at session start — you already have the machine-derived
+  orientation (the spoke's plan roster, aggregate status, active focus, and a
+  latest-handoff pointer per in-progress plan) WITHOUT reading anything. It is
+  generated from the plans' manifests, so it is always current. The binder is 100%
+  machine-derived — there is no hand-curated cover page.
 
 `<spoke>` is the current launch-directory's registered spoke key (`home` for the
-home anchor). The card gives you eager orientation automatically; open hub.md when
-you need the curated cover. The hub is pointer-only — follow its pointers
-(research-index, decision-log, handoff-chronicle, library references) on demand
-rather than loading every binder index up front. If no binder exists for the
-current spoke yet, run `librarian plan-research-index` (and the binder
-capabilities) to generate it. This entry is generic and cwd-parameterized — it
-never names a specific project.
+home anchor). The card gives you eager orientation automatically. For deeper binder
+surfaces, follow the card's pointers (research-index, decision-log,
+handoff-chronicle) on demand rather than loading every binder index up front. If no
+binder exists for the current spoke yet, run `librarian plan-research-index` (and
+the binder capabilities) to generate it. This entry is generic and cwd-parameterized
+— it never names a specific project.
 RULE_BINDER
 seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
 

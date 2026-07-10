@@ -232,18 +232,15 @@ def flat_files(title, plan_dir):
         "---\n"
         "title: %s — Spec\n"
         "type: spec\n"
-        "status: planned\n"
         "created: %s\n"
         "updated: %s\n"
         "---\n\n"
         "# %s — Spec\n\n"
-        "**Status:** planned\n"
-        "**Created:** %s\n"
-        "**Parent:** —\n"
         "**Goal:** {One sentence. When this ships, what is true that wasn't true before?}\n\n"
         "<!-- Head-immutable post Session 1: Goal / Problem Statement / Constraints "
-        "(governance/file-type-contracts/spec.md.json). Status is a SINGLE canonical 8-state "
-        "token. Cap ~500 lines. -->\n\n"
+        "(governance/file-type-contracts/spec.md.json). created/parent live in the YAML "
+        "frontmatter; the plan's canonical 8-state status lives on manifest.json :: status "
+        "(DERIVE single-SoT — the artifact carries no status: frontmatter). Cap ~500 lines. -->\n\n"
         "## Problem Statement\n\n"
         "{2-4 sentences. What's broken, missing, or suboptimal today?}\n\n"
         "## Constraints\n\n"
@@ -260,13 +257,12 @@ def flat_files(title, plan_dir):
         "| Metric | Target | How to Measure |\n"
         "|--------|--------|---------------|\n"
         "| {metric} | {target} | {how} |\n"
-    ) % (title, today, today, title, today)
+    ) % (title, today, today, title)
 
     tasks = (
         "---\n"
         "title: %s — Tasks\n"
         "type: tasks\n"
-        "status: planned\n"
         "created: %s\n"
         "updated: %s\n"
         "---\n\n"
@@ -302,7 +298,6 @@ def flat_files(title, plan_dir):
         "---\n"
         "title: %s — Handoff\n"
         "type: handoff\n"
-        "status: draft\n"
         "created: %s\n"
         "updated: %s\n"
         "---\n\n"
@@ -331,6 +326,14 @@ def flat_files(title, plan_dir):
         "type": "plan",
         "status": "planned",
         "phase_2_scaffolded_at": today,
+        # F11 writer-1 (140 sub-11 T-1): scaffold the EMPTY research_artifacts[] seed the
+        # per-spoke research-index renderer (plan-research-index.sh) already reads. Missing
+        # field == empty (never an error), but declaring the empty seed makes the affordance
+        # explicit on every fresh plan; session-close's plan-research-declare writer (T-2)
+        # populates it from the plan's OWN _research/ at close (DT-4 owning-spoke). Scoped to
+        # this JSON manifest dict — DISJOINT from the .md artifact-frontmatter status: stamps
+        # (the DERIVE-strip surface; coordination_contract).
+        "research_artifacts": [],
         "tasks": [
             {
                 "id": "T-1",

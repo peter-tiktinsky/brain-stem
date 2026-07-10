@@ -1,22 +1,29 @@
 #!/bin/bash
 # plan-parent-resolve — Walk parent_plan: chain for sub-task files, resolve
 # inherited state, and emit drift findings.
+#
 # Wraps the parent-plan resolver algorithm as a CLI-invocable capability.
 # Enforcement layer for ENFORCEMENT-MAP R-28 (parent_plan: chain integrity).
 # Test harness: tests/plan-parent-resolve.sh.
+#
 # Usage:
 #   plan-parent-resolve.sh                 # full corpus walk
 #   plan-parent-resolve.sh --file <path>   # resolve chain for one file
 #   plan-parent-resolve.sh --parent <slug> # list files whose chain includes <slug>
+#   plan-parent-resolve.sh --classify      # PROPOSE an owning spoke per plan
+#                                          # (T-3; propose-only, NEVER writes)
 #   plan-parent-resolve.sh --dry-run       # (no-op — resolver is already read-only)
+#
 # Scope: sub-task files at depth >= 3 under $PLANS_DIR, excluding:
 #   - plan-root files at depth 2 (spec.md, tasks.md, handoff.md,
 #     00-ideation-brief.md, README.md, manifest.json)
 #   - handoff.md at any depth (append-only session records)
 #   - tests/**, _orchestrator/**, baselines/**, corpus/**,
 #     regression-baseline/** (ephemeral diagnostic artifacts)
+#
 # _research/** is NOT excluded: declared research_artifacts[] pointers land under
 # <plan>/_research/ and MUST be walkable by the resolver (R-FLOW-MAINT-8).
+#
 # Findings emitted (per SKILL.md-575):
 #   parent-plan-inferred     — info  — missing field, parent from path
 #   parent-plan-unresolvable — warn  — missing field, path yields nothing
@@ -26,11 +33,23 @@
 #   parent-plan-path-drift   — warn  — explicit field disagrees with path; ALSO
 #                                      reused for the project:-stamp-vs-lineage
 #                                      drift case (drift_class field distinguishes)
+#
 # R-ARCH-PID-DRIFT / R-FLOW-MAINT-7: the auto-stamped project: spoke key
 # (D2 R-ARCH-PID field-triad) is re-validated against the anchored-spoke registry
 # and the plan's lineage. A disagreement reuses the SHIPPED parent-plan-path-drift
 # finding name (no new finding name is minted) with drift_class=project-stamp-*,
 # severity warn, for human adjudication — NEVER a silent re-file (R-FLOW-MAINT-7).
+#
+# T-3: the --classify mode is a GROUND-TRUTH per-plan spoke
+# CLASSIFIER layered on top of the drift validator. It reads the blessed 3-spoke
+# set (brain-stem / personal-live-system) and the clean-room-rebuild
+# temporal-axis pivot from the ownership-model artifact (ground truth, not
+# a hardcoded assumption) and PROPOSES an owning spoke per plan from keyword
+# (slug/title/spec) + superseded_by + parent_plan lineage + temporal signals. It
+# emits a project-classify-proposal info finding per plan for human adjudication
+# (T-4) — propose-only, NEVER mutates project: (same never-re-files
+# posture as check_project_drift). The default corpus walk is unchanged.
+#
 # Read-only. Never writes. Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -76,6 +95,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --file)    MODE="single"; FILE_ARG="$2"; shift 2 ;;
     --parent)  MODE="parent"; PARENT_FILTER="$2"; shift 2 ;;
+    --classify) MODE="classify"; shift ;;  # T-3 propose-only classifier
     --dry-run) shift ;;  # No-op; accepted for chain-cleanliness
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "plan-parent-resolve: unknown flag '$1'" >&2; exit 2 ;;
@@ -220,6 +240,7 @@ except Exception:
 # lineage. On disagreement emit the SHIPPED parent-plan-path-drift finding name
 # (R-FLOW-MAINT-7 — no new name minted) with a drift_class distinguishing the
 # project-stamp case, severity warn, for human adjudication. NEVER re-files.
+#
 # Two sound read-side disagreement classes (R-ARCH-PID / R-ARCH-15):
 #   project-stamp-unregistered — the stamped project: is not a registered spoke
 #     key, so it cannot have been derived from the registry (e.g. a stale
@@ -227,6 +248,7 @@ except Exception:
 #   project-stamp-vs-lineage   — a sub-plan's project: disagrees with its
 #     parent_plan master's project: (lineage groups WITHIN a spoke; child and
 #     master must share the spoke key).
+#
 # Missing project: is NOT drift here — it is handled defensively (skip; absence
 # is the U-path missing-as-empty case, never a crash).
 check_project_drift() {
@@ -295,6 +317,189 @@ except Exception:
   fi
 }
 
+# ---- T-3: ground-truth per-plan spoke classifier ----------
+# NEW propose-only logic layered on the same file as check_project_drift. Reads
+# the blessed spoke set + temporal axis from the ownership-model artifact
+# (ground truth), then PROPOSES an owning spoke per plan. It NEVER mutates
+# project: — the same never-re-files posture as check_project_drift. Gated behind
+# --classify so the default corpus walk (and its shipped drift findings) are
+# untouched.
+CLASSIFY_ADR=""
+CLASSIFY_PIVOT="93"
+
+# _classify_load_adr — locate the ownership-model artifact and read its
+# ground truth: the blessed 3-spoke set (must be present) + the temporal-axis
+# pivot plan number. Returns non-zero (classifier degrades to no-op) if the ADR
+# is not resolvable — the model is a required input, never assumed.
+_classify_load_adr() {
+  if [[ -n "${ADR_OWNERSHIP_MODEL_PATH:-}" ]] && [[ -r "$ADR_OWNERSHIP_MODEL_PATH" ]]; then
+    CLASSIFY_ADR="$ADR_OWNERSHIP_MODEL_PATH"
+  else
+    local c
+    for c in "$PLANS_ROOT"/*/decisions/ADR-*plan-corpus-spoke-ownership-model.md; do
+      [[ -r "$c" ]] && { CLASSIFY_ADR="$c"; break; }
+    done
+  fi
+  [[ -n "$CLASSIFY_ADR" ]] && [[ -r "$CLASSIFY_ADR" ]] || return 1
+  local k
+  for k in brain-stem personal-live-system; do
+    grep -q "$k" "$CLASSIFY_ADR" || return 1
+  done
+  local pv
+  pv="$(grep -oE 'Plan [0-9]+ clean-room' "$CLASSIFY_ADR" | head -1 | grep -oE '[0-9]+' | head -1)"
+  [[ -n "$pv" ]] && CLASSIFY_PIVOT="$pv"
+  return 0
+}
+
+# classify_top <topdir> — echo "<proposed_spoke>|<basis>" for a top-level plan
+# lineage. Signals: keyword (slug / title / spec-head) + superseded_by + the
+# temporal axis (plan number vs the ADR pivot). Sub-plans inherit their master's
+# proposal (parent_plan lineage grouping) — the caller resolves the lineage root
+# and reuses its result. Delegates the keyword decision to an embedded python
+# helper (same JSON/heredoc pattern the resolver already uses).
+classify_top() {
+  local topdir="$1"
+  local plannum="${topdir%%-*}"
+  python3 - "$PLANS_ROOT/$topdir" "$plannum" "$CLASSIFY_PIVOT" <<'PY'
+import json, sys, os, re
+topd, plannum, pivot = sys.argv[1], sys.argv[2], sys.argv[3]
+slug = os.path.basename(topd)
+title = ""; sb = ""
+try:
+    m = json.load(open(os.path.join(topd, "manifest.json")))
+    title = str(m.get("title") or "")
+    s = m.get("superseded_by")
+    if isinstance(s, list):
+        s = (s[0] if s else "")
+    sb = "" if s is None else str(s)
+except Exception:
+    pass
+spec = ""
+try:
+    with open(os.path.join(topd, "spec.md")) as f:
+        for _ in range(60):
+            spec += f.readline()
+except Exception:
+    pass
+# Two haystacks. The DELIVERABLE IDENTITY (slug + title) is authoritative for the
+# precursor test — the ratified interpretive ruling is "deliverable-target
+# decides; later quarrying doesn't reclassify", so a bare *mention* in
+# a post-pivot plan's spec prose (reference) must NOT flip it to precursor.
+# The full context (+ spec head) augments the personal/repo-mechanics cues where
+# the later-mention trap does not apply.
+hay_id = (slug + " " + title).lower()
+hay_full = (slug + " " + title + " " + spec).lower()
+mnum = re.match(r"\d+", plannum)
+pn = int(mnum.group()) if mnum else None
+try:
+    pv = int(pivot)
+except Exception:
+    pv = 93
+sbm = re.search(r"\d+", sb or "")
+sbn = int(sbm.group()) if sbm else None
+def has_id(*ks):
+    return any(k in hay_id for k in ks)
+def has_full(*ks):
+    return any(k in hay_full for k in ks)
+# Rubric keyword cues (§Decision.3): precursor / personal / repo-mechanics.
+# _ks: keyword-tuple guard — drops empty members. The public release cleaner strips
+# build-era product names out of these quoted literals; an empty string would match
+# EVERY haystack ("" in s is always True) and break the whole rubric, so the shipped
+# cleaned form must degrade to FEWER keywords, never to match-all.
+def _ks(*ks):
+    return tuple(k for k in ks if k)
+# Precursor-era spoke label — the cleaned public form falls back to a generic label
+# (the "literal or fallback" idiom survives the cleaner with the fallback intact).
+PRECURSOR_SPOKE = "" or "precursor-product"
+PRECURSOR = _ks("claude-foundations", "", "onboarding-engine",
+             "onboarding-flow", "dogfood", "foundation-substrate",
+             "v3-organization", "v3-substrate", "consumer-lifecycle",
+             "memory-scope-routing", "foundation-repo-launchd",
+             "claude-system-organization")
+PERSONAL = _ks("", "vault", "live-system", "operational-exhaust",
+            "exhaust-relocation", "librarian", "enforcement", "orchestrator",
+            "hooks-state", "dispatch", "workflow-hardening", "memory-system",
+            "memory-realignment", "memory-substrate", "morning-brief",
+            "engagement", "skill-optimizer", "skill-build", "token-efficiency",
+            "compliance-security", "visual-generation", "multi-session",
+            "cascade-waiver", "entity-parity", "track-vault", "auto-compact",
+            "orphan-ideation", "daily-operational", "system-topology",
+            "deferred-trigger", "plan-system-hardening", "plans-folder",
+            "tag-taxonomy", "migration")
+REPOMECH = _ks("", "clean-room", "ship-gate", "ship-transform",
+            "foundation-manifest", "release-pipeline", "adopter", "binder",
+            "governance", "manifest-regen", "docs-refresh", "docs-sync",
+            "docs-release", "artifact-integrity", "universality",
+            "upgrade-delivery")
+# Temporal axis is the primary discriminator (§Decision.2 — the
+# clean-room-rebuild pivot). Deliverable identity (slug/title) can still name
+# precursor or personal work explicitly within either era.
+precursor_id = has_id(*PRECURSOR)
+if pn is not None and pn >= pv:
+    # POST-PIVOT era -> brain-stem foundation-repo by default; the deliverable
+    # identity can still name precursor or personal live-system work explicitly.
+    if precursor_id:
+        spoke, basis = PRECURSOR_SPOKE, "keyword-precursor"
+    elif has_id(*PERSONAL):
+        spoke, basis = "personal-live-system", "keyword-personal"
+    elif has_full(*REPOMECH):
+        spoke, basis = "brain-stem", "temporal-postpivot+repo-mechanics"
+    else:
+        spoke, basis = "brain-stem", "temporal-postpivot"
+else:
+    # PRE-PIVOT era -> precursor product vs personal live-system setup. Absent a
+    # product deliverable identity, the era default is personal-live-system (the
+    # ratified ruling: pre-pivot live-system work, even if later quarried).
+    if precursor_id:
+        spoke, basis = PRECURSOR_SPOKE, "keyword-precursor"
+    elif sbn is not None and sbn == pv:
+        spoke, basis = PRECURSOR_SPOKE, "superseded-by-pivot"
+    elif has_full(*PERSONAL):
+        spoke, basis = "personal-live-system", "keyword-personal"
+    else:
+        spoke, basis = "personal-live-system", "temporal-prepivot-default"
+print(spoke + "|" + basis)
+PY
+}
+
+# run_classify — walk every plan manifest (top-level + subs; infra/test/fixture
+# dirs excluded), propose an owning spoke per plan (lineage-grouped), and emit a
+# project-classify-proposal info finding for each. Propose-only: NO writes.
+run_classify() {
+  if ! _classify_load_adr; then
+    echo "plan-parent-resolve --classify: ownership model not resolvable; classifier degraded to no-op" >&2
+    return 0
+  fi
+  local last_top="" last_prop=""
+  local file rel top prop spoke basis current
+  while IFS= read -r -d '' file; do
+    rel="${file#$PLANS_ROOT/}"
+    # Infra dirs (leading _) are not plan state.
+    case "$rel" in
+      _*) continue ;;
+    esac
+    # Ephemeral diagnostics / synthetic fixtures are not plan state.
+    case "/$rel/" in
+      */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*|*/sp08-fixture-inputs/*|*/synthetic-plans/*) continue ;;
+    esac
+    top="${rel%%/*}"
+    if [[ "$top" != "$last_top" ]]; then
+      last_prop="$(classify_top "$top")"
+      last_top="$top"
+    fi
+    prop="$last_prop"
+    spoke="${prop%%|*}"
+    basis="${prop#*|}"
+    current="$(read_project_field "$file")"
+    emit_finding "project-classify-proposal" "$rel" \
+      "lineage_root" "$top" \
+      "current_project" "$current" \
+      "proposed_spoke" "$spoke" \
+      "basis" "$basis" \
+      "level" "info"
+  done < <(find "$PLANS_ROOT" -type f -name 'manifest.json' -print0)
+}
+
 in_scope() {
   local file="$1"
   local rel="${file#$PLANS_ROOT/}"
@@ -316,6 +521,19 @@ in_scope() {
   # and MUST be walkable by the resolver (R-FLOW-MAINT-8).
   case "/$rel/" in
     */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*) return 1 ;;
+  esac
+
+  # PRUNE the top-level infra dirs — _library binder/library
+  # articles, _projects binder files, _drafts — from the R-28 lineage walk. They are
+  # NOT plan-state (they were over-reaching 106+ binder/library files into the lineage).
+  # TOP-LEVEL-specific (top=${rel%%/*}) so a <plan>/_research/ artifact (research_
+  # artifacts[] pointers, R-FLOW-MAINT-8, header :24-25) stays walkable — its top segment
+  # is the plan dir, not one of these three. Mirrors run_classify's leading-_ prune (469).
+  # note: this is wrong-root-walk over-reach ONLY; broken:null (resolve_chain :180)
+  # is dissolved by and is NOT touched here.
+  local top="${rel%%/*}"
+  case "$top" in
+    _library|_projects|_drafts) return 1 ;;
   esac
 
   return 0
@@ -414,6 +632,11 @@ if [[ "$MODE" == "single" ]]; then
     exit 3
   fi
   resolve_chain "$FILE_ARG"
+  exit 0
+fi
+
+if [[ "$MODE" == "classify" ]]; then
+  run_classify
   exit 0
 fi
 

@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --check)   MODE="check"; shift ;;
     --fix)     MODE="fix"; shift ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "skill-parity: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

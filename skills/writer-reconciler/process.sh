@@ -362,7 +362,7 @@ emit_daily_processing_and_manifest_row() {
   jsonl_file="$daily_dir/$dest_slug.jsonl"
 
   # Manifest history query (for write_bucket derivation + supersession id).
-  # : the manifest lib lives at hooks/lib/ (brain-stem has no top-level lib/);
+  # the manifest lib lives at hooks/lib/ (brain-stem has no top-level lib/);
   # this resolves the divergent process.sh path to the shipped hooks/lib/
   # substrate (T-01 /), reconciling against install.sh:700 hooks/lib/.
   local manifest_record manifest_path

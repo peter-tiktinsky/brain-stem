@@ -3,7 +3,6 @@
   "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written · schema · validation · failure-mode + the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit DIRECTLY; no generator regenerates this file (feedback_manifest_no_hand_edit scopes to read-replica manifests, e.g. librarian-manifest.json, NOT this primary registry). Home: skills/librarian/capability-registry.json. 37 capabilities: the 15 built bodies + the 22 ported capabilities (frontmatter-enforce … session-close, ported as-is, with the lib/→hooks/lib/ path translation). The 10 CUT vault/engagement-specific caps (architect-triage, classify, cluster-by-topic, cron-log-architecture, draft-canonical-file, people-audit, sync-check, transcript-mine, write-frontmatter, entity-parity) have 0 registry keys / 0 bodies / 0 SKILL.md headings. mem-promote is a standalone skill (not here); the 4 engine-auditors (active-gates-rebuild/l3-registry-audit/update-harness-validated/parallel-run-audit) are ABSENT BY CONSTRUCTION from skills/librarian/capabilities/. The disk↔registry↔SKILL.md bijection (capability-registry-parity, classes a/b/e) holds at 39 after T-4 added chronicle-index (the live base was 38: 37 .sh bodies + the spec-only review key; the earlier '37' in this note was stale — read the live count, never trust this prose: feedback B2). This count is the live registry length.",
   "_parity_pending_manifest_writes": [
     "governance-parity-audit",
-    "index-maintain",
     "log-subtype-canonical",
     "writers-index-refresh",
     "writers-overlap-refresh",
@@ -11,7 +10,6 @@
     "trinity-drift-detect",
     "drift-sweep",
     "plan-index",
-    "tag-coverage-audit",
     "backup",
     "rename-history-sync"
   ],
@@ -57,6 +55,7 @@
       "cron_block": "daily",
       "dependencies": [
         "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
         "governance/mandatory-files-rules.json",
         "governance/file-type-contracts/_index.md.json",
         "governance/frontmatter-rules.json"
@@ -139,6 +138,38 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/plan-research-index.sh"
+    },
+    "plan-research-declare": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "session-close-step-2"
+      ],
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "(default) reconcile every spoke's plans' research_artifacts[]",
+          "--spoke <key> reconcile one spoke's plans only (session-close use)",
+          "--dry-run report would-be declarations, NO write"
+        ],
+        "writes": [
+          "each contributing <plan>/manifest.json research_artifacts[] (APPEND-only reconcile from the plan's OWN _research/ + decisions/target-state/deliverables/; atomic temp+os.replace; NEVER _library, NEVER a vault path, NEVER library-scrub --apply)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json (research_artifacts[] item shape: required id/title/status/path; emitted entries seed status=active)",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; author-curated entries preserved byte-for-byte (declaration by path is the idempotency key); atomic temp+os.replace",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-research-declare.sh"
     },
     "plan-decision-log": {
       "tier": "mechanical",
@@ -239,11 +270,11 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/_situating.md (atomic temp+os.replace; full-file regenerate — the eager, force-ingested binder surface, NOT hub.md; frontmatter type:index REUSED (; no new file-type, no governance-type lockstep) PLUS the generated:true sentinel; machine-derived from each contributing plan's manifest — plan roster + per-plan status + an AGGREGATE project-level status by RULE (no native aggregate field; precedence in-progress>paused>planned>completed>closed) + active focus (the in-progress plan's current task/blocker) + the latest handoff headline + pointers to research-index.md/decision-log.md/handoff-chronicle.md/hub.md + the ~/work/<spoke>/deliverables/ path; EXCLUDES the non-derivable library-refs / active-SoT free pointer (stays in the curated hub) and EXCLUDES all work-spoke directory-map content (the work-side directory-map domain); bounded < 9728B force-ingest budget, defensively trimmed if a degenerate roster overflows)",
+          "{plans_root}/_projects/<spoke>/_situating.md (atomic temp+os.replace; full-file regenerate — the eager, force-ingested binder surface (the sole binder cover); frontmatter type:index REUSED (; no new file-type, no governance-type lockstep) PLUS the generated:true sentinel; machine-derived from each contributing plan's manifest — plan roster + per-plan status + an AGGREGATE project-level status by RULE (no native aggregate field; precedence in-progress>paused>planned>completed>closed) + active focus (the in-progress plan's current task/blocker) + a latest-handoff pointer per in-progress plan + pointers to research-index.md/decision-log.md/handoff-chronicle.md + the ~/work/<spoke>/deliverables/ path; EXCLUDES the non-derivable library-refs / active-SoT free pointer (deliberately omitted; no curated cover) and EXCLUDES all work-spoke directory-map content (the work-side directory-map domain); bounded < 9728B force-ingest budget, defensively trimmed if a degenerate roster overflows)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. manifest-parse-failed defensive-skip + card-over-budget findings"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a malformed manifest emits a finding and is SKIPPED (never crash), a missing field is empty not an error; the rendered card is bounded < 9728B (defensively trimmed if over); atomic temp+os.replace; NEVER writes hub.md (preserves C-HUB)",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a malformed manifest emits a finding and is SKIPPED (never crash), a missing field is empty not an error; the rendered card is bounded < 9728B (defensively trimmed if over); atomic temp+os.replace; the card is the sole binder cover (no separate cover file is written)",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -274,7 +305,7 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "$WORK_HOME/<spoke>/CLAUDE.md (atomic temp+os.replace; the GENERATED work-map MARKER BLOCK ONLY — the text strictly between '<!-- work-map:start generated:true -->' and '<!-- work-map:end -->' is replaced, the markers themselves and EVERYTHING outside them are preserved byte-for-byte; the block carries the generated:true sentinel via the open-marker line; the '## What lives where' directory map is derived from the TOP LEVEL of $WORK_HOME/<spoke>/ ONLY (not recursive) — MASTER layout lists the sub-project dir names, FLAT layout lists deliverables/ (polished work) + reference/ (raw notes) + README.md + updates.md with their roles; deterministic + idempotent, a re-run without a disk change is byte-identical; NEVER writes README.md, updates.md, anything under deliverables/ or reference/, hub.md, or anything under the plans root)",
+          "$WORK_HOME/<spoke>/CLAUDE.md (atomic temp+os.replace; the GENERATED work-map MARKER BLOCK ONLY — the text strictly between '<!-- work-map:start generated:true -->' and '<!-- work-map:end -->' is replaced, the markers themselves and EVERYTHING outside them are preserved byte-for-byte; the block carries the generated:true sentinel via the open-marker line; the '## What lives where' directory map is derived from the TOP LEVEL of $WORK_HOME/<spoke>/ ONLY (not recursive) — MASTER layout lists the sub-project dir names, FLAT layout lists deliverables/ (polished work) + reference/ (raw notes) + README.md + updates.md with their roles; deterministic + idempotent, a re-run without a disk change is byte-identical; NEVER writes README.md, updates.md, anything under deliverables/ or reference/, or anything under the plans root)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. leave-orphan defensive-skip findings (spoke-dir-absent / claude-md-absent / no-work-map-markers) + write-failed/blocked findings"
         ],
         "schema": null,
@@ -309,7 +340,7 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #projects/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, hub.md, deliverable/reference bodies, or anything under the plans root)",
+          "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #projects/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, deliverable/reference bodies, or anything under the plans root)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. defensive-skip findings (spoke-dir-absent / target-subfolder-absent / no-contents-enum-markers) + mint/refresh/blocked findings"
         ],
         "schema": null,
@@ -554,6 +585,7 @@
         "validation": "master<->sub axis enforces R-61 (aggregation-integrity, reconciler) + R-62 (sub-publishes-upward, reconciler) + R-63 (sub-peer-isolation, advisory); reconciler-only, never write-time",
         "failure_mode": "block-and-log"
       },
+      "derive_disposition": "DERIVE (manifest is the sole status SoT): the two artifact-frontmatter sub-axes — spec-manifest-divergence + header-trinity-divergence — read spec.md/tasks.md status: frontmatter that no longer exists after the strip, so they are RETIRED (no longer emit). trinity-task-ledger-lag (manifest status + per-task ledger **Status:** lines) and the master<->sub aggregation axis (R-61/62/63, manifest-only) are PRESERVED.",
       "implementation_status": "shipped",
       "script": "capabilities/trinity-drift-detect.sh"
     },
@@ -584,6 +616,7 @@
         "validation": "master<->sub axis (R-61/62/63); --fix repairs via the canonical aggregator (single-writer invariant)",
         "failure_mode": "block-and-log"
       },
+      "derive_disposition": "DERIVE: INHERITS trinity-drift-detect's retire/preserve via the wrapped master<->sub call; the required-field frontmatter sweep is UNAFFECTED because status is not in the spec/tasks/ideation-brief required[] (stripped artifacts never trip missing_required).",
       "implementation_status": "shipped",
       "script": "capabilities/drift-sweep.sh"
     },
@@ -694,11 +727,53 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract)",
-        "validation": "5 drift classes: (a) SKILL.md<->registry bijection, (b) script-missing, (c) schema_version, (d) emits->writes_manifest_subtree, (e) NET-NEW disk->registry orphan (closes 40-vs-44)",
+        "validation": "registry<->reality drift-class roster (bijection, script-missing, orphan, exec-mode, and sibling classes); the lettered enumeration in capability-registry-parity.sh's header is the SoT — count deliberately unpinned there and unduplicated here (self-count-drift class)",
         "failure_mode": "report-only (exit 0; findings as JSON; non-zero finding count does not change exit)"
       },
       "implementation_status": "shipped",
       "script": "capabilities/capability-registry-parity.sh"
+    },
+    "coverage-guard": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.coverage_guard",
+      "covers_surfaces": [
+        "vault-native",
+        "plan-tree",
+        "library",
+        "projects-binder",
+        "work-spokes",
+        "memory-tier",
+        "governance",
+        "rules",
+        "schemas",
+        "hooks-class",
+        "ship-gate-class"
+      ],
+      "covers_surfaces_pending": [],
+      "covers_surfaces_advisory": "ADVISORY, NOT load-bearing: a controlled, de-personalized surface-name vocabulary. Effective coverage is proven by the reach-verified sentinel corpus this guard runs, never by this declaration; covers_surfaces_pending[] holds any surface declared but not yet reach-verified (empty). Only this entry declares covers_surfaces[] — the vocabulary is registered here as the advisory mechanism.",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "librarian-manifest drift_findings.coverage_guard scan summary (manifest_set, atomic)",
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — coverage-guard-sentinel-escaped / coverage-guard-allowlist-nonempty / coverage-guard-corpus-absent"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract) + schemas/librarian-manifest-schema.json (drift_findings.coverage_guard subtree, additionalProperties)",
+        "validation": "reads the reach-verified sentinel corpus + its carried allowlist files; asserts every sentinel's fixture exists + is fired + catches (corpus GREEN) and every _parity_pending is empty (allowlist empty across all subs); corpus absent -> block-and-log no-op",
+        "failure_mode": "report-only (exit 0; findings as JSON; a non-zero finding count does not change the exit)"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/coverage-guard.sh"
     },
     "chronicle-index": {
       "tier": "mechanical",
@@ -815,7 +890,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "librarian-manifest drift_findings.placement (manifest_set, atomic; summary subtree last_scan/scanned/findings_count — T-4, mirrors xref-check)",
+          "librarian-manifest drift_findings.placement.<scope> — scope-keyed vault/plans_root leaves so neither sweep clobbers the other (manifest_set, atomic; summary subtree last_scan/scanned/findings_count — T-4, mirrors xref-check)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.placement subtree)",
@@ -901,7 +976,8 @@
         "hooks/lib/findings.sh",
         "hooks/lib/plan-path.sh",
         "hooks/lib/frontmatter.sh",
-        "hooks/lib/user-manifest-read.sh"
+        "hooks/lib/user-manifest-read.sh",
+        "hooks/lib/manifest.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.tag_coverage",

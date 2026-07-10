@@ -1,31 +1,28 @@
 ---
 title: {{title}} — Spec
 type: spec
-status: planned
 created: {{date}}
 updated: {{date}}
 ---
 
 # {{title}} — Spec (master)
 
-**Status:** planned
-**Created:** {{date}}
-**Parent:** —
 **Goal:** {{GOAL — one sentence. When this initiative ships, what is true that wasn't true before?}}
 
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
 Goal / Problem Statement / Constraints; mutable tail: Solution Approach / Files Modified /
 Success Metrics / Risk). Cap ~500 lines.
-MASTER spec: this is the orchestrator-worker ROOT for a multi-sub-plan initiative.
+MASTER spec: this is the orchestrator-worker ROOT for a multi-sub-plan initiative ().
 It frames the initiative-wide Goal / Problem / Constraints; each sub-plan carries its OWN
 spec (sub-spec.md.tmpl) and reports status UPWARD into this master's manifest sub_plans[]
 aggregate. The master spec is the binding_spec pointer target the sub-plans cite. Sub-plans
-do NOT communicate peer-to-peer — they route through this master (metadata_flow).
-The **Status:** marker is a SINGLE canonical 8-state token (researching | planned |
-in-progress | paused | completed | verified | closed | archived; superseded terminal) per
-governance/plans-rules.json — never a prose paragraph. Decisions/rationale belong in
-decisions/ADR-NN-<slug>.md, not the status line.
+do NOT communicate peer-to-peer — they route through this master (metadata_flow,).
+created/parent live in the YAML frontmatter; the plan's canonical 8-state status lives on
+manifest.json :: status (DERIVE single-SoT — the artifact carries no status: frontmatter).
+The 8-state vocabulary (researching | planned | in-progress | paused | completed | verified |
+closed | archived; superseded terminal) is defined at governance/plans-rules.json /.
+Decisions/rationale belong in decisions/ADR-NN-<slug>.md.
 -->
 
 ## Problem Statement
@@ -41,7 +38,7 @@ decisions/ADR-NN-<slug>.md, not the status line.
 
 ## Sub-plan map
 
-The master coordinates these sub-plans (status aggregated into `manifest.json :: sub_plans[]`; the librarian reconciler fills the aggregate via metadata_flow). Each sub-plan lives at `{{plan_dir}}/NN-<sub-slug>/` (NN = execution order).
+The master coordinates these sub-plans (status aggregated into `manifest.json :: sub_plans[]`; the librarian reconciler fills the aggregate — see metadata_flow). Each sub-plan lives at `{{plan_dir}}/NN-<sub-slug>/` (NN = execution order).
 
 | Sub-plan | Slug | Scope | Depends on |
 |----------|------|-------|------------|

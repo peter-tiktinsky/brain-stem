@@ -1,7 +1,9 @@
 #!/bin/bash
 # backup — Git add/commit/push wrapper across tracked directories.
 #
-# Manifest-wired: the target list reads
+# Landed: Sub-plan 02 T-2 (2026-04-21). Extracted from SKILL.md
+# -434 pseudocode. Manifest-wired in T-3 (2026-04-29):
+# system defaults stripped of user-specific targets, extension list reads
 # from `user-manifest.system.backup_targets[]` (schema 1.3.0).
 #
 # Usage:
@@ -72,17 +74,50 @@ else
   [[ -n "${VAULT_ROOT:-}" ]] && TARGETS="${TARGETS:+$TARGETS:}$VAULT_ROOT"
   TARGETS="${TARGETS:+$TARGETS:}${CLAUDE_HOME:-$HOME/.claude}"
   TARGETS="${TARGETS:+$TARGETS:}${PLANS_DIR:-$HOME/.claude-plans}"
+  # the durable ~/work deliverables spoke was absent from
+  # the default TARGETS, so it was entirely unbacked with no owning target. Add
+  # WORK_HOME (guarded like VAULT_ROOT with a non-empty check so an empty/unset
+  # WORK_HOME degrades cleanly under `set -u` — no empty target). A ~/work without
+  # .git routes to the non-repo WARNING branch (133), not a hard FAILED.
+  [[ -n "${WORK_HOME:-}" ]] && TARGETS="${TARGETS:+$TARGETS:}$WORK_HOME"
   # User-extension list from manifest (graceful-degrade if missing/jq-absent).
   while IFS= read -r extra_path; do
     [[ -n "$extra_path" ]] && TARGETS="$TARGETS:$extra_path"
   done < <(umr_get_array '.system.backup_targets')
 fi
 
-# --- Secret token catalog -------------------------------------------
+# --- Intentional-no-remote posture list (S5 T-8) --------------------
+# A target declared local-only commits its changes but is NOT pushed — the push
+# is skipped with an INFO line and does NOT set FAILED, so an intentionally-local
+# target (e.g. a VAULT_ROOT with zero remotes + a dirty tree) never poisons the
+# tri-state exit to 1. Resolution mirrors TARGETS: the env BACKUP_NO_REMOTE_TARGETS
+# (colon-separated) is UNIONED with the manifest-declared
+# .system.backup_no_remote_targets[] list. Genuine push failures on a target WITH
+# a remote still set FAILED=1; a no-.git target still routes to the exit-3
+# branch (133) — the posture only reshapes the "committed-but-no-remote" case.
+NO_REMOTE_TARGETS="${BACKUP_NO_REMOTE_TARGETS:-}"
+while IFS= read -r _nr_path; do
+  [[ -n "$_nr_path" ]] && NO_REMOTE_TARGETS="${NO_REMOTE_TARGETS:+$NO_REMOTE_TARGETS:}$_nr_path"
+done < <(umr_get_array '.system.backup_no_remote_targets')
+
+# _backup_is_no_remote <dir> — return 0 iff <dir> is on the intentional-no-remote
+# list (exact path match; bash-3.2-safe colon split, no $@ clobber).
+_backup_is_no_remote() {
+  local d="$1" _oifs="$IFS" p
+  [[ -z "$NO_REMOTE_TARGETS" ]] && return 1
+  IFS=":"
+  for p in $NO_REMOTE_TARGETS; do
+    if [[ "$p" == "$d" ]]; then IFS="$_oifs"; return 0; fi
+  done
+  IFS="$_oifs"
+  return 1
+}
+
+# --- Secret token catalog -------------------------------------
 # SINGLE SOURCE OF TRUTH for high-confidence provider-token shapes. The
-# pre-stage secret-scan (below) greps the staged diff against these; the
-# uninstall.sh redaction consumes the SAME shapes — keep the
-# two in lockstep (intra-dependency design). High-confidence prefixes only,
+# pre-stage secret-scan (below) greps the staged diff against these;
+# (uninstall.sh redaction, T-4) consumes the SAME shapes — keep the
+# two in lockstep (design/intra-dep). High-confidence prefixes only,
 # to keep false-positives near-zero (block-and-log honors the registry's
 # declared failure_mode: block-and-log).
 #   sk-ant-                                   Anthropic API key
@@ -93,15 +128,15 @@ fi
 #   Authorization: (Token|Bearer) <value>     bearer/token auth header
 SECRET_TOKEN_CATALOG='sk-ant-|ghp_|github_pat_|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|xox[baprs]-|Authorization:[[:space:]]*(Token|Bearer)[[:space:]]+[^[:space:]]+'
 
-# --- Non-repo skip counter ------------------------------------------
+# --- Non-repo skip counter -------------------------------
 # Counts default/target dirs that exist but are NOT git repos, so the
 # first-backup-is-a-no-op condition (every default target un-inited =>
-#) is REPORTABLE. Consumed by the tri-state exit to drive the
+# -backup-uninstall-1) is REPORTABLE. Consumed by (T-6) to drive the
 # exit-3 partial-degraded code; here it is only incremented + surfaced as a
 # warning with the exact remediation command.
 NONREPO_SKIPS=0
 
-# --- Hard-failure flag ----------------------------------------------
+# --- Hard-failure flag (exit-3) -------------
 # Set to 1 ONLY on real-failure branches (a push that failed after a successful
 # commit, or a commit that failed) — NOT on graceful skips (clean tree, no
 # stageable changes, not-a-directory) and NOT on non-repo targets (those drive
@@ -129,10 +164,10 @@ for dir in "$@"; do
     continue
   fi
   if [[ ! -d "$dir/.git" ]]; then
- # --- Non-repo WARNING -------------------------------------------
+    # --- non-repo WARNING ---------------------------------
     # Escalated from a benign "skipped" line to an actionable WARNING: a default
     # target that is not a repo is silently un-backed-up. Print the exact
-    # init+remote+push remediation and increment NONREPO_SKIPS (the exit logic turns a
+    # init+remote+push remediation and increment NONREPO_SKIPS (/T-6 turns a
     # nonzero count into exit 3).
     NONREPO_SKIPS=$((NONREPO_SKIPS + 1))
     printf -- "- %s: WARNING — not a git repo, NOT backed up\n" "$dir"
@@ -150,7 +185,7 @@ for dir in "$@"; do
   # Count changed files (excluding vault workspace.json noise).
   change_count=$(echo "$status_output" | wc -l | tr -d ' ')
 
- # --- Deletion-count visibility -------------------------------------
+  # --- Deletion-count visibility -----------------
   # Surface deletions so a backup-of-record audit can spot unexpected mass-
   # deletions. No confirmation gate (git is history-preserving — visibility gap
   # only). Dry-run never stages, so the would-be deletion count is read from the
@@ -196,17 +231,25 @@ for dir in "$@"; do
     git add -A . 2>/dev/null
   fi
 
- # --- Pre-stage secret gate -----------------------------------------
+  # --- Pre-stage secret gate ----------------------------------
   # Runs UNCONDITIONALLY for EVERY target (defaults, --scope, backup_targets[]),
- # closing /2/3/4. Sits between the stage above and
+  # closing4-credential-hygiene-1/2/3/4. Sits between the stage above and
   # the commit below; composes with the empty-guard at the next step (if the
   # resets empty the staged set, the "no stageable changes" branch is taken —
   # no dead commit).
- #
+  #
   # (1) Always-exclude the three secret surfaces even when $dir was a repo
-  #     BEFORE the secret-exclusion .gitignore landed (the ignore only affects NEW additions;
+  #     BEFORE's .gitignore landed (the ignore only affects NEW additions;
   #     an already-tracked settings.local.json still stages without this reset).
   git reset -q -- settings.local.json '.pre-uninstall-*' projects/ 2>/dev/null || true
+  # the projects/ reset above excludes the WHOLE subtree,
+  # which unbacked the per-project MEMORY tier (projects/<slug>/memory/** —
+  # MEMORY.md + topic files + episodic-chronicle.md). The per-project RUNTIME
+  # state under projects/<slug>/ STAYS excluded (still reset above); RE-STAGE only
+  # the memory tier (-A so memory deletions are captured too). The unconditional
+  # pre-stage secret gate below then scans the newly-staged memory files, so a
+  # planted token in a memory file is still excluded (no token leak).
+  git add -A -- ':(glob)projects/*/memory/**' 2>/dev/null || true
 
   # (2) Scan the staged diff for high-confidence provider tokens; on a hit,
   #     reset that path out of the index, emit a block-and-log line, and move
@@ -224,7 +267,7 @@ for dir in "$@"; do
   # Recompute the authoritative deletion count from the STAGED index now that
   # the secret gate (and the vault workspace.json reset) have run — this is the
   # exact set going into the commit, so the subject's '(M deletions)' matches
- # what is committed. Refold into the auto-generated message;
+  # what is committed. Refold into the auto-generated message;
   # a --message override stays verbatim.
   del_count=$(git diff --cached --name-only --diff-filter=D 2>/dev/null \
     | wc -l | tr -d ' ')
@@ -242,20 +285,26 @@ for dir in "$@"; do
   fi
 
   if git commit -m "$commit_msg" >/dev/null 2>&1; then
- # --- Push diagnostics --------------------------------------------
+    # --- push diagnostics ---------------------------------
     # Capture push stderr instead of swallowing it (>/dev/null 2>&1). On a
     # failure, fold the first actionable `fatal:`/`error:` line into the report
-    # and print the cross-cluster remediation. NOTE (cross-SP sequencing): the
- # `gh auth setup-git` remediation only becomes ACTIONABLE once
-    # (external-setup) lands — `gh auth setup-git` appears nowhere in the
-    # repo today; the push diagnostic itself is independently valuable. The two
+    # and print the cross-cluster remediation. NOTE: the `gh auth setup-git`
+    # remediation only becomes ACTIONABLE once the external gh-auth setup lands —
+    # `gh auth setup-git` appears nowhere in the
+    # repo today; the diagnostic itself is independently valuable. The two
     # clusters' release notes cross-reference this ordering.
-    if push_err="$( { git push >/dev/null; } 2>&1 )"; then
+    if _backup_is_no_remote "$dir"; then
+      # T-8 (S5): a DECLARED intentional-no-remote target commits
+      # locally but is NOT pushed — emit INFO and DO NOT set FAILED, so an
+      # intentionally-local target does not poison the tri-state exit to 1.
+      printf -- "- %s: %d files committed (%d deletions), intentional-no-remote — push skipped (INFO)\n" \
+        "$dir" "$change_count" "$del_count"
+    elif push_err="$( { git push >/dev/null; } 2>&1 )"; then
       printf -- "- %s: %d files committed (%d deletions), pushed\n" \
         "$dir" "$change_count" "$del_count"
     else
       # Real failure: the commit landed but the push did not. Mark the run
- # hard-failed -> tri-state exit 1 below.
+      # hard-failed -> tri-state exit 1 below.
       FAILED=1
       push_diag="$( printf '%s\n' "$push_err" | grep -aE '^(fatal|error):' | head -1 )"
       printf -- "- %s: %d files committed (%d deletions), PUSH FAILED" \
@@ -267,24 +316,24 @@ for dir in "$@"; do
       printf -- "    PUSH FAILED — run 'gh auth setup-git' then 'git -C %s push'\n" "$dir"
     fi
   else
- # Real failure: the commit itself failed -> tri-state exit 1.
+    # Real failure: the commit itself failed -> tri-state exit 1.
     FAILED=1
     printf -- "- %s: commit failed\n" "$dir"
   fi
 done
 
-# --- Tri-state exit -----------------------------------------
+# --- Tri-state exit (exit-3 +-1) --------
 # Honest POSIX/rsync-style exit semantics so callers (session-close) can
 # branch on the real outcome instead of a forced-green:
 #   1  hard failure  — a commit or post-commit push failed (FAILED=1).
 #   3  partial/degraded — the run completed but >=1 default/scoped target was a
 #      non-repo and was NOT backed up (NONREPO_SKIPS>0); this is the condition
-# that finally makes the first-backup-is-a-no-op case
+#      that finally makes the first-backup-is-a-no-op case (-backup-uninstall-1)
 #      REPORT instead of returning a false `ok`. Suppressed under --dry-run.
 #   0  success or graceful skip — clean tree / no stageable changes /
 #      not-a-directory all exit 0, and EVERY dry-run exits 0 regardless of skips.
 # Hard failure outranks partial-degraded (an exit 1 must not be masked by a 3).
-# backup is ADVISORY by ratified design: these codes are CONSUMED by session-close, never
+# backup is ADVISORY by ratified design: these codes are CONSUMED by, never
 # block the session-close chain.
 if [[ "$FAILED" -eq 1 ]]; then
   exit 1

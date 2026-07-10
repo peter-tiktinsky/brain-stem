@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) MODE="dry-run"; shift ;;
     --execute) MODE="execute"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "log-archive: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -89,6 +89,16 @@ for file in "$LOGS_ROOT"/*.md; do
   date=""
   if [[ "$fn" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
     date="${BASH_REMATCH[1]}"
+  elif [[ "$fn" =~ ([0-9]{4})([0-9]{2})([0-9]{2}) ]]; then
+    # session-close.sh:279 emits session-close-YYYYMMDD-
+    # HHMMSS.md (%Y%m%d, no dashes), which the dashed-only matcher above skipped
+    # -> 20+ session-close logs accumulated unarchivable. Accept the compact
+    # %Y%m%d form too and NORMALIZE to dashed so days_since / week_of_year / the
+    # year-slice below all receive the YYYY-MM-DD they parse. Matcher-side fix
+    # (dashed matched first; the session-close emit is untouched). A malformed
+    # 8-digit run normalizes to
+    # an invalid date -> days_since returns -1 -> the age<0 guard leaves it.
+    date="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
   fi
 
   if [[ -z "$date" ]]; then

@@ -39,7 +39,7 @@
 # Graceful no-op when $CLAUDE_SESSION_ID (and stdin .session_id) are absent.
 set -uo pipefail
 
-# Portability (/ LOCK): resolve libs via $SCRIPT_DIR. paths.sh provides
+# Portability (LOCK): resolve libs via $SCRIPT_DIR. paths.sh provides
 # resolve_memory_dir + the git-root-else-physical-cwd slug anchor + PLANS_DIR /
 # SESSION_STATE_ROOT; registry.sh provides the session row (touched files);
 # plan-path.sh provides classify_plan_path (plan/phase fallback).

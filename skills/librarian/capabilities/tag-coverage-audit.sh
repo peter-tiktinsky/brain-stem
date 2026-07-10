@@ -40,6 +40,18 @@ _REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
   || source "$_REPO_LIB/frontmatter.sh"
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
   || source "$_REPO_LIB/user-manifest-read.sh"
+# The shared vault-view walker — the audit descends the
+# Work/ symlink view (Work=390 bodies) via the ONE primitive, replacing the `find`
+# WITHOUT -L that reached only the ~4 real top-level files (symlink-inert).
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh"; } \
+  || source "$_REPO_LIB/vault-view-walk.sh"
+# G5 (S4 T-1): source the manifest API so the tag-coverage summary subtree
+# persists to the librarian-manifest via manifest_set — makes the registry's declared
+# writes_manifest_subtree: "drift_findings.tag_coverage" REAL, so it is removed from
+# _parity_pending_manifest_writes[] in the same commit. paths.sh is already sourced
+# above, so manifest.sh's idempotent guard reuses $CLAUDE_STATE_ROOT/$COORD_DIR.
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh"; } \
+  || source "$_REPO_LIB/manifest.sh"
 
 SCOPE=""
 BATCH_SIZE=100
@@ -101,6 +113,11 @@ else
   SCAN_ROOT="$VAULT_ROOT"
 fi
 
+# The walker emits paths rooted at `pwd -P` of the scan root; normalize VAULT_ROOT
+# the same way so the vault-relative REL strip is robust across a /var -> /private
+# (macOS) or other symlinked-root normalization.
+VAULT_ROOT_REAL="$(cd "$VAULT_ROOT" 2>/dev/null && pwd -P || printf '%s' "$VAULT_ROOT")"
+
 SCAN_COUNT=0
 FINDING_COUNT=0
 MISSING_COUNT=0
@@ -152,9 +169,11 @@ is_exempt_path() {
   return 1
 }
 
-while IFS= read -r -d '' file; do
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  case "$file" in *.md) ;; *) continue ;; esac   # walker emits all regular files
   SCAN_COUNT=$((SCAN_COUNT + 1))
-  REL="${file#$VAULT_ROOT/}"
+  REL="${file#$VAULT_ROOT_REAL/}"
 
   if is_exempt_path "$REL" "$file"; then
     continue
@@ -261,9 +280,21 @@ PYEOF
     emit_event "{ \"progress\": $SCAN_COUNT, \"findings_so_far\": $FINDING_COUNT }"
     BATCH_COUNT=0
   fi
-done < <(find "$SCAN_ROOT" -type f -name "*.md" -print0 2>/dev/null)
+done < <(vault_view_walk "$SCAN_ROOT" 2>/dev/null)
 
 set -e
 set -o pipefail
 
 emit_event "{ \"tag_coverage_audit_end\": \"$(date -Iseconds)\", \"files_scanned\": $SCAN_COUNT, \"findings\": $FINDING_COUNT, \"missing_tags_count\": $MISSING_COUNT, \"empty_tags_count\": $EMPTY_COUNT, \"unrecognized_tag_count\": $UNRECOGNIZED_COUNT }"
+
+# G5 (S4 T-1): persist the tag-coverage summary subtree to the
+# librarian-manifest — makes the registry's declared
+# writes_manifest_subtree: "drift_findings.tag_coverage" real (removed from
+# _parity_pending_manifest_writes[] in the same commit), mirroring
+# placement-validate.sh:224-226. Additive summary (files_scanned/findings/missing/
+# empty/unrecognized) from the post-walk counters. Tolerates set -euo pipefail +
+# empty VAULT_LOGS: the manifest + its lock live under the always-creatable
+# $CLAUDE_STATE_ROOT/$COORD_DIR (G2/plan 110), so no non-empty VAULT_LOGS is needed.
+_TC_SUBTREE="$(printf '{"last_scan":"%s","files_scanned":%d,"findings":%d,"missing":%d,"empty":%d,"unrecognized":%d}' \
+  "$(date -u +%Y-%m-%dT%H:%M:%S)" "$SCAN_COUNT" "$FINDING_COUNT" "$MISSING_COUNT" "$EMPTY_COUNT" "$UNRECOGNIZED_COUNT")"
+manifest_set '.drift_findings.tag_coverage' "$_TC_SUBTREE"

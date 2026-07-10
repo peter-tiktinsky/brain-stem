@@ -46,7 +46,7 @@ is the rule CATEGORY axis, not a skill boundary.
 
 `full` is the audit-set sweep: it runs every capability whose `capability-registry.json`
 `invocation_modes` includes `librarian-full`. The **registry is the authoritative roster**
-(contract-of-record); the set below is a snapshot of the current release (40
+(contract-of-record); the set below is a snapshot of the current release (41
 capabilities) — consult `invocation_modes` for the live membership:
 
 > `governance-parity-audit`, `index-maintain`, `log-subtype-canonical`, `rules-index`,
@@ -58,7 +58,8 @@ capabilities) — consult `invocation_modes` for the live membership:
 > `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`,
 > `plan-research-index`, `plan-decision-log`, `plan-handoff-index`, `project-context-situating`,
 > `work-map-generate`, `work-index-maintain`, `binder-handoff-append-wrapper`, `chronicle-index`,
-> `pointer-currency-scan`, `plan-terminal-lag-check`, `library-index`, `library-log-rotate`.
+> `pointer-currency-scan`, `plan-terminal-lag-check`, `library-index`, `library-log-rotate`,
+> `coverage-guard`.
 
 `full` is NOT "every capability". Notably it does **not** run `backlog-index` or
 `plan-archive` (see below), nor `tasks-render` / `subplan-aggregate` (those run per-plan,
@@ -196,10 +197,22 @@ Runtime: `capabilities/plan-archive.sh`.
 ## Capability: capability-registry-parity
 
 Audits `capability-registry.json` against the `## Capability:` headings + the
-on-disk `capabilities/*.sh` — 5 drift classes: bijection, script-missing,
-schema-version, emits→writes_manifest_subtree, and the NET-NEW disk→registry
-orphan check (closes the 40-vs-44 gap). Report-only (exit 0).
+on-disk `capabilities/*.sh` across the drift-class roster (bijection,
+script-missing, schema-version, emits→writes_manifest_subtree, disk→registry
+orphan, manifest-write-fiction, index exec-mode, full-runs roster — the
+lettered enumeration in the capability's header comment is the SoT; the count
+is deliberately unpinned). Report-only (exit 0).
 Runtime: `capabilities/capability-registry-parity.sh`.
+
+## Capability: coverage-guard
+
+The reach-verified coverage guard — the standing regression guard over the
+sentinel/canary corpus. Runs every declared sentinel's fixture and asserts the
+corpus is GREEN (each fixture exists + is fired + catches its planted defect) and
+the coverage allowlists are empty across every surface. Report-only findings
+(coverage-guard-sentinel-escaped / coverage-guard-allowlist-nonempty); exit 0.
+The corpus is test infrastructure, so this is a no-op on an adopter install.
+Runtime: `capabilities/coverage-guard.sh`.
 
 ## Capability: chronicle-index
 
@@ -458,6 +471,24 @@ write-orchestration, R-FLOW-PROMO). Missing manifest fields render empty, never 
 would-be writes/links without writing.
 Runtime: `capabilities/plan-research-index.sh`.
 
+## Capability: plan-research-declare
+
+The DT-4 A1-clause-4 session-close DECLARATION writer (140 sub-11 T-2) — the SINGLE
+surface that populates `research_artifacts[]`. At session close (step 2, BEFORE
+`plan-research-index`) it reconciles each active-spoke plan's
+`manifest.research_artifacts[]` from that plan's OWN research homes: the sanctioned
+graduation home `<plan>/_research/` plus the structured in-plan dirs `decisions/`,
+`target-state/`, `deliverables/`. Routing to the OWNING spoke is DERIVED — it writes
+each plan's OWN manifest and the renderer groups by the `project:` key (the
+true owner, never the over-attributed brain-stem). APPEND-only + defensive:
+a missing field is empty (never an error), an author-curated entry is preserved
+byte-for-byte (path is the idempotency key), only newly-discovered artifacts are
+appended, and re-running is a write-no-op. It NEVER writes `_library` (universal-only,
+DT-4) and NEVER invokes `library-scrub --apply` (the manual PROMOTION path).
+`--spoke <key>` scopes to one spoke; `--dry-run` reports would-be declarations without
+writing. Block-and-log; atomic temp+os.replace; exit 0 always.
+Runtime: `capabilities/plan-research-declare.sh`.
+
 ## Capability: plan-decision-log
 
 Generates the per-spoke binder decision surface
@@ -508,21 +539,20 @@ Runtime: `capabilities/plan-handoff-index.sh`.
 
 Generates the per-spoke GENERATED situating card `_projects/<spoke>/_situating.md`
 — the eager, force-ingested binder surface a session reads at SessionStart to
-self-orient. This is NOT `hub.md`: `hub.md` is template-scaffolded-then-curated and
-read on-demand; the situating card is the machine-derived eager surface. This
-capability NEVER writes `hub.md` (it preserves C-HUB / R-BIND "no capability
-generates hub.md"). The card is per-spoke: only plans whose manifest `project:`
+self-orient. The situating card is the SOLE binder cover — the project binder is
+100% machine-derived, generated entirely from each contributing plan's manifest,
+with no hand-curated cover surface. The card is per-spoke: only plans whose manifest `project:`
 matches the target spoke contribute. It is DERIVED entirely from each contributing
 plan's `manifest.json` (fields from `schemas/plan-manifest-schema.json`) and carries
 ONLY machine-derivable blocks: the plan roster (`slug`/`title`/per-plan `status`),
 an AGGREGATE project-level status computed BY RULE (there is no native aggregate
 field — precedence `in-progress > paused > planned > completed > closed`), active
-focus (the in-progress plan's current `tasks[]` task + blocker), the latest handoff
-headline (freshest `handoff.md`'s newest session heading), and pointers to
-`research-index.md` / `decision-log.md` / `handoff-chronicle.md` / `hub.md` + the
+focus (the in-progress plan's current `tasks[]` task + blocker), a latest-handoff
+pointer per in-progress plan (each plan's newest session heading by parsed session_key),
+and pointers to `research-index.md` / `decision-log.md` / `handoff-chronicle.md` + the
 `~/work/<spoke>/deliverables/` path. It EXCLUDES (hard) the non-derivable
-library-refs and the free "active SoT" pointer (non-derivable curation — those stay in the curated
-hub) and EXCLUDES all work-spoke directory-map / "what-lives-where" content (the
+library-refs and the free "active SoT" pointer (non-derivable curation the card
+deliberately omits) and EXCLUDES all work-spoke directory-map / "what-lives-where" content (the
 work-map generator's domain —D disjoint roles). The frontmatter REUSES the
 existing `index` file-type (— no new file-type, no governance-type lockstep) plus a
 `generated: true` sentinel that distinguishes the machine card from a curated index;
@@ -557,7 +587,7 @@ ABSENT, or carries NO work-map markers (a legacy / hand-authored `CLAUDE.md`), i
 DEFENSIVELY SKIPS with a finding — it NEVER injects markers into a `CLAUDE.md` that
 lacks the shape, and an absent spoke dir is the same defensive skip. It writes ONLY
 the marker block in `$WORK_HOME/<spoke>/CLAUDE.md` (atomic `os.replace`) and NEVER
-`README.md`, `updates.md`, anything under `deliverables/`/`reference/`, `hub.md`, the
+`README.md`, `updates.md`, anything under `deliverables/`/`reference/`, the
 content outside the markers, or anything under the plans root. Block-and-log, exit 0,
 never crash. `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
 would-be writes without writing.
@@ -590,7 +620,7 @@ everything outside preserved byte-for-byte). A marker-less existing `_index.md` 
 hand-authored) is a leave-orphan skip — the shape is never imposed. Deterministic +
 idempotent: a re-run without a disk change is byte-identical. It writes ONLY `_index.md`
 files under `$WORK_HOME/<spoke>/.../{deliverables,reference}/` (atomic `os.replace`) and
-NEVER `README.md`, `updates.md`, `CLAUDE.md`, `hub.md`, deliverable/reference bodies, or
+NEVER `README.md`, `updates.md`, `CLAUDE.md`, deliverable/reference bodies, or
 anything under the plans root. An absent work home / absent spoke / absent-or-unreadable
 target subfolder is a defensive skip + finding. Block-and-log, exit 0, never crash.
 `--spoke <key>` scopes to one spoke; `--dry-run` reports findings + would-be writes without

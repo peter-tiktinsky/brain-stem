@@ -21,7 +21,6 @@
 # GOVERNANCE: writes ONLY to ~/.claude/rules/ — NEVER opens ~/.claude/CLAUDE.md
 # for write (the rules-only-never-CLAUDE.md principle).
 #
-# ----------------------------------------------------------------------------
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (ONLY in --apply mode; propose mode writes nothing):
 #     1. $RULES_DIR/<rule-name>.md            — the promoted rule (atomic temp+rename)
@@ -37,7 +36,6 @@
 #   Failure mode: BLOCK-AND-LOG. A candidate that fails validation or collides
 #     emits a `promotion-blocked` finding and is skipped; no partial write.
 #     Never write-and-hope.
-# ----------------------------------------------------------------------------
 #
 # NDJSON schema (one line per candidate / event):
 #   propose:  { "finding":"memory-globalize", "file":"<memory.md>",

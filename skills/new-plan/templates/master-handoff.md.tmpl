@@ -1,7 +1,6 @@
 ---
 title: {{title}} — Handoff
 type: handoff
-status: draft
 created: {{date}}
 updated: {{date}}
 ---

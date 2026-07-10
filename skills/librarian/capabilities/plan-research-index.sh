@@ -63,7 +63,7 @@
 #     and is skipped; no partial/garbage write. Never write-and-hope.
 #   Maintainer-provenance (R-GOV-3): research-index.md + the research/ farm are
 #     librarian-maintained artifacts (R-BIND-2/R-BIND-8, maintainer=librarian);
-#     this capability is their sole originating writer. It NEVER writes hub.md,
+#     this capability is their sole originating writer. It NEVER writes
 #     decision-log.md, handoff-chronicle.md, plan manifests, or any plan _research/
 #     content, and NEVER repairs a one-sided PROMO-4 edge (it only detects it).
 # CLI:
@@ -98,7 +98,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,120p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-research-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

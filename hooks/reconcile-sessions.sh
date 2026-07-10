@@ -1,13 +1,16 @@
 #!/bin/bash
 # Hook/utility: reconcile-sessions — the coordination-registry reconciler.
+#
 # C2-owned body (.6: reconciliation is effectively always-on;
 # session-deregister conditionally spawns this in the background, and
 # `/librarian … close` Step 2c also calls it). It is the registry PRODUCER that
 # reaps stale + closed-pending peers so peer-awareness / R-42 / R-36 /
 # pre-compact files_modified / post-compaction restore stay live.
+#
 # UNOWNED-SURFACE closure (feedback_f3_ownership_vs_tree_asis_port_gap): named
 # in + but absent from the1.1 hooks roster — T-04
 # authors the body AND adds the2 "Owns" +.1 roster line (T-12).
+#
 # Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
 # deadlock-free). OUTER = reconcile.lock process-dedup (/3 lock roster;
 # feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec) — a second concurrent
@@ -17,12 +20,14 @@
 # with the registrar (track-vault-write.sh) and the integrity-backstop — closing the
 # lost-update race (two writers, two different locks, same file). The registrar only
 # ever takes REGISTRY_LOCK, so the outer-dedup -> inner-registry order never cycles.
+#
 # Reconcile rules (data-non-destructive on live processes):
 #   - stale (dead pid OR last_heartbeat older than STALE_THRESHOLD_SECS): drop.
 #   - closed: drop (the session ended cleanly; deregister already marked it).
 #   - closed-pending-reconciliation: drop (this run reconciles it).
 #   - active with a live pid + fresh heartbeat: keep.
 # After the sweep, clear pending_reconciliation + stamp last_reconciled.
+#
 # NEVER fail-hard. Invoked detached/background or via the librarian; exit 0.
 set -uo pipefail
 
@@ -77,6 +82,7 @@ for sid in $sids; do
   status=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].status // ""' 2>/dev/null)
   pid=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].pid // 0' 2>/dev/null)
   hb=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].last_heartbeat // ""' 2>/dev/null)
+  started=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].started // ""' 2>/dev/null)
 
   drop=false
   case "$status" in
@@ -84,31 +90,27 @@ for sid in $sids; do
       drop=true
       ;;
     *)
-      # active (or unknown). A NON-LIVE pid provisionally marks the row for drop, but
-      # a FRESH heartbeat is a HARD KEEP override (S2): a live, actively-writing peer
-      # whose recorded pid we cannot kill -0 (e.g. the pid resolver missed, or the
-      # process re-exec'd) must NOT be reaped while it is still heartbeating. So the
-      # heartbeat check runs UNCONDITIONALLY (no longer gated behind drop=false) and is
-      # bidirectional: fresh -> drop=false (KEEP override), stale -> drop=true. Reap
-      # only when BOTH signals say gone.
-      # : the liveness test is the shared pid_is_live predicate, which treats
-      # null / 0 / missing / non-numeric / dead as NOT live -> drop=true. This closes
-      # the prior null-pid blind spot: the dead-pid check was gated behind
-      # `pid != 0 && pid != null`, so a null/0-pid row was reaped ONLY if its heartbeat
-      # was also stale; a null-pid row with no/fresh heartbeat survived forever.
-      if ! pid_is_live "$pid"; then
+      # active (or unknown). T-1: the per-row keep/drop verdict is now
+      # the SHARED session_liveness_verdict (registry.sh) — HEARTBEAT-AUTHORITATIVE with
+      # pid demoted to advisory, so the reaper, the view, session-close, and the
+      # integrity-backstop all score a row identically. fresh_hb -> KEEP; stale_hb ->
+      # DROP (INCLUDING the live-pid + stale-hb phantom quadrant — DROP, which renders
+      # the non-unique shared pid inert, the fix). Absent/unparseable hb floors
+      # staleness off `started` (always written at session-register.sh:47) so a no-hb
+      # row still ages; pid is a keep-signal ONLY when hb AND started are both absent
+      # (backward-compat shim for a pre-heartbeat registry).
+      #
+      # BEHAVIOR DELTA vs the pre-128 inline block: the fresh/stale-hb and dead-pid+no-hb
+      # quadrants are byte-preserved (matrix + tz + fixtures stay GREEN). The one
+      # changed quadrant is live-pid + absent-hb + STALE `started`: previously KEPT (pid
+      # live, no hb to flip it), now DROPPED via the started-floor — the intended "no-hb
+      # rows still age" aging behavior, not a regression. The BSD-only `date -u -jf` parse
+      # moved into the verdict's portable iso8601_to_epoch (BSD + GNU), so a Linux adopter
+      # no longer silently degrades to pid-only.
+      if session_liveness_verdict "$pid" "$hb" "$started" "$now_epoch"; then
+        drop=false
+      else
         drop=true
-      fi
-      if [ -n "$hb" ] && [ "$hb" != "null" ]; then
-        hb_epoch=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)
-        if [ "$hb_epoch" -gt 0 ]; then
-          if [ $(( now_epoch - hb_epoch )) -gt "${STALE_THRESHOLD_SECS:-1800}" ]; then
-            drop=true
-          else
-            # Fresh heartbeat: hard KEEP override even if the pid looked dead.
-            drop=false
-          fi
-        fi
       fi
       ;;
   esac

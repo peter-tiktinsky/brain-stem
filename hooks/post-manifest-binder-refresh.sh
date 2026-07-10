@@ -75,12 +75,17 @@ fi
 [ -z "$FILE_PATH" ] && [ -n "${1:-}" ] && FILE_PATH="$1"
 [ -z "$FILE_PATH" ] && exit 0
 
-# --- GATE: fire ONLY on a plan-tree manifest.json (a fast no-op otherwise) -----
-# The file must be named manifest.json AND sit under the plans tree (a plan dir or
-# sub-plan dir under $PLANS_ROOT). PostToolUse fires on every Edit|Write — this gate
-# keeps an ungated binder re-derive from running on unrelated writes.
+# --- GATE: fire on a plan-tree manifest.json OR a plan-tree
+# research/decision artifact (a fast no-op otherwise). The whole re-derive was gated
+# on a */manifest.json write ONLY, so adding/editing a research/decision artifact
+# WITHOUT touching manifest.json left research-index/decision-log stale until the next
+# manifest write or session-close. Widen the trigger to also admit <plan>/_research/*.md
+# + <plan>/decisions/ADR-*.md. PostToolUse fires on every Edit|Write — the path must
+# still sit under the plans tree; this gate keeps an ungated re-derive off unrelated writes.
 case "$FILE_PATH" in
-  */manifest.json) ;;
+  */manifest.json)      PMBR_TRIGGER="manifest" ;;
+  */_research/*.md)     PMBR_TRIGGER="artifact" ;;
+  */decisions/ADR-*.md) PMBR_TRIGGER="artifact" ;;
   *) exit 0 ;;
 esac
 case "$FILE_PATH" in
@@ -89,10 +94,52 @@ case "$FILE_PATH" in
 esac
 [ -f "$FILE_PATH" ] || exit 0
 
+# on a STRUCTURAL manifest edit (tasks[] add/remove/reorder, a title
+# change), re-render tasks.md so it no longer goes stale between handoff.md task-done markers
+# (the ONLY prior reactive trigger, via tasks-md-autosync.sh). BUILD-DESIGN FORK: option A — a
+# manifest.json-write PostToolUse trigger -> NO session-close.sh edit (preserves the
+# NOT-R2-gating property). Fires for EVERY plan-manifest.json write (idempotent: re-render without a
+# structural change == byte-identical; tasks-render writes tasks.md, which the gate above skips,
+# so no re-trigger loop); runs BEFORE the project: gate so a non-project plan's tasks.md is
+# refreshed too. The task-done-marker path in tasks-md-autosync.sh is UNCHANGED.
+if [ "$PMBR_TRIGGER" = "manifest" ]; then
+  _tr_plan_dir="$(dirname "$FILE_PATH")"
+  _tr_render="$_REPO_ROOT/skills/librarian/capabilities/tasks-render.sh"
+  [ -f "$_tr_render" ] || _tr_render="$CLAUDE_HOME_RES/skills/librarian/capabilities/tasks-render.sh"
+  if [ -f "$_tr_render" ] && [ -f "$_tr_plan_dir/tasks.md" ]; then
+    if PLANS_ROOT="$PLANS_ROOT" FOUNDATION_TEST_MODE=1 bash "$_tr_render" "$_tr_plan_dir" >/dev/null 2>&1; then
+      log "tasks-render ok (structural manifest trigger; plan=$_tr_plan_dir)"
+    else
+      log "tasks-render error (structural manifest trigger; plan=$_tr_plan_dir)"
+    fi
+  fi
+fi
+
+# --- resolve the manifest to read the owning spoke from -----------------------
+# manifest case: the written file IS the manifest. artifact case: the written
+# file is a research/decision artifact that carries NO project: key, so walk up from
+# the artifact dir to the nearest owning manifest.json (the plan or sub-plan dir),
+# then read ITS project: key. The <plan>/{_research|decisions}/<file> artifact resolves
+# to <plan>/manifest.json; a sub-plan artifact resolves to the sub (else the master) manifest.
+if [ "$PMBR_TRIGGER" = "manifest" ]; then
+  PMBR_MANIFEST="$FILE_PATH"
+else
+  PMBR_ART_PARENT="$(dirname "$(dirname "$FILE_PATH")")"
+  PMBR_MANIFEST=""
+  for _d in "$PMBR_ART_PARENT" "$(dirname "$PMBR_ART_PARENT")"; do
+    if [ -f "$_d/manifest.json" ]; then PMBR_MANIFEST="$_d/manifest.json"; break; fi
+  done
+  unset _d
+  if [ -z "$PMBR_MANIFEST" ]; then
+    log "block-and-log: no owning manifest.json for artifact $FILE_PATH (no spoke to refresh)"
+    exit 0
+  fi
+fi
+
 # --- resolve the owning spoke from the manifest `project:` key ----------------
 # All inputs via argv (R-24). Prints the spoke key on stdout, or "" when the
 # manifest cannot be parsed / carries no project: key (block-and-log, no dispatch).
-SPOKE=$(python3 - "$FILE_PATH" <<'PY'
+SPOKE=$(python3 - "$PMBR_MANIFEST" <<'PY'
 import json, sys
 mp = sys.argv[1]
 try:

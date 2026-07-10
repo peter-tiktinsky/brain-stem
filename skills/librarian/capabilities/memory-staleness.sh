@@ -156,6 +156,20 @@ def interval_for(mem_type):
         return None
     return NON_EPISODIC_INTERVAL
 
+# the valid memory-type set, GROUNDED on schemas/memory-schema.json's
+# type enum (95 — semantic|episodic|procedural). An out-of-enum type is emitted as a finding
+# (not silently skipped). Fall back to the 2.0.0 triad when the schema is unreachable.
+VALID_TYPES = ("semantic", "procedural", "episodic")
+if schema_path and os.path.isfile(schema_path):
+    try:
+        with open(schema_path) as fh:
+            _sc = json.load(fh)
+        _en = ((_sc.get("properties") or {}).get("type") or {}).get("enum")
+        if isinstance(_en, list) and _en:
+            VALID_TYPES = tuple(_en)
+    except (OSError, json.JSONDecodeError):
+        pass
+
 today = date.today()
 
 # Frontmatter parser — line-oriented, tolerant of comments/blank lines.
@@ -229,8 +243,22 @@ for entry in sorted(os.listdir(memory_dir)):
     mem_type = fm.get("type", "").strip()
     # 2.0.0 retrieval-type triad: semantic | procedural | episodic.
     # `reflective` was dropped at the 2.0.0 MAJOR bump.
-    if mem_type not in ("semantic", "procedural", "episodic"):
+    if mem_type not in VALID_TYPES:
+        # emit a finding for an out-of-enum type instead of a silent
+        # skipped_unknown_type continue. A mistyped/legacy `reflective` otherwise escaped BOTH
+        # the staleness clock AND type validation (type-table-ceiling).
         counts["skipped_unknown_type"] += 1
+        if not dry_run:
+            emit({
+                "finding": "memory-type-invalid",
+                "file": entry,
+                "category": "memory-type-invalid",
+                "type": mem_type or "(empty)",
+                "valid_types": list(VALID_TYPES),
+                "reason": "memory type '%s' not in the schema type enum (%s) — it escapes the "
+                          "staleness clock AND type validation"
+                          % (mem_type or "(empty)", "|".join(VALID_TYPES)),
+            })
         continue
 
     threshold = interval_for(mem_type)

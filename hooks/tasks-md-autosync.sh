@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hook: tasks-md-autosync — PostToolUse Edit|Write — the WRITE-side consumer of
 # the canonical `<!-- task-done: NN/T-M -->` completion marker, re-pointed to the
-# manifest SoT (;, T-05).
+# manifest SoT (T-05).
 # Re-point (NOT the retired satellite behavior): the legacy hook flipped the
 # generated tasks.md `**Status:**` line directly off backlog-progress satellites.
 # That satellite is retired (0) and editing the generated view is the named

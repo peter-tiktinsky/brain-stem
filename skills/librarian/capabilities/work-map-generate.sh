@@ -51,7 +51,7 @@
 #   Maintainer-provenance (R-GOV-3): the work-map block in $WORK_HOME/<spoke>/CLAUDE.md
 #     is a librarian-maintained GENERATED region; this capability is its sole
 #     originating writer. It writes ONLY that marker block. It NEVER writes README.md,
-#     updates.md, anything under deliverables/ or reference/, hub.md, the work CLAUDE.md
+#     updates.md, anything under deliverables/ or reference/, the work CLAUDE.md
 #     content OUTSIDE the markers, or anything under PLANS_ROOT.
 # CLI:
 #   work-map-generate.sh                  # regenerate every spoke's work-map block
@@ -87,10 +87,15 @@ fi
 
 DRY_RUN="false"
 SPOKE_FILTER=""
+BOOTSTRAP="false"
 while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
+    # EXPLICIT opt-in — inject the work-map markers into a
+    # marker-less (legacy/hand-authored) CLAUDE.md so it can be brought under maintenance.
+    # OFF by default (the leave-orphan posture is preserved on a normal run).
+    --bootstrap-markers) BOOTSTRAP="true"; shift ;;
     -h|--help) sed -n '2,76p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "work-map-generate: unknown flag '$1'" >&2; exit 2 ;;
   esac
@@ -147,11 +152,12 @@ elif [ -d "$WORK_HOME" ]; then
   done
 fi
 
-python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" <<'PY'
+python3 - "$WORK_HOME" "$DRY_RUN" "$SPOKE_FILTER" "$CLASSIFY_MANIFEST" "$BOOTSTRAP" <<'PY'
 import json, os, sys, tempfile
 from datetime import date
 
 work_home, dry_s, spoke_filter, manifest_path = sys.argv[1:5]
+bootstrap = (len(sys.argv) > 5 and sys.argv[5] == "true")
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
@@ -275,6 +281,12 @@ def render_block_body(spoke, info):
             lines.append("- `deliverables/` — polished, audience-facing work.")
         if info["has_ref"]:
             lines.append("- `reference/` — raw notes / source material.")
+        # a FLAT spoke can ALSO carry plain top-level folders
+        # (e.g. People/) — render them the way the MASTER branch already does (279-281).
+        # Was: the FLAT/else branch dropped info["other_dirs"] entirely.
+        if info["other_dirs"]:
+            lines.append("- Other top-level folders (not sub-projects): %s"
+                         % ", ".join("`%s/`" % d for d in info["other_dirs"]))
     if info["has_readme"]:
         lines.append("- `README.md` — scope / outcome / definition-of-done.")
     if info["has_updates"]:
@@ -342,10 +354,17 @@ for spoke in target_spokes:
     # leave-orphan: a CLAUDE.md with NO work-map markers is a legacy / hand-authored
     # file — SKIP untouched (never inject markers into a file that lacks the shape).
     if START_PREFIX not in text or END not in text:
-        emit({"finding": "work-map-generate-skipped", "file": claude_md,
-              "reason": "no-work-map-markers", "detected_at": today})
-        spokes_skipped += 1
-        continue
+        # default is PRESERVED leave-orphan (skip + finding, never
+        # inject markers on a normal run). The EXPLICIT --bootstrap-markers opt-in injects
+        # an empty marker pair so a marker-less (legacy/hand-authored) CLAUDE.md is brought
+        # under maintenance; the splice below fills the block body.
+        if bootstrap:
+            text = text.rstrip("\n") + "\n\n" + START + "\n" + END + "\n"
+        else:
+            emit({"finding": "work-map-generate-skipped", "file": claude_md,
+                  "reason": "no-work-map-markers", "detected_at": today})
+            spokes_skipped += 1
+            continue
 
     info = scan_spoke(spoke, spoke_dir)
     body = render_block_body(spoke, info)

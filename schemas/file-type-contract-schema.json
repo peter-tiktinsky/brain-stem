@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "brain-stem/schemas/file-type-contract-schema.json",
+  "title": "file-type-contract _rationale content-class bounds",
+  "description": "Governs a single governance/file-type-contracts/*.json object. Bounds every *_rationale field (the reader-facing WHY that is kept inline) so build-archaeology cannot re-accumulate or hide in it. Consumed by the release gate contract-shape check and by the /govern file-type registration path when validating a newly registered type contract. The archaeology vocabulary here is deliberately the generic, shape-class set: personal or confidential literals are owned by the full-surface PII scan, and release-cleaner-strippable literals can never survive into a shipped rationale, so neither class belongs in this pattern. Only *_rationale keys are constrained; all other keys are unconstrained (additionalProperties: true).",
+  "type": "object",
+  "patternProperties": {
+    "^[a-z_]+_rationale$": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "not": {
+        "pattern": "SP-[0-9]|Plan[ -]?[0-9]|ADR-[0-9]|\\bS[0-9]{2,}\\b|clean-room v[0-9]|FORK-[0-9]|GR-[0-9]|_sp[0-9]"
+      }
+    }
+  },
+  "additionalProperties": true
+}

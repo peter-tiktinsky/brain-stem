@@ -1,5 +1,6 @@
 #!/bin/bash
 # Hook: SessionStart — auto-close integrity backstop (T-3).
+#
 # SessionEnd (session-deregister.sh) spawns the auto-close integrity subset on a
 # GRACEFUL exit, but it never fires on SIGKILL/crash/terminal-close — so a crashed
 # session never runs the integrity pass. This backstop catches that case: it scans
@@ -9,9 +10,14 @@
 # and that has not already been swept, then runs the (T-1 commit-free)
 # close orchestrator ONCE, detached, and stamps `auto_close_swept_at` on the swept
 # rows so a later SessionStart does not re-run the subset for them.
+#
 # Ownership boundary: registry REAPING stays owned by reconcile-sessions.sh — this
-# backstop adds ONLY the integrity pass the reaper never runs; it never deletes a
-# row.
+# backstop adds ONLY the integrity pass the reaper never runs, and (T-8) it
+# TRIGGERS the reaper at SessionStart with a detached, lock-released spawn to catch
+# crash/SIGKILL ends that never fired SessionEnd plus the long-lived shared-pid ghost
+# class. It still deletes NO row itself — the spawned reconcile-sessions.sh does all
+# reaping, under its own reconcile.lock + REGISTRY_LOCK.
+#
 # Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
 # deadlock-free). OUTER = a dedicated auto-close-backstop.lock process-dedup guard
 # (feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec; -t 0 = non-blocking
@@ -24,6 +30,7 @@
 # session-close.sh spawn (which itself takes REGISTRY_LOCK): the sweep runs in a
 # re-exec'd child that hands its `found` result to the lock-released parent via a
 # sentinel file, and the parent spawns after the lock releases (see the guards below).
+#
 # NEVER blocks SessionStart (spawns the close detached); NEVER fail-hard; exits 0
 # on every path. Graceful no-op when jq/lockf/registry are absent.
 set -uo pipefail
@@ -38,6 +45,18 @@ if [ ! -t 0 ]; then
 fi
 
 command -v jq >/dev/null 2>&1 || exit 0
+
+# T-8: detached SessionStart reconcile trigger. Spawns reconcile-sessions.sh in
+# the background from the LOCK-RELEASED context ONLY — NEVER while this hook holds
+# REGISTRY_LOCK, because the reaper's own inner guard takes REGISTRY_LOCK itself and a spawn
+# under the held lock would stall the child. The reaper owns all reaping; this only triggers
+# it. Idempotent; the reaper's outer reconcile.lock (-t 0) dedups concurrent runs.
+spawn_reconcile() {
+  local reconciler="$SCRIPT_DIR/reconcile-sessions.sh"
+  if [ -x "$reconciler" ] || [ -f "$reconciler" ]; then
+    ( "$reconciler" >/dev/null 2>&1 & ) || true
+  fi
+}
 
 # --- lockf concurrency guard (auto-close-backstop.lock) ----------------------
 # Re-exec self under /usr/bin/lockf -k -t 0 so the whole find-mark-spawn decision
@@ -62,6 +81,7 @@ fi
 # REGISTRY_LOCK), closing the lost-update race. `-t 2`; on contention/timeout any rc
 # -> exit 0 (fail-open, NO partial write). When lockf is absent the guard is skipped
 # and the sweep runs unlocked (graceful-degrade), mirroring the outer guard.
+#
 # CRITICAL (spawn-release): the detached session-close.sh spawn sits AFTER
 # write_registry, and session-close.sh itself takes REGISTRY_LOCK via its own
 # registry writers. If the spawn ran while THIS hook still held REGISTRY_LOCK, the
@@ -94,6 +114,11 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
       ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
     fi
   fi
+  # T-8: SessionStart reconcile trigger, fired here in the LOCK-RELEASED context
+  # (lockf has returned, REGISTRY_LOCK is free). session-register.sh (#1 in the SessionStart
+  # array; this backstop is #7) has already refreshed the own row's heartbeat, so the T-1
+  # verdict KEEPS the own row while the sweep reaps stale-hb ghosts on the shared pid.
+  spawn_reconcile
   exit 0
 fi
 
@@ -120,22 +145,19 @@ for sid in $sids; do
 
   pid=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].pid // 0' 2>/dev/null)
   hb=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].last_heartbeat // ""' 2>/dev/null)
+  started=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].started // ""' 2>/dev/null)
 
-  # Live pid -> the session is still running, not crashed. Hard skip.
-  if [ -n "$pid" ] && [ "$pid" != "0" ] && [ "$pid" != "null" ]; then
-    if kill -0 "$pid" 2>/dev/null; then
-      continue
-    fi
-  fi
-
-  # Fresh heartbeat -> hard KEEP override even if the pid looked dead (mirrors the
-  # reconcile-sessions.sh bidirectional heartbeat check). Only a STALE heartbeat
-  # (or none) qualifies as crashed.
-  if [ -n "$hb" ] && [ "$hb" != "null" ]; then
-    hb_epoch=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$hb" +%s 2>/dev/null || echo 0)
-    if [ "$hb_epoch" -gt 0 ] && [ $(( now_epoch - hb_epoch )) -le "${STALE_THRESHOLD_SECS:-1800}" ]; then
-      continue
-    fi
+  # T-5: crash detection now routes through the SHARED heartbeat-authoritative
+  # verdict (session_liveness_verdict, registry.sh) so the backstop, the reaper, the view,
+  # and session-close all agree on the same (pid, hb, started, now) input. A row whose
+  # verdict is LIVE is still running -> NOT a crash, skip. Only a DEAD verdict on a
+  # non-closed, unswept row qualifies as crashed. This replaces BOTH the pid hard-skip
+  # AND the BSD-only `date -u -jf` fresh-hb check (140) — the epoch parse now lives in the
+  # verdict's portable iso8601_to_epoch (BSD + GNU), so a Linux adopter no longer silently
+  # degrades. Ownership boundary unchanged: this backstop deletes NO row (reaping stays
+  # owned by reconcile-sessions.sh); it only marks auto_close_swept_at + spawns the close.
+  if session_liveness_verdict "$pid" "$hb" "$started" "$now_epoch"; then
+    continue
   fi
 
   # Crashed/killed session that never closed cleanly + unswept -> mark it swept.
@@ -165,6 +187,14 @@ if [ "$found" -eq 1 ]; then
       ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
     fi
   fi
+fi
+
+# T-8: no-lockf graceful-degrade path — the sweep ran inline with NO held
+# REGISTRY_LOCK, so trigger the reaper here. Guarded on AUTO_CLOSE_REGISTRY_LOCKED so the
+# locked re-exec child (which reaches this same exit while HOLDING REGISTRY_LOCK) never
+# spawns — its parent spawns in the lock-released branch above instead.
+if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ]; then
+  spawn_reconcile
 fi
 
 exit 0

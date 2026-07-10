@@ -142,12 +142,27 @@ import os, re, sys
 library, query = sys.argv[1:3]
 query = (query or "").strip()
 
+def _has_article(full):
+    # article-bearing test — >=1 nested-inclusive article .md
+    # (excludes _index.md, dotfiles, and the _raw/ provenance subtree). Mirrors the
+    # generation-block topic_articles predicate so the --query lister and the generated
+    # index agree on which underscore-topic dirs are real topics.
+    for dp, dns, fns in os.walk(full):
+        dns[:] = [x for x in dns if x != "_raw" and not x.startswith(".")]
+        for fn in fns:
+            if fn.endswith(".md") and fn != "_index.md" and not fn.startswith("."):
+                return True
+    return False
+
 def list_topics(lib):
     topics = []
     try:
         for d in sorted(os.listdir(lib)):
             full = os.path.join(lib, d)
-            if not os.path.isdir(full) or d.startswith(".") or d.startswith("_") or d == "log-archive":
+            if not os.path.isdir(full) or d.startswith(".") or d == "log-archive" or d == "_raw":
+                continue
+            # underscore-topic dirs are listed only when article-bearing (careful predicate).
+            if d.startswith("_") and not _has_article(full):
                 continue
             topics.append(d)
     except Exception:
@@ -331,6 +346,28 @@ if not type_enum and os.path.isfile(fm_rules_path):
     except Exception:
         type_enum = set()
 
+# reference-type REQUIRED set for audit-time frontmatter conformance —
+# the SAME set library-scrub validates at write-time (library-scrub.sh:362-363/:773); here it
+# catches a POST-write field drop the write-time gate cannot see. Merged-bundle FIRST (adopter
+# overlay honored), then the loose pillar, then the SoT constants (mirrors library-scrub).
+REF_REQUIRED = ["type", "tags", "updated", "routing", "sources", "originating_plan",
+                "description", "created", "id", "schema_version"]
+_ref_c = None
+if fm_bundle_path and os.path.isfile(fm_bundle_path):
+    try:
+        with open(fm_bundle_path, encoding="utf-8") as fh:
+            _ref_c = ((json.load(fh).get("frontmatter") or {}).get("types") or {}).get("reference")
+    except Exception:
+        _ref_c = None
+if not (_ref_c and _ref_c.get("required")) and os.path.isfile(fm_rules_path):
+    try:
+        with open(fm_rules_path, encoding="utf-8") as fh:
+            _ref_c = (json.load(fh).get("types") or {}).get("reference")
+    except Exception:
+        _ref_c = None
+if _ref_c and isinstance(_ref_c.get("required"), list) and _ref_c["required"]:
+    REF_REQUIRED = _ref_c["required"]
+
 # --- frontmatter parser (mirrors index-maintain.sh) -------------------------
 def parse_fm(text):
     if not text.startswith("---"):
@@ -426,17 +463,23 @@ def render_row(name, lines, ftype, desc):
 
 # --- topic scan -------------------------------------------------------------
 def topic_articles(topic_dir):
-    """Return list of (name, path, fm, text) for article .md files at topic root
-    (excludes _index.md, dotfiles, and the _raw/ subdir)."""
+    """Return list of (name, path, fm, text) for article .md files UNDER a topic.
+    RECURSE nested subdirs (was: flat os.listdir at the topic
+    root) while PRESERVING the intentional exclusions — _index.md, dotfiles, and the
+    _raw/ article-provenance subtree stay excluded (a careful predicate, NOT a blanket
+    include). `name` stays the basename so the render + basename-collision semantics for
+    root articles are byte-unchanged; a nested article surfaces by its own basename."""
     arts = []
-    for f in sorted(os.listdir(topic_dir)):
-        if not f.endswith(".md") or f == "_index.md" or f.startswith("."):
-            continue
-        p = os.path.join(topic_dir, f)
-        if not os.path.isfile(p):
-            continue
-        text = read_all(p)
-        arts.append((f[:-3], p, parse_fm(text), text))
+    for dirpath, dirnames, filenames in os.walk(topic_dir):
+        dirnames[:] = [d for d in dirnames if d != "_raw" and not d.startswith(".")]
+        for f in sorted(filenames):
+            if not f.endswith(".md") or f == "_index.md" or f.startswith("."):
+                continue
+            p = os.path.join(dirpath, f)
+            if not os.path.isfile(p):
+                continue
+            text = read_all(p)
+            arts.append((f[:-3], p, parse_fm(text), text))
     return arts
 
 def write_atomic(dirpath, target, body):
@@ -476,11 +519,11 @@ def splice_index(idx_path, dirpath, folder_name, parent_folder, default_tags,
                 text = text.rstrip() + "\n\n" + light_prose.rstrip() + "\n"
         else:
             if s >= 0 and e > s:
-                text = text[:s + len(START)] + "\n" + inner_block + "\n" + text[e:]
+                text = text[:s + len(START)] + "\n\n" + inner_block + "\n\n" + text[e:]
             else:
                 # no sentinel region in a hand-authored file: append a fresh one
                 # without touching the existing prose (survivorship).
-                text = text.rstrip() + "\n\n" + START + "\n" + inner_block + "\n" + END + "\n"
+                text = text.rstrip() + "\n\n" + START + "\n\n" + inner_block + "\n\n" + END + "\n"
         rendered = text
     else:
         # --- first run: scaffold (placeholder folder-context paragraph) -------
@@ -493,7 +536,7 @@ def splice_index(idx_path, dirpath, folder_name, parent_folder, default_tags,
         if light_prose is not None:
             rendered = head + light_prose.rstrip() + "\n"
         else:
-            rendered = head + START + "\n" + inner_block + "\n" + END + "\n"
+            rendered = head + START + "\n\n" + inner_block + "\n\n" + END + "\n"
 
     if not dry_run:
         try:
@@ -559,9 +602,24 @@ all_titles = {}      # normalized-title -> [ (article-path, title) ]
 topic_dirs = []
 for d in sorted(os.listdir(library)):
     full = os.path.join(library, d)
-    if not os.path.isdir(full) or d.startswith(".") or d.startswith("_") or d == "log-archive":
+    if not os.path.isdir(full) or d.startswith(".") or d == "log-archive" or d == "_raw":
+        continue
+    # an underscore-prefixed dir is a real TOPIC only when it is
+    # article-bearing (>=1 nested-inclusive article .md, _raw/_index excluded); a bare
+    # infra dir (no articles) stays dropped — a careful predicate, NOT a blanket
+    # underscore-allow (the underscore-topic articles were previously invisible).
+    if d.startswith("_") and not topic_articles(full):
         continue
     topic_dirs.append(d)
+
+# library-wide article basename set so a valid CROSS-TOPIC
+# [[topic/name]] resolves against the WHOLE library (not just the current topic dir). The
+# resolver stripped to basename + checked only the current topic, false-flagging every valid
+# cross-topic link. Collected ONCE up front (the per-article broken-link check runs per topic).
+lib_basenames = set()
+for _lt in topic_dirs:
+    for _ln, _lp, _lfm, _ltx in topic_articles(os.path.join(library, _lt)):
+        lib_basenames.add(_ln)
 
 root_rows = []          # (topic, lines, type, aggregated-routing-desc, staleness)
 topics_indexed = 0
@@ -583,6 +641,34 @@ for topic in topic_dirs:
     # per-article findings: over-threshold + body-shape + broken/one-sided edge
     routing_lines = []
     for name, p, fm, text in arts:
+        # audit-time REF_REQUIRED conformance — scoped to declared
+        # type:reference articles, by KEY PRESENCE (a multi-line list value like sources: parses
+        # to an empty string but the KEY is present, so it is not false-flagged). Real library
+        # articles are heterogeneous, so only declared-reference articles are held to the
+        # reference contract; a POST-write required-field drop now surfaces (was: write-time only).
+        if (fm.get("type") or "").strip() == "reference":
+            _miss = [k for k in REF_REQUIRED if k not in fm]
+            if _miss:
+                emit({"finding": "library-article-frontmatter-nonconformant", "file": p,
+                      "missing_fields": _miss, "contract": "reference",
+                      "reason": "reference article frontmatter missing required field(s): %s "
+                                "(validated only at write-time before this audit)" % ",".join(_miss),
+                      "detected_at": today})
+        # resolve REQUIRED sources:[_raw/<x>] provenance pointers. A
+        # deleted _raw target dangled undetected (the broken-link arm resolved only wikilinks +
+        # PROMO-4). Extract _raw/<x> tokens from the frontmatter block (robust to multi-line YAML
+        # lists) and resolve against the topic dir.
+        _fm_block = ""
+        if text.startswith("---"):
+            _fe = text.find("\n---", 3)
+            if _fe != -1:
+                _fm_block = text[3:_fe]
+        for _rawref in re.findall(r"_raw/[^\s\"'\],]+", _fm_block):
+            _rawref = _rawref.rstrip(".")
+            if not os.path.isfile(os.path.join(topic_dir, _rawref)):
+                emit({"finding": "library-broken-link", "file": p,
+                      "issue": "dangling-raw-source", "target": _rawref,
+                      "detector_role": "REF-sources-provenance", "detected_at": today})
         lc = line_count(p)
         if lc > soft_max:
             emit({"finding": "library-article-over-threshold", "file": p,
@@ -608,7 +694,13 @@ for topic in topic_dirs:
             base = wl.split("/")[-1]
             base = base[:-3] if base.endswith(".md") else base
             sib = os.path.join(topic_dir, base + ".md")
-            if not os.path.isfile(sib) and base not in [a[0] for a in arts]:
+            # resolve library-wide. A valid CROSS-TOPIC [[topic/name]]
+            # whose basename exists ANYWHERE in the library is NOT dangling (was: current-topic
+            # dir only -> every valid cross-topic link false-flagged). Only a basename present
+            # NOWHERE (current-topic sibling / current-topic arts / library-wide) dangles.
+            if (not os.path.isfile(sib)
+                    and base not in [a[0] for a in arts]
+                    and base not in lib_basenames):
                 emit({"finding": "library-broken-link", "file": p,
                       "issue": "dangling-wikilink", "target": wl,
                       "detected_at": today})

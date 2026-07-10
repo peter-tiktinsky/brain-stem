@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --register) REGISTER="true"; shift ;;
     --min-similarity) MIN_SIM="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
       exit 0
       ;;
     *) echo "rename-detect: unknown flag '$1'" >&2; exit 2 ;;
@@ -67,7 +67,14 @@ done
 
 # Root selection precedence: --root flag > RENAME_DETECT_ROOTS env > defaults.
 if [[ -z "$ROOTS" ]]; then
-  ROOTS="${RENAME_DETECT_ROOTS:-$VAULT_ROOT:$PLANS_DIR}"
+  # the root registry reaches the vault + plans repos AND
+  # ~/.claude (CLAUDE_GIT_REPO — governance/*.json, SKILL.md, rules/*.md, schemas/*.json,
+  # projects/*/memory, settings.json renames) AND ~/work (WORK_HOME — work-spoke renames).
+  # ~/.claude is a git repo (process_root scans it directly); ~/work has NO top-level
+  # .git, so process_root treats it as a spoke-container and scans each ~/work/<spoke>
+  # that is its OWN git repo (per-spoke .git detection — a bare root-list add would
+  # short-circuit on the :84 missing-top-level-.git guard).
+  ROOTS="${RENAME_DETECT_ROOTS:-$VAULT_ROOT:$PLANS_DIR:${CLAUDE_GIT_REPO:-}:${WORK_HOME:-}}"
 fi
 
 # Optional late-source of manifest.sh so --register doesn't cost anything
@@ -78,7 +85,26 @@ if [[ "$REGISTER" == "true" ]]; then
     || source "$_REPO_LIB/manifest.sh"
 fi
 
+# process_root — dispatch a configured root. A root that is itself a git repo is
+# scanned directly (vault / plans / ~/.claude). A NON-git root (e.g. ~/work) is treated
+# as a SPOKE-CONTAINER: each immediate child that is its own git repo is scanned (via
+# per-spoke .git detection — the ~/work tree has no top-level .git, so a bare root-list
+# add would hit the scan_git_repo :84 guard and short-circuit, missing every spoke).
 process_root() {
+  local root="$1" child
+  [[ -z "$root" ]] && return 0
+  if [[ -d "$root/.git" ]]; then
+    scan_git_repo "$root"
+    return 0
+  fi
+  [[ -d "$root" ]] || return 0
+  for child in "$root"/*; do
+    [[ -d "$child/.git" ]] && scan_git_repo "$child"
+  done
+  return 0
+}
+
+scan_git_repo() {
   local root="$1"
   [[ -z "$root" ]] && return 0
   [[ ! -d "$root/.git" ]] && return 0

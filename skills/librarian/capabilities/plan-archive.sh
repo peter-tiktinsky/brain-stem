@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN="true"; shift ;;
     --plan-slug) PLAN_SLUG="$2"; shift 2 ;;
-    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-archive: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

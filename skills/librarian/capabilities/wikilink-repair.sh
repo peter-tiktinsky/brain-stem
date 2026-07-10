@@ -81,6 +81,25 @@ if [[ ! -r "$DOC_DEP_FILE_EFF" ]] || ! jq empty "$DOC_DEP_FILE_EFF" >/dev/null 2
   fi
 fi
 
+# Source the shared vault-view walker + materialize its file
+# list so the broken-wikilink scan descends the followed symlink view (2630 md) via the
+# ONE primitive instead of os.walk(followlinks=False) (4 md). The python block reads
+# WLR_WALK_LIST and FALLS BACK to os.walk when it is empty (symlink-inert floor).
+WLR_WALK_LIST=""
+_VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+[ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
+if [ -r "$_VVW_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$_VVW_LIB"
+  if command -v vault_view_walk >/dev/null 2>&1; then
+    WLR_WALK_LIST="$(mktemp -t wlr-walk.XXXXXX)"
+    # Compose the cleanup so an earlier _UNION doc-dep temp (line ~86) is still removed.
+    trap 'rm -f "${WLR_WALK_LIST:-}" "${_UNION:-}"' EXIT
+    vault_view_walk "$SCOPE_ROOT" > "$WLR_WALK_LIST" 2>/dev/null || true
+  fi
+fi
+export WLR_WALK_LIST
+
 python3 - "$SCOPE_ROOT" "$DOC_DEP_FILE_EFF" "$APPLY" "$REPORT_PATH" <<'PY'
 import json, os, re, sys
 from collections import defaultdict
@@ -129,17 +148,42 @@ EXEMPT_DIRS = (
 # All existing .md basenames — for "target file exists somewhere in vault?" check
 all_md_by_basename = defaultdict(set)
 md_files = []
-for dirpath, dirnames, filenames in os.walk(scope_root):
-    # prune hidden and exempt
-    dirnames[:] = [d for d in dirnames if not d.startswith('.')]
-    if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
+# Enumerate via the shared vault-view walker (file list at
+# $WLR_WALK_LIST) so the scan descends the followed symlink view (2630 md) instead of
+# os.walk followlinks=False (4 md). EXEMPT_DIRS pruned here; rel computed against the
+# walker's pwd -P-normalized root. FALL BACK to os.walk when the list is empty (floor).
+scope_real = os.path.realpath(scope_root)
+walk_list_path = os.environ.get("WLR_WALK_LIST", "")
+_walk_lines = []
+if walk_list_path and os.path.isfile(walk_list_path):
+    try:
+        with open(walk_list_path) as _wf:
+            _walk_lines = _wf.read().split("\n")
+    except Exception:
+        _walk_lines = []
+_used_walker = False
+for full in _walk_lines:
+    if not full or not full.endswith(".md"):
         continue
-    for fn in filenames:
-        if fn.endswith(".md"):
-            full = os.path.join(dirpath, fn)
-            rel = os.path.relpath(full, scope_root)
-            all_md_by_basename[fn].add(rel)
-            md_files.append(full)
+    if any(ex in full + "/" for ex in EXEMPT_DIRS):
+        continue
+    fn = os.path.basename(full)
+    rel = os.path.relpath(full, scope_real)
+    all_md_by_basename[fn].add(rel)
+    md_files.append(full)
+    _used_walker = True
+if not _used_walker:
+    for dirpath, dirnames, filenames in os.walk(scope_root):
+        # prune hidden and exempt
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
+            continue
+        for fn in filenames:
+            if fn.endswith(".md"):
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, scope_root)
+                all_md_by_basename[fn].add(rel)
+                md_files.append(full)
 
 # Wikilink pattern — captures target and optional alias
 WL = re.compile(r"\[\[([^\]\|\#]+)(?:#[^\]\|]+)?(?:\|[^\]]+)?\]\]")
@@ -165,7 +209,7 @@ for path in md_files:
     content = re.sub(r'``[^`\n]+``', '', content)
     content = re.sub(r'`[^`\n]+`', '', content)
 
-    rel_path = os.path.relpath(path, scope_root)
+    rel_path = os.path.relpath(path, scope_real)   # scope_real: match the walker root norm
     for m in WL.finditer(content):
         target = m.group(1).strip()
         # Strip trailing backslash escape artifact — Obsidian renders

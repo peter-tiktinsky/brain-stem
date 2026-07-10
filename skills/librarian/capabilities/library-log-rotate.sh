@@ -79,11 +79,53 @@ case "$LIBRARY" in */) LIBRARY="${LIBRARY%/}" ;; esac
 LOG_MD="$LIBRARY/log.md"
 LOG_MAX_LINES="${LOG_MAX_LINES:-2000}"
 
-python3 - "$LIBRARY" "$LOG_MD" "$LOG_MAX_LINES" "$DRY_RUN" <<'PY'
+# resolve the governance dir + composed bundle so the body
+# READS its two DECLARED deps (governance/frontmatter-rules.json types.log +
+# governance/log-subtype-registry.json) instead of hardcoding the C-FM-LOG template
+# + LOG_SUBTYPE. CLAUDE_HOME-first, repo fallback. READ-ONLY consume — neither pillar
+# is edited, so NO master rebuild. log-subtype-registry.json ships standalone;
+# frontmatter-rules.json is a repo-only pillar composed into foundation-master
+# (.frontmatter.types.log) so the python body reads the loose pillar first, else the bundle.
+GOV_DIR="${GOVERNANCE_DIR:-}"
+if [ -z "$GOV_DIR" ] || [ ! -d "$GOV_DIR" ]; then
+  for cand in "$CLAUDE_HOME_RES/governance" "$_REPO_ROOT/governance"; do
+    [ -d "$cand" ] && { GOV_DIR="$cand"; break; }
+  done
+fi
+BUNDLE=""
+for cand in \
+  "$CLAUDE_HOME_RES/governance/foundation-master.json" \
+  "$GOV_DIR/foundation-master.json"; do
+  [ -f "$cand" ] && { BUNDLE="$cand"; break; }
+done
+
+# Canonical governance read: route the foundation-master read through the
+# R-52 union-load merger (hooks/lib/foundation-overlay-load.sh) so an adopter's overlay-master
+# amendments to .frontmatter.types.log are honored — never consume foundation-master RAW.
+# Materialize the merged union once and redirect $BUNDLE at it; the python body reads
+# .frontmatter.types.log from the merged view. Degrades to the raw bundle if the merger is
+# unavailable (loud-safe), and to the loose frontmatter-rules.json pillar under $GOV_DIR when
+# the bundle is absent (dev-repo authoring). log-subtype-registry.json is a standalone-shipped
+# registry (NOT a bundle slot; not one of the 7 R-52 pillars) read directly, matching the
+# log-subtype-canonical read precedent.
+_OVL="${FOUNDATION_OVERLAY_LOAD:-$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh}"
+[ -x "$_OVL" ] || _OVL="$_REPO_ROOT/hooks/lib/foundation-overlay-load.sh"
+if [ -x "$_OVL" ] && [ -n "$BUNDLE" ] && [ -f "$BUNDLE" ]; then
+  _UNION="$(mktemp 2>/dev/null || true)"
+  if [ -n "$_UNION" ] && bash "$_OVL" --foundation-path "$BUNDLE" \
+        --overlay-path "$(dirname "$BUNDLE")/overlay-master.json" --force-override > "$_UNION" 2>/dev/null \
+        && [ -s "$_UNION" ]; then
+    BUNDLE="$_UNION"; trap 'rm -f "$_UNION"' EXIT
+  elif [ -n "$_UNION" ]; then rm -f "$_UNION"; fi
+fi
+
+python3 - "$LIBRARY" "$LOG_MD" "$LOG_MAX_LINES" "$DRY_RUN" "${GOV_DIR:-}" "${BUNDLE:-}" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date, datetime, timezone
 
 library, log_md, max_lines_s, dry_s = sys.argv[1:5]
+gov_dir = sys.argv[5] if len(sys.argv) > 5 else ""
+bundle_path = sys.argv[6] if len(sys.argv) > 6 else ""
 dry_run = (dry_s == "true")
 try:
     max_lines = int(max_lines_s)
@@ -94,6 +136,52 @@ out = os.environ.get("FINDINGS_OUTPUT", "")
 today = date.today().isoformat()
 now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 LOG_SUBTYPE = "library-change"
+
+# READ the two DECLARED governance deps instead of hardcoding
+# the C-FM-LOG template. (1) log-subtype-registry.json — validate LOG_SUBTYPE is a
+# registered log subtype (block-and-log below if absent; never emit a non-registered
+# subtype). (2) frontmatter-rules.json types.log — derive the emitted frontmatter's
+# FIELD SET (required ++ optional) from the strict-tier log contract, so governed log
+# frontmatter can no longer drift silently from the contract. READ-ONLY consume.
+def _load_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+# log-subtype-registry.json ships standalone under governance/ (bundle-composed only
+# if the loose file is unavailable is NOT applicable — it does not compose into the
+# master; read it from gov_dir, repo fallback handled by the bash resolver).
+_registered = set()
+if gov_dir:
+    _reg = _load_json(os.path.join(gov_dir, "log-subtype-registry.json"))
+    if isinstance(_reg, dict) and isinstance(_reg.get("log_subtypes"), list):
+        for _s in _reg["log_subtypes"]:
+            if isinstance(_s, dict) and _s.get("subtype"):
+                _registered.add(_s["subtype"])
+
+# frontmatter-rules.json types.log — loose pillar (gov_dir) first, then the composed
+# bundle (.frontmatter.types.log). Degrade to the deterministic floor below (which IS
+# the shipped types.log contract, byte-for-byte) only when NEITHER resolves — a dead
+# branch in any real install (frontmatter-rules.json always ships). This floor is
+# deliberately quiet; the loud block-and-log requirement applies to the
+# log-subtype-registry check, not this resolution chain.
+_types_log = None
+if gov_dir:
+    _fr = _load_json(os.path.join(gov_dir, "frontmatter-rules.json"))
+    if isinstance(_fr, dict):
+        _types_log = (_fr.get("types") or {}).get("log")
+if _types_log is None and bundle_path:
+    _bundle = _load_json(bundle_path)
+    if isinstance(_bundle, dict):
+        _types_log = ((_bundle.get("frontmatter") or {}).get("types") or {}).get("log")
+if isinstance(_types_log, dict):
+    _fm_required = [f for f in (_types_log.get("required") or []) if isinstance(f, str)]
+    _fm_optional = [f for f in (_types_log.get("optional") or []) if isinstance(f, str)]
+else:
+    _fm_required = ["type", "log-type", "date", "timestamp"]
+    _fm_optional = ["tags"]
 
 # event-line shape (R-LIB-8): YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>
 EVENT_RE = re.compile(r"^(\d{4})-\d{2}-\d{2}T[0-9:]+Z?\s+\[[A-Z]+\]\s+\S+")
@@ -120,20 +208,34 @@ def atomic_write(target, content):
         raise
 
 def log_frontmatter(title, blurb):
-    return (
-        "---\n"
-        "type: log\n"
-        "log-type: %s\n"
-        "date: %s\n"
-        "timestamp: %s\n"
-        "tags: [\"#log/%s\"]\n"
-        "---\n"
-        "\n"
-        "# %s\n"
-        "\n"
-        "%s\n"
-        "\n"
-    ) % (LOG_SUBTYPE, today, now_iso, LOG_SUBTYPE, title, blurb)
+    # the emitted frontmatter FIELD SET is DERIVED from the types.log contract
+    # (required ++ optional), not a hardcoded template. Each field is populated from
+    # the value provider; a REQUIRED contract field with no known value is emitted as
+    # an empty placeholder so the drift is VISIBLE (a required field is never omitted),
+    # while an unknown OPTIONAL field is skipped. The real contract (required
+    # [type,log-type,date,timestamp] + optional [tags]) reproduces the prior template
+    # byte-for-byte; a contract change (added/removed field) is now reflected.
+    provider = {
+        "type": "log",
+        "log-type": LOG_SUBTYPE,
+        "date": today,
+        "timestamp": now_iso,
+        "tags": "[\"#log/%s\"]" % LOG_SUBTYPE,
+        "subtype": LOG_SUBTYPE,
+    }
+    lines = ["---"]
+    seen = set()
+    for field in list(_fm_required) + list(_fm_optional):
+        if field in seen:
+            continue
+        seen.add(field)
+        if field in provider:
+            lines.append("%s: %s" % (field, provider[field]))
+        elif field in _fm_required:
+            lines.append("%s:" % field)
+    lines.append("---")
+    lines += ["", "# %s" % title, "", blurb, ""]
+    return "\n".join(lines) + "\n"
 
 # --- block-and-log: nothing to rotate ---------------------------------------
 if not os.path.isfile(log_md):
@@ -211,6 +313,19 @@ if dry_run:
     print("library-log-rotate: DRY-RUN would rotate %d events -> %s"
           % (len(event_lines), ", ".join(sorted("%s.md" % y for y in by_year))),
           file=sys.stderr)
+    sys.exit(0)
+
+# block-and-log if LOG_SUBTYPE is not a registered log subtype —
+# NEVER silently write a non-registered subtype's frontmatter. Enforced only when the
+# registry actually RESOLVED (a non-empty registered set); an unresolvable registry
+# degrades (cannot validate) rather than blocking every rotation.
+if _registered and LOG_SUBTYPE not in _registered:
+    emit({"finding": "library-log-subtype-unregistered", "file": log_md,
+          "subtype": LOG_SUBTYPE,
+          "reason": "subtype-absent-from-log-subtype-registry",
+          "detected_at": today})
+    print("library-log-rotate: subtype '%s' not registered; block-and-log (no write)"
+          % LOG_SUBTYPE, file=sys.stderr)
     sys.exit(0)
 
 archive_dir = os.path.join(library, "log-archive")

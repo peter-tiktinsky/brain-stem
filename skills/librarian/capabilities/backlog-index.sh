@@ -54,7 +54,7 @@ DRY_RUN="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "backlog-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -362,7 +362,7 @@ rows.sort(key=lambda r: r[0])
 table_lines = ["| Project Dir | Initiative | Status | Disposition | Updated | Notes |",
                "|---|---|---|---|---|---|"]
 table_lines.extend(r[2] for r in rows)
-table_block = SENTINEL_START + "\n" + "\n".join(table_lines) + "\n" + SENTINEL_END
+table_block = SENTINEL_START + "\n\n" + "\n".join(table_lines) + "\n\n" + SENTINEL_END
 
 if preface and not preface.endswith("\n"):
     preface += "\n"

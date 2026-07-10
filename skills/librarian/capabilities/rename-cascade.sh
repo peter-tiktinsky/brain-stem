@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --include-frontmatter) INCLUDE_FM="true"; shift ;;
     --scope) SCOPES="${SCOPES}${SCOPES:+:}$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
       exit 0
       ;;
     *) echo "rename-cascade: unknown flag '$1'" >&2; exit 2 ;;
@@ -66,7 +66,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SCOPES" ]]; then
-  SCOPES="${RENAME_CASCADE_SCOPES:-$VAULT_ROOT:$PLANS_DIR}"
+  # +$WORK_HOME so a ~/work file's inbound [[ref]] is cascaded
+  # on a rename even for a work spoke NOT symlinked into the vault (a vault-surfaced
+  # spoke is already reached via the vault_view_walk Work/ symlink descent, :84-104).
+  SCOPES="${RENAME_CASCADE_SCOPES:-$VAULT_ROOT:$PLANS_DIR:${WORK_HOME:-}}"
 fi
 
 # Capture stdin to a tmp file so the python heredoc doesn't cannibalize
@@ -75,6 +78,33 @@ fi
 STDIN_CAPTURE=$(mktemp -t rename-cascade-stdin.XXXXXX)
 trap 'rm -f "$STDIN_CAPTURE"' EXIT
 cat > "$STDIN_CAPTURE"
+
+# Source the shared vault-view walker + materialize the
+# combined per-scope file list so the scan DESCENDS the vault Skills/ symlink
+# (-> ~/.claude/skills) — inbound SKILL.md/capability refs are cascaded on a rename
+# (os.walk followlinks=False refused the Skills symlink). The python block reads
+# RC_WALK_LIST and FALLS BACK to os.walk (walk_md) when it is empty (floor).
+RC_WALK_LIST=""
+_VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+[ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
+if [ -r "$_VVW_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$_VVW_LIB"
+  if command -v vault_view_walk >/dev/null 2>&1; then
+    RC_WALK_LIST="$(mktemp -t rc-walk.XXXXXX)"
+    trap 'rm -f "$STDIN_CAPTURE" "${RC_WALK_LIST:-}"' EXIT
+    _rc_oifs="$IFS"; IFS=':'
+    for _rc_scope in $SCOPES; do
+      IFS="$_rc_oifs"
+      if [ -n "$_rc_scope" ] && [ -d "$_rc_scope" ]; then
+        vault_view_walk "$_rc_scope" >> "$RC_WALK_LIST" 2>/dev/null || true
+      fi
+      IFS=':'
+    done
+    IFS="$_rc_oifs"
+  fi
+fi
+export RC_WALK_LIST
 
 python3 - "$APPLY" "$INCLUDE_FM" "$SCOPES" "$PLANS_DIR" "$STDIN_CAPTURE" <<'PY'
 import json, os, re, sys
@@ -140,7 +170,9 @@ def walk_md(root):
         if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
             continue
         for fn in filenames:
-            if fn.endswith(".md"):
+            # .json registries/schemas are cascade targets too
+            # (the JSON path-ref pass rewrites a quoted path value on a rename).
+            if fn.endswith(".md") or fn.endswith(".json"):
                 yield os.path.join(dirpath, fn)
 
 def basename_no_ext(p):
@@ -158,12 +190,33 @@ def plan_slug(p):
     return m.group(1) if m else ""
 
 # ---- build index of source files (one pass) ----
+# Enumerate via the shared vault-view walker (combined
+# per-scope file list at $RC_WALK_LIST) so the vault Skills/ symlink is DESCENDED and
+# inbound SKILL.md/capability refs are cascaded. The walker skips dotdirs; EXEMPT_DIRS
+# pruned here. FALL BACK to os.walk (walk_md) when the list is empty (floor).
 sources = []
-for s in scopes:
-    if not os.path.isdir(s):
+walk_list_path = os.environ.get("RC_WALK_LIST", "")
+_walk_lines = []
+if walk_list_path and os.path.isfile(walk_list_path):
+    try:
+        with open(walk_list_path) as _wf:
+            _walk_lines = _wf.read().split("\n")
+    except Exception:
+        _walk_lines = []
+for full in _walk_lines:
+    # accept .json alongside .md (the walker emits every regular
+    # file; the .md-only gate here previously dropped .json registries/schemas).
+    if not full or not (full.endswith(".md") or full.endswith(".json")):
         continue
-    for f in walk_md(s):
-        sources.append(f)
+    if any(ex in full + "/" for ex in EXEMPT_DIRS):
+        continue
+    sources.append(full)
+if not sources:
+    for s in scopes:
+        if not os.path.isdir(s):
+            continue
+        for f in walk_md(s):
+            sources.append(f)
 
 # ---- per-rename cascade ----
 proposed = 0
@@ -193,7 +246,14 @@ for r in renames:
 WL = re.compile(r"\[\[([^\]\|#]+)(#[^\]\|]+)?(\|[^\]]+)?\]\]")
 
 # Frontmatter path-ref keys (scoped to --include-frontmatter).
-FM_PATH_KEYS = ("spec_path", "handoff_path", "ideation_brief_path", "tasks_path")
+# expanded beyond the original 4-key tuple to the research_path
+# + binder (_situating/hub) + decision-log/research-index + library + ADR/architecture
+# path keys a plan/binder frontmatter can carry, so those refs are rewritten on a rename
+# (were under-matched — only spec/handoff/ideation/tasks were reached).
+FM_PATH_KEYS = ("spec_path", "handoff_path", "ideation_brief_path", "tasks_path",
+                "research_path", "architecture_path", "decision_log_path",
+                "handoff_chronicle_path", "research_index_path",
+                "situating_path", "hub_path", "library_path")
 
 def rewrite_wikilinks(content, op):
     """Return (new_content, hits) after replacing old_base wikilinks with new_base."""
@@ -302,7 +362,10 @@ for path in sources:
     if include_fm and content.startswith("---\n"):
         # Determine scope: parent_plan only activates for ops under PLANS_DIR.
         plans_ops = [op for op in rename_ops if under_plans(op)]
-        is_plans_file = path.startswith(plans_dir.rstrip("/") + "/")
+        # the walker emits pwd -P-normalized paths, so accept
+        # BOTH the raw and realpath forms of plans_dir for the parent_plan scope-guard.
+        is_plans_file = (path.startswith(plans_dir.rstrip("/") + "/")
+                         or path.startswith(os.path.realpath(plans_dir).rstrip("/") + "/"))
         fm_ops = rename_ops  # path-refs apply everywhere
         # parent_plan substitution is gated by both the op-side (plans rename)
         # AND the target-file-side (child of a plan directory).
@@ -317,6 +380,30 @@ for path in sources:
                 "mode": "apply" if apply else "dry-run",
             })
             proposed += hits
+
+    # JSON path-ref pass: a .json registry/schema carrying a path ref equal to a
+    # renamed old_path has that value rewritten to new_path. Precise — only a QUOTED
+    # exact-match string value ("old_path") is touched (the leading + trailing quote
+    # anchor it), so a longer path that merely contains old_path as a segment is left
+    # alone. .json never triggers the wikilink/frontmatter passes above (no [[ / no
+    # leading ---), so this is the sole cascade path for JSON.
+    if path.endswith(".json"):
+        for op in rename_ops:
+            needle = '"' + op["old_path"] + '"'
+            if needle in content:
+                cnt = content.count(needle)
+                content = content.replace(needle, '"' + op["new_path"] + '"')
+                per_file_hits += cnt
+                emit({
+                    "finding": "rename-cascade-json-pathref",
+                    "file": path,
+                    "old_path": op["old_path"],
+                    "new_path": op["new_path"],
+                    "hits": cnt,
+                    "commit": op["commit"],
+                    "mode": "apply" if apply else "dry-run",
+                })
+                proposed += cnt
 
     if per_file_hits == 0:
         continue

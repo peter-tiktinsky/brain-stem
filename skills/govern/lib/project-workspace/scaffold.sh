@@ -143,7 +143,7 @@ SPOKE_SLUG="$(printf '%s' "$SPOKE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-
 
 # --- --subdir arm: scaffold an ORGANIZATIONAL-UNIT sub-project under an existing spoke ---
 # A sub-project is NOT a full project: it mints README + deliverables/ + reference/
-# ONLY — NEVER a CLAUDE.md, NEVER a hub.md. Identity stays with the master.
+# ONLY — NEVER a CLAUDE.md. Identity stays with the master.
 if [ -n "$SUBDIR" ]; then
   case "$SUBDIR" in */*|.*|"") die "invalid subdir name: '$SUBDIR' (no slashes, no leading dot)" ;; esac
   # the spoke (master) must already exist as a directory.
@@ -154,7 +154,7 @@ if [ -n "$SUBDIR" ]; then
     die "refusing to clobber existing sub-project: $SUB_DIR" 2
   fi
   mkdir -p "$SUB_DIR/deliverables" "$SUB_DIR/reference" || die "mkdir failed under $SUB_DIR"
-  # sub README — carries the one-line launch advisory + the T-9 cohort; NO CLAUDE.md, NO hub.md.
+  # sub README — carries the one-line launch advisory + the T-9 cohort; NO CLAUDE.md.
   SUBDIR_SLUG="$(printf '%s' "$SUBDIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
   [ -n "$SUBDIR_SLUG" ] || SUBDIR_SLUG="sub"
   cat > "$SUB_DIR/README.md" <<EOF
@@ -184,7 +184,7 @@ schema_version: 1
 <how you know it is finished>
 EOF
   printf 'scaffold: created sub-project %s under spoke %s at %s\n' "$SUBDIR" "$SPOKE" "$SUB_DIR"
-  printf '  shape   : README.md deliverables/ reference/ (no CLAUDE.md, no hub.md — organizational unit)\n'
+  printf '  shape   : README.md deliverables/ reference/ (no CLAUDE.md — organizational unit)\n'
   exit 0
 fi
 

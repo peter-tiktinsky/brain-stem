@@ -72,7 +72,7 @@ while [[ $# -gt 0 ]]; do
     --plans)      PLANS_ONLY=true; shift ;;
     --fix)        DO_FIX=true; shift ;;
     --scope)      SCOPE="$2"; shift 2 ;;
-    -h|--help)    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)            echo "drift-sweep: unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -82,6 +82,10 @@ export FINDINGS_OUTPUT="${OUTPUT:-${FINDINGS_OUTPUT:-}}"
 # --- master<->sub aggregation axis (NET-NEW) ---------------------
 # Re-uses the trinity-drift-detect master<->sub detector for the read; --fix
 # delegates the repair to the canonical aggregator (single-writer invariant).
+# DERIVE disposition: this axis INHERITS trinity-drift-detect's retire/preserve —
+# the wrapped detector runs the (manifest-only) master<->sub axis + the PRESERVED
+# trinity-task-ledger-lag, and no longer emits the retired artifact-frontmatter
+# axes (spec-manifest-divergence / header-trinity-divergence). No change here.
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 run_master_sub_axis() {
   local td="$SELF_DIR/trinity-drift-detect.sh"
@@ -110,6 +114,10 @@ if [[ "$PLANS_ONLY" == "true" ]]; then
 fi
 
 # --- frontmatter-drift sweep (PRESERVED axis) ------------------------
+# DERIVE disposition: UNAFFECTED. This sweep flags only fields in a type's
+# required[] (missing_required). `status` is NOT in the spec/tasks/ideation-brief
+# required[] (foundation-master.frontmatter.types.*.required), so stripping status:
+# from plan artifacts does not trip missing_required. No change here.
 if [[ ! -f "$FOUNDATION_MASTER" ]]; then
   echo "drift-sweep: foundation-master.json not found at $FOUNDATION_MASTER; "\
        "running master<->sub axis only" >&2

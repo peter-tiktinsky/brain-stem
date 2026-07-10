@@ -14,9 +14,7 @@
 # shape — NOT an autonomous daemon. No task fires without a human
 # reasoning/approval point (see HITL/HOTL gate below).
 #
-# ---------------------------------------------------------------------------
 # tasks[].prompt_file resolution (Convention)
-# ---------------------------------------------------------------------------
 # Each task's worker brief is resolved by CONVENTION at:
 #
 #     $JOBS_DIR/<task-id>.md
@@ -31,9 +29,7 @@
 # which execs `job-runner.sh --prompt-file <brief>` (the existing contract).
 # This convention is also documented in orchestrator/README.md.
 #
-# ---------------------------------------------------------------------------
 # HITL/HOTL gate wiring (the v1.0.0 safety floor)
-# ---------------------------------------------------------------------------
 # Before dispatching ANY task the runner gates it:
 #   * HITL (human-in-the-loop, approve-before-act): tasks whose owning manifest
 #     declares live_mutation_scope.enabled==true, OR a task marked irreversible.
@@ -44,7 +40,6 @@
 # This gate is INDEPENDENT of the dispatch-governance layer — it is the
 # propose-and-gate primitive and the independent v1.0.0 safety floor.
 #
-# ---------------------------------------------------------------------------
 # Sub-peer isolation: cross-sub ordering routes through the master
 # sub_plans[]/dependencies — the walker never honors a sub→sibling-sub edge
 # directly (R-63 advisory).
@@ -247,9 +242,7 @@ topo_order() {
   rm -f "$indeg_file" "$edges_file" "${indeg_file}.t" 2>/dev/null || true
 }
 
-# ============================================================
 # Main — walk the master DAG in topo order, dispatch each sub.
-# ============================================================
 echo "Plan-runner: $MASTER_MANIFEST"
 ORDER=$(topo_order)
 if [ -z "$ORDER" ]; then

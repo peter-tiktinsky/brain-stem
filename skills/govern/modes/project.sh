@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # modes/project.sh — Class F (b / FIX#8) handler for
 # /govern register --kind project. The C1/C5 work-project on-ramp.
+#
 # A Work spoke is an external-root PROJECT WORKSPACE (~/work/<spoke>/, surfaced
 # in the vault as Work/<spoke>/ via the build-time symlink). Registering a
 # project mints the on-disk shape via the project-workspace scaffolder, records
@@ -8,7 +9,8 @@
 # vault-view path_routing overlay rule so write-time governance fires for the
 # spoke. It NEVER appends to the vault-root CLAUDE.md tree (FIX#3 / folder.sh
 # carve-out) — a project's identity lives in its own work CLAUDE.md (cross-plan
-# state lives in the binder hub at ~/.claude-plans/_projects/<spoke>/hub.md).
+# state lives in the machine-derived binder at ~/.claude-plans/_projects/<spoke>/).
+#
 # TWO SHAPES:
 #   --layout flat (default)  : flat MVP — CLAUDE.md + README + updates.md +
 #                              deliverables/ + reference/; one overlay rule
@@ -19,15 +21,18 @@
 #                              Work/<spoke>/*/{deliverables,reference}/** so one rule
 #                              covers all current+future subs (survives a 2nd sub via
 #                              the union leaf).
+#
 # The work CLAUDE.md carries an auto-maintained directory map (work-map:start/end
 # sentinels, re-derived by the work directory-map generator) + README/binder
 # pointers — no @import, no plan roster (the binder owns that).
+#
 # IDENTITY BOUND (/, the #1 recursion control): a spoke entry is
 # minted ONLY for a directory EXACTLY ONE level under $WORK_HOME. project.sh
 # REJECTS any cwd where canonical(dirname(cwd)) != canonical($WORK_HOME) — the
 # registry won't stop depth-2 (no parent edge; longest-anchor-wins), so the guard
 # lives here. Only the MASTER registers a spoke; sub-projects are ORGANIZATIONAL
 # UNITS — no spoke, no anchor, no CLAUDE.md.
+#
 # GROW-LATER sub-modes:
 #   --under <spoke> --add-sub <name> : scaffold a sub + emit its overlay rule
 #     (priors kept via the union leaf). The sub listing is auto-derived from disk
@@ -36,7 +41,8 @@
 #   --adopt : sub->top-level promotion. The operator git mv is EMITTED, not
 #     executed; then register the depth-1 spoke + scaffold the MISSING-ONLY work
 #     CLAUDE.md (clobber-refusal relaxed for adopt; README/deliverables/reference
-#     byte-unchanged) + mint the binder hub. Lossless; ZERO content-file mutation.
+#     byte-unchanged) + establish the binder home. Lossless; ZERO content-file mutation.
+#
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible. R-23.
 
@@ -47,6 +53,38 @@ _PROJECT_REPO_ROOT="$(cd "$_PROJECT_SH_DIR/../../.." && pwd)"
 _PROJECT_SCAFFOLD="${PROJECT_SCAFFOLD_SH:-$_PROJECT_SH_DIR/../lib/project-workspace/scaffold.sh}"
 _PROJECT_SPOKE_RESOLVE="${SPOKE_RESOLVE_LIB:-$_PROJECT_REPO_ROOT/skills/new-plan/lib/spoke-resolve.sh}"
 _PROJECT_FOLDER_SH="${PROJECT_FOLDER_SH:-$_PROJECT_SH_DIR/folder.sh}"
+
+# source the shared shape helper so the --add-folder guards can reject the
+# reserved subdir names (deliverables/reference) by REUSING its RESERVED word-list
+# (work-spoke-layout.sh:45) rather than hard-coding a fresh literal here. A reserved
+# name accepted as a plain top-level folder misclassifies the master's shape
+# (classify_top_level skips deliverables/reference). Fallback-sourcing pattern —
+# CLAUDE_HOME install-copy first, repo copy second (work-index-maintain.sh:118-120).
+_PROJECT_CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+{ [ -r "$_PROJECT_CLAUDE_HOME/hooks/lib/work-spoke-layout.sh" ] && source "$_PROJECT_CLAUDE_HOME/hooks/lib/work-spoke-layout.sh"; } \
+  || { [ -r "$_PROJECT_REPO_ROOT/hooks/lib/work-spoke-layout.sh" ] && source "$_PROJECT_REPO_ROOT/hooks/lib/work-spoke-layout.sh"; } \
+  || { printf 'project.sh: shape helper work-spoke-layout.sh not found (need its RESERVED word-list)\n' >&2; exit 3; }
+
+# reject a shape-reserved subdir name (deliverables/reference) at the FOUR
+# sub-project front doors — --add-sub (propose+commit) and --first-sub
+# (propose+commit) — mirroring the --add-folder guard (336-343 / :607-615).
+# A reserved-named sub can NEVER classify as a sub (classify_top_level skips
+# deliverables/reference) and scaffolding Work/<spoke>/deliverables/ silently flips a
+# master's shape identity (work-spoke-layout.sh:95 sets WSL_HAS_DELIV=1 -> :112 DENIES
+# master). REUSES the sourced RESERVED word-list (work-spoke-layout.sh:45) — never
+# re-hard-coded; bash-3.2 word-split. $1 = candidate name, $2 = context label. Returns
+# 2 (rc!=0) on a reserved name; 0 for an empty or non-reserved name (a flat layout has
+# no sub, so an empty name always passes).
+_proj_reject_reserved() {
+  local _name="$1" _ctx="$2" _reserved
+  for _reserved in $RESERVED; do
+    if [ "$_name" = "$_reserved" ]; then
+      printf 'project.%s: reserved sub-project name: %s (deliverables/reference are shape-reserved subdir names — a reserved-named sub can never classify as a sub and would silently flip the master shape identity)\n' "$_ctx" "$_name" >&2
+      return 2
+    fi
+  done
+  return 0
+}
 
 # Canonicalize a path WITHOUT requiring realpath (absent on macOS bash 3.2).
 # Matches how the rest of the codebase canonicalizes: cd … && pwd -P. Falls
@@ -255,6 +293,28 @@ _proj_workindex_mint() {
   return 0
 }
 
+# Write the persistent sub-project DECLARATION marker (the ratified store) into a
+# scaffolded sub. Presence of the marker declares the folder a sub-project; the
+# classifier (work-spoke-layout.sh declared_subproject / classify_top_level) keys on
+# PRESENCE only, so the sub STAYS recognized even if its deliverables/+reference/ are
+# later removed or renamed (declaration-first, shape-fallback). The marker NAME is
+# REUSED from the sourced shape helper ($SUBPROJECT_MARKER, work-spoke-layout.sh) — no
+# fresh literal here. The written text is advisory and never read. $1 = sub dir.
+_proj_write_subproject_marker() {
+  local dir="$1"
+  {
+    printf '# Declared sub-project marker (created by /govern register --add-sub).\n'
+    printf '# Presence of this file declares this folder a sub-project; it stays\n'
+    printf '# recognized as a sub even if deliverables/ and reference/ are later\n'
+    printf '# removed or renamed. The classifier keys on PRESENCE only — this text\n'
+    printf '# is advisory and never read.\n'
+  } > "$dir/$SUBPROJECT_MARKER" 2>/dev/null || {
+    printf 'project: could not write sub-project declaration marker: %s\n' "$dir/$SUBPROJECT_MARKER" >&2
+    return 6
+  }
+  return 0
+}
+
 # mode_propose — emit the project-registration proposal JSON to stdout.
 # Project-specific blocks (registry_anchor + scaffold) folder.sh has neither.
 # The depth guard runs here too so an out-of-bound cwd never even proposes.
@@ -290,6 +350,14 @@ mode_propose() {
     case "$add_folder" in
       */*|.*|"") printf 'project.mode_propose: invalid folder name: %s (no slashes, no leading dot)\n' "$add_folder" >&2; return 2 ;;
     esac
+    # reject the shape-reserved subdir names (deliverables/reference). REUSE
+    # the sourced RESERVED word-list (work-spoke-layout.sh:45) — word-split, bash-3.2.
+    for _reserved in $RESERVED; do
+      if [ "$add_folder" = "$_reserved" ]; then
+        printf 'project.mode_propose: reserved folder name: %s (deliverables/reference are shape-reserved subdir names, not plain top-level folders)\n' "$add_folder" >&2
+        return 2
+      fi
+    done
     # The overlay routing rule for the folder: default type-slug = the folder-name
     # slug (folder.sh's own basename default, e.g. People -> people); --role, when
     # given, OVERRIDES it as an explicit label. role="" => folder.sh default is used.
@@ -298,7 +366,7 @@ mode_propose() {
       --arg role "$role" \
       '{kind:"project", op:"add-folder", spoke:$spoke, folder:$folder,
         role:($role | if . == "" then null else . end),
-        notes:["Mints a PLAIN top-level folder Work/<spoke>/<name> — NO deliverables/reference, NO README, NO CLAUDE.md, NO registry write (an organizational unit, not a sub-project or a spoke).",
+        notes:["PLAIN top-level folder (vs --add-sub for a sub-project): mints Work/<spoke>/<name> — NO deliverables/reference, NO README, NO CLAUDE.md, NO registry write, and NO sub-project declaration marker. It is classified by SHAPE as a non-sub folder; to make it a sub-project use --add-sub instead.",
                "Emits its overlay routing rule Work/<spoke>/<name>/** by default (mirrors --add-sub); the routing type-slug is the folder-name slug, or the --role label when given.",
                "Re-derives the master work-map so the folder appears under \"Other top-level folders (not sub-projects):\".",
                "Re-running on an existing folder BLOCKS via the mode own [ -e ] && die guard (non-destructive)."]}'
@@ -311,10 +379,13 @@ mode_propose() {
       printf 'project.mode_propose: --under <spoke> AND --add-sub <name> both required for the add-sub sub-mode\n' >&2
       return 2
     fi
+    # symmetric to the --add-folder propose guard — a reserved-named sub is rejected.
+    _proj_reject_reserved "$add_sub" "mode_propose --add-sub" || return $?
     jq -nc \
       --arg spoke "$under" --arg sub "$add_sub" \
       '{kind:"project", op:"add-sub", spoke:$spoke, sub:$sub,
-        notes:["Scaffolds Work/<spoke>/<sub>/{README,deliverables/,reference/} — NO CLAUDE.md (organizational unit,/).",
+        notes:["SUB-PROJECT (vs --add-folder for a plain top-level folder): scaffolds Work/<spoke>/<sub>/{README,deliverables/,reference/} — NO CLAUDE.md (organizational unit,/).",
+               "Records a persistent sub-project DECLARATION (.claude-subproject marker) so this folder STAYS recognized as a sub even if deliverables/reference are later removed or renamed (declaration-first, shape-fallback; the marker is an ADDITIVE opt-in override).",
                "Emits the per-sub overlay rule via the union leaf (priors kept).",
                "The sub listing is auto-derived from disk by the work directory-map generator on the next refresh.",
                "On a FLAT spoke: WARN + advise manual relocation of existing top-level deliverables/reference (— never auto-moved)."]}'
@@ -336,7 +407,7 @@ mode_propose() {
     jq -nc --arg spoke "$spoke" --arg cwd "$cwd" \
       '{kind:"project", op:"adopt", spoke:$spoke, cwd:$cwd,
         notes:["sub->top-level promotion. The operator git mv is EMITTED, not executed.",
-               "Registers a depth-1 spoke + scaffolds the MISSING-ONLY work CLAUDE.md + mints the binder hub (existing README/deliverables/reference byte-unchanged).",
+               "Registers a depth-1 spoke + scaffolds the MISSING-ONLY work CLAUDE.md + establishes the binder home (existing README/deliverables/reference byte-unchanged).",
                "Advises retracting the old Work/master/sub/** rule. Lossless — ZERO content-file mutation."]}'
     return 0
   fi
@@ -357,6 +428,8 @@ mode_propose() {
     printf 'project.mode_propose: --layout master requires --first-sub <name> (the master scaffolds its first sub-project so the normal path never lingers in MASTER-PENDING)\n' >&2
     return 2
   fi
+  # a reserved --first-sub can never be a real sub and would flip the master's shape.
+  _proj_reject_reserved "$first_sub" "mode_propose --first-sub" || return $?
 
   jq -nc \
     --arg spoke "$spoke" --arg layout "$layout" --arg first_sub "$first_sub" --arg cwd "$cwd" \
@@ -386,7 +459,7 @@ mode_propose() {
       notes: [
         "Depth-1 only — a spoke entry is minted ONLY for a directory exactly one level under $WORK_HOME (identity never recurses).",
         (if $layout == "master"
-          then "MASTER: master top (CLAUDE.md+README+updates.md, NO top-level deliverables/reference) + sub-project " + $first_sub + " (README+deliverables+reference, NO CLAUDE.md). wildcard rule covers all current+future subs."
+          then "MASTER: master top (CLAUDE.md+README+updates.md, NO top-level deliverables/reference) + sub-project " + $first_sub + " (README+deliverables+reference, NO CLAUDE.md). wildcard rule covers all current+future subs. The first sub records a persistent .claude-subproject declaration (declaration-first, shape-fallback) so it stays recognized even if deliverables/reference are later removed."
           else "FLAT: flat MVP (CLAUDE.md+README+updates.md+deliverables/+reference/); one rule Work/" + $spoke + "/**." end),
         "Only the MASTER registers a spoke; sub-projects are organizational units () — no spoke, no anchor, no CLAUDE.md ()."
       ]
@@ -398,7 +471,7 @@ mode_propose() {
 # mode_commit — apply a validated project proposal.
 #   create : registry-patch (master only) + scaffold + overlay rule emit.
 #   add-sub: scaffold sub + overlay rule (sub listing auto-derived from disk).
-#   adopt  : registry-patch + missing-only work CLAUDE.md scaffold + binder hub + overlay.
+#   adopt  : registry-patch + missing-only work CLAUDE.md scaffold + binder home + overlay.
 mode_commit() {
   local proposal="$1"
   shift || true
@@ -421,6 +494,9 @@ mode_commit() {
         printf 'project.mode_commit: proposal missing .spoke\n' >&2
         return 2
       fi
+      # defense-in-depth for a hand-built proposal — reject a reserved first-sub
+      # BEFORE the registry write / master scaffold / sub scaffold (502-506): never scaffolds.
+      _proj_reject_reserved "$first_sub" "mode_commit create --first-sub" || return $?
       # BLOCK re-registration BEFORE any scaffold or anchor write.
       if _proj_spoke_registered "$spoke"; then
         printf 'project.mode_commit: spoke '\''%s'\'' already registered — BLOCKED (no dup anchor, no re-scaffold)\n' "$spoke" >&2
@@ -450,14 +526,17 @@ mode_commit() {
           printf 'project.mode_commit: sub-project scaffold (%s) failed for spoke %s\n' "$first_sub" "$spoke" >&2
           return 3
         }
+        # Record the persistent sub-project declaration (the first-sub is a declared sub).
+        _proj_write_subproject_marker "$wh/$spoke/$first_sub" || return $?
       fi
       # 2a. Mint the work-side folder indexes so deliverables/_index.md +
       #     reference/_index.md EXIST immediately after registration (the scaffolder
       #     does not mint _index.md). Best-effort: block-and-log, never fails register.
       _proj_workindex_mint "$spoke"
-      # 2b. Establish the binder home + mint the binder-side hub.md (template render,
-      #     NOT a generator — preserves C-HUB/R-BIND "no capability generates hub.md").
-      _proj_mint_binder_hub "$spoke" || return $?
+      # 2b. Establish the binder home. The binder is 100% machine-derived — the
+      #     situating card + research/decision/handoff surfaces are generated here by
+      #     the librarian binder capabilities; registration only makes the directory.
+      _proj_establish_binder_home "$spoke" || return $?
       # 3. Emit the overlay rule ({rules:[...]} shape via the union leaf).
       #    FLAT  -> simple Work/<spoke>/** (folder.sh auto-append).
       #    MASTER-> literal wildcard Work/<spoke>/*/{deliverables,reference}/**.
@@ -479,7 +558,7 @@ mode_commit() {
           return 3
         }
       fi
-      printf 'project: registered spoke %s (layout=%s) — registry + scaffold + binder hub + overlay rule committed.\n' "$spoke" "$layout" >&2
+      printf 'project: registered spoke %s (layout=%s) — registry + scaffold + binder home + overlay rule committed.\n' "$spoke" "$layout" >&2
       return 0
       ;;
 
@@ -491,6 +570,9 @@ mode_commit() {
         printf 'project.mode_commit: add-sub proposal missing .spoke/.sub\n' >&2
         return 2
       fi
+      # defense-in-depth for a hand-built proposal — reject a reserved sub BEFORE
+      # the scaffold (562-567)/marker/overlay side effect (symmetric to :607-615).
+      _proj_reject_reserved "$sub" "mode_commit add-sub" || return $?
       if [ ! -d "$wh/$spoke" ]; then
         printf 'project.mode_commit: spoke dir not found for add-sub: %s\n' "$wh/$spoke" >&2
         return 3
@@ -508,8 +590,12 @@ mode_commit() {
         printf 'project.mode_commit: sub-project scaffold (%s) failed for spoke %s\n' "$sub" "$spoke" >&2
         return 3
       }
+      # 1a. Record the persistent sub-project declaration marker (the ratified store)
+      #     so the sub stays recognized even if its deliverables/+reference/ are later
+      #     removed/renamed (declaration-first, shape-fallback; ADDITIVE over the scaffold).
+      _proj_write_subproject_marker "$wh/$spoke/$sub" || return $?
       # 2. Per-sub overlay rule (priors kept via the union leaf).
-      #    No work-side hub append — sub listings are auto-derived from disk by the
+      #    No work-side pointer append — sub listings are auto-derived from disk by the
       #    work directory-map generator on the next refresh (no static sub-pointer).
       _proj_emit_overlay_rule "Work/$spoke/$sub" || return $?
       # 3. Auto-derive the master's work-map so the new sub appears in the master
@@ -543,6 +629,15 @@ mode_commit() {
       case "$folder" in
         */*|.*|"") printf 'project.mode_commit: invalid folder name: %s (no slashes, no leading dot)\n' "$folder" >&2; return 2 ;;
       esac
+      # reject the shape-reserved subdir names (deliverables/reference) —
+      # defense-in-depth for a hand-built proposal that bypassed mode_propose. REUSE
+      # the sourced RESERVED word-list (work-spoke-layout.sh:45); word-split, bash-3.2.
+      for _reserved in $RESERVED; do
+        if [ "$folder" = "$_reserved" ]; then
+          printf 'project.mode_commit: reserved folder name: %s (deliverables/reference are shape-reserved subdir names, not plain top-level folders)\n' "$folder" >&2
+          return 2
+        fi
+      done
       if [ ! -d "$wh/$spoke" ]; then
         printf 'project.mode_commit: spoke dir not found for add-folder: %s\n' "$wh/$spoke" >&2
         return 3
@@ -614,18 +709,18 @@ mode_commit() {
       #    scaffolder refuses to clobber the real spoke dir, so mint the identity file
       #    directly here, ONLY when absent, via the SHARED renderer (byte-identical to
       #    the register path). README/deliverables/reference are byte-unchanged (never
-      #    touched). No work-side hub.md is minted — cross-plan state lives in the binder.
+      #    touched). No work-side pointer file is minted — cross-plan state lives in the binder.
       _proj_adopt_mint_identity "$spoke" "$cwd" || return $?
       # 2a. Mint the work-side folder indexes for the promoted spoke so its
       #     deliverables/_index.md + reference/_index.md exist immediately. Best-effort.
       _proj_workindex_mint "$spoke"
-      # 2b. Establish the binder home + mint the binder-side hub.md (the curated cover
-      #     page at $plans_root/_projects/<spoke>/hub.md; separate tree, missing-only render).
-      _proj_mint_binder_hub "$spoke" || return $?
+      # 2b. Establish the binder home (separate tree at $plans_root/_projects/<spoke>/).
+      #     100% machine-derived — the librarian binder capabilities generate its surfaces.
+      _proj_establish_binder_home "$spoke" || return $?
       # 3. Overlay rule for the promoted top-level spoke.
       _proj_emit_overlay_rule "Work/$spoke" || return $?
       printf 'project: ADVISORY — retract the old Work/<master>/%s/** overlay rule for %s (now a top-level spoke).\n' "$spoke" "$spoke" >&2
-      printf 'project: adopted %s as a top-level spoke — registry + missing-only identity + binder hub + overlay committed (content byte-unchanged).\n' "$spoke" >&2
+      printf 'project: adopted %s as a top-level spoke — registry + missing-only identity + binder home + overlay committed (content byte-unchanged).\n' "$spoke" >&2
       return 0
       ;;
 
@@ -637,8 +732,8 @@ mode_commit() {
 }
 
 # Mint the work CLAUDE.md for an adopted sub (MISSING-ONLY; relax clobber for
-# adopt). NO work-side hub.md is minted — the adopted spoke's cross-plan state lives
-# in the binder hub (_proj_mint_binder_hub, minted separately). The work CLAUDE.md
+# adopt). NO work-side pointer file is minted — the adopted spoke's cross-plan state
+# lives in the machine-derived binder (established separately). The work CLAUDE.md
 # shape MUST stay byte-identical to the register path: both render via the SHARED
 # flat renderer SOURCED from scaffold.sh (the single source of truth for the frozen
 # work-CLAUDE.md interface — directory-map block + README/binder pointers, no @import).
@@ -660,16 +755,15 @@ _proj_adopt_mint_identity() {
   return 0
 }
 
-# Establish the project binder home + mint the binder-side hub.md for a spoke.
+# Establish the project binder home for a spoke.
 #   $1 = spoke key.
 # Creates ~/.claude-plans/_projects/<spoke>/ (idempotent; also mints the _projects/
-# parent if absent) then renders hub.md from the foundation hub template MISSING-ONLY
-# (never clobbers a curated hub). This is a template render, NOT a generator — it
-# preserves the C-HUB/R-BIND invariant "no librarian capability generates hub.md."
-# The binder hub ($plans_root/_projects/<spoke>/hub.md) is the ONLY hub.md in play —
-# the work spoke carries no hub.md (its CLAUDE.md owns identity + directory map).
-_proj_mint_binder_hub() {
-  local plans_root binder_home tdir hub_template today tmp
+# parent if absent). The binder is 100% machine-derived: the situating card (its sole
+# cover) + the research/decision/handoff surfaces are generated INTO this home by the
+# librarian binder capabilities; registration only establishes the directory. This is
+# the relocated `mkdir -p` — it carries no template render and mints no cover file.
+_proj_establish_binder_home() {
+  local plans_root binder_home
   # Plans root — the established sibling resolution convention.
   plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
   case "$plans_root" in */) plans_root="${plans_root%/}" ;; esac
@@ -678,30 +772,5 @@ _proj_mint_binder_hub() {
     printf 'project: binder home mkdir failed: %s\n' "$binder_home" >&2
     return 3
   }
-  # Resolve a templates dir (explicit env -> $CLAUDE_HOME/templates -> repo).
-  if [ -n "${PROJECT_TEMPLATES_DIR:-}" ]; then
-    tdir="$PROJECT_TEMPLATES_DIR"
-  elif [ -n "${CLAUDE_HOME:-}" ] && [ -d "$CLAUDE_HOME/templates" ]; then
-    tdir="$CLAUDE_HOME/templates"
-  else
-    tdir="$_PROJECT_REPO_ROOT/templates"
-  fi
-  hub_template="$tdir/hub-template.md"
-  if [ ! -f "$hub_template" ]; then
-    printf 'project: hub template not found for binder mint: %s\n' "$hub_template" >&2
-    return 3
-  fi
-  # Hub mint — MISSING-ONLY, never clobber a curated hub. Atomic temp+mv render.
-  if [ ! -f "$binder_home/hub.md" ]; then
-    today="$(date +%F)"
-    tmp="$binder_home/.hub.md.tmp.$$"
-    sed -e "s/<spoke>/$1/g" -e "s/<YYYY-MM-DD>/$today/g" "$hub_template" > "$tmp" \
-      || { rm -f "$tmp"; printf 'project: binder hub.md render failed: %s\n' "$binder_home/hub.md" >&2; return 6; }
-    if ! mv -f "$tmp" "$binder_home/hub.md"; then
-      rm -f "$tmp"
-      printf 'project: binder hub.md commit failed: %s\n' "$binder_home/hub.md" >&2
-      return 6
-    fi
-  fi
   return 0
 }

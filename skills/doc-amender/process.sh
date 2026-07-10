@@ -34,7 +34,7 @@ _DA_ORIG_ARGV=("$@")
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
-# : the shared libs live at hooks/lib/ (brain-stem has no top-level lib/).
+# the shared libs live at hooks/lib/ (brain-stem has no top-level lib/).
 # Resolve via $CLAUDE_HOME at runtime (installed layout) with a repo fallback.
 _DA_CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 _DA_STATE_ROOT="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"

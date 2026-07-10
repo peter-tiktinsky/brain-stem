@@ -19,7 +19,6 @@
 #   Files written: one staging packet at
 #     $STAGING_ROOT/<writer-id>/<content-sha256>.json (atomic temp+rename).
 #   Packet shape (v1.1):
-#     {
 #       "packet_version": "1.1",
 #       "writer_id": "<writer-reference filename minus .md>",
 #       "emitted_at": "<ISO-8601 UTC>",
@@ -30,7 +29,6 @@
 #       "metadata": { ... opaque to reconciler ... },
 #       "packet_kind": "writer-emit | amender-replacement | amender-conflict",
 #       "source_id": "<optional; omitted if empty>"
-#     }
 #   Pre-write validation: argv enums (output-type, packet-kind, dedup),
 #     filename-safe writer-id, body-file readable, metadata valid JSON, prereqs
 #     (jq, shasum) present; post-compose JSON parse-check before atomic rename.

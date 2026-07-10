@@ -493,13 +493,13 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-07-01T17:52:57Z",
-    "bundle_version": "a331237de2f314cdec2d842159afd2a83064fa2f67934ca62cb384b5bef905ee",
+    "built_at": "2026-07-06T17:56:13Z",
+    "bundle_version": "a4bb56d2208a7f43e105999a2a48d486aa9c61834e6927f03fe34d20efe086d1",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-06-24T13:48:58Z",
+      "governance/_index.json": "2026-07-06T17:56:13Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
-      "governance/frontmatter-rules.json": "2026-06-24T13:48:58Z",
+      "governance/frontmatter-rules.json": "2026-07-06T17:56:13Z",
       "governance/mandatory-files-rules.json": "2026-06-25T01:15:31Z",
       "governance/naming-rules.json": "2026-06-24T13:48:58Z",
       "governance/plans-rules.json": "2026-07-01T01:13:33Z",
@@ -2146,7 +2146,11 @@
           "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
         ],
         "exemption_paths": [
-          "Work/**"
+          "Work/**",
+          "Plans/**",
+          "Projects/**",
+          "Wiki/**",
+          "Skills/**"
         ],
         "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check.",
         "file_pattern": "**/_index.md",
@@ -2293,7 +2297,7 @@
         "tier": "advisory"
       },
       {
-        "_enforcement_scope_depth3_note": "The last two globs ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json) extend R-27's enforcement to depth-3 sub-plan roots — depth-3 sub-plan spec.md/manifest.json are governed peers carrying their OWN canonical status, NOT status-derived shadows of the master. A sub-plan can be paused independently of its master; the master sub_plans[] aggregate reflects each sub's published status. The hook substance asserts: (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/; (b) target is spec.md or manifest.json; (c) manifest.json carries status: present + value in the lifecycle.status_enum.",
+        "_enforcement_scope_depth3_note": "The last two globs ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json) extend R-27's enforcement to depth-3 sub-plan roots. A depth-3 sub-plan manifest.json is a governed peer carrying its OWN canonical status, NOT a status-derived shadow of the master; a sub-plan can be paused independently of its master, and the master sub_plans[] aggregate reflects each sub's published status. A depth-3 sub-plan spec.md is manifest-derived under the single status SoT — it defers to its sibling manifest's status rather than carrying its own. The hook substance asserts: (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/; (b) target is spec.md or manifest.json; (c) for manifest.json, status: present + value in the lifecycle.status_enum; (d) for spec.md, an inline **Status:**/YAML status: OR a sibling manifest.json status — DENY fires only when neither an inline marker nor a sibling-manifest status is present.",
         "category": "C3",
         "enforcement_layer": [
           "pre-write-guard.sh plan-creation block (write-time DENY)",
@@ -2317,7 +2321,7 @@
         "failure_mode": "Plans without numeric prefix or status break librarian plan-index regeneration. Shame slugs degrade plan-index, backlog routing, and search-by-name.",
         "home": "naming",
         "id": "R-27",
-        "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) a status marker (`**Status:**` header bullet, YAML `status:` frontmatter, or `manifest.json` top-level `status` field with a value in the canonical 8-state lifecycle.status_enum). The spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
+        "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) an authoritative status. The status is satisfied by any of: a `**Status:**` header bullet, YAML `status:` frontmatter, a `manifest.json` top-level `status` field, OR — for `spec.md` and `00-ideation-brief.md` — a sibling `manifest.json` carrying a top-level `status` field. spec.md/00-ideation-brief.md are manifest-derived: the manifest is the single status SoT, so an artifact carrying no inline status defers to its plan's manifest and DENYs only when the manifest carries no status either. Flat-root plans and README.md have no sibling manifest and keep the inline `**Status:**`/`status:` requirement; a `manifest.json` write keeps its OWN top-level `status`. Status values use the canonical 8-state lifecycle.status_enum; the spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
         "sanctioned_creation_paths": [
           "/new-plan",
           "/backlog-research"
@@ -2336,7 +2340,8 @@
         "status_acceptance": [
           "**Status:** header bullet",
           "YAML status: frontmatter",
-          "manifest.json top-level status field"
+          "manifest.json top-level status field",
+          "sibling manifest.json status (spec.md + 00-ideation-brief.md are manifest-derived under the single status SoT — a no-inline-status artifact defers to its plan manifest; DENY only when the sibling manifest has no status)"
         ],
         "surface": "plan-governance",
         "tier": "deny",
@@ -2701,6 +2706,48 @@
           "librarian"
         ]
       }
+    },
+    "root_namespace": {
+      "_description": "CLOSED plans-root namespace. The plans-tree root admits ONLY the entry classes enumerated in allowed_entry_classes — nothing else. This is the single source of truth read by the write-time root-allowlist guard (hooks/pre-write-guard.sh, positioned before R-27), the sweep-side rule (skills/librarian/capabilities/placement-validate.sh), and the shared classifier hooks/lib/plan-path.sh::classify_root_entry. A root entry matching no allowed class is non-conforming: ask->deny at write-time (advisory-to-blocking rollout), flagged by the sweep. Rationale: session outputs with no owning plan otherwise invent root surfaces whose records get no lifecycle; a closed namespace routes durable artifacts to their owning context instead.",
+      "allowed_entry_classes": {
+        "dot_entries": {
+          "_description": "Leading-dot entries (.git, .gitignore, .DS_Store, .active-plan, dotfiles) are class-exempt so the closed namespace does not fight VCS/OS/pointer machinery.",
+          "class_exempt": true,
+          "kind": "any",
+          "match": "leading-dot"
+        },
+        "funnel_registry_surfaces": {
+          "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). ENFORCEMENT-MAP.md is deliberately NOT an enumerated surface — the governance JSON pillar is the live rule source of truth; the historical map is not a durable root registry.",
+          "kind": "dir",
+          "members": [
+            "_inbox",
+            "_projects",
+            "_library"
+          ]
+        },
+        "legacy_flat_plans": {
+          "_description": "Depth-1 flat NN-<slug>.md plans — kept in place, not retroactively invalidated (each carries inbound citations). CLOSED class: the scaffolder mints directories only, so no new flat-plan members can appear through the sanctioned path.",
+          "kind": "file",
+          "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+\\.md$"
+        },
+        "plan_dirs": {
+          "_description": "NN-<slug> plan directories (conforming-active; R-27-governed prefix + status).",
+          "kind": "dir",
+          "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+$"
+        },
+        "root_files": {
+          "_description": "Librarian-generated root registry files (also enumerated under root_files above).",
+          "kind": "file",
+          "members": [
+            "_index.md",
+            "_backlog.md",
+            "_archive.md"
+          ]
+        }
+      },
+      "closed": true,
+      "grandfathered": [],
+      "rollout": "ask"
     },
     "schema_version": "2.0.0",
     "slug_rules": {

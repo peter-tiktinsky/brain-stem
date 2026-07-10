@@ -65,7 +65,7 @@ TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_ONLY="true"; shift ;;
-    -h|--help) sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     --*) echo "tasks-render: unknown flag '$1'" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
@@ -190,7 +190,8 @@ for req in ("schema_version", "project", "spec_path"):
 tasks = manifest.get("tasks") or []
 title = manifest.get("title") or manifest.get("project") or plan_slug
 spec_path = manifest.get("spec_path") or ""
-mstatus = manifest.get("status", "planned")
+# DERIVE: manifest status is no longer stamped into the tasks.md preface (the
+# artifact is a manifest-derived replica; manifest.json :: status is the SoT).
 
 
 def emit(d):
@@ -275,15 +276,40 @@ ledger_rows_ondisk = 0
 if os.path.isfile(tasks_file):
     with open(tasks_file, encoding="utf-8") as fh:
         existing = fh.read()
-    s_idx = existing.find(SENTINEL_START)
-    e_idx = existing.find(SENTINEL_END)
-    if s_idx >= 0 and e_idx > s_idx:
+    # LINE-ANCHORED marker location (sentinel-in-comment hardening): a marker counts ONLY
+    # as a full line consisting of exactly the literal marker (trailing whitespace
+    # tolerated). A first-occurrence substring find() locks onto a marker MENTION inside
+    # preface prose/comments (a hand-authored shape-contract comment can legitimately name
+    # both markers on one line), splices the render there, and preserves the real block as
+    # a stale footer — silent corruption on any automated manifest-write render. Marker
+    # text present without exactly one real start + one real end line (in order) is
+    # AMBIGUOUS: block-and-log, never write-and-hope.
+    def _marker_line_offsets(text, marker):
+        offs, pos = [], 0
+        for _ln in text.splitlines(True):
+            if _ln.rstrip() == marker:
+                offs.append(pos)
+            pos += len(_ln)
+        return offs
+    _starts = _marker_line_offsets(existing, SENTINEL_START)
+    _ends = _marker_line_offsets(existing, SENTINEL_END)
+    if len(_starts) == 1 and len(_ends) == 1 and _ends[0] > _starts[0]:
+        s_idx, e_idx = _starts[0], _ends[0]
         sentinel_existed = True
         preface = existing[:s_idx]
         footer = existing[e_idx + len(SENTINEL_END):]
         region = existing[s_idx + len(SENTINEL_START):e_idx]
         prior_notes = parse_ledger_notes(region)
         ledger_rows_ondisk = len(prior_notes)
+    elif _starts or _ends or SENTINEL_START in existing or SENTINEL_END in existing:
+        sys.stderr.write(
+            "tasks-render: BLOCK — no unambiguous sentinel block in %s "
+            "(real start-lines=%d, real end-lines=%d; marker mentions: start=%d, end=%d). "
+            "A real marker is a full line consisting of exactly the literal marker; repair "
+            "the file (or remove stray marker text) and re-run. No write performed.\n"
+            % (tasks_file, len(_starts), len(_ends),
+               existing.count(SENTINEL_START), existing.count(SENTINEL_END)))
+        sys.exit(1)
     else:
         m = re.search(r"(?m)^## Task ledger[ \t]*$", existing)
         if m:
@@ -293,12 +319,35 @@ if os.path.isfile(tasks_file):
         else:
             preface = existing
 
+def strip_fm_status(text):
+    """DERIVE: drop a top-of-file frontmatter `status:` line (manifest is the sole
+    status SoT). Touches ONLY the first --- ... --- block — never body text, the
+    Status Key section, or ledger content. Idempotent: no status: line -> unchanged
+    (split/join round-trips the exact bytes)."""
+    fl = text.split("\n")
+    if not fl or fl[0].strip() != "---":
+        return text
+    close = None
+    for i in range(1, len(fl)):
+        if fl[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    kept = [ln for i, ln in enumerate(fl)
+            if not (1 <= i < close and re.match(r"^status:(\s|$)", ln))]
+    return "\n".join(kept)
+
+
 if not preface.strip():
+    # DERIVE (manifest is the sole status SoT): tasks.md is a manifest-derived
+    # read-replica and no longer carries its OWN status: frontmatter. The fresh
+    # preface stamp omits status: entirely — nothing writes artifact status
+    # anymore; the plan's authoritative status lives on manifest.json :: status.
     preface = (
         "---\n"
         "title: %s — Tasks\n"
         "type: tasks\n"
-        "status: %s\n"
         "created: %s\n"
         "updated: %s\n"
         "---\n\n"
@@ -307,7 +356,13 @@ if not preface.strip():
         "**Last Updated:** %s\n\n"
         "## Status Key\n\n"
         "`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
-    ) % (title, mstatus, today, today, title, spec_path, today)
+    ) % (title, today, today, title, spec_path, today)
+else:
+    # DERIVE: an EXISTING preface must not retain a stale status: line — the manifest
+    # is the sole status SoT, so re-derivation = removal. Strip it from the preface's
+    # first frontmatter block (idempotent; body/Status-Key/ledger content untouched),
+    # so a manifest flip cannot leave the tasks.md preface stale.
+    preface = strip_fm_status(preface)
 
 lines = [
     LEDGER_HEADING,
@@ -365,7 +420,7 @@ for t in tasks:
     lines.append("")
 
 region_inner = "\n".join(lines).rstrip() + "\n"
-generated_block = SENTINEL_START + "\n" + region_inner + SENTINEL_END
+generated_block = SENTINEL_START + "\n\n" + region_inner + "\n" + SENTINEL_END
 
 if preface and not preface.endswith("\n"):
     preface += "\n"

@@ -139,6 +139,11 @@
             "type": "command",
             "command": "~/.claude/hooks/session-start-home-launch-warn.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-placement-findings.sh",
+            "timeout": 5
           }
         ]
       }

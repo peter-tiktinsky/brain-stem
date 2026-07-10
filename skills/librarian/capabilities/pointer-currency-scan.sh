@@ -91,7 +91,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN="true"; shift ;;
     --session-close) SESSION_CLOSE="true"; shift ;;
     --print-state-file) PRINT_STATE="true"; shift ;;
-    -h|--help) sed -n '2,72p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "pointer-currency-scan: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -114,6 +114,15 @@ esac
 
 # --- resolve the rules dir (RULES_DIR env wins; else $CLAUDE_HOME/rules) -------
 RULES_DIR_RES="${RULES_DIR:-$CLAUDE_HOME_RES/rules}"
+
+# --- resolve the binder root -------------------
+# The per-spoke binder read-replicas live at <plans-root>/_projects/<spoke>/*.md and carry
+# plain-text absolute-path pointers + intra-binder relative roll-up links that no cleaner
+# reached (memory + rules only). BINDER_ROOT_OVERRIDE wins for test isolation; else
+# $PLANS_ROOT/$PLANS_DIR/_projects (paths.sh may have set PLANS_DIR above).
+_PLANS_ROOT_RES="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+case "$_PLANS_ROOT_RES" in */) _PLANS_ROOT_RES="${_PLANS_ROOT_RES%/}" ;; esac
+BINDER_ROOT="${BINDER_ROOT_OVERRIDE:-$_PLANS_ROOT_RES/_projects}"
 
 # --- resolve the change-gate state file (runtime state under HOOKS_STATE) ------
 # HOOKS_STATE_OVERRIDE wins for test isolation (feedback_test_isolation_for_hooks_state);
@@ -151,7 +160,7 @@ fi
 # unchanged; (3) scan every tracked file for plain-text absolute-path pointers
 # and emit a finding for each non-resolving target; (4) update the state file.
 # All data via argv (feedback_python_heredoc_argv).
-python3 - "$MEMORY_DIR" "$RULES_DIR_RES" "$STATE_FILE" "$SESSION_CLOSE" "$DRY_RUN" <<'PY'
+python3 - "$MEMORY_DIR" "$RULES_DIR_RES" "$STATE_FILE" "$SESSION_CLOSE" "$DRY_RUN" "$BINDER_ROOT" <<'PY'
 import hashlib
 import json
 import os
@@ -163,6 +172,7 @@ rules_dir = sys.argv[2].rstrip("/")
 state_file = sys.argv[3]
 session_close = sys.argv[4] == "true"
 dry_run = sys.argv[5] == "true"
+binder_root = (sys.argv[6] if len(sys.argv) > 6 else "").rstrip("/")
 
 # --- enumerate the tracked-file set -----------------------------------------
 # Class membership (the three plain-text-path classes no existing cleaner covers):
@@ -173,14 +183,22 @@ dry_run = sys.argv[5] == "true"
 def tracked_files():
     files = []
     if os.path.isdir(memory_dir):
-        for entry in sorted(os.listdir(memory_dir)):
-            if not entry.endswith(".md"):
-                continue
-            if entry.startswith("episodic-chronicle"):
-                continue  # runtime-generated, not a curated pointer carrier
-            full = os.path.join(memory_dir, entry)
-            if os.path.isfile(full):
-                files.append(full)
+        # RECURSE the memory tier so a nested
+        # memory/<subdir>/*.md pointer carrier is scanned (was: flat os.listdir
+        # skipped every nested subdir). The episodic-chronicle exclusion is
+        # preserved (matched on basename); dotdirs pruned; feeds the SAME
+        # corpus_hash change-gate below so the session-close cadence stays
+        # deterministic.
+        for dirpath, dirnames, filenames in os.walk(memory_dir):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for entry in sorted(filenames):
+                if not entry.endswith(".md"):
+                    continue
+                if entry.startswith("episodic-chronicle"):
+                    continue  # runtime-generated, not a curated pointer carrier
+                full = os.path.join(dirpath, entry)
+                if os.path.isfile(full):
+                    files.append(full)
     if os.path.isdir(rules_dir):
         for entry in sorted(os.listdir(rules_dir)):
             if not entry.endswith(".md"):
@@ -188,6 +206,18 @@ def tracked_files():
             full = os.path.join(rules_dir, entry)
             if os.path.isfile(full):
                 files.append(full)
+    # reach the binder surface — _projects/<spoke>/*.md read-replicas
+    # (situating/research-index/decision-log/handoff-chronicle) carry plain-text absolute-path
+    # pointers no cleaner reached. Feeds the SAME corpus_hash change-gate below (deterministic).
+    if binder_root and os.path.isdir(binder_root):
+        for dirpath, dirnames, filenames in os.walk(binder_root):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for entry in sorted(filenames):
+                if not entry.endswith(".md"):
+                    continue
+                full = os.path.join(dirpath, entry)
+                if os.path.isfile(full):
+                    files.append(full)
     return files
 
 files = tracked_files()
@@ -272,6 +302,30 @@ MD_LINK_TARGET_RE = re.compile(r'\]\(([^)]+)\)')
 # is reported ADVISORY-SOFT (level=info, reason names it), never suppressed.
 EPHEMERAL_RE = re.compile(r'sessions/[^/]+/checkpoint\.md$|/checkpoint(-\d{8}-\d{6})?\.md$')
 
+# binder roll-up link classes. A bare relative roll-up token is a
+# `../`-traversal path (../../<plan>/handoff.md) or a `research/<plan>/<file>` symlink-farm
+# path; the negative lookbehind excludes a markdown-link `](target)` (those are extracted via
+# MD_LINK_TARGET_RE) and a preceding word char (so a wikilink/URL fragment is not matched).
+BINDER_BARE_REL_RE = re.compile(
+    r'(?<![\w`/(\[])((?:\.\./)+[^\s`"\'|)\]>]+|research/[^\s`"\'|)\]>]+)')
+
+def binder_rel_targets(line):
+    """Relative roll-up link targets in a binder read-replica line: relative markdown-link
+    targets + bare `../`/`research/` path tokens. Absolute/tilde (the pointer-currency class),
+    anchors, and URLs are excluded; a trailing #anchor is stripped."""
+    cands = [m.group(1) for m in MD_LINK_TARGET_RE.finditer(line)]
+    cands += [m.group(1) for m in BINDER_BARE_REL_RE.finditer(line)]
+    out = []
+    for t in cands:
+        t = t.strip().rstrip(TRAILING)
+        if not t or t.startswith(("/", "~", "#", "http://", "https://", "mailto:")):
+            continue
+        t = t.split("#", 1)[0]
+        if "/" not in t:
+            continue
+        out.append(t)
+    return out
+
 def emit(finding):
     out = os.environ.get("FINDINGS_OUTPUT", "")
     line = json.dumps(finding, separators=(", ", ": "), sort_keys=False)
@@ -288,6 +342,9 @@ for f in files:
     base = os.path.basename(f)
     if os.path.realpath(os.path.dirname(f)) == os.path.realpath(rules_dir):
         source = "rules"
+    elif binder_root and (os.path.realpath(f) + os.sep).startswith(
+            os.path.realpath(binder_root) + os.sep):
+        source = "binder"
     else:
         source = "memory"
     try:
@@ -296,6 +353,29 @@ for f in files:
     except OSError:
         continue
     for lineno, raw in enumerate(lines, start=1):
+        # binder roll-up link resolver — binder read-replicas ONLY.
+        # Resolve intra-binder RELATIVE roll-up links (research/<plan>/<file> symlink targets,
+        # decision-log ADR path cells, ../../<plan>/handoff.md, situating internal pointers)
+        # against the binder file's own dir. os.path.exists FOLLOWS symlinks, so a LIVE
+        # research/ symlink-farm link resolves (no false-flag on the generator's reconciled
+        # links) while a DANGLING symlink (pruned/renamed plan) emits binder-link.
+        if source == "binder":
+            for rel_tok in binder_rel_targets(raw):
+                tgt = os.path.normpath(os.path.join(os.path.dirname(f), rel_tok))
+                if os.path.exists(tgt):
+                    continue
+                counts["missing"] += 1
+                if not dry_run:
+                    emit({
+                        "finding": "binder-link",
+                        "file": base,
+                        "category": "binder-link",
+                        "source": "binder",
+                        "target": rel_tok,
+                        "line": lineno,
+                        "level": "warn",
+                        "reason": "binder roll-up link does not resolve on disk: %s" % tgt,
+                    })
         # Strip markdown-link targets so a bare-token scan never re-reports the
         # `](memory/x.md)` relative-link class (consolidation Check-5's domain).
         scan_line = MD_LINK_TARGET_RE.sub(" ", raw)

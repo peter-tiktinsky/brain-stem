@@ -15,9 +15,11 @@ Starter Obsidian Bases (`.base`) views that turn the universal typed frontmatter
 ## Contents
 
 <!-- contents-enum:start -->
+
 | Base | Keys on | View |
 |------|---------|------|
 | `all-durable-by-type.base` | type / updated / description | table, grouped by type, newest-first |
 | `status-board.base` | status / type / updated | cards, grouped by status (the kanban surface) |
 | `recent-with-summaries.base` | description / updated | cards, description as the subtitle |
+
 <!-- contents-enum:end -->

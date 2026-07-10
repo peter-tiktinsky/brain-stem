@@ -1,18 +1,25 @@
 #!/bin/bash
 # trinity-drift-detect — Detect disagreement between spec.md / manifest.json /
 # tasks.md / per-task T-N statuses across plan-root and sub-plan-root dirs, AND
-# between a master's sub_plans[] read-replica and the
+# (the extension) between a master's sub_plans[] read-replica and the
 # subs' real published status (the master<->sub aggregation axis).
 #
-# Librarian reconciler. The existing
-# trinity (spec/tasks/manifest) axis is PRESERVED. The master<->sub aggregation
-# axis is the extension.
+# Librarian reconciler (1.1 line 129). Ported from the
+# trinity-drift-detect.sh. The trinity axis
+# is PARTIALLY RETIRED under DERIVE (manifest is the sole status SoT): the
+# `spec-manifest-divergence` + `header-trinity-divergence` sub-axes read the plan
+# artifact FRONTMATTER status (spec.md/tasks.md status:) that no longer exists after
+# the strip, so they are RETIRED; `trinity-task-ledger-lag` (manifest status + the
+# per-task ledger **Status:** lines) is PRESERVED. The master<->sub aggregation axis
+# is the NET-NEW extension per §Decision (b) + line 119 — manifest-only,
+# unaffected by DERIVE, PRESERVED.
 #
 # Cross-file invariants live in THIS reconciler, NEVER in a blocking write-time
 # path. The PreToolUse substance branch + PostToolUse manifest-verify
-# hook live elsewhere — out of scope here.
+# hook are-owned (line 342) — out of scope here.
 #
-# R-61/62/63 ENFORCED (R-61 reconciler aggregation-integrity, R-62 reconciler
+# R-61/62/63 ENFORCED (this body is the trinity-drift-detect consumer;
+# the-landed shape: R-61 reconciler aggregation-integrity, R-62 reconciler
 # sub-publishes-upward [SEPARATE, not folded], R-63 advisory sub-peer-isolation;
 # all enforcement_layer:[librarian], category C3):
 #   R-61 master-sub-aggregation-drift  — sub_plans[].status != the sub's real status
@@ -177,7 +184,10 @@ counts = {"spec-manifest-divergence": 0, "trinity-task-ledger-lag": 0,
 inspected = 0
 
 def inspect_trinity(dirpath):
-    """Existing spec/manifest/tasks/T-N axis — PRESERVED verbatim."""
+    """spec/manifest/tasks/T-N axis. DERIVE: the two artifact-frontmatter sub-axes
+    (spec-manifest-divergence, header-trinity-divergence) are RETIRED (they read the
+    stripped status: frontmatter); trinity-task-ledger-lag (manifest + per-task
+    ledger) is PRESERVED."""
     global inspected
     spec_p = os.path.join(dirpath, "spec.md")
     manifest_p = os.path.join(dirpath, "manifest.json")
@@ -198,13 +208,16 @@ def inspect_trinity(dirpath):
               "task_ledger": ledger, "parse_errors": errs, "detected_at": iso_now})
         counts["parse-failure"] += 1
         return
-    if norm(spec_s) and norm(manifest_s) and norm(spec_s) != norm(manifest_s):
-        if not (is_complete(spec_s) and is_complete(manifest_s)):
-            emit({"finding": "trinity-status-drift", "file": rel,
-                  "drift_class": "spec-manifest-divergence", "spec_status": spec_s,
-                  "manifest_status": manifest_s, "tasks_status": tasks_s,
-                  "task_ledger": ledger, "detected_at": iso_now})
-            counts["spec-manifest-divergence"] += 1
+    # RETIRED (DERIVE / manifest-as-sole-status-SoT): the `spec-manifest-divergence`
+    # axis compared the spec.md FRONTMATTER status (spec_s) against the manifest.
+    # Under DERIVE, plan artifacts no longer carry status: frontmatter, so spec_s is
+    # always empty and this axis detects a field that no longer exists. The manifest
+    # is the single status SoT — there is no artifact status to reconcile against it.
+    # (counts["spec-manifest-divergence"] stays initialized to 0 for stable payloads.)
+    #
+    # PRESERVED: `trinity-task-ledger-lag` reads the MANIFEST status (manifest_s) and
+    # the per-task ledger **Status:** lines (parse_task_ledger) — NEITHER is artifact
+    # frontmatter — so it is unaffected by DERIVE and stays active.
     if is_complete(manifest_s) and has_tasks:
         lagging = [x for x in ledger if not is_complete(x["status"])]
         if lagging:
@@ -213,15 +226,14 @@ def inspect_trinity(dirpath):
                   "manifest_status": manifest_s, "tasks_status": tasks_s,
                   "task_ledger": ledger, "lagging_tasks": lagging, "detected_at": iso_now})
             counts["trinity-task-ledger-lag"] += 1
-    if is_complete(spec_s) and has_tasks and is_pending(tasks_s):
-        emit({"finding": "trinity-status-drift", "file": rel,
-              "drift_class": "header-trinity-divergence", "spec_status": spec_s,
-              "manifest_status": manifest_s, "tasks_status": tasks_s,
-              "task_ledger": ledger, "detected_at": iso_now})
-        counts["header-trinity-divergence"] += 1
+    # RETIRED (DERIVE): the `header-trinity-divergence` axis compared the spec.md
+    # FRONTMATTER status (spec_s) against the tasks.md FRONTMATTER status (tasks_s).
+    # Both are artifact frontmatter that DERIVE removes — spec_s and tasks_s are
+    # always empty now — so this axis detects fields that no longer exist. Retired.
+    # (counts["header-trinity-divergence"] stays initialized to 0 for stable payloads.)
 
 def inspect_master_sub(master_dir):
-    """Master<->sub aggregation axis (R-61/62/63)."""
+    """NET-NEW master<->sub aggregation axis (R-61/62/63)."""
     master_p = os.path.join(master_dir, "manifest.json")
     if not os.path.isfile(master_p):
         return
@@ -307,6 +319,11 @@ try:
             sub_dir = os.path.join(plan_dir, sub)
             if os.path.isdir(sub_dir):
                 inspect_trinity(sub_dir)
+                # a nested sub can ITSELF be a master-of-subs
+                # (master-of-masters, R-61/62/63); check its aggregation axis too (was:
+                # inspect_master_sub ran ONLY on the depth-1 top-level plan_dir). Safe
+                # no-op on a non-master sub (early-returns without a manifest / sub_plans).
+                inspect_master_sub(sub_dir)
 except FileNotFoundError:
     pass
 

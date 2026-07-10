@@ -1,5 +1,6 @@
 #!/bin/bash
 # generate-foundation-manifest.sh — T-5 (baseline slice)
+#
 # Walks SOURCE_REPO emitting a deterministic JSON manifest of every file
 # install.sh ships to $CLAUDE_HOME, with installed-relative paths, sha256,
 # octal mode (derived from the git INDEX, not the worktree disk bit —
@@ -9,12 +10,14 @@
 # $CLAUDE_HOME/governance/foundation-manifest.json (T-3 MOVE — was loose at
 # root pre-; relocated to live alongside foundation-master.json + overlay-master.json
 # per operator tidy-folder principle).
+#
 # Consumers (T-5 enables; T-1 + T-2 follow-up consume):
 #   - install.sh G2 — foreign-content detector (compares installed-tree
 #     hashes vs baseline; refuses on drift unless --force-install +
 #     --backup-verified)
 #   - uninstall.sh — sha256 fingerprint match before rm (preserves
 #     user-edited foundation files; emits review summary)
+#
 # Schema (canonical shape; uninstall G2 + install G2 both consume):
 #     "version": "v2.0.0-rc1",
 #     "generated_at": "<ISO8601 UTC>",
@@ -24,21 +27,25 @@
 #        "sha256": "<64 hex>",
 #        "mode": "<4-digit octal>",
 #        "size": <bytes>}
+#
 # Determinism: output is byte-identical across runs modulo `generated_at`.
 # `find` output is LC_ALL=C-sorted; `files` array is `jq sort_by(.path)`;
 # top-level keys are jq -S sorted. R-23 bash 3.2 compat throughout.
+#
 # Path translation (mirrors install.sh):
 #   identity throughout. hooks/lib/*.{sh,json,sql} is the SOLE lib surface
 #   (— no top-level lib/ → hooks/lib/ translation); claude-mem is an
 #   optional adopter-installed marketplace plugin (— no plugins/ ship
 #   surface). Every walked directory uses identity (source path == installed path).
+#
 # Walked source paths (mirrors install.sh ship surface):
 #   hooks/{*.sh,*.md,MANIFEST.txt}        (top-level only; no recursion)
 #   hooks/config/*.json
 #   hooks/lib/*.{sh,json,sql}             (identity; install.sh Step 3.5)
 #   skills/{11 named brain-stem dirs}/**  (recursive; install.sh Step 5 roster)
-#   schemas/{12 named}.json + README.md   (install.sh Step 9 selective list;
-#                                          review-queue-schema -> 12, not 10/9)
+#   schemas/{named}.json + README.md      (install.sh Step 9 selective list —
+#                                          the Step-9 loop is the count ground-
+#                                          truth; do not pin a number here)
 #   orchestrator/**                       (recursive)
 #   installer/**                          (recursive)
 #   governance/ SELECTIVE                 (Step 8.5 ship surface: foundation-master.json
@@ -51,6 +58,7 @@
 #   templates/* (top-level glob)          (install.sh Step 10)
 #   templates/launchd/*.tmpl
 #   templates/settings-fragments/*.json
+#
 # Excluded (runtime state, source-only artifacts, distribution-tooling):
 #   hooks/state/**          (session state; install.sh creates empty dir)
 #   tests/**                (test harness, not shipped)
@@ -64,8 +72,11 @@
 #   .gitignore, .image-digest, .self-verify/**
 #   install.sh, uninstall.sh, generate-foundation-manifest.sh
 #   governance/foundation-manifest.json (chicken-and-egg: this file is the output;
+#     T-3 relocated from repo root)
+#
 # Usage:
 #   generate-foundation-manifest.sh [-o <output_path>] [--version <ver>]
+#
 # Default output: stdout
 # Default version: derived from the committed governance/foundation-manifest.json
 #   ::version when --version is absent (v0.0.0 on true bootstrap); T-18.
@@ -141,6 +152,7 @@ for bin in jq shasum stat awk find sort; do
   fi
 done
 
+# Reproducible-build invariant: pin generated_at to git commit time, NOT wall-clock.
 # The shipped foundation-master.json is commit-time-pinned + byte-reproducible
 # (build-foundation-master.sh); the manifest used a wall-clock `date -u`, so
 # two manifest builds of an identical tree produced byte-divergent generated_at —
@@ -217,19 +229,23 @@ emit_pairs() {
   done
 
   # schemas — named .json + README.md (mirrors install.sh Step 9 list).
+  # P0 (2026-05-15) dropped vault-schema + gate-config + gate-config-schema
   # (dissolved per T-4 pillar shard / T-6 retirement scope).
+  # Batch A (2026-05-18) dropped vault-overlay-schema; added 6 new schemas
   # (overlay-master, governance-action-log, vault-writers-rules, processing-rules,
   # plans-rules, writer-manifest) per-.
+  # T-7 (2026-05-21) dropped 4 per-pillar schemas (doc-dependencies-schema,
   # vault-writers-rules-schema, processing-rules-schema, plans-rules-schema) —
   # per-pillar schemas stay foundation-repo authoring-side as reference; bundle-slot
   # schema in foundation-master-schema.json is the canonical validation layer per
   # operator decision. Symmetric to T-2 pillar JSON repo-only pattern.
+  # T-12 (H-6) ADDED memory-schema, rules-schema, review-queue-schema:
   # they are RESOLVED AT RUNTIME by shipped consumers (memory-staleness,
   # memory-globalize, rules-hygiene, hooks/lib/review-queue) at
   # $CLAUDE_HOME/schemas/... but were never shipped → schema-driven validation
   # was DEAD in production. This list MUST stay byte-mirror with install.sh
   # Step 9 (the reconciliation AC asserts every live-resolved schema is shipped).
-  for s in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema memory-schema rules-schema review-queue-schema; do
+  for s in plans-schema plan-manifest-schema librarian-manifest-schema user-manifest-schema orchestration-schema drift-allowlist-schema overlay-master-schema governance-action-log-schema writer-manifest-schema memory-schema rules-schema review-queue-schema file-type-contract-schema; do
     f="$SOURCE_REPO/schemas/$s.json"
     [ -f "$f" ] || continue
     printf 'schemas/%s.json\tschemas/%s.json\n' "$s" "$s"
@@ -291,6 +307,7 @@ emit_pairs() {
       fi
     done
     # governance/baselines/ — the shipped historical-manifest archive (T-1 /
+    # -2 Option A). Ships into the home so uninstall.sh (which has NO $SOURCE_REPO)
     # can resolve the reachable historical-sha set from $CLAUDE_HOME/governance/baselines/
     # for stale-pristine-vs-edited disambiguation (-8). Members: every frozen
     # per-release manifest archive (foundation-manifest-v*.json) + README.md (self-
@@ -346,6 +363,7 @@ emit_pairs() {
   # `[ -f ]` skips them. A generator↔install parity test (T-1) will
   # catch any future divergence in either direction.
   # PATH-TRANSLATION (T-1, validation correction
+  # ): claude-home.gitignore is the ONE template
   # whose installed path differs from its source path. install.sh Step 11.8
   # DIRECT-SEEDS it to $CLAUDE_HOME/.gitignore (never $CLAUDE_HOME/templates/),
   # so the manifest must baseline the TRANSLATED installed path `.gitignore`.

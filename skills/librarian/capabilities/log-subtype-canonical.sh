@@ -66,6 +66,27 @@ fi
 
 OVERLAY="${LOG_SUBTYPE_OVERLAY:-$CLAUDE_HOME_RES/governance/log_subtype_registry_overlay.json}"
 
+# Source the shared vault-view walker + materialize its file list so the
+# #log/#status tag scan DESCENDS the symlink view + Vault Writers/ subtrees
+# (os.walk followlinks=False never crossed them). This gap was MASKED by the
+# container-key registry read below and only surfaces once that read populates
+# canon. The python block reads LSC_WALK_LIST and FALLS BACK to os.walk when it
+# is empty (symlink-inert floor).
+LSC_WALK_LIST=""
+_REPO_LIB_LSC="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
+_VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+[ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB_LSC/vault-view-walk.sh"
+if [ -r "$_VVW_LIB" ] && [ -n "${VAULT_ROOT:-}" ] && [ -d "${VAULT_ROOT:-}" ]; then
+  # shellcheck source=/dev/null
+  . "$_VVW_LIB"
+  if command -v vault_view_walk >/dev/null 2>&1; then
+    LSC_WALK_LIST="$(mktemp -t lsc-walk.XXXXXX)"
+    trap 'rm -f "${LSC_WALK_LIST:-}"' EXIT
+    vault_view_walk "$VAULT_ROOT" > "$LSC_WALK_LIST" 2>/dev/null || true
+  fi
+fi
+export LSC_WALK_LIST
+
 python3 - "$GOV_DIR/log-subtype-registry.json" "$OVERLAY" "${VAULT_ROOT:-}" "$MODE" <<'PY'
 import json, os, re, sys
 from datetime import date
@@ -111,6 +132,19 @@ def registry_entries(doc):
         for it in subs:
             if isinstance(it, dict):
                 yield it.get("dimension", ""), it.get("value") or it.get("subtype") or "", it
+    # The SHIPPED governance/log-subtype-registry.json
+    # carries dimension-named containers `log_subtypes` / `status_subtypes`
+    # (lists of {subtype, owner_skill, owner_cron, ...}); the dimension is implied
+    # by the container name, not stored per-item. The old subtypes/_subtypes read
+    # above yields nothing on this live shape -> canon={} -> every #log/#status
+    # vault tag mis-flags as unregistered. Read the live containers too (the
+    # tolerated shapes above stay intact — this is additive).
+    for container_key, dim in (("log_subtypes", "log"), ("status_subtypes", "status")):
+        items = doc.get(container_key)
+        if isinstance(items, list):
+            for it in items:
+                if isinstance(it, dict):
+                    yield dim, it.get("value") or it.get("subtype") or "", it
     # also tolerate top-level list under _rules-style is out of scope here.
 
 entries = list(registry_entries(reg))
@@ -174,21 +208,35 @@ for (dim, sub), ent in canon.items():
 TAG_RE = re.compile(r"#(log|status)/([A-Za-z0-9][A-Za-z0-9_-]*)")
 if vroot and os.path.isdir(vroot):
     seen_tags = {}
-    for dirpath, dirnames, filenames in os.walk(vroot):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        for fn in filenames:
-            if not fn.endswith(".md"):
-                continue
-            fp = os.path.join(dirpath, fn)
-            try:
-                with open(fp, encoding="utf-8") as fh:
-                    txt = fh.read()
-            except Exception:
-                continue
-            for m in TAG_RE.finditer(txt):
-                dim, val = m.group(1), m.group(2)
-                if (dim, val) not in canon:
-                    seen_tags.setdefault((dim, val), fp)
+    # Enumerate via the shared vault-view walker (file list at $LSC_WALK_LIST) so
+    # the tag scan descends the symlink view + Vault Writers/ subtrees (os.walk
+    # followlinks=False missed them), populating canon so there is no false GREEN.
+    # FALL BACK to os.walk when the list is empty (symlink-inert floor).
+    walk_list_path = os.environ.get("LSC_WALK_LIST", "")
+    _walk_lines = []
+    if walk_list_path and os.path.isfile(walk_list_path):
+        try:
+            with open(walk_list_path) as _wf:
+                _walk_lines = _wf.read().split("\n")
+        except Exception:
+            _walk_lines = []
+    _md_files = [ln for ln in _walk_lines if ln and ln.endswith(".md")]
+    if not _md_files:
+        for dirpath, dirnames, filenames in os.walk(vroot):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for fn in filenames:
+                if fn.endswith(".md"):
+                    _md_files.append(os.path.join(dirpath, fn))
+    for fp in _md_files:
+        try:
+            with open(fp, encoding="utf-8") as fh:
+                txt = fh.read()
+        except Exception:
+            continue
+        for m in TAG_RE.finditer(txt):
+            dim, val = m.group(1), m.group(2)
+            if (dim, val) not in canon:
+                seen_tags.setdefault((dim, val), fp)
     for (dim, val), fp in seen_tags.items():
         # nearest canonical for suggestion
         suggestion = ""

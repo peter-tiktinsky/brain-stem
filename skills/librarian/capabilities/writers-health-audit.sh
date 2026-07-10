@@ -159,10 +159,25 @@ def fm_paths(fmb):
 
 # skill registry slug set
 skill_slugs = set()
+# producer-skill set for the REVERSE writer-ref check. A producer
+# skill DECLARES writer_kind in its SKILL.md frontmatter (the vault-writer contract
+# discriminator). No FOUNDATION skill declares it, so the reverse check is DORMANT on a
+# foundation-only install (producers are adopter connectors added via the writer wizard);
+# it fires for an adopter producer skill with no registered reference.
+producer_skills = set()
 if os.path.isdir(skills_dir):
     for d in os.listdir(skills_dir):
-        if os.path.isfile(os.path.join(skills_dir, d, "SKILL.md")):
-            skill_slugs.add(d)
+        sm = os.path.join(skills_dir, d, "SKILL.md")
+        if not os.path.isfile(sm):
+            continue
+        skill_slugs.add(d)
+        try:
+            with open(sm, encoding="utf-8") as _sfh:
+                _smb = parse_fm_block(_sfh.read())
+        except Exception:
+            _smb = ""
+        if _smb and fm_field(_smb, "writer_kind"):
+            producer_skills.add(d)
 
 # last-run map (dormant-writer). Direct sqlite if a manifest + sqlite3 exist;
 # else empty -> never-observed predicate handles dormancy.
@@ -214,7 +229,13 @@ cutoff = datetime.now() - timedelta(days=30)
 counts = {"dormant-writer": 0, "unresolved-destination": 0,
           "orphan-writer-skill-ref": 0, "orphan-destination-ref": 0,
           "multi-writer-overlap": 0, "writer-project-unregistered": 0,
-          "writer-destination-spoke-drift": 0}
+          "writer-destination-spoke-drift": 0, "orphan-producing-skill": 0}
+
+# coverage sets for the reverse check — the writer_skill values every
+# reference declares + the reference basenames. A producer skill is covered iff its slug is in
+# either set. Collected in the main loop below.
+referenced_skills = set()
+reference_basenames = set()
 
 for fn in sorted(os.listdir(writers_dir)):
     if not fn.endswith(".md") or fn.startswith("_"):
@@ -253,7 +274,16 @@ for fn in sorted(os.listdir(writers_dir)):
     # unresolved-destination
     for p in fm_paths(fmb):
         g = MUSTACHE.sub("*", p)
-        matches = globmod.glob(os.path.join(vroot, g)) if vroot else []
+        # expanduser + absolutize the token BEFORE globbing so a
+        # ~/.claude/state/... or absolute staged destination is not false-flagged unresolved
+        # (was: os.path.join(vroot, g) left a leading '~' literal -> zero matches). An absolute
+        # token globs as-is; a relative token still resolves under vroot.
+        g_exp = os.path.expanduser(g)
+        if os.path.isabs(g_exp):
+            search = g_exp
+        else:
+            search = os.path.join(vroot, g_exp) if vroot else g_exp
+        matches = globmod.glob(search)
         if not matches:
             emit({"finding": "unresolved-destination", "file": fp, "writer_name": name,
                   "destination_path_mustache": p, "destination_path_glob": g,
@@ -263,6 +293,9 @@ for fn in sorted(os.listdir(writers_dir)):
 
     # orphan-writer-skill-ref
     ws = fm_field(fmb, "writer_skill")
+    reference_basenames.add(fn[:-3])
+    if ws:
+        referenced_skills.add(ws)
     if ws and ws not in skill_slugs:
         emit({"finding": "orphan-writer-skill-ref", "file": fp, "writer_name": name,
               "writer_skill_ref": ws, "resolved_skill_path_or_null": None,
@@ -298,6 +331,23 @@ for fn in sorted(os.listdir(writers_dir)):
                       "destination_path": p, "destination_spoke_segment": m.group(1),
                       "detected_at": today, "first_seen": today})
                 counts["writer-destination-spoke-drift"] += 1
+
+# REVERSE writer-ref check. A producer skill (writer_kind-declaring)
+# is COVERED iff a reference declares writer_skill == <slug> OR a Vault Writers/<slug>.md exists;
+# an uncovered producer emits orphan-producing-skill (the reverse of orphan-writer-skill-ref).
+# Empty Vault Writers/ previously gave ZERO reverse coverage. Dormant foundation-only (no
+# producer skills).
+for slug in sorted(producer_skills):
+    if slug in referenced_skills or slug in reference_basenames:
+        continue
+    emit({"finding": "orphan-producing-skill",
+          "file": os.path.join(skills_dir, slug, "SKILL.md"),
+          "producer_skill": slug,
+          "reverse_resolution": "no-writer-reference",
+          "reason": "skill '%s' declares writer_kind (a vault-writer producer) but no Vault "
+                    "Writers/ reference declares writer_skill: %s (undeclared writer)" % (slug, slug),
+          "detected_at": today, "first_seen": today})
+    counts["orphan-producing-skill"] += 1
 
 # orphan-destination-ref requires a path_routing retired-marker surface which
 # the foundation does not yet populate; emit nothing rather than

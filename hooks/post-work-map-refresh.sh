@@ -117,4 +117,27 @@ else
   log "block-and-log: work-map-generate --spoke $SPOKE non-zero (file=$FILE_PATH)"
 fi
 
+# --- ALSO refresh the spoke's deliverables/reference _index.md
+# The work-map (CLAUDE.md directory map) is refreshed above, but no PostToolUse owner
+# refreshed the deliverables/ + reference/ _index.md contents-enum tables on an
+# in-session write — work-index-maintain runs only SessionStart + session-close, so
+# those indexes went STALE BETWEEN sessions. Delegate to work-index-maintain --spoke
+# on the SAME $WORK_HOME/ gate + resolved SPOKE (mirror the SessionStart invocation in
+# session-start-project-context.sh). Block-and-log + idempotent; the capability writes
+# via os.replace (NOT the Edit/Write tool) so there is NO PostToolUse refresh loop.
+WIDX_CAP=""
+for c in "$CAPS_DIR_REPO/work-index-maintain.sh" "$CAPS_DIR_LIVE/work-index-maintain.sh"; do
+  if [ -f "$c" ]; then WIDX_CAP="$c"; break; fi
+done
+if [ -n "$WIDX_CAP" ]; then
+  if WORK_HOME="$WORK_HOME" FINDINGS_OUTPUT="/dev/null" \
+       bash "$WIDX_CAP" --spoke "$SPOKE" >/dev/null 2>&1; then
+    log "ok: work-index-maintain --spoke $SPOKE (file=$FILE_PATH)"
+  else
+    log "block-and-log: work-index-maintain --spoke $SPOKE non-zero (file=$FILE_PATH)"
+  fi
+else
+  log "skip: capability work-index-maintain not found (spoke=$SPOKE file=$FILE_PATH)"
+fi
+
 exit 0

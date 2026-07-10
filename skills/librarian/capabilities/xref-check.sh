@@ -63,12 +63,31 @@ if [[ ! -d "$VAULT_SCAN_ROOT" ]]; then
   exit 3
 fi
 
+# Source the shared vault-view walker + materialize its
+# file list so the graph build descends the symlink view (2630 md) via the ONE
+# primitive instead of os.walk(followlinks=False) (4 md; cross-surface wikilinks
+# mis-flagged, intra-surface graphs unvalidated). The python block reads XREF_WALK_LIST
+# and FALLS BACK to os.walk when it is empty (symlink-inert floor).
+XREF_WALK_LIST=""
+_VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
+[ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
+if [ -r "$_VVW_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$_VVW_LIB"
+  if command -v vault_view_walk >/dev/null 2>&1; then
+    XREF_WALK_LIST="$(mktemp -t xref-walk.XXXXXX)"
+    trap 'rm -f "${XREF_WALK_LIST:-}"' EXIT
+    vault_view_walk "$VAULT_SCAN_ROOT" > "$XREF_WALK_LIST" 2>/dev/null || true
+  fi
+fi
+export XREF_WALK_LIST
+
 # Build graph + emit findings in one Python pass.
 RESULT=$(python3 - "$VAULT_SCAN_ROOT" "$MODE" "$SCOPE_PATH" "$INCLUDE_LOGS" <<'PY'
 import os, re, sys, json, time
 from pathlib import Path
 
-vault = Path(sys.argv[1])
+vault = Path(os.path.realpath(sys.argv[1]))   # match the walker's pwd -P root norm
 mode = sys.argv[2]
 scope_path = sys.argv[3]
 include_logs = sys.argv[4] == "1"
@@ -120,15 +139,42 @@ def in_scope(p):
             return False
     return True
 
-for root, dirs, files in os.walk(vault):
-    dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
-    for fn in files:
-        if not fn.endswith(".md"):
-            continue
-        p = Path(root) / fn
-        all_files.append(p)
-        stem = p.stem  # e.g. "Foo.md" → "Foo"
-        target_map.setdefault(stem.lower(), []).append(p)
+# Enumerate via the shared vault-view walker (file list at
+# $XREF_WALK_LIST) so the graph descends the followed symlink view (2630 md) instead of
+# os.walk followlinks=False (4 md). The walker skips dotdirs; EXCLUDE_DIRS (Archive etc.)
+# are pruned here against the vault-relative path. FALL BACK to os.walk when the walker
+# list is empty (symlink-inert floor).
+walk_list_path = os.environ.get("XREF_WALK_LIST", "")
+_walk_lines = []
+if walk_list_path and os.path.isfile(walk_list_path):
+    try:
+        with open(walk_list_path) as _wf:
+            _walk_lines = _wf.read().split("\n")
+    except Exception:
+        _walk_lines = []
+_used_walker = False
+for line in _walk_lines:
+    if not line or not line.endswith(".md"):
+        continue
+    p = Path(line)
+    try:
+        rel_parts = p.relative_to(vault).parts
+    except ValueError:
+        continue
+    if any(part in EXCLUDE_DIRS or part.startswith(".") for part in rel_parts[:-1]):
+        continue
+    all_files.append(p)
+    target_map.setdefault(p.stem.lower(), []).append(p)
+    _used_walker = True
+if not _used_walker:
+    for root, dirs, files in os.walk(vault):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
+        for fn in files:
+            if not fn.endswith(".md"):
+                continue
+            p = Path(root) / fn
+            all_files.append(p)
+            target_map.setdefault(p.stem.lower(), []).append(p)
 
 # Build inbound-link graph + emit broken wikilink findings.
 inbound = {p: 0 for p in all_files}

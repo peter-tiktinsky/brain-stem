@@ -81,6 +81,31 @@ SPOKE=$(spoke_resolve_from_cwd "$CWD" 2>/dev/null) || exit 0
 
 CARD="$PLANS_ROOT/_projects/$SPOKE/_situating.md"
 
+# --- 3-pre. refresh-from-disk the 3 binder md generators -
+# The T-11 backstop below re-derives the situating card + work-map + work-index, but
+# NOT the 3 binder markdown generators (plan-research-index / plan-decision-log /
+# plan-handoff-index) — so an out-of-band binder edit since last close (a plan
+# manifest / research / decision artifact touched by a human or external tool) was
+# uncorrected at session start. Run the 3 generators FIRST, so the situating card
+# re-derive below reads their FRESH output — the card-after-generators ordering that
+# post-manifest-binder-refresh.sh already encodes (research -> decision -> handoff ->
+# card). Best-effort / fail-open: a failed/absent binder refresh must never block the
+# situating-card ingest or crash SessionStart. Scoped via --spoke to stay inside the
+# SessionStart timeout; PLANS_ROOT carries through for test isolation.
+for _bindergen in plan-research-index plan-decision-log plan-handoff-index; do
+  _bg_cap=""
+  for _c in "$_REPO_ROOT/skills/librarian/capabilities/${_bindergen}.sh" \
+            "$CLAUDE_HOME_RES/skills/librarian/capabilities/${_bindergen}.sh"; do
+    if [ -f "$_c" ]; then _bg_cap="$_c"; break; fi
+  done
+  unset _c
+  if [ -n "$_bg_cap" ] && [ -f "$_bg_cap" ]; then
+    PLANS_ROOT="$PLANS_ROOT" FINDINGS_OUTPUT="/dev/null" \
+      bash "$_bg_cap" --spoke "$SPOKE" >/dev/null 2>&1 || true
+  fi
+done
+unset _bindergen _bg_cap
+
 # --- 3. (T-11) refresh-from-disk BEFORE ingest (scoped to the single spoke) -----
 # Re-derive the resolved spoke's situating card so an out-of-band edit since last
 # close is reflected in the force-loaded card. Scoped via --spoke to stay inside

@@ -80,11 +80,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Judgment-tier non-interactive guard (mirrors memory-hygiene). Bypassed by
-# FOUNDATION_TEST_MODE so synthetic harnesses fire without a controlling TTY.
+# SPLIT the non-interactive gate. The DETERMINISTIC classes
+# (size/frontmatter/dead-glob) RUN headless — an unattended weekly cron MUST audit the rules
+# corpus — while only the JUDGMENT class (one-concern) stays interactive-gated. Was: the WHOLE
+# cap self-exited 0 on a no-TTY cron, so the rules corpus was NEVER audited unattended. HEADLESS
+# is passed to the python body, which suppresses ONLY the judgment NDJSON candidates.
+HEADLESS="false"
 if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
-  echo "rules-hygiene: skipped (non-interactive)" >&2
-  exit 0
+  HEADLESS="true"
 fi
 
 CLAUDE_HOME_RESOLVED="${CLAUDE_HOME:-$HOME/.claude}"
@@ -114,7 +117,7 @@ fi
 
 RULES_MAX_LINES="${RULES_MAX_LINES:-500}"
 
-python3 - "$RULE_DIRS" "$SCHEMA_PATH" "$RULES_MAX_LINES" "$DRY_RUN" "$CLAUDE_HOME_RESOLVED" <<'PY'
+python3 - "$RULE_DIRS" "$SCHEMA_PATH" "$RULES_MAX_LINES" "$DRY_RUN" "$CLAUDE_HOME_RESOLVED" "$HEADLESS" <<'PY'
 import glob as globmod
 import hashlib
 import json
@@ -130,6 +133,9 @@ except ValueError:
     max_lines = 500
 dry_run = sys.argv[4] == "true"
 claude_home = os.path.realpath(sys.argv[5]) if sys.argv[5] else ""
+# headless -> run the deterministic classes, suppress the judgment
+# (one-concern) NDJSON candidate (it needs interactive adjudication).
+headless = (len(sys.argv) > 6 and sys.argv[6] == "true")
 
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
 
@@ -317,8 +323,10 @@ for rule_dir in rule_dirs:
                     counts["dead_glob"] += 1
 
         # ---- one-concern candidate (JUDGMENT) ------------------------------
+        # suppressed headless — the judgment class needs interactive adjudication; the
+        # deterministic classes above already ran unattended.
         h1s = H1_RE.findall(body)
-        if len(h1s) > 1:
+        if len(h1s) > 1 and not headless:
             subject = entry
             emit({
                 "capability": "rules-hygiene", "check": "one-concern",

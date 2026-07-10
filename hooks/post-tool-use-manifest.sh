@@ -16,15 +16,34 @@
 #
 # Match conditions (all must hold):
 #   tool_name in {Edit, Write, MultiEdit, Update}
-#   file_path matches a plan-tree manifest:
-#     */.claude-plans/*/manifest.json            (top-level / master manifest)
-#     */.claude-plans/*/[0-9][0-9]-*/manifest.json   (depth-3 sub-plan manifest)
+#   file_path matches a plan-tree manifest UNDER $PLANS_DIR (paths.sh; honors the
+#   .paths.plans_root relocation override), with the ~/.claude-plans install-convention
+#   literal RETAINED as a fail-open fallback:
+#     $PLANS_DIR/*/manifest.json     (top-level / master manifest)
+#     $PLANS_DIR/*/*/manifest.json   (depth-3 sub-plan manifest)
 #
 # Test-isolation env:
 #   PLAN_MANIFEST_SCHEMA   - override path to plan-manifest-schema.json
 #   POST_TOOL_USE_LOG      - explicit log path override
+#   PLANS_DIR              - relocated plans tree (paths.sh honors a pre-set value)
 
 set -uo pipefail
+
+# --- derive $PLANS_DIR from paths.sh -------------------
+# Match the plan-manifest against $PLANS_DIR so a RELOCATED plans tree (the
+# .paths.plans_root override) is verified, not just the ~/.claude-plans literal.
+# Source the repo-local lib first (dev/test), then the installed lib; a pre-set
+# PLANS_DIR env wins (paths.sh honors it — test isolation). Mirrors the
+# post-manifest-binder-refresh.sh PLANS_ROOT derivation. Fail-open: if paths.sh is
+# unavailable, PLANS_ROOT falls back to the default and the literal fallback below
+# still matches an in-convention plans tree.
+_PTUM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _p in "$_PTUM_DIR/lib/paths.sh" "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"; do
+  [ -r "$_p" ] && { . "$_p"; break; }
+done
+unset _p
+PLANS_ROOT="${PLANS_DIR:-$HOME/.claude-plans}"
+case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 
 INPUT=$(cat 2>/dev/null || echo "{}")
 
@@ -38,9 +57,15 @@ esac
 
 [[ -z "$FILE_PATH" ]] && exit 0
 
-# Match a plan-tree manifest (top-level OR depth-3 sub-plan).
+# Match a plan-tree manifest (top-level OR depth-3 sub-plan) DERIVED from $PLANS_DIR
+# (paths.sh) so a relocated plans tree is covered; the */.claude-plans/*/ literal is
+# RETAINED as a fail-open fallback (paths.sh unavailable / PLANS_DIR unresolved). The
+# bash [[ == ]] glob `*` spans '/', so "$PLANS_ROOT"/*/manifest.json covers both the
+# top-level and the depth-3 sub-plan manifest.
 is_plan_manifest=0
-if [[ "$FILE_PATH" == */.claude-plans/*/manifest.json ]]; then
+if [[ "$FILE_PATH" == "$PLANS_ROOT"/*/manifest.json ]]; then
+  is_plan_manifest=1
+elif [[ "$FILE_PATH" == */.claude-plans/*/manifest.json ]]; then
   is_plan_manifest=1
 fi
 [[ "$is_plan_manifest" == "0" ]] && exit 0

@@ -52,21 +52,34 @@ HC_FRAGMENT=""
 #   - JSONL telemetry row per fire to $DQ_EVENTS_PATH (fixture-overridable)
 # Sets DQP_DECISION ∈ {allow, deny} + DQP_FRAGMENT (text or empty).
 decision_quality_branch() {
-  local aq_input_file aq_telemetry_path aq_phase aq_decision
+  local aq_input_file aq_telemetry_path aq_phase aq_decision aq_session_id
   aq_input_file=$(mktemp "${TMPDIR:-/tmp}/sp01-aq-input.XXXXXX")
   printf '%s' "$INPUT" > "$aq_input_file"
   # Telemetry path overridable via $DQ_EVENTS_PATH for fixture isolation.
   aq_telemetry_path="${DQ_EVENTS_PATH:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime/decision-quality-events.jsonl}"
   mkdir -p "$(dirname "$aq_telemetry_path")" 2>/dev/null || true
-  # Phase: 1-advisory (default) or 2-blocking (env-flip; future-session promotion).
-  # PRE_ASQ_GUARD_DQ_PHASE is the new canonical name; PRE_WRITE_GUARD_DQ_PHASE
-  # preserved as back-compat alias since live operators may have it set.
-  aq_phase="${PRE_ASQ_GUARD_DQ_PHASE:-${PRE_WRITE_GUARD_DQ_PHASE:-1-advisory}}"
+  # Phase: 2-blocking (default) or 1-advisory (env-override). Operator RATIFIED
+  # the Phase-2 promotion 2026-07-07 (52-row gate cleared: 45 allow-annotated /
+  # 7 nudge, all 7 desclen-non-yesno); the live env flip is already applied and
+  # this makes the foundation default follow. PRE_ASQ_GUARD_DQ_PHASE is the new
+  # canonical name; PRE_WRITE_GUARD_DQ_PHASE preserved as back-compat alias since
+  # live operators may have it set.
+  aq_phase="${PRE_ASQ_GUARD_DQ_PHASE:-${PRE_WRITE_GUARD_DQ_PHASE:-2-blocking}}"
+  # session_id: env preferred, stdin `.session_id` fallback (mirrors
+  # pre-compact-checkpoint.sh:46-49), then "unknown". CLAUDE_SESSION_ID is NOT
+  # exported into PreToolUse hooks, so without the stdin fallback every telemetry
+  # row carried session_id='unknown' — the fallback reads the id from the already
+  # captured $INPUT payload.
+  aq_session_id="${CLAUDE_SESSION_ID:-}"
+  if [[ -z "$aq_session_id" ]]; then
+    aq_session_id=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+  fi
+  [[ -z "$aq_session_id" ]] && aq_session_id="unknown"
   # NOTE: pass file-path via argv (NOT stdin). python3 - <<EOF consumes the
   # heredoc as stdin, so a piped JSON would be silently ignored
   # (feedback_python_heredoc_argv.md). The heredoc IS the script source;
-  # data flows in through argv[1..3].
-  aq_decision=$(python3 - "$aq_input_file" "$aq_telemetry_path" "$aq_phase" "${CLAUDE_SESSION_ID:-unknown}" <<'PYEOF' 2>/dev/null || echo "allow"
+  # data flows in through argv[1..4].
+  aq_decision=$(python3 - "$aq_input_file" "$aq_telemetry_path" "$aq_phase" "$aq_session_id" <<'PYEOF' 2>/dev/null || echo "allow"
 import sys, json, re, datetime, os
 KEYWORDS = re.compile(r'\b(approach|option|(?:which|code|execution|happy|critical|decision) path|strategy|direction|which way|should we)\b', re.I)
 YESNO = re.compile(r'^(yes|yeah|yep|sure|ok|okay|no|nope|cancel|skip|continue|stop|done|abort|allow|deny)\b', re.I)

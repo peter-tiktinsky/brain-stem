@@ -52,9 +52,7 @@
 
 set -eu
 
-# -----------------------------------------------------------------------
 # Resolve paths.
-# -----------------------------------------------------------------------
 : "${CLAUDE_HOME:=$HOME/.claude}"
 : "${INPUTS_DIR:=$CLAUDE_HOME/onboarding}"
 : "${USER_MANIFEST:=$CLAUDE_HOME/user-manifest.json}"
@@ -87,9 +85,7 @@ for required in "$SECTION_A" "$SECTION_B" "$BOOTSTRAP" "$AUTHOR_HOME" \
   fi
 done
 
-# -----------------------------------------------------------------------
 # argv parsing.
-# -----------------------------------------------------------------------
 RESUME=0
 EXTRACTION_STUB=""
 TYPED_ONLY=0
@@ -119,9 +115,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# -----------------------------------------------------------------------
 # Helpers.
-# -----------------------------------------------------------------------
 log() { printf 'onboard.sh: %s\n' "$*" >&2; }
 
 emit_handoff() {
@@ -134,9 +128,7 @@ onboarding_complete() {
   jq -e '.system.onboarding_complete == true' "$USER_MANIFEST" >/dev/null 2>&1
 }
 
-# -----------------------------------------------------------------------
 # Step runners.
-# -----------------------------------------------------------------------
 run_section_a() {
  # --resume re-entry (+ the --resume half of):
   # Section A is deterministic + idempotent pure discovery, and emit_fragment
@@ -199,7 +191,7 @@ run_bootstrap() {
   [ "$DRY_RUN" -eq 1 ] && { emit_handoff "would-run bootstrap-user-manifest"; return 0; }
  # Producer-output gate (DURABLE class fix): bootstrap treats
   # Section B as OPTIONAL (bootstrap-user-manifest.sh:169 merges B only when present)
-  # and latches .system.onboarding_complete=true once A alone validates (:196), so
+  # and latches .system.onboarding_complete=true once A alone validates (196), so
   # ANY path that loses B silently would latch onboarding complete with role/org/
   # behavioral prose dropped. Assert B exists AND is non-empty before bootstrap runs,
   # consistent with the six-producer existence-check pattern above.
@@ -243,9 +235,7 @@ run_external_gate() {
   bash "$EXTERNAL_GATE"
 }
 
-# -----------------------------------------------------------------------
 # Main control flow.
-# -----------------------------------------------------------------------
 # Single-use lifecycle: the onboarding_complete sentinel gates a BARE invoke
 # (not only --resume). A bare /onboard with .system.onboarding_complete == true no-ops;
 # a real re-onboard requires the explicit --force escape hatch.

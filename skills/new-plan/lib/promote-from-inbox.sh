@@ -1,11 +1,13 @@
 #!/bin/bash
 # promote-from-inbox.sh — Graduate a pre-plan _inbox idea note into a full plan dir.
+#
 # The deterministic, mechanical half of the /backlog-research --promote flow and a
 # helper for /new-plan (canonical/internal R-34 mechanical-mutation boundary:
 # the migration + scaffold is judgment-free given the inbox note, so it lives in a
 # runtime; the skill orchestrates + frames). Ported from the
 # ~/Code//skills/backlog-research/promote-from-inbox.sh and retargeted to
 # this skills/new-plan/lib/ home (OWNS; REC-2 roster member).
+#
 # Given a pre-plan idea note at $PLANS_ROOT/_inbox/<slug>.md (type: idea, per
 # plans-rules.json :: inbox), it:
 #   1. migrates the note body VERBATIM into 00-ideation-brief.md (## Original Idea,
@@ -14,17 +16,21 @@
 #      00-ideation-brief.md) + manifest.json, assigning the next-available NN- prefix
 #      at GRADUATION (inbox slugs carry NO NN- prefix — plans-rules.json :: inbox);
 #   3. tombstones the note by removing it (the plan dir is the durable record).
+#
 # _inbox collision handling (DEFAULT (A)+(B); +.6):
 #   (A) version-on-collision at _inbox/ CAPTURE — `--capture <slug>` writes a fresh
 #       idea-note stub; if _inbox/<slug>.md exists it versions to <slug>-2.md,
 #       <slug>-3.md, … (never clobbers a captured idea).
 #   (B) reject-on-collision at GRADUATION — if the assigned NN-<slug> plan dir OR a
 #       same-base-slug plan already exists, abort (no clobber, note left intact).
+#
 # Failure mode is BLOCK-AND-LOG (never write-and-hope): all validation runs before any
 # write; a mid-scaffold failure rolls back the created dir and leaves the note intact.
 # The note is removed only after the brief is written and its body verified present.
+#
 # NDJSON findings (FINDINGS_OUTPUT or stdout):
 #   idea-graduated (event) | promote-aborted (event) | idea-captured (event)
+#
 # CLI:
 #   promote-from-inbox.sh <inbox-slug>                  # graduate the note
 #   promote-from-inbox.sh <inbox-slug> --title "X"      # override rendered title
@@ -33,10 +39,21 @@
 #   promote-from-inbox.sh --capture <slug>              # (A): version-on-collision capture
 #   promote-from-inbox.sh --capture <slug> --title "X"
 #   promote-from-inbox.sh --help
+#
+# SOLE MINT PATH — root-write redirect (the canonical one-liners the plans-root-allowlist
+# guard at hooks/pre-write-guard.sh emits when it intercepts an ad-hoc root write). A durable
+# artifact with no owning plan is captured then graduated through this funnel, never written
+# straight to a hand-invented ~/.claude-plans/ root surface:
+#   capture:   promote-from-inbox.sh --capture <slug>   # write the idea note now
+#   graduate:  promote-from-inbox.sh <slug>             # mint the NN-<slug>/ plan when ready
+# then the artifact lands in <plan>/_research/ (DT-4 Amendment A1). These two lines are the
+# guard's deny/ask redirect text — keep them in sync with the guard message.
+#
 # Identity field-triad (R-ARCH-PID): the graduated manifest stamps `title:` (human
 # display name, from the inbox note title) and `project:` (the owning-spoke machine
 # identity, resolved from the session cwd through the anchored-spoke registry — NEVER
 # the bare title). --project <spoke-key> overrides the auto-resolved spoke.
+#
 # Env overrides:
 #   PLANS_ROOT             Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
 #                          else $HOME/.claude-plans.
@@ -44,6 +61,7 @@
 #   PLANS_RULES_PATH       plans-rules.json (default: foundation → live).
 #   FINDINGS_OUTPUT        NDJSON sink (default: stdout).
 #   FOUNDATION_TEST_MODE   Bypass the non-interactive guard.
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -88,9 +106,12 @@ if [[ -z "$SLUG" ]]; then
   exit 2
 fi
 
-# Judgment-tier non-interactive guard. Bypassed by FOUNDATION_TEST_MODE.
-if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
-  echo "promote-from-inbox: skipped (non-interactive)" >&2
+# Judgment-tier non-interactive guard. Bypassed by FOUNDATION_TEST_MODE, and by a Claude
+# Code tool-context session (CLAUDECODE=1): a Claude Code tool call has no tty but IS an
+# authorized non-interactive context, so the SOLE mint path must graduate in-session instead
+# of silently no-opping. Only a genuine headless / non-Claude-Code no-tty invocation skips.
+if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${CLAUDECODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+  echo "promote-from-inbox: skipped (non-interactive; not a Claude Code tool-context session)" >&2
   exit 0
 fi
 
@@ -115,6 +136,7 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
+# master-fallback (R4 / H-6): plans-rules.json is repo-only (
 # install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
 # two bundles (foundation-master + overlay-master), which governance consumers read as ONE
 # merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
@@ -225,6 +247,7 @@ plan_slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2,}-[a-z
 inbox_dir = os.path.join(plans_root, "_inbox")
 
 
+# (A): version-on-collision at _inbox/ CAPTURE.
 # Writes a fresh idea-note stub; if _inbox/<slug>.md already exists, versions to
 # <slug>-2.md, <slug>-3.md, … (never clobbers an already-captured idea).
 if action == "capture":
@@ -324,7 +347,6 @@ brief_frontmatter = (
     "---\n"
     "title: %s — Ideation Brief\n"
     "type: ideation-brief\n"
-    "status: planned\n"
     "created: %s\n"
     "updated: %s\n"
     "promoted_from: _inbox/%s.md\n"
@@ -369,16 +391,16 @@ if not brief_content.endswith("\n"):
 
 # ---- build the flat quartet (inline; the new-plan home owns no flat .tmpl) --
 spec_content = (
-    "---\ntitle: %s — Spec\ntype: spec\nstatus: planned\ncreated: %s\nupdated: %s\n---\n\n"
-    "# %s — Spec\n\n**Status:** planned\n**Created:** %s\n**Parent:** —\n"
+    "---\ntitle: %s — Spec\ntype: spec\ncreated: %s\nupdated: %s\n---\n\n"
+    "# %s — Spec\n\n"
     "**Goal:** {One sentence. When this ships, what is true that wasn't true before?}\n\n"
     "## Problem Statement\n\n{2-4 sentences — frozen at scaffold time.}\n\n"
     "## Constraints\n\n- {Hard constraint}\n- {Anti-scope lock}\n\n"
     "## Solution Approach\n\n{3-8 sentences. Post-Session-1 amendment blocks land here.}\n"
-) % (title, today, today, title, today)
+) % (title, today, today, title)
 
 tasks_content = (
-    "---\ntitle: %s — Tasks\ntype: tasks\nstatus: planned\ncreated: %s\nupdated: %s\n---\n\n"
+    "---\ntitle: %s — Tasks\ntype: tasks\ncreated: %s\nupdated: %s\n---\n\n"
     "# %s — Tasks\n\n**Spec:** `%s/spec.md`\n**Last Updated:** %s\n\n"
     "## Status Key\n\n`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
     "<!-- tasks:start -->\n\n## Task ledger\n\n"
@@ -391,7 +413,7 @@ tasks_content = (
 ) % (title, today, today, title, plan_dir, today)
 
 handoff_content = (
-    "---\ntitle: %s — Handoff\ntype: handoff\nstatus: draft\ncreated: %s\nupdated: %s\n---\n\n"
+    "---\ntitle: %s — Handoff\ntype: handoff\ncreated: %s\nupdated: %s\n---\n\n"
     "# %s — Handoff\n\nAppend-only session record. Newest entry at top.\n\n"
     "## Session 0 — scaffold (promoted from _inbox)\n\n**Date:** %s\n**Next session:** T-1 — Define spec\n\n"
     "### Scope\n{Graduated from _inbox/%s.md. Idea body migrated to 00-ideation-brief.md.}\n\n---\n"

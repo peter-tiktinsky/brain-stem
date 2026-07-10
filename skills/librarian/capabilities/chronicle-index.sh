@@ -55,7 +55,7 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "chronicle-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

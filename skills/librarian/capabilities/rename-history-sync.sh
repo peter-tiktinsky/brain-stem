@@ -39,8 +39,19 @@ case "$CMD" in
 import json, os, sys
 p = sys.argv[1]
 if not os.path.isfile(p):
-    print("rename-history-sync: missing %s" % p, file=sys.stderr)
-    sys.exit(2)
+    # LAZY-CREATE the provenance store (create-on-first-write). An
+    # absent store gets the entries[] scaffold (librarian-manifest rename_history[] shape), then
+    # migrate proceeds — was: sys.exit(2). NO new shipped member (the store is repo-only-by-design;
+    # the generator hooks/ glob + install Step 2 exclude top-level hooks/*.json — operator ruling
+    # 2026-07-09). Downstream consume-proofs read this lazy-created store.
+    try:
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+        with open(p, "w") as _f:
+            json.dump({"entries": []}, _f, indent=2, ensure_ascii=False)
+            _f.write("\n")
+    except Exception as _exc:
+        print("rename-history-sync: could not lazy-create %s (%s)" % (p, _exc), file=sys.stderr)
+        sys.exit(2)
 with open(p) as f:
     doc = json.load(f)
 changed = 0
@@ -66,8 +77,16 @@ PY
 import json, os, sys
 p, stdin_path = sys.argv[1], sys.argv[2]
 if not os.path.isfile(p):
-    print("rename-history-sync append: missing %s" % p, file=sys.stderr)
-    sys.exit(2)
+    # LAZY-CREATE on an absent store (create-on-first-write), then
+    # append proceeds — was: sys.exit(2). NO new shipped member (operator ruling 2026-07-09).
+    try:
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+        with open(p, "w") as _f:
+            json.dump({"entries": []}, _f, indent=2, ensure_ascii=False)
+            _f.write("\n")
+    except Exception as _exc:
+        print("rename-history-sync append: could not lazy-create %s (%s)" % (p, _exc), file=sys.stderr)
+        sys.exit(2)
 with open(p) as f:
     doc = json.load(f)
 
@@ -154,7 +173,7 @@ print("rename-history-sync append: %d row(s) appended across entries" % appended
 PY
     ;;
   -h|--help|"")
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
     exit 0
     ;;
   *)

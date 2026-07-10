@@ -56,6 +56,14 @@ CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 # shellcheck source=/dev/null
 source "$CLAUDE_HOME_RES/hooks/lib/findings.sh" 2>/dev/null \
   || source "$(cd "$(dirname "$0")/../../.." && pwd)/hooks/lib/findings.sh"
+# G5 (S4 T-1): source the manifest API so the summary subtree persists to
+# the librarian-manifest via manifest_set — makes the registry's declared
+# writes_manifest_subtree: "drift_findings.index_maintain" REAL, so it is removed
+# from _parity_pending_manifest_writes[] in the same commit. manifest.sh sources
+# paths.sh itself (idempotent guard) → $CLAUDE_STATE_ROOT/$COORD_DIR resolve.
+# shellcheck source=/dev/null
+source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" 2>/dev/null \
+  || source "$(cd "$(dirname "$0")/../../.." && pwd)/hooks/lib/manifest.sh"
 
 DEEP="false"
 DRY_RUN="false"
@@ -112,9 +120,16 @@ if [ -z "$VROOT" ] || [ ! -d "$VROOT" ]; then
   exit 0
 fi
 
+# G5 (S4 T-1): capture a machine-readable summary subtree the bash layer
+# persists to the manifest (drift_findings.index_maintain) via manifest_set AFTER
+# the PY heredoc — mirrors placement-validate.sh's MANIFEST_SUBTREE_OUT / manifest_set
+# pattern. Kept off stdout so the NDJSON findings stream is never polluted.
+MANIFEST_SUBTREE_OUT="$(mktemp -t index-subtree-XXXXXX)"
+export MANIFEST_SUBTREE_OUT
+
 python3 - "$VROOT" "${GOV_DIR:-}" "$DEEP" "$DRY_RUN" "$BUNDLE" <<'PY'
 import json, os, re, sys, tempfile, fnmatch
-from datetime import date
+from datetime import date, datetime, timezone
 
 vroot, gov_dir, deep_s, dry_s = sys.argv[1:5]
 bundle_path = sys.argv[5] if len(sys.argv) > 5 else ""
@@ -122,6 +137,7 @@ deep = (deep_s == "true")
 dry_run = (dry_s == "true")
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
+subtree_out = os.environ.get("MANIFEST_SUBTREE_OUT", "")
 
 START = "<!-- contents-enum:start -->"
 END = "<!-- contents-enum:end -->"
@@ -139,7 +155,13 @@ def emit(d):
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
-exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Work/**"]
+# DEAD-IN-PRACTICE default (round-2 finding): a non-empty pillar
+# mandates._index_md.exemption_paths UNCONDITIONALLY replaces this at the
+# `if isinstance(ep, list) and ep` gate below; kept coherent with the pillar
+# (also the four foreign symlink surfaces Plans/Projects/Wiki/Skills)
+# ONLY for the bundle-less AND pillar-less fallback (never reached in a real sweep).
+exempt_globs = ["Archive/**", "Daily/**", "Inbox/**", "Logs/**", "Work/**",
+                "Plans/**", "Projects/**", "Wiki/**", "Skills/**"]
 # Single SoT for de-exemption: the overlay's path_routing rules. A walked dir
 # matching a REGISTERED glob is de-exempted even when a static exemption (e.g.
 # Work/**) covers it — registered-glob WINS. There is NO second
@@ -317,10 +339,10 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
         fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
         body = "\n".join(fm_lines)
         body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
-        body += "## Contents\n\n" + START + "\n"
+        body += "## Contents\n\n" + START + "\n\n"
         body += "| Name | Lines | Type | Description |\n|------|-------|------|-------------|\n"
         body += ("\n".join(rows) + "\n") if rows else ""
-        body += END + "\n"
+        body += "\n" + END + "\n"
         if not dry_run:
             try:
                 fd, tmp = tempfile.mkstemp(dir=dirpath, prefix="._index.", suffix=".tmp")
@@ -381,18 +403,25 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
 
     region = text[s_idx + len(START):e_idx]
     existing_rows = {}
-    header_lines = []
+    # track the human header row and the delimiter row SEPARATELY. A
+    # pipe-line that is neither the delimiter nor a `[[`-row, seen BEFORE any data
+    # row (existing_rows still empty), IS the operator-tuned header — preserve it
+    # verbatim on re-splice; a headerless region self-heals (header_row stays None).
+    header_row = None
+    delim_row = None
     for ln in region.split("\n"):
         st = ln.strip()
         if not st.startswith("|"):
             continue
         if "---" in st and set(st) <= set("|-: "):
-            header_lines.append(ln)
+            delim_row = ln
             continue
         cols = [c.strip() for c in st.strip("|").split("|")]
         m = re.match(r"\[\[(.+?)\]\]", cols[0]) if cols else None
         if m:
             existing_rows[m.group(1)] = cols
+        elif not existing_rows:
+            header_row = ln
 
     new_rows = []
     drifted = False
@@ -434,10 +463,19 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
                   "drift_type": "orphan-row", "child_file": name + ".md",
                   "before": "row-present", "after": "row-removed", "detected_at": today})
 
+    # a damaged HEADERLESS region (no human header captured) is repaired even
+    # when no rows drifted — force a re-splice so the canonical header is reconstructed.
+    if header_row is None:
+        drifted = True
+
     if drifted and not dry_run:
-        hdr = "\n".join(header_lines) if header_lines else \
-              "| Name | Lines | Type | Description |\n|------|-------|------|-------------|"
-        new_region = "\n" + hdr + "\n" + "\n".join(new_rows) + "\n"
+        # assemble the header from the SURVIVING rows, falling back to the
+        # bootstrap-branch canonical 2-line header (see :334) when the region carried
+        # none — preserves an operator-tuned header, self-heals a damaged one.
+        canonical_header = "| Name | Lines | Type | Description |"
+        canonical_delimiter = "|------|-------|------|-------------|"
+        hdr = (header_row or canonical_header) + "\n" + (delim_row or canonical_delimiter)
+        new_region = "\n\n" + hdr + "\n" + "\n".join(new_rows) + "\n\n"
         new_text = text[:s_idx + len(START)] + new_region + text[e_idx:]
         # bump updated:
         new_text = re.sub(r"(?m)^updated:.*$", "updated: %s" % today, new_text, count=1)
@@ -470,6 +508,17 @@ def _dir_nonempty(p):
     except Exception:
         return False
 
+# (Option A store): the per-folder sub-project declaration marker. This
+# python predicate is the MIRROR of work-spoke-layout.sh's declared_subproject —
+# the lib is bash and this capability is python, so they cannot share source; the
+# mirror is kept in DECLARATION-FIRST precedence-parity with the lib (a documented
+# cross-language duplicate, exercised by the ac-index-maintain-work-followlinks
+# fixture). Presence of the marker declares a child a sub-project regardless of shape.
+_SUBPROJECT_MARKER = ".claude-subproject"
+
+def _is_declared_subproject(base):
+    return os.path.isfile(os.path.join(base, _SUBPROJECT_MARKER))
+
 def _has_deliverables_or_reference(base):
     return (os.path.isdir(os.path.join(base, "deliverables"))
             or os.path.isdir(os.path.join(base, "reference")))
@@ -488,7 +537,9 @@ if os.path.isdir(work_root):
         top_reference = os.path.join(sp_path, "reference")
         top_has = os.path.isdir(top_deliverables) or os.path.isdir(top_reference)
         # Qualifying children: child dirs (not deliverables/reference themselves)
-        # that hold their OWN deliverables/ or reference/.
+        # that are DECLARED sub-projects (own the .claude-subproject marker) OR,
+        # failing that, hold their OWN deliverables/ or reference/ (declaration-first,
+        # shape-fallback — in parity with work-spoke-layout.sh classify_top_level).
         try:
             children = [c.name for c in os.scandir(sp_path)
                         if c.is_dir() and not c.name.startswith(".")
@@ -496,7 +547,8 @@ if os.path.isdir(work_root):
         except Exception:
             children = []
         qualifying = [c for c in children
-                      if _has_deliverables_or_reference(os.path.join(sp_path, c))]
+                      if _is_declared_subproject(os.path.join(sp_path, c))
+                      or _has_deliverables_or_reference(os.path.join(sp_path, c))]
         if not top_has:
             # No top-level deliverables/reference. MASTER (>=1 qualifying child)
             # or MASTER-PENDING (zero) — both benign for THIS conflict check
@@ -522,4 +574,30 @@ if os.path.isdir(work_root):
 
 print("index-maintain: bootstraps=%d corrections=%d deep=%s dry_run=%s"
       % (bootstraps, corrections, deep, dry_run), file=sys.stderr)
+
+# G5 (S4 T-1): write the summary subtree (bootstraps/corrections/deep/
+# dry_run) the bash layer persists via manifest_set '.drift_findings.index_maintain'.
+# Additive summary only — no change to the finding stream or the vault _index.md writes.
+if subtree_out:
+    subtree = {
+        "last_scan": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "bootstraps": bootstraps,
+        "corrections": corrections,
+        "deep": deep,
+        "dry_run": dry_run,
+    }
+    with open(subtree_out, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(subtree))
 PY
+
+# G5 (S4 T-1): persist the index-maintain summary subtree to the
+# librarian-manifest — makes the registry's declared
+# writes_manifest_subtree: "drift_findings.index_maintain" real (removed from
+# _parity_pending_manifest_writes[] in the same commit), mirroring
+# placement-validate.sh:224-226. manifest+lock live under always-creatable
+# $CLAUDE_STATE_ROOT/$COORD_DIR (G2/plan 110), so the persist needs no non-empty
+# VAULT_LOGS. Gate only on having a subtree to write.
+if [ -s "$MANIFEST_SUBTREE_OUT" ]; then
+  manifest_set '.drift_findings.index_maintain' "$(cat "$MANIFEST_SUBTREE_OUT")"
+fi
+rm -f "$MANIFEST_SUBTREE_OUT"

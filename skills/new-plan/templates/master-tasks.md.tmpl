@@ -1,7 +1,6 @@
 ---
 title: {{title}} — Tasks
 type: tasks
-status: planned
 created: {{date}}
 updated: {{date}}
 ---

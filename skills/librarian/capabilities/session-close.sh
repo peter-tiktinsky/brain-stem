@@ -90,11 +90,20 @@ SCOPE=""
 DRY_RUN="false"
 TEST_MODE="false"
 TOUCHED_FILES_CSV=""
+# T-4: the session's OWN id, threaded EXPLICITLY (arg/env). The SessionEnd
+# spawn (session-deregister.sh) and the manual /librarian close pass --session-id so
+# self-ID never guesses. Env fallback CLAUDE_SESSION_ID (rarely exported into Bash
+# subshells). Empty here -> auto_detect_scope's demoted last-resort ancestor-walk.
+SELF_SESSION_ID="${CLAUDE_SESSION_ID:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope)
       SCOPE="$2"
+      shift 2
+      ;;
+    --session-id)
+      SELF_SESSION_ID="$2"
       shift 2
       ;;
     --dry-run)
@@ -129,17 +138,22 @@ auto_detect_scope() {
     echo "solo"
     return 0
   fi
-  # Resolve own session-id. T-2f bugfix (2026-04-30): Claude Code
-  # does NOT export CLAUDE_SESSION_ID into Bash tool subshells, so the env
-  # var is empty and the self-exclusion filter below would no-op, causing
-  # the running session to count itself as a peer (pre-fix: scoped wins
-  # forever, reconciler-mode unreachable). Fallback path: walk the parent
-  # process chain from $$ until an ancestor pid matches an entry in the
-  # session registry — that's our claude daemon, and the matched session-id
-  # is "us." Verified live: typical chain is bash-tool-subshell -> shell ->
-  # claude daemon, depth 2.
-  local me="${CLAUDE_SESSION_ID:-}"
+  # Resolve own session-id. T-4 (identity, not liveness): self-ID is now
+  # threaded EXPLICITLY via --session-id (session-deregister.sh's SessionEnd spawn +
+  # the manual /librarian close), so `me` is KNOWN and never guessed. Fallback order:
+  #   1. --session-id / SELF_SESSION_ID (the threaded id — the correct source)
+  #   2. CLAUDE_SESSION_ID env (rarely exported into Bash tool subshells)
+  #   3. the pid ancestor-walk — DEMOTED to a LAST-RESORT fallback (documented caveat).
+  # WHY DEMOTED: the walk matches a stored .value.pid against an ancestor pid, but under
+  # a SHARED ancestor pid (Task/Agent subagents; multiple session-ids in one long-lived
+  # process) it matches the WRONG row — an identity bug no liveness-verdict change fixes.
+  # It survives ONLY to degrade gracefully for a caller that threads neither an arg nor
+  # the env; a threaded --session-id always wins. auto_detect_scope is READ-ONLY (it
+  # computes scope, never mutates a row), so a wrong/empty fallback never corrupts a row.
+  local me="${SELF_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
   if [[ -z "$me" ]] && command -v jq >/dev/null 2>&1; then
+    # LAST-RESORT (T-4 caveat): under a shared ancestor pid this can match a
+    # sibling's row. Kept only for a caller that threads no --session-id / env id.
     local _pid=$$ _depth=0 _match
     while [[ -n "$_pid" && "$_pid" != "1" && "$_pid" != "0" && "$_depth" -lt 10 ]]; do
       _match=$(jq -r --argjson p "$_pid" \
@@ -152,13 +166,28 @@ auto_detect_scope() {
   fi
   local active_peers pending_peers
   active_peers=$(python3 -c '
-import json, os, sys
+import json, os, sys, time
+from datetime import datetime, timezone
 p = sys.argv[1]
 me = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("CLAUDE_SESSION_ID", "")
+try:
+    threshold = int(sys.argv[3]) if len(sys.argv) > 3 else 1800
+except (TypeError, ValueError):
+    threshold = 1800
+now = time.time()
+def _epoch(iso):
+    # Portable ISO8601 ...Z -> UTC epoch (0 if absent/unparseable). Mirrors
+    # registry.sh::iso8601_to_epoch; python datetime is inherently BSD/GNU-portable
+    # (no `date -jf`), so this alive() mirror carries no BSD-only degrade.
+    if not iso or iso == "null":
+        return 0
+    try:
+        return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except Exception:
+        return 0
 def alive(pid):
-    # PID-liveness mirror of registry.sh::pid_is_live: a dead/null-pid
-    # `active` row no longer forces `scoped`. ProcessLookupError -> dead;
-    # PermissionError -> alive (a real process we cannot signal); other/non-int -> dead.
+    # PID-liveness shim: ProcessLookupError -> dead; PermissionError ->
+    # alive (a real process we cannot signal); other/non-int -> dead.
     try:
         pid = int(pid)
     except (TypeError, ValueError):
@@ -174,6 +203,18 @@ def alive(pid):
     except OSError:
         return False
     return True
+def live(entry):
+    # T-5: heartbeat-authoritative mirror of registry.sh::session_liveness_verdict.
+    # fresh hb -> live; stale hb -> dead (incl. the live-pid+stale-hb phantom quadrant);
+    # absent/unparseable hb floors off started; the pid shim is consulted ONLY when hb AND
+    # started are both absent (backward-compat). pid is never a keep-signal otherwise.
+    e = _epoch(entry.get("last_heartbeat"))
+    if e > 0:
+        return (now - e) <= threshold
+    e = _epoch(entry.get("started"))
+    if e > 0:
+        return (now - e) <= threshold
+    return alive(entry.get("pid"))
 try:
     d = json.load(open(p))
 except Exception:
@@ -184,10 +225,10 @@ for sid, entry in sessions.items():
     if sid == me:
         continue
     status = entry.get("status", "") if isinstance(entry, dict) else ""
-    if status == "active" and alive(entry.get("pid")):
+    if status == "active" and live(entry):
         n += 1
 print(n)
-' "$SESSION_REGISTRY" "$me" 2>/dev/null || echo 0)
+' "$SESSION_REGISTRY" "$me" "${STALE_THRESHOLD_SECS:-1800}" 2>/dev/null || echo 0)
   pending_peers=$(python3 -c '
 import json, os, sys
 p = sys.argv[1]
@@ -433,7 +474,17 @@ step2_integrity() {
     active_spoke="home"
   fi
 
-  run_capability frontmatter-enforce --check
+  # Invoke the SCOPED Work-deliverable lane so the ~390 Work
+  # bodies behind the Work/ symlink are validated at close. Pre-130 this ran a bare
+  # `--check` (the recent/full whole-vault lane, symlink-inert per FIX #7), so the
+  # scoped lane FIX #7 built had no caller and Work bodies were never validated. `--scope`
+  # and the `--check`/`--fix` MODE are ORTHOGONAL flags (frontmatter-enforce.sh:78-89 — no
+  # `--enforce` flag exists): --scope sets WALK=scope (build_scope sources the shared walker,
+  # symlink-following), --check keeps validation read-only. VAULT_ROOT-empty degrades
+  # cleanly (frontmatter-enforce's own VAULT_CONFIGURED guard exits 0). This is the R2
+  # serialization-cluster edit (128 -> here -> 140/11); it does NOT touch the post-128
+  # SELF_SESSION_ID/--session-id flow.
+  run_capability frontmatter-enforce --scope "${VAULT_ROOT:-}/Work" --check
   run_capability xref-check
   run_capability placement-validate
   run_capability stale-detect
@@ -445,7 +496,29 @@ step2_integrity() {
   # — defeats alert-fatigue. Positioned between stale-detect and the close-out
   # write so its findings flow into the per-run sink with the rest of step 2.
   run_capability pointer-currency-scan --session-close
-  run_capability handoff-disposition-check
+  # Forward the session's touched files to the R-25
+  # handoff-disposition close-time scan. TOUCHED_FILES_CSV (98, captured from
+  # --touched-files) was never threaded, so under the Bash-tool subshell
+  # handoff-disposition-check saw empty stdin and scanned 0 handoff.md — R-25
+  # close-time enforcement was a no-op. Split the CSV (bash-3.2-safe IFS split;
+  # no clobber of $@) into repeated --files args; an empty CSV calls the cap bare
+  # (a clean 0-missing no-op). handoff-disposition-check.sh accepts repeated
+  # --files (42) or newline stdin (49). Does NOT touch the post-128
+  # SELF_SESSION_ID flow.
+  _hd_files=()
+  if [[ -n "$TOUCHED_FILES_CSV" ]]; then
+    _hd_oifs="$IFS"; IFS=','
+    for _hd_f in $TOUCHED_FILES_CSV; do
+      [[ -z "$_hd_f" ]] && continue
+      _hd_files+=(--files "$_hd_f")
+    done
+    IFS="$_hd_oifs"
+  fi
+  if [[ ${#_hd_files[@]} -gt 0 ]]; then
+    run_capability handoff-disposition-check "${_hd_files[@]}"
+  else
+    run_capability handoff-disposition-check
+  fi
   # T-4: maintain the episodic chronicle. Chained AFTER
   # handoff-disposition-check so the handoff/close-out block is already written —
   # the one-line-summary backfill harvests it. Read-mostly: pointer-metadata
@@ -467,6 +540,17 @@ step2_integrity() {
   # from fresh plan source. All three are run_capability-compatible (block-and-log,
   # exit 0, idempotent, atomic os.replace). plan-handoff-index's full re-derive
   # absorbs the append above idempotently.
+  #
+  # sub-11 T-2 (F11 writer-2; DT-4 memo §Amendment-A1 clause 4): the SINGLE research
+  # declaration surface. plan-research-declare DERIVES research_artifacts[] into each active-spoke
+  # plan's OWN manifest from that plan's OWN _research/ (+ decisions/target-state/deliverables/),
+  # routed to the OWNING spoke via the manifest project: key (true owner). It runs
+  # BEFORE plan-research-index so the render reflects the just-declared artifacts. NEVER writes
+  # _library (universal-only) and NEVER invokes library-scrub --apply (the manual PROMOTION path).
+  # run_capability-compatible (block-and-log, exit 0, idempotent, single-writer, atomic os.replace;
+  # never clobbers an author-curated entry). Inserted OUTSIDE the is_build_dogfood boundary below
+  # (605-607, permanently adjudicated no-touch); the declare writer touches only plan manifests.
+  run_capability plan-research-declare --spoke "$active_spoke"
   run_capability plan-research-index --spoke "$active_spoke"
   run_capability plan-decision-log   --spoke "$active_spoke"
   run_capability plan-handoff-index  --spoke "$active_spoke"
@@ -523,6 +607,13 @@ step2_integrity() {
   if is_build_dogfood; then
     run_capability governance-parity-audit
   fi
+  # The reach-verified coverage guard: a standing, report-only regression guard
+  # over the sentinel corpus. It self-gates on corpus presence (a no-op when the
+  # corpus is absent — every adopter install), so it needs NO is_build_dogfood
+  # gate and is placed OUTSIDE the boundary above (never touches it). Findings
+  # flow into the per-run sink via run_capability's FINDINGS_OUTPUT wiring; the
+  # cap exits 0 (report-only), so session-close stays advisory.
+  run_capability coverage-guard
 }
 
 # ---- Step 2b: rename cascade (T-4) ----------------------------

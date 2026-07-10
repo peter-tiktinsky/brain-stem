@@ -356,10 +356,10 @@ _cohort_slug = re.sub(r"[^a-z0-9]+", "-", (rel or folder).lower()).strip("-") or
 fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
 body = "\n".join(fm_lines)
 body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
-body += "## Contents\n\n" + START + "\n"
+body += "## Contents\n\n" + START + "\n\n"
 body += "| Name | Lines | Type | Description |\n|------|-------|------|-------------|\n"
 body += ("\n".join(rows) + "\n") if rows else ""
-body += END + "\n"
+body += "\n" + END + "\n"
 try:
     fd, tmp = tempfile.mkstemp(dir=dirpath, prefix="._index.", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:

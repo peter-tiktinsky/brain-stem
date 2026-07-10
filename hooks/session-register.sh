@@ -1,10 +1,12 @@
 #!/bin/bash
 # Hook: SessionStart (#1) — register the session into the coordination registry
 # AND, on source=compact, restore the per-session checkpoint + rotate it.
+#
 # C2-owned body (canonical/SessionStart fire-order #1;.4 restore +
 # rotation;.6 lockf-guarded registry at <coord-root>/.coordination). It must
 # run FIRST in the SessionStart row so the registry/checkpoint-restore context
 # exists before spec-context-inject (#3), session-start (#4), memory-seed (#5).
+#
 # Two responsibilities (.4,.6):
 #   1. Register / refresh this session's row in session-registry.json
 #      (machine-local ephemeral,; REGISTRY_FILE from lib/registry.sh),
@@ -13,12 +15,13 @@
 #      cat it -> re-inject verbatim as text additionalContext -> mv it to
 #      sessions/<sid>/checkpoint-<ts>.md (rotation/archive, NOT delete).
 #      Rotation is owned HERE, not by the session-checkpoint skill (.4).
+#
 # Graceful no-op when $CLAUDE_SESSION_ID (and stdin .session_id) are absent —
 # the zero-cross-session-pollution invariant. NEVER fail-hard:
 # a SessionStart hook that non-zero-exits can break the user's session.
 set -uo pipefail
 
-# Portability (/ LOCK): resolve libs via $SCRIPT_DIR — no $HOME/.claude
+# Portability (LOCK): resolve libs via $SCRIPT_DIR — no $HOME/.claude
 # body literal. registry.sh sources paths.sh and exports COORD_DIR/REGISTRY_FILE.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
@@ -27,9 +30,17 @@ source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 # Atomic write via the lib's write_registry (temp+rename). Preserves
 # touched_files + started on a re-fire so the R-42 file list survives. Invoked
 # directly OR re-exec'd under lockf (the --do-register internal entry-point).
-# The recorded pid is the SESSION's process (the live reaper at
-# reconcile-sessions.sh:57-86 keys `kill -0 $pid` on it), passed explicitly so a
-# lockf re-exec doesn't record the lockf pid.
+#
+# ADVISORY PID (T-1): the recorded pid is ADVISORY / display-only —
+# NOT a liveness key and NOT a session-identity key. Multiple Claude session-ids
+# provably inhabit one OS process (Task/Agent subagents, /clear-resume-compaction),
+# so no OS-process signal can ever make pid unique; liveness is decided by the
+# HEARTBEAT-authoritative session_liveness_verdict (registry.sh), which demotes pid
+# to a backward-compat shim consulted only when a row carries neither a heartbeat
+# nor a `started` floor. `last_heartbeat` (refreshed here + per-prompt + at Stop) and
+# `started` (the always-present staleness floor) are the load-bearing fields. The pid
+# is still passed explicitly so a lockf re-exec doesn't record the lockf pid, and it
+# remains useful for display (peer summaries) — it is simply never the keep-signal.
 register_row() {
   command -v jq >/dev/null 2>&1 || return 0
   local sid="$1" rpid="$2" now reg updated
@@ -46,10 +57,13 @@ register_row() {
 }
 
 # resolve_session_pid — return the long-lived Claude process pid, NOT the
-# transient hook subshell ($$) this SessionStart hook runs in (S2 fix). The
-# reaper at reconcile-sessions.sh:57-86 keys `kill -0 $pid` on the stored pid;
-# storing $$ (a subshell that exits the instant this hook returns) makes the row
-# look dead within milliseconds, so the dead-pid check reaps a live session.
+# transient hook subshell ($$) this SessionStart hook runs in (S2 fix). Storing $$
+# (a subshell that exits the instant this hook returns) would make the row look
+# dead within milliseconds. Since the reaper's verdict is
+# HEARTBEAT-authoritative (session_liveness_verdict in registry.sh, refactored onto
+# the shared verdict at reconcile-sessions.sh's per-row drop-block), so the pid is
+# advisory — but a sane long-lived pid is still stored for display/backward-compat.
+#
 # This is a NEW $PPID-comm-walk resolver: walk up to ~4 ancestors via
 # `ps -o ppid=`, return the first whose `ps -o comm=` contains 'claude'. It is
 # NOT a reuse of session-close.sh:135-143 — that is a session-ID REVERSE lookup

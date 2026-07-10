@@ -61,7 +61,7 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-terminal-lag-check: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

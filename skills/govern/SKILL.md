@@ -63,7 +63,7 @@ atomic temp+rename), invokes the project-workspace scaffolder
 through `hooks/lib/overlay-master-mutate.sh` with `--kind folder` — a routing-rule
 mutation is folder-class). It NEVER appends to the vault-root `CLAUDE.md` tree
 (the FIX#3 carve-out — a project's identity lives in its own work `CLAUDE.md`;
-cross-plan state lives in the binder hub at `~/.claude-plans/_projects/<spoke>/hub.md`).
+cross-plan state lives in the machine-derived binder at `~/.claude-plans/_projects/<spoke>/`).
 
 **Two create shapes ():**
 
@@ -104,7 +104,7 @@ no re-scaffold).
   sub-project. Re-running on an existing folder BLOCKS (non-destructive).
 - `--adopt` — sub→top-level promotion: the operator `git mv` is EMITTED (not
   executed), then register the depth-1 spoke + scaffold the MISSING-ONLY work
-  `CLAUDE.md` + mint the binder hub (existing `README`/`deliverables`/`reference`
+  `CLAUDE.md` + establish the binder home (existing `README`/`deliverables`/`reference`
   byte-unchanged). Lossless; ZERO content-file mutation.
 ```
 

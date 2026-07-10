@@ -62,7 +62,7 @@
 #     and is skipped; no partial/garbage write. Never write-and-hope.
 #   Maintainer-provenance (R-GOV-3): decision-log.md is a librarian-maintained
 #     artifact (R-BIND-3, maintainer=librarian); this capability is its sole
-#     originating writer. It NEVER writes hub.md, research-index.md,
+#     originating writer. It NEVER writes research-index.md,
 #     handoff-chronicle.md, the research/ symlink farm, plan manifests, or any
 #     plan _research/ / decisions/ content. It reads decision_records[] and writes
 #     ONLY decision-log.md.
@@ -98,7 +98,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,110p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-decision-log: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

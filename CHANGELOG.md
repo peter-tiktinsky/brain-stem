@@ -4,6 +4,33 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.11.0]
+
+Hardening release — a systematic audit of brain-stem's own self-maintenance layer (the librarian audits, the write-time hooks, and the release gates) found 80 places where a maintenance capability existed but silently failed to reach a surface it was supposed to govern — a scan that followed no symlinks, a walk rooted at the wrong directory, an owner that was never wired in. This release closes or explicitly dispositions every one of them, and caps the work with a standing **coverage guard**: a corpus of planted canary defects that proves, at every release, that each capability still detects what it claims to. Alongside the wave: note types you register yourself are now enforced at write time (not just accepted), plan status has a single source of truth, and multi-session coordination picked up a cluster of correctness fixes. **Nothing you author changes and there is nothing to migrate.** See the [v1.11.0 release notes](docs/release-notes-v1.11.0.md).
+
+### Added
+
+- **A standing coverage guard.** brain-stem's maintenance layer now proves its own reach. A sentinel corpus — one planted, known-bad canary per governed surface — lives in the maintainer test suite, and a new auditor verifies that every maintenance capability still detects its sentinels. That proof runs at every release, before a version reaches you; on your install the guard is wired into the full audit and session close (report-only) and reports the corpus as absent — a visible no-op, never a silent pass. Silent under-coverage (a capability that exists but never actually reaches a surface) is now a detected condition instead of an accident you discover months later.
+- **Your own note types are enforced, not just legal.** Registering a custom note type (`/govern register --kind file-type`) now gives it the same write-time enforcement as the built-in types: a write missing one of its required fields is blocked immediately. The per-type contract schema ships with the foundation so the registration path validates your contract locally, and the "unknown type" message inside a work folder now explains exactly how to register a new type at the moment you need it.
+- **Work spokes pick up write-time governance automatically.** A write inside any registered `~/work/<spoke>/` folder gains the full set of frontmatter and tagging rules with zero per-spoke setup; the universal `deliverable`/`reference` pair is unchanged.
+- **Plans carry a machine-readable research record.** New plans scaffold a `research_artifacts[]` field in their manifest; session close populates it, so a plan's research outputs are discoverable without reading prose.
+- **The plan tree's root is a closed namespace.** Stray files landing at the plan-tree root are now flagged by a placement sweep and surfaced at session start, with durable artifacts routed to where they belong.
+
+### Fixed
+
+- **The maintenance layer reaches everything it governs.** The bulk of this release: audits and repair capabilities now follow the vault's symlinked views through one shared walker instead of six divergent re-implementations; scans that were rooted at the wrong directory (including one that scanned zero files) are re-rooted; rename detection and cascade now reach `~/work` and `~/.claude`; missing reconcilers were built for the binder, memory, and writer surfaces; declared-but-never-wired integrations were wired; and the write-time hooks now also cover the project-binder, rules, and schema surfaces.
+- **Coverage-zeroing correctness bugs.** The plan index no longer drops real rows; backups no longer wipe the per-project memory tier and now include the work tree; the handoff-disposition check receives the files it is supposed to scan; and the release gate's schema validators now fail closed when their validator is missing instead of passing silently.
+- **Plan status has one source of truth.** The plan manifest is now the sole carrier of a plan's status; the spec, tasks, and brief files no longer carry a status line that can drift out of sync with it.
+- **Multi-session coordination is liveness-accurate.** Session liveness is now heartbeat-authoritative with PID-liveness checks, so exited sessions no longer linger as phantom peers; and the pre-compaction checkpoint attributes work to a plan your own session actually touched, not whichever plan was most recently touched by anyone.
+- **Rendering and hygiene.** Generated index tables now render as valid Markdown everywhere; reserved names are rejected at every folder-creation entry point; the human-authored header of a maintained index survives regeneration; and `--help` output was corrected across twenty-one librarian capabilities.
+- **Generated task ledgers can no longer be spliced into prose.** The tasks.md renderer locates its region markers as exact whole lines now: a note that merely *mentions* the marker text in a comment renders into the real block as intended, and a file with no unambiguous block is refused with a clear message instead of being silently rewritten in the wrong place. This matters because the renderer also runs automatically after plan-manifest writes in this release.
+
+### Changed
+
+- **The curated hub page is retired.** The per-project binder is now fully machine-derived (the situating card and generated indexes); brain-stem no longer creates or maintains a `hub.md`, and its template no longer ships. Existing hub files are left where they are.
+- **`git-hooks/` no longer ships.** The public repository no longer carries the author-side git hooks (public since an early seeding accident); they could not run in a public clone and had no adopter-facing function.
+- **If you previously registered a custom note type**, its required fields now block an incomplete write where they were previously accepted silently — this is the enforcement the registration always implied. Files already on disk are untouched; the rule fires only on new writes.
+
 ## [v1.10.0]
 
 Foundation release — a new **typed frontmatter substrate** that makes your vault navigable in Obsidian, legible to Claude, and portable to external AI tools, alongside a broad round of correctness fixes to the per-project "binder" surfaces (the auto-generated situating cards, handoff chronicles, decision logs, and lifecycle checks) and to multi-session coordination. Most of this release is internal hardening; the one new authoring-facing capability — the frontmatter cohort and its opt-in backfill — is **warn-by-default, with nothing forced on you and nothing to migrate.** See the [v1.10.0 release notes](docs/release-notes-v1.10.0.md).

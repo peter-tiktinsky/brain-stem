@@ -41,7 +41,7 @@ fm_get_field() {
         sub("^"f"[[:space:]]*:[[:space:]]*", "")
         # Strip trailing whitespace
         sub("[[:space:]]+$", "")
-        # : coerce bare YAML null tokens to empty (mirrors the JSON path,
+        # coerce bare YAML null tokens to empty (mirrors the JSON path,
         # which turns JSON null into "" via an isinstance(str) check). A quoted
         # "null" is a legitimate string value and is NOT coerced — it retains its
         # quotes here because the parser does not unquote.

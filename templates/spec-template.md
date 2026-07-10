@@ -1,7 +1,6 @@
 ---
 title: {{title}} — Spec
 type: spec
-status: planned
 created: {{date}}
 updated: {{date}}
 ---

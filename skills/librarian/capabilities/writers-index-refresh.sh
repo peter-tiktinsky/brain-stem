@@ -43,7 +43,7 @@ CHECK="false"
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) CHECK="true"; shift ;;
-    -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "writers-index-refresh: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -54,6 +54,11 @@ if [ -z "$GOV_DIR" ]; then
     "$CLAUDE_HOME_RES/governance"; do
     [ -d "$cand" ] && { GOV_DIR="$cand"; break; }
   done
+fi
+# repo fallback so a dev run without a live install still resolves
+# the DECLARED dep governance/file-type-contracts/vault-writer.md.json (ships standalone).
+if [ -z "$GOV_DIR" ] || [ ! -d "$GOV_DIR" ]; then
+  GOV_DIR="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
 fi
 
 VROOT="${VAULT_ROOT:-}"
@@ -83,14 +88,40 @@ def emit(d):
     else:
         sys.stdout.write(line + "\n")
 
-REQUIRED = ["type", "writer_name", "writer_kind", "writer_skill",
-            "destinations", "status", "created", "updated", "tags"]
-CONDITIONAL = {
-    "connector": ["writer_subtype", "source", "authentication"],
-    "agentic-flow": ["source"],
-    "auto-research": ["source", "schedule"],
-    "scheduled-skill": ["schedule"],
-}
+# derive REQUIRED + CONDITIONAL from the DECLARED contract
+# governance/file-type-contracts/vault-writer.md.json instead of the prior hardcoded
+# constants — so contract drift (e.g. the connector `schedule` the contract requires at
+# frontmatter_conditional_by_writer_kind.connector.required) is no longer invisible.
+# READ-ONLY consume (the contract is not edited) -> NO master rebuild. Block-and-log if
+# the contract is absent/malformed (never silently fall back to a stale hardcode).
+_contract = None
+if gov_dir:
+    _cpath = os.path.join(gov_dir, "file-type-contracts", "vault-writer.md.json")
+    if os.path.isfile(_cpath):
+        try:
+            with open(_cpath, encoding="utf-8") as fh:
+                _contract = json.load(fh)
+        except Exception:
+            _contract = "MALFORMED"
+if isinstance(_contract, dict):
+    REQUIRED = [f for f in (_contract.get("frontmatter_required") or []) if isinstance(f, str)]
+    CONDITIONAL = {}
+    for _kind, _spec in (_contract.get("frontmatter_conditional_by_writer_kind") or {}).items():
+        if isinstance(_spec, dict):
+            CONDITIONAL[_kind] = [f for f in (_spec.get("required") or []) if isinstance(f, str)]
+else:
+    # Contract absent/malformed: emit a LOUD finding and DEGRADE writer validation to a
+    # no-op (REQUIRED=[]/CONDITIONAL={}) — never silently fall back to a stale hardcode.
+    # The _index.md RENDER (a SEPARATE function from validation) still proceeds so the
+    # catalog stays current; the finding surfaces that per-writer conformance was NOT
+    # checked this run (the contract ships standalone, so this is an off-nominal path).
+    emit({"finding": "writer-contract-unavailable",
+          "file": os.path.join(gov_dir or "", "file-type-contracts", "vault-writer.md.json"),
+          "reason": "vault-writer.md.json absent-or-malformed",
+          "detail": "REQUIRED/CONDITIONAL cannot be contract-sourced; writer validation degraded to no-op (no stale hardcode); render proceeds",
+          "detected_at": today, "first_seen": today})
+    REQUIRED = []
+    CONDITIONAL = {}
 
 def parse_fm(text):
     if not text.startswith("---"):
@@ -183,7 +214,7 @@ if not preface.strip():
 if not footer.strip():
     footer = "\n## See also\n\n- [[_overlap-matrix]]\n"
 
-generated = START + "\n" + "\n".join(table) + "\n" + END
+generated = START + "\n\n" + "\n".join(table) + "\n\n" + END
 if preface and not preface.endswith("\n"):
     preface += "\n"
 new_content = preface + generated + footer
