@@ -4,6 +4,31 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.12.0]
+
+Hardening release — a train of correctness fixes across brain-stem's shipped hooks, capabilities, and installer, plus one safeguard that was inert in prior versions and is now active. Ending a session now reliably marks it closed; the multi-session overlap advisory, the memory-maintenance checks, and a library fallback that were silently no-op'ing now fire; the `install.sh --apply` upgrade preview classifies edge-case files accurately; and the auto-generated binder research links resolve. The activation: the context-pressure **Stop gate** — the "write a checkpoint before you end a long, context-heavy session" safeguard — now reads the session id it needs and enforces, where before it was dormant. A few small conveniences ride along: automatic rendering, last-updated dates in the backlog (with malformed plan manifests surfaced rather than hidden), and an owning-directory column in the plan index. **Nothing you author changes and there is nothing to migrate.** See the [v1.12.0 release notes](docs/release-notes-v1.12.0.md).
+
+### Added
+
+- **Traceability matrices render automatically.** brain-stem can now generate a plan's traceability matrix from its manifest — the same way it already renders the task list — so the matrix stays in sync without hand-maintenance.
+- **The backlog shows last-updated dates, and surfaces broken plans instead of hiding them.** Your backlog view now carries when each plan was last touched, and a plan whose manifest is malformed appears as a flagged finding rather than silently dropping off the list. New plans are stamped with a date on creation.
+- **The plan index shows each plan's owning directory.** A new column marks which project or code tree each plan belongs to (for example `~/work` versus a code repo), so ownership is visible at a glance.
+
+### Fixed
+
+- **The "checkpoint before you stop" safeguard is now active.** brain-stem's context-pressure Stop gate — which prompts you to save a session checkpoint before ending a long, high-context session — could not read the session id it needed in prior versions and was effectively inert. It now resolves the session id and enforces. After upgrading you may see this prompt for the first time on a heavy session; running `/session-checkpoint` writes the checkpoint and clears it.
+- **Ending a session reliably marks it closed.** Session close could silently fail to update the session registry in a background lock path, leaving stale "phantom" session rows. It now marks the row closed correctly.
+- **The multi-session overlap advisory fires.** The advisory that warns when another Claude session is editing the same vault file could not resolve the session id and stayed silent; it now fires as intended.
+- **Memory maintenance no longer silently skips.** The memory-freshness and memory-hygiene checks could quietly do nothing when run as a background job; they now run correctly, and a genuinely empty memory directory is reported loudly instead of normalized away.
+- **The upgrade preview is accurate on edge cases.** When you run `install.sh --apply`, the "what will change" preview now classifies customization-overlay merges, deferred `.foundation-new` sidecar files, and files matching an older shipped version the same way the upgrade actually treats them — so the preview matches the outcome.
+- **Plan-manifest dates are validated.** A badly-formatted date in a plan manifest is now caught rather than silently accepted. This is forward-looking: it flags none of your existing plans (verified across the whole corpus), and the dates it checks are auto-stamped by the scaffolder.
+- **Binder research links resolve.** Dead links in the auto-generated research-index binder pages — especially for research stored in sub-folders or in non-default project homes — are fixed, and stray files misplaced inside the binder are now detected by the placement sweep.
+- **An internal robustness fallback works.** A fallback that reloads brain-stem's shared helper libraries when the primary copy is missing was unreachable; it is now correct. Invisible in normal operation, but the intended safety net now functions.
+
+### Changed
+
+- **Nothing you author changes, and there is nothing to migrate.** The new manifest fields are optional (existing manifests stay valid), the date check is prospective-only, and the template updates affect generated files, not anything you type. The one behavior change to be aware of is the Stop-gate activation above — a dormant safeguard becoming active, not a migration.
+
 ## [v1.11.0]
 
 Hardening release — a systematic audit of brain-stem's own self-maintenance layer (the librarian audits, the write-time hooks, and the release gates) found 80 places where a maintenance capability existed but silently failed to reach a surface it was supposed to govern — a scan that followed no symlinks, a walk rooted at the wrong directory, an owner that was never wired in. This release closes or explicitly dispositions every one of them, and caps the work with a standing **coverage guard**: a corpus of planted canary defects that proves, at every release, that each capability still detects what it claims to. Alongside the wave: note types you register yourself are now enforced at write time (not just accepted), plan status has a single source of truth, and multi-session coordination picked up a cluster of correctness fixes. **Nothing you author changes and there is nothing to migrate.** See the [v1.11.0 release notes](docs/release-notes-v1.11.0.md).

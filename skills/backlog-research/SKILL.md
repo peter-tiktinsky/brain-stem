@@ -203,7 +203,7 @@ In `{paths.plans_root}/<NN>-<slug>/manifest.json`:
 3. Update `updated` to today and record the recommendation in the manifest's notes/summary field.
 4. Validate the edited manifest against `schemas/plan-manifest-schema.json` before write (block-and-log on failure).
 
-Do NOT write `{paths.plans_root}/_backlog.md` — it is librarian-owned. After the manifest mutation, recommend `/librarian backlog-index` (or wait for the daily sweep) so the unified table re-renders the row with its new status. If the input was a `triaged` inbox idea, graduation in Step 1 already removed the `_inbox/<slug>.md` note, so the next regen shows the item as a plan row — no orphaned inbox note remains.
+Do NOT write `{paths.plans_root}/_backlog.md` — it is librarian-owned. After the manifest mutation, recommend `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run) so the unified table re-renders the row with its new status. If the input was a `triaged` inbox idea, graduation in Step 1 already removed the `_inbox/<slug>.md` note, so the next regen shows the item as a plan row — no orphaned inbox note remains.
 
 ### 10. Report
 

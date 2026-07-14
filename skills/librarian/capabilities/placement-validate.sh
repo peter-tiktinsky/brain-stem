@@ -113,6 +113,27 @@ if [[ "$PV_PLANS_MODE" == "1" ]]; then
       PV_FINDINGS=$((PV_FINDINGS + 1))
     fi
   done
+  # Binder-interior farm walk: the research/ symlink farm under each spoke binder holds
+  # ONLY generator-owned dir-symlinks, so a non-symlink entry (a regular file or a real
+  # dir) is a stray placed inside a binder interior — flag it path-qualified. Detect-and-
+  # report ONLY: this sweep never deletes a stray (removal is not its job), and live AND
+  # dangling symlinks belong to the generator and are never flagged. Binder-owned files
+  # that live at the binder ROOT (research-index.md, decision-log.md, hub.md, _situating.md)
+  # sit outside the farm dirs and are never walked. Persisted into the SAME plans_root leaf
+  # as the root-namespace findings, so the SessionStart reader re-surfaces them. bash 3.2.
+  for _farm in "$SCOPE_ROOT"/_projects/*/research; do
+    [ -d "$_farm" ] || continue
+    _spoke="$(basename "$(dirname "$_farm")")"
+    for _fe in "$_farm"/*; do
+      [ -e "$_fe" ] || [ -L "$_fe" ] || continue
+      if [ -L "$_fe" ]; then continue; fi
+      _fname="$(basename "$_fe")"
+      _qual="_projects/$_spoke/research/$_fname"
+      _line=$(jq -nc --arg e "$_qual" --arg n "$_fname" --arg s "$_spoke" '{finding:"binder-farm-stray-entry", entry:$e, name:$n, spoke:$s, issue:"non-symlink entry inside the research/ symlink farm (a stray placed in a binder interior); re-home to its owning plan via the funnel — detect-and-report only, never auto-deleted", classification:"manual"}')
+      if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
+      PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $_qual"
+    done
+  done
   [[ "$DRY_RUN" == "true" ]] && printf 'placement-validate: scanned=%d findings=%d (plans-root-namespace)\n' "$PV_SCANNED" "$PV_FINDINGS"
   _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null)
   [ -n "$_PV_OPEN_JSON" ] || _PV_OPEN_JSON='[]'

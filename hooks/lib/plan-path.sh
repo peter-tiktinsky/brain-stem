@@ -27,7 +27,10 @@
 # surfaces, derived from the pillar via classify_root_entry — no longer hard-coded):
 #   $PLANS_DIR/_index.md  $PLANS_DIR/_backlog.md  $PLANS_DIR/_archive.md
 #   $PLANS_DIR/_inbox/    $PLANS_DIR/_projects/   $PLANS_DIR/_library/
-# (ENFORCEMENT-MAP.md is NOT a registry surface — it classifies `nonconforming`.)
+# (ENFORCEMENT-MAP.md is NOT an enumerated registry surface; it is carried only by the
+#  pillar's TRANSITIONAL root_namespace.grandfathered list — treated as registry-class
+#  while it still lives at the root, and reverting to `nonconforming` the moment the
+#  census/re-homing pass relocates it and removes the grandfather entry.)
 #
 # Bash 3.2 clean per R-23 (macOS /bin/bash compatibility).
 # Depends on $PLANS_DIR — caller must source hooks/lib/paths.sh first OR
@@ -36,8 +39,8 @@
 # Source paths.sh if PLANS_DIR not already exported (idempotent).
 if [[ -z "${PLANS_DIR:-}" ]]; then
   # shellcheck source=/dev/null
-  source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null \
-    || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"
+  { [ -r "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" ] && source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"; } \
+    || { [ -r "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh" ] && source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"; }
 fi
 
 # --- root_namespace single-SoT classifier (plans-rules.json :: root_namespace) ----------
@@ -48,17 +51,21 @@ fi
 # registry whitelists (ENFORCEMENT-MAP.md / _index.md) each carried independently.
 
 # _root_ns_registry_members — print the enumerated NON-plan-root registry surfaces
-# (root_files members + funnel/registry dir members) from root_namespace, one per line.
+# (root_files members + funnel/registry dir members) from root_namespace, one per line,
+# PLUS any transitional root_namespace.grandfathered entries (still-present root files
+# pending relocation; the guard must never deny writes to them while they live at the
+# root — the grandfather is removed by the same change that relocates the file).
 # Read order: composed foundation-master (.plans.root_namespace) -> raw plans-rules.json
-# pillar -> hard default (fail-safe to the shipped enumeration). Cached per process.
+# pillar -> hard default (fail-safe to the shipped enumeration; deliberately WITHOUT the
+# grandfathered entries so the pillar stays their single removal point). Cached per process.
 _root_ns_registry_members() {
   if [[ -n "${_ROOT_NS_REG_CACHE:-}" ]]; then printf '%s' "$_ROOT_NS_REG_CACHE"; return; fi
   local out="" master pillar
   master="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
   pillar="${PLANS_RULES_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/plans-rules.json}"
   if command -v jq >/dev/null 2>&1; then
-    [[ -f "$master" ]] && out=$(jq -r '.plans.root_namespace.allowed_entry_classes | ((.root_files.members[]?), (.funnel_registry_surfaces.members[]?))' "$master" 2>/dev/null)
-    [[ -z "$out" && -f "$pillar" ]] && out=$(jq -r '.root_namespace.allowed_entry_classes | ((.root_files.members[]?), (.funnel_registry_surfaces.members[]?))' "$pillar" 2>/dev/null)
+    [[ -f "$master" ]] && out=$(jq -r '.plans.root_namespace | ((.allowed_entry_classes.root_files.members[]?), (.allowed_entry_classes.funnel_registry_surfaces.members[]?), (.grandfathered[]?))' "$master" 2>/dev/null)
+    [[ -z "$out" && -f "$pillar" ]] && out=$(jq -r '.root_namespace | ((.allowed_entry_classes.root_files.members[]?), (.allowed_entry_classes.funnel_registry_surfaces.members[]?), (.grandfathered[]?))' "$pillar" 2>/dev/null)
   fi
   [[ -z "$out" ]] && out=$'_index.md\n_backlog.md\n_archive.md\n_inbox\n_projects\n_library'
   _ROOT_NS_REG_CACHE="$out"
@@ -88,11 +95,14 @@ _root_ns_plan_patterns() {
 # classify_root_entry <entry-name> — classify a single plans-root ENTRY (basename) against
 # root_namespace. Prints exactly one of: plan | registry | dot | nonconforming.
 #   dot           — leading-dot entry (class-exempt: .git/.gitignore/.DS_Store/.active-plan/…)
-#   registry      — an enumerated root_files / funnel-registry surface (not a plan root)
+#   registry      — an enumerated root_files / funnel-registry surface (not a plan root),
+#                   or a TRANSITIONAL root_namespace.grandfathered entry (a still-present
+#                   root file pending relocation — never write-denied while it lives here)
 #   plan          — NN-<slug> plan dir or NN-<slug>.md flat plan
-#   nonconforming — anything else (ad-hoc root stock; ask->deny at write-time + swept)
-# ENFORCEMENT-MAP.md is deliberately NOT a registry member (dropped from the enum), so it
-# classifies `nonconforming` — the historical map is not a durable root registry surface.
+#   nonconforming — anything else (ad-hoc root stock; denied at write-time + swept)
+# ENFORCEMENT-MAP.md is deliberately NOT an enumerated registry member (dropped from the
+# enum — the historical map is not a durable root registry surface); it rides ONLY the
+# transitional grandfathered list and reverts to `nonconforming` when that entry is removed.
 classify_root_entry() {
   local entry="$1" m members oldIFS
   case "$entry" in

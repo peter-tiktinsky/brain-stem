@@ -85,6 +85,28 @@
       "format": "date",
       "description": "Date when /new-plan or /backlog-research scaffolded this plan tree."
     },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this manifest was last materially updated. Consumed by the librarian backlog-index read-replica (the Updated column, which falls back to phase_2_scaffolded_at when absent) and by backlog-hygiene staleness math. Seeded at every manifest-creation surface (new-plan scaffolder + promote-from-inbox) and maintained on material edits."
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "FIX NOW",
+        "ABSORB",
+        "STANDALONE",
+        "DEFERRED"
+      ],
+      "description": "Backlog triage disposition. Vocabulary mirrors governance/plans-rules.json :: backlog_row.disposition_enum (the SoT); consumed by the librarian backlog-index read-replica (the Disposition column, validated against that enum) and by backlog-hygiene (which stamps DEFERRED after the stale-advisory window)."
+    },
+    "superseded_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Successor plan slug (no path, no extension) when status == superseded; else null/absent. Consumed by plan-archive.sh (the _archive.md renderer). Sourced from the program reconciliation ledger at superseding time."
+    },
     "tasks": {
       "type": "array",
       "minItems": 1,

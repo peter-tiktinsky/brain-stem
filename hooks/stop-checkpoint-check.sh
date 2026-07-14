@@ -32,6 +32,14 @@ if [ "${1:-}" = "--do-heartbeat" ]; then
   exit 0
 fi
 
+# Drain the Stop payload from stdin ONCE, early. The stopping session's id and the
+# transcript_path both arrive as stdin JSON (the Stop hook contract). Non-blocking:
+# with no stdin (tests pipe </dev/null) STOP_INPUT stays empty and every reader
+# degrades gracefully. This is the single drain for the whole hook — the session-id
+# resolve and the stop-time pressure refresh below both read $STOP_INPUT.
+STOP_INPUT=""
+[ -t 0 ] || STOP_INPUT=$(cat 2>/dev/null || true)
+
 # Per-session checkpoint/pressure dir roots at $CLAUDE_STATE_ROOT (/
 # /), via the paths.sh SoT (sourced above) — NOT $HOOKS_STATE.
 STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
@@ -39,8 +47,13 @@ CLEARING_WINDOW_SEC=600
 
 # T-2: per-session checkpoint paths.
 # T-3 (2026-05-11): per-session pressure file paths.
-# Session id comes from the env var Claude Code sets in hook subprocesses.
+# The stopping session's id arrives as stdin JSON (.session_id — the Stop hook
+# contract); the env var is retained only as the test-injection seam. Resolve
+# env-then-stdin, and graceful-degrade (allow stop) when neither is present.
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
+if [[ -z "$SESSION_ID" ]]; then
+  SESSION_ID=$(printf '%s' "$STOP_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+fi
 if [[ -z "$SESSION_ID" ]]; then
   # Cannot determine session — allow stop (graceful degrade; we cannot enforce
   # per-session checkpoint freshness without knowing which session is stopping).
@@ -67,10 +80,9 @@ fi
 
 # refresh .pct from the transcript at stop time so the gate sees the pressure
 # AFTER the just-completed tool chain (a stale last-prompt pct would under-protect).
-# The Stop payload carries transcript_path on stdin; drain non-blocking (</dev/null
-# in tests → empty → the writer no-ops and any existing pressure file is preserved).
-STOP_INPUT=""
-[ -t 0 ] || STOP_INPUT=$(cat 2>/dev/null || true)
+# The transcript_path was drained with the session id from the early Stop-payload
+# read above; reuse $STOP_INPUT (empty in tests → the writer no-ops and any existing
+# pressure file is preserved).
 if command -v write_context_pressure >/dev/null 2>&1; then
   _tp=$(printf '%s' "$STOP_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
   write_context_pressure "$_tp" "$PRESSURE_FILE" 2>/dev/null || true

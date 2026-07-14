@@ -62,8 +62,8 @@ capabilities) — consult `invocation_modes` for the live membership:
 > `coverage-guard`.
 
 `full` is NOT "every capability". Notably it does **not** run `backlog-index` or
-`plan-archive` (see below), nor `tasks-render` / `subplan-aggregate` (those run per-plan,
-on demand).
+`plan-archive` (see below), nor `tasks-render` / `matrix-render` / `subplan-aggregate`
+(those run per-plan, on demand).
 
 ### Plan-tree read-replicas materialize LAZILY (not at install)
 
@@ -76,7 +76,7 @@ Each has a different first-emit trigger — know which capability owns which fil
 | Read-replica | Emitted by | Invocation modes | First materializes on |
 |---|---|---|---|
 | `$PLANS_HOME/_index.md`   | `plan-index`   | `ad-hoc`, `librarian-full`, `session-close-step-2` | first `/librarian full`, first session-close, or `/librarian plan-index` |
-| `$PLANS_HOME/_backlog.md` | `backlog-index`| `ad-hoc`, `cron` | an explicit `/librarian backlog-index` or its scheduled cron run — **not** `full`, **not** session-close |
+| `$PLANS_HOME/_backlog.md` | `backlog-index`| `ad-hoc`, `cron` | an explicit `/librarian backlog-index` or its weekly Monday librarian-cron run — **not** `full`, **not** session-close |
 | `$PLANS_HOME/_archive.md` | `plan-archive` | `ad-hoc`, `cron` | an explicit `/librarian plan-archive` or its scheduled cron run — **not** `full`, **not** session-close |
 
 So a `full` sweep (or any session-close) materializes `_index.md`, but `_backlog.md` and
@@ -146,6 +146,21 @@ Regenerates a single plan's `tasks.md` from its `manifest.tasks[]` —
 sentinel-bounded read-replica with operator-narrative + per-row-Notes
 survivorship, idempotent, `--check` parity mode. manifest read-only.
 Runtime: `capabilities/tasks-render.sh`.
+
+## Capability: matrix-render
+
+Regenerates a single plan's `.md` from its `manifest.tasks[]`
+— the sibling of `tasks-render` for the matrix mirror (the 8th incident drift
+site; nothing rendered or consumed it before). Sentinel-bounded
+(`<!-- matrix:start -->`/`<!-- matrix:end -->`) one-row-per-task table; the render
+owns the four SoT-derived columns (Task / Build-item / SoT clause / Acceptance),
+the two downstream-filled columns (Build artifact / Independent verdict) are
+human-owned and preserved across re-renders via the prior-notes survivorship
+pattern. Line-anchored sentinel location (block-and-log on ambiguity), idempotent,
+`--check` parity mode. manifest read-only. Wired beside the tasks-render structural
+trigger in `hooks/post-manifest-binder-refresh.sh` (opt-in per file: fires only when
+the matrix already carries the sentinel).
+Runtime: `capabilities/matrix-render.sh`.
 
 ## Capability: subplan-aggregate
 
@@ -456,7 +471,14 @@ plans whose manifest `project:` matches the target spoke contribute rows, and ro
 are grouped by `parent_plan:` lineage. One row per declared
 `research_artifacts[]` entry (declaration is the selectivity gate): `| Path | Type
 | Status | Plan-origin | One-liner | Library |`, the Library column derived from
-`library_refs`. Row-content selectivity (02:179): a finalized finding body is
+`library_refs`. Each Path cell is a RESOLVING relative-path link chosen by the
+artifact's declared home (two routes): an artifact under `_research/` keeps the
+`research/<plan-slug>/` farm route with the full path-remainder (so nested subdirs
+resolve); any other sanctioned declare home (`decisions/`, `target-state/` incl.
+`canonical/`, `deliverables/`, a legacy `research/` dir, a plan-root file) links by a
+binder-relative path straight to the plan file — the link derives from the declared
+path, so it resolves regardless of home and stays green through a later repoint-at-move.
+Row-content selectivity (02:179): a finalized finding body is
 copied inline as a `> ` distilled blockquote ONLY when it is non-inferable — when
 status is `finalized`, an explicit distilled field (`finding`/`distilled`/`summary`)
 is present, and that text is not already inferable from the one-liner; every other

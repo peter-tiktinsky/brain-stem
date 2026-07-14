@@ -47,7 +47,12 @@ set -euo pipefail
 CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 _REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
 
-if [[ -z "${VAULT_LOGS:-}" ]]; then
+# Gate paths.sh sourcing on the FUNCTION this capability consumes
+# (resolve_memory_dir), not an exported-var proxy: a child dispatched from a
+# parent that already sourced paths.sh inherits the exported vars WITHOUT the
+# shell functions, so a var-presence guard would skip sourcing and lose
+# resolve_memory_dir — a silent wrong-scope no-op.
+if ! command -v resolve_memory_dir >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
     || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; }
@@ -121,6 +126,13 @@ else
 fi
 if [[ -n "$SCOPE" ]]; then
   MEMORY_DIR="$SCOPE"
+fi
+# Loud-skip when the memory dir never resolved (paths.sh unreadable via BOTH the
+# CLAUDE_HOME and repo-lib fallbacks): exit 0 with a message rather than let the
+# empty value normalize to '/' below and silently scan filesystem root.
+if [[ -z "$MEMORY_DIR" ]]; then
+  echo "memory-hygiene: memory dir unresolved (paths.sh not loaded?)" >&2
+  exit 0
 fi
 case "$MEMORY_DIR" in
   */) : ;;

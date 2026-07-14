@@ -128,7 +128,7 @@
           "--dry-run findings + would-be writes/links, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
+          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving relative-path link chosen by declared home — a _research/ path keeps the research/<plan-slug>/ farm route with the full remainder, any other declared home (decisions/, target-state/, deliverables/, legacy research/, plan-root) links binder-relative to the plan file; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
           "{plans_root}/_projects/<spoke>/research/<plan-slug>/ directory symlinks -> each contributing plan's <plan>/_research/ (generated + pruned each run; the LINK only, never the target)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the R-FLOW-PROMO-4 one-sided-edge DETECTOR findings (detect + report, never repair-write)"
         ],
@@ -532,6 +532,32 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/tasks-render.sh"
+    },
+    "matrix-render": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/<slug>/.md (matrix sentinel region; manifest read-only; render owns the SoT-derived columns, downstream-filled Build-artifact/Independent-verdict columns preserved via the prior-notes survivorship pattern)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json",
+        "validation": "manifest validated against schemas/plan-manifest-schema.json before render; --check parity mode; line-anchored sentinel location (block-and-log on ambiguity)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/matrix-render.sh"
     },
     "subplan-aggregate": {
       "tier": "judgment",

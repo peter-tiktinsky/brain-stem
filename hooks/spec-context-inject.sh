@@ -2,8 +2,9 @@
 # Hook: spec-context-inject — Inject the active plan's spec authority as context.
 # PRIMARY firing: SessionStart (+ source:compact). The goal-anchor lands from turn 1
 # and re-fires after compaction (fixing post-compaction instruction loss). The
-# UserPromptSubmit slot is RETAINED only for cross-plan disambiguation (when a prompt
-# references a DIFFERENT plan than the session's active one). This body handles
+# UserPromptSubmit slot is RETAINED for (a) picking up a mid-session arming (the
+# pointer chain resolves fresh each prompt; the sentinel dedupes repeats) and
+# (b) cross-plan prompt disambiguation in UNARMED sessions only. This body handles
 # plan-execution context, not session orchestration.
 # Behavior: master/sub plans are first-class (the master-spec payload is
 # load-bearing); the canonical status vocabulary gates firing; agent-reload
@@ -49,10 +50,16 @@ fi
 # Plan resolution
 # A "plan target" is a plan-tree directory: either a flat/master plan dir
 # (NN-slug) or a sub-plan dir (NN-slug/NN-subslug | NN-slug/SP-NN-subslug).
-# SessionStart: discover the single in-progress plan (goal-anchor).
-# UserPromptSubmit: only fire for a DIFFERENT plan explicitly referenced in the
-# prompt (cross-plan disambiguation) — else stay silent (SessionStart already
-# anchored the active plan).
+# Resolution is arm-pointer-FIRST on BOTH events: the
+# arming chain ($PLANS_DIR/.active-plan -> <plan>/.active-sp) is the SoT for
+# "the active plan"; when it resolves, it wins. The heuristics survive ONLY as
+# the unarmed fallback:
+#   SessionStart:     discover the single in-progress plan (goal-anchor).
+#   UserPromptSubmit: fire for a plan explicitly referenced in the prompt
+#                     (cross-plan disambiguation).
+# A prompt that merely REFERENCES a different plan must never be injected as
+# "the active plan" over an armed one — that is the wrong-framing vector
+# (bystander plan Y's spec labeled authoritative while armed mid-build on X).
 
 PLAN_REL=""   # path relative to $HOME, e.g. .claude-plans/93-foo OR .claude-plans/93-foo/-bar
 
@@ -96,6 +103,28 @@ manifest_status() {
   jq -r '.status // ""' "$mf" 2>/dev/null || printf ''
 }
 
+# Resolve the ARMED plan target from the arm-pointer chain:
+# $PLANS_DIR/.active-plan names the armed plan; <plan>/.active-sp names the
+# armed sub ('.' = the plan's own root manifest). Prints the rel target, or
+# empty when unarmed. A dangling .active-plan (no such dir) degrades to
+# unarmed; a dangling/absent .active-sp degrades to the plan ROOT — the plan
+# pointer is still meaningful, and falling back to a heuristic there would
+# reopen the bystander vector this function exists to close.
+resolve_from_arm_pointers() {
+  local ap="$PLANS_DIR/.active-plan" plan sp rel
+  [[ -f "$ap" ]] || { printf ''; return; }
+  plan=$(tr -d '[:space:]' < "$ap" 2>/dev/null || true)
+  if [[ -z "$plan" || ! -d "$PLANS_DIR/$plan" ]]; then printf ''; return; fi
+  rel=".claude-plans/$plan"
+  if [[ -f "$PLANS_DIR/$plan/.active-sp" ]]; then
+    sp=$(tr -d '[:space:]' < "$PLANS_DIR/$plan/.active-sp" 2>/dev/null || true)
+    if [[ -n "$sp" && "$sp" != "." && -d "$PLANS_DIR/$plan/$sp" ]]; then
+      rel=".claude-plans/$plan/$sp"
+    fi
+  fi
+  printf '%s' "$rel"
+}
+
 # Discover the single in-progress plan target. Prefers a sub-plan over its master
 # when the sub is the in-progress one (most-specific active scope). Returns the
 # first match; if multiple in-progress plans exist, SessionStart stays silent (the
@@ -121,13 +150,18 @@ discover_in_progress() {
   if [[ "$hits" -eq 1 ]]; then printf '%s' "$found"; fi
 }
 
+# Pointer-first on BOTH events: an armed chain wins; the per-event
+# heuristics below fire only when the chain does not resolve (unarmed).
+ARMED_REL=$(resolve_from_arm_pointers)
 if [[ "$EVENT" == "UserPromptSubmit" ]]; then
   [[ -z "$PROMPT" ]] && exit 0
-  PLAN_REL=$(resolve_from_prompt)
+  PLAN_REL="$ARMED_REL"
+  [[ -z "$PLAN_REL" ]] && PLAN_REL=$(resolve_from_prompt)
   [[ -z "$PLAN_REL" ]] && exit 0
 else
   # SessionStart (+ source:compact, resume, startup)
-  PLAN_REL=$(discover_in_progress)
+  PLAN_REL="$ARMED_REL"
+  [[ -z "$PLAN_REL" ]] && PLAN_REL=$(discover_in_progress)
   [[ -z "$PLAN_REL" ]] && exit 0
 fi
 

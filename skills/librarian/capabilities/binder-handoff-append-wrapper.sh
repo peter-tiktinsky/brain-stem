@@ -111,6 +111,15 @@ fi
 # the in-progress plan; within it pick the most-recently-written handoff.md by
 # mtime (the just-finalized handoff for this close). Fall back to the newest
 # handoff.md across all the spoke's plans if no in-progress plan resolves.
+#
+# sweep verdict (T-3): the mtime tiebreak here is DELIBERATE, not
+# the arm-pointer divergence class. This adaptor answers the SESSION-scoped
+# question "which handoff did this close just finalize" — not "which plan is
+# armed" — so pointer-first resolution would MISROUTE a close on a non-armed
+# plan of the same spoke. Exposure of a wrong tiebreak is self-correcting within
+# the same close: plan-handoff-index's full re-derive (fired immediately after
+# in session-close) owns the chronicle and rebuilds it from every plan's handoff
+# on disk.
 if [[ -n "$HANDOFF_OVERRIDE" ]]; then
   HANDOFF_PATH="$HANDOFF_OVERRIDE"
 else

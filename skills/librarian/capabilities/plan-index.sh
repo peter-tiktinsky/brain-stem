@@ -68,7 +68,23 @@ INDEX_PATH="$PLANS_ROOT/_index.md"
 TMP_PATH="${INDEX_PATH}.tmp.$$"
 USER_MANIFEST_PATH="${USER_MANIFEST_PATH:-$CLAUDE_HOME_RES/user-manifest.json}"
 
-python3 - "$PLANS_ROOT" "$INDEX_PATH" "$TMP_PATH" "$DRY_RUN" "$PARENT_FILTER" "$USER_MANIFEST_PATH" <<'PY'
+# Anchored-spoke registry: resolves each plan's manifest `project:` spoke key to
+# its project-home directory (cwd_anchors[0]) for the per-row ownership annotation
+# (the render-shape ruling is per-row annotation on the bullet row, mirroring the
+# master_rollup precedent). Test override -> shipped bundle dir -> foundation
+# governance/. A missing/unreadable registry renders every row's annotation as the
+# graceful empty (never a crash).
+SPOKE_REG="${SPOKE_REGISTRY_PATH:-}"
+if [ -z "$SPOKE_REG" ]; then
+  _REPO_GOV="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
+  for cand in \
+    "$CLAUDE_HOME_RES/governance/anchored-spoke-registry.json" \
+    "$_REPO_GOV/anchored-spoke-registry.json"; do
+    [ -f "$cand" ] && { SPOKE_REG="$cand"; break; }
+  done
+fi
+
+python3 - "$PLANS_ROOT" "$INDEX_PATH" "$TMP_PATH" "$DRY_RUN" "$PARENT_FILTER" "$USER_MANIFEST_PATH" "$SPOKE_REG" <<'PY'
 import json, os, re, sys, datetime, pathlib
 
 PLANS_DIR = pathlib.Path(sys.argv[1])
@@ -77,6 +93,7 @@ TMP_PATH = pathlib.Path(sys.argv[3])
 DRY_RUN = sys.argv[4] == "true"
 PARENT_FILTER = sys.argv[5] or None
 USER_MANIFEST_PATH = pathlib.Path(sys.argv[6]) if len(sys.argv) > 6 else None
+SPOKE_REGISTRY_PATH = pathlib.Path(sys.argv[7]) if len(sys.argv) > 7 and sys.argv[7] else None
 
 # Coarse-bucket map for the master sub_plans[] rollup.
 COARSE = {
@@ -98,6 +115,31 @@ def _load_master_initiative_whitelist():
 
 MASTER_INITIATIVE_WHITELIST = _load_master_initiative_whitelist()
 EXCLUDE_SLUGS = {"_index.md", "ENFORCEMENT-MAP.md"}
+
+def _load_spoke_dir_map():
+    """Map each registry spoke_key -> its project-home directory (cwd_anchors[0]),
+    the data-source for the per-row ownership annotation. The anchorless `home`
+    spoke declares no cwd_anchors, so it is absent from the map (renders empty).
+    A missing/unreadable/malformed registry yields an empty map — every row then
+    renders the graceful empty annotation (never a crash)."""
+    if not SPOKE_REGISTRY_PATH or not SPOKE_REGISTRY_PATH.is_file():
+        return {}
+    try:
+        with open(SPOKE_REGISTRY_PATH) as f:
+            doc = json.load(f)
+    except Exception:
+        return {}
+    m = {}
+    for sp in doc.get("spokes", []) or []:
+        if not isinstance(sp, dict):
+            continue
+        key = sp.get("spoke_key", "")
+        anchors = sp.get("cwd_anchors", []) or []
+        if key and isinstance(anchors, list) and anchors:
+            m[key] = anchors[0]
+    return m
+
+SPOKE_DIR_MAP = _load_spoke_dir_map()
 
 ACTIVE_VALUES = {"planned", "briefed", "draft", "in-progress", "in_progress",
                  "review", "researching", "ready", "active", "approved"}
@@ -236,6 +278,26 @@ def master_rollup(entry):
     return " · subs: %d active / %d done / %d verified / %d closed" % (
         buckets["active"], buckets["done"], buckets["verified"], buckets["closed"])
 
+def project_home_dir(entry):
+    """Render the plan's project-home directory (a work-spoke or code-repo home),
+    resolved from the manifest `project:` spoke key via the anchored-spoke registry
+    cwd_anchors[]. Uses a FRESH per-entry read_manifest (mirroring master_rollup),
+    NEVER the entry-scoped `doc` that leaks a stale value across non-dir iterations.
+    Absent `project:`, the anchorless `home` spoke (no cwd_anchors), or an
+    unresolvable key renders a graceful empty annotation, never a crash."""
+    if not entry.is_dir():
+        return ""
+    doc = read_manifest(entry)
+    if not doc:
+        return ""
+    proj = doc.get("project")
+    if not proj or not isinstance(proj, str):
+        return ""
+    d = SPOKE_DIR_MAP.get(proj)
+    if not d:
+        return ""
+    return " · %s" % d
+
 def parent_plan_chain(entry):
     chain = []
     slugs_visited = set()
@@ -303,8 +365,9 @@ for entry in sorted(PLANS_DIR.iterdir()):
     group = normalize_status(raw_status)
     title = extract_title(entry)
     rollup = master_rollup(entry)
+    projdir = project_home_dir(entry)
     if entry.is_dir():
-        line = "- [%s](./%s/) — %s%s" % (slug, slug, title, rollup)
+        line = "- [%s](./%s/) — %s%s%s" % (slug, slug, title, projdir, rollup)
     else:
         line = "- [%s](./%s) — %s" % (slug, slug, title)
     entries_by_group[group].append((slug, line))

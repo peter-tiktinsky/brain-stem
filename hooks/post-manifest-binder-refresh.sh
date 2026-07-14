@@ -115,6 +115,28 @@ if [ "$PMBR_TRIGGER" = "manifest" ]; then
   fi
 fi
 
+# BESIDE the tasks-render trigger: on the same STRUCTURAL manifest edit, ALSO re-render
+# .md so the manifest<->matrix mirror (the 8th incident drift site) stays
+# derived from manifest.tasks[]. matrix-render is OPT-IN per file: it fires ONLY when the
+# matrix already carries the <!-- matrix:start --> sentinel (a matrix that has adopted the
+# rendered shape). This protects the historical hand-authored matrices — which carry
+# verdicts and no sentinel — from an auto-rewrite; they are never touched until intentionally
+# converted. Idempotent (re-render without a change == byte-identical); matrix-render writes
+# .md, which the gate above skips, so no re-trigger loop.
+if [ "$PMBR_TRIGGER" = "manifest" ]; then
+  _mx_plan_dir="$(dirname "$FILE_PATH")"
+  _mx_render="$_REPO_ROOT/skills/librarian/capabilities/matrix-render.sh"
+  [ -f "$_mx_render" ] || _mx_render="$CLAUDE_HOME_RES/skills/librarian/capabilities/matrix-render.sh"
+  _mx_file="$_mx_plan_dir/.md"
+  if [ -f "$_mx_render" ] && [ -f "$_mx_file" ] && grep -q '<!-- matrix:start -->' "$_mx_file" 2>/dev/null; then
+    if PLANS_ROOT="$PLANS_ROOT" FOUNDATION_TEST_MODE=1 bash "$_mx_render" "$_mx_plan_dir" >/dev/null 2>&1; then
+      log "matrix-render ok (structural manifest trigger; plan=$_mx_plan_dir)"
+    else
+      log "matrix-render error (structural manifest trigger; plan=$_mx_plan_dir)"
+    fi
+  fi
+fi
+
 # --- resolve the manifest to read the owning spoke from -----------------------
 # manifest case: the written file IS the manifest. artifact case: the written
 # file is a research/decision artifact that carries NO project: key, so walk up from

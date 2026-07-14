@@ -2,6 +2,7 @@
 # backlog-index — Regenerate <plans-root>/_backlog.md from plan manifests as a
 # manifest-derived read-replica. Librarian reader cap with the master-row
 # policy + satellite-pointer retarget.
+#
 # Librarian reader cap (1.1 line 126). Ported from the
 # backlog-index.sh with two
 # additions:
@@ -13,6 +14,7 @@
 #       pointer is the plan dir / master handoff.md — NOT the retired
 #       /<slug>.md satellite.
 #       The Notes cell is carried forward verbatim (the row sentinel pattern).
+#
 # Output Contract
 #   Files written: <plans-root>/_backlog.md (sentinel-bounded table region;
 #     operator narrative + per-row Notes preserved); findings to stdout (NDJSON
@@ -21,13 +23,16 @@
 #     (jsonschema when available; structural fallback).
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Idempotent.
+#
 # Finding categories:
 #   backlog-row-missing-disposition | manifest-status-orphan | slug-violation
-#   | backlog-regenerated (event)
+#   | backlog-manifest-schema-invalid | backlog-regenerated (event)
+#
 # CLI:
 #   backlog-index.sh                 # regenerate _backlog.md + emit findings
 #   backlog-index.sh --dry-run       # compute + emit findings + summary; no write
 #   backlog-index.sh --help
+#
 # Env overrides:
 #   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
 #   BACKLOG_FILE             output file (default: $PLANS_ROOT/_backlog.md)
@@ -35,6 +40,7 @@
 #   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
 #   FOUNDATION_TEST_MODE     bypass the non-interactive guard
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -166,7 +172,7 @@ if schema_path and os.path.isfile(schema_path):
         import jsonschema  # type: ignore
         with open(schema_path, encoding="utf-8") as fh:
             _schema = json.load(fh)
-        validator = jsonschema.Draft202012Validator(_schema)
+        validator = jsonschema.Draft202012Validator(_schema, format_checker=jsonschema.FormatChecker())
     except Exception:
         validator = None
 
@@ -249,7 +255,12 @@ if not sentinel_existed and not preface:
 
 rows = []
 rendered = 0
-skipped = 0
+# telemetry split: by-design skips (out-of-funnel status / non-idea inbox files) are
+# counted separately from defect skips (unparseable / schema-invalid / status-orphan).
+# plans_skipped_count is reported as their SUM (the former single counter), preserving
+# the backlog-regenerated finding's backward compatibility.
+out_of_funnel = 0
+defect_skipped = 0
 
 for entry in sorted(os.listdir(plans_root)):
     if entry.startswith(".") or entry.startswith("_"):
@@ -264,11 +275,16 @@ for entry in sorted(os.listdir(plans_root)):
         with open(manifest_path, encoding="utf-8") as fh:
             manifest = json.load(fh)
     except (OSError, json.JSONDecodeError):
-        skipped += 1
+        defect_skipped += 1
         print("backlog-index: skipped unparseable manifest: %s" % manifest_path, file=sys.stderr)
         continue
     if not manifest_valid(manifest):
-        skipped += 1
+        # D4 visibility: a schema-invalid funnel manifest is invisible today (silent
+        # counted skip). Emit an NDJSON finding so the dirty corpus surfaces for repair
+        # instead of disappearing from the read-replica.
+        emit({"finding": "backlog-manifest-schema-invalid", "file": entry, "plan_slug": entry,
+              "manifest_path": manifest_path, "detected_at": today, "first_seen": today})
+        defect_skipped += 1
         print("backlog-index: skipped schema-invalid manifest: %s" % manifest_path, file=sys.stderr)
         continue
 
@@ -277,10 +293,10 @@ for entry in sorted(os.listdir(plans_root)):
         emit({"finding": "manifest-status-orphan", "file": entry, "plan_slug": entry,
               "declared_status": status, "valid_statuses": lifecycle_enum,
               "detected_at": today, "first_seen": today})
-        skipped += 1
+        defect_skipped += 1
         continue
     if status not in IN_BACKLOG:
-        skipped += 1
+        out_of_funnel += 1
         continue
     if not slug_re.match(entry):
         emit({"finding": "slug-violation", "file": entry, "plan_slug": entry,
@@ -288,7 +304,9 @@ for entry in sorted(os.listdir(plans_root)):
               "detected_at": today, "first_seen": today})
 
     title = manifest.get("title") or manifest.get("project") or entry
-    updated = manifest.get("updated") or ""
+    # D3 render-time fallback: when `updated` is absent, fall back to the scaffold date so
+    # the Updated cell is never empty for a manifest that carries phase_2_scaffolded_at.
+    updated = manifest.get("updated") or manifest.get("phase_2_scaffolded_at") or ""
     disposition = str(manifest.get("disposition", "")).strip()
     if disposition not in disposition_enum:
         emit({"finding": "backlog-row-missing-disposition", "file": entry, "plan_slug": entry,
@@ -335,13 +353,13 @@ if os.path.isdir(inbox_dir):
             continue
         fm = parse_frontmatter(full)
         if fm is None or fm.get("type", "").strip() != inbox_type:
-            skipped += 1
+            out_of_funnel += 1
             continue
         slug = entry[:-3]
         wikilink = "_inbox/%s" % slug
         status = fm.get("status", "").strip() or "new"
         if status not in inbox_funnel:
-            skipped += 1
+            out_of_funnel += 1
             print("backlog-index: inbox note '%s' non-funnel status '%s'; skipped"
                   % (entry, status), file=sys.stderr)
             continue
@@ -387,12 +405,14 @@ if not dry_run:
             os.unlink(tmp)
         raise
 
+skipped = out_of_funnel + defect_skipped
 emit({"finding": "backlog-regenerated", "file": os.path.basename(backlog_file),
       "plans_rendered_count": rendered, "plans_skipped_count": skipped,
+      "out_of_funnel": out_of_funnel, "defect_skipped": defect_skipped,
       "sentinel_recreated_bool": (not sentinel_existed), "dry_run": dry_run,
       "detected_at": today})
 
 if dry_run:
-    print("backlog-index: dry-run (root=%s) rendered=%d skipped=%d"
-          % (plans_root, rendered, skipped), file=sys.stderr)
+    print("backlog-index: dry-run (root=%s) rendered=%d skipped=%d (out_of_funnel=%d defect_skipped=%d)"
+          % (plans_root, rendered, skipped, out_of_funnel, defect_skipped), file=sys.stderr)
 PY

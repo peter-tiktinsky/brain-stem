@@ -493,16 +493,16 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-07-06T17:56:13Z",
-    "bundle_version": "a4bb56d2208a7f43e105999a2a48d486aa9c61834e6927f03fe34d20efe086d1",
+    "built_at": "2026-07-10T21:17:19Z",
+    "bundle_version": "ac7a8dd17f5b58b7d65789c44ca33d06b8d0093b3e77e0ac529f84d7de15636c",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-07-06T17:56:13Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
       "governance/frontmatter-rules.json": "2026-07-06T17:56:13Z",
-      "governance/mandatory-files-rules.json": "2026-06-25T01:15:31Z",
-      "governance/naming-rules.json": "2026-06-24T13:48:58Z",
-      "governance/plans-rules.json": "2026-07-01T01:13:33Z",
+      "governance/mandatory-files-rules.json": "2026-07-10T21:17:19Z",
+      "governance/naming-rules.json": "2026-07-10T21:17:19Z",
+      "governance/plans-rules.json": "2026-07-10T21:17:19Z",
       "governance/tagging-rules.json": "2026-06-25T01:15:31Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
@@ -2546,9 +2546,8 @@
         "new",
         "triaged",
         "briefed",
-        "planned",
-        "in-progress",
-        "closed"
+        "researching",
+        "planned"
       ]
     },
     "decision_records": {
@@ -2746,8 +2745,10 @@
         }
       },
       "closed": true,
-      "grandfathered": [],
-      "rollout": "ask"
+      "grandfathered": [
+        "ENFORCEMENT-MAP.md"
+      ],
+      "rollout": "deny"
     },
     "schema_version": "2.0.0",
     "slug_rules": {

@@ -348,9 +348,11 @@ fi
 # otherwise invent root surfaces whose records get no lifecycle; the closed namespace routes
 # durable artifacts to their owning context instead.
 #
-# Rollout ask->deny per. Default `ask` (advisory allow + redirect surface);
-# PLANS_ROOT_ROLLOUT=deny exercises / activates the deny path (the ask->deny flip is owned by
-# the re-home completion and activates at the R2 install — no live mutation before then).
+# Rollout ask->deny, layered-enforcement idiom — FLIPPED to default `deny` at the re-home
+# completion (the non-conforming ad-hoc root stock now lives in its owning plan and the ask
+# phase ran clean). PLANS_ROOT_ROLLOUT=ask restores the advisory path; still-present root
+# files pending relocation ride the pillar's transitional root_namespace.grandfathered list
+# (classified registry — never denied while they live at the root).
 # Escape hatch: PLANS_ROOT_OK=1 (allow + hook-audit.log append). The classifier
 # hooks/lib/plan-path.sh::classify_root_entry reads root_namespace (the composed master) as
 # the single SoT — the SAME classifier the placement-validate sweep reads. Positioned BEFORE
@@ -371,7 +373,7 @@ if [[ "$FILE_PATH" == "$PR_PLANS_DIR/"* ]]; then
   if [[ -n "$PR_TOP" ]] && [[ ! -e "$PR_PLANS_DIR/$PR_TOP" ]] && [[ ! "$PR_TOP" =~ ^[0-9]+- ]]; then
     source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/plan-path.sh"
     if [[ "$(classify_root_entry "$PR_TOP")" == "nonconforming" ]]; then
-      PR_ROLLOUT="${PLANS_ROOT_ROLLOUT:-ask}"   # ask (default) | deny (re-home completion flip)
+      PR_ROLLOUT="${PLANS_ROOT_ROLLOUT:-deny}"   # deny (default since the re-home) | ask (advisory override)
       PR_MSG="[plans-root closed namespace] '${PR_TOP}' is not an allowed plans-root entry (plans-rules.json :: root_namespace). A durable artifact with no owning plan is captured then graduated through the funnel — the sole mint path — never written to a hand-invented ~/.claude-plans/ root surface:
   capture:   promote-from-inbox.sh --capture <slug>
   graduate:  promote-from-inbox.sh <slug>
@@ -2525,11 +2527,20 @@ fi
 # entries never matched even after the repoint.
 REGISTRY="$REGISTRY_FILE"
 
-if [[ -f "$REGISTRY" ]] && [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
+# The harness delivers session_id via stdin JSON, not a CLAUDE_SESSION_ID env var;
+# resolve env-then-stdin from the $INPUT already drained above (do not re-cat stdin —
+# it is consumed once), mirroring the track-vault-write.sh:58-61 producer that writes
+# these touched_files rows (same PreToolUse Edit|Write family + registry).
+OVERLAP_SID="${CLAUDE_SESSION_ID:-}"
+if [[ -z "$OVERLAP_SID" ]]; then
+  OVERLAP_SID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+fi
+
+if [[ -f "$REGISTRY" ]] && [[ -n "$OVERLAP_SID" ]]; then
   REL_PATH="${FILE_PATH#$VAULT_ROOT/}"
   # Only check vault files (if stripping didn't change the path, it's outside the vault)
   if [[ "$REL_PATH" != "$FILE_PATH" ]]; then
-    PEER=$(jq -r --arg sid "$CLAUDE_SESSION_ID" --arg fp "$FILE_PATH" '
+    PEER=$(jq -r --arg sid "$OVERLAP_SID" --arg fp "$FILE_PATH" '
       .sessions // {} | to_entries[]
       | select(.key != $sid)
       | select(.value.touched_files // [] | index($fp))

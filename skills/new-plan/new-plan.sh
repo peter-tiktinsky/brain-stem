@@ -326,6 +326,11 @@ def flat_files(title, plan_dir):
         "type": "plan",
         "status": "planned",
         "phase_2_scaffolded_at": today,
+        # T-3: seed `updated` at creation so the backlog-index Updated cell is
+        # populated from birth (breaking the D3 circularity — backlog-hygiene's staleness
+        # math requires `updated`, which nothing maintained). Mechanical seeding at every
+        # manifest-creation surface (flat / master / sub / promote-from-inbox).
+        "updated": today,
         # F11 writer-1 (140 sub-11 T-1): scaffold the EMPTY research_artifacts[] seed the
         # per-spoke research-index renderer (plan-research-index.sh) already reads. Missing
         # field == empty (never an error), but declaring the empty seed makes the affordance

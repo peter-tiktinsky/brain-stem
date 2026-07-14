@@ -428,6 +428,9 @@ manifest = {
     "type": "plan",
     "status": "planned",
     "phase_2_scaffolded_at": today,
+    # T-3: seed `updated` at graduation (mechanical seeding at every
+    # manifest-creation surface) so the backlog-index Updated cell is populated from birth.
+    "updated": today,
     "research_driven": True,
     "promoted_from": "_inbox/%s.md" % slug,
     "tasks": [

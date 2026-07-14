@@ -109,7 +109,7 @@ try:
     inst = json.load(open(sys.argv[2]))
 except Exception as e:
     print("could not load schema/instance: %s" % e); sys.exit(0)
-v = jsonschema.Draft202012Validator(schema)
+v = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
 errs = sorted(v.iter_errors(inst), key=lambda e: list(e.path))
 if errs:
     e = errs[0]

@@ -29,8 +29,8 @@
 # Idempotent paths.sh source guard — matches hooks/lib/manifest.sh pattern.
 if [[ -z "${VAULT_LOGS:-}" ]]; then
   # shellcheck source=/dev/null
-  source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null \
-    || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"
+  { [ -r "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" ] && source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"; } \
+    || { [ -r "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh" ] && source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"; }
 fi
 
 # iso_now — UTC ISO-8601 timestamp to the second.

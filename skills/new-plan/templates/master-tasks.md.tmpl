@@ -16,11 +16,12 @@ updated: {{date}}
 
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/tasks.md.json. Structure = ledger-at-top +
-per-task-at-bottom; <!-- tasks:start --> / <!-- tasks:end --> sentinel pair bounds the
+per-task-at-bottom; the tasks:start/end sentinel pair bounds the
 librarian:tasks-render generated region (NEVER hand-edit inside the sentinels; task-state SoT
-is manifest.tasks[]).
-MASTER tasks: a master AGGREGATES sub-plan STATUS, not sub-plan TASKS.
-The ledger below is intentionally a sub-plan ROLLUP, and the master manifest.tasks[]
+is manifest.tasks[] per). The literal marker lines appear ONLY as the real pair below —
+never inside this comment (non-literal form only; line-anchored parser blocks on a stray marker line).
+MASTER tasks: a master AGGREGATES sub-plan STATUS, not sub-plan TASKS (realign-2
+). The ledger below is intentionally a sub-plan ROLLUP, and the master manifest.tasks[]
 MAY be empty. Real task breakdown lives in each sub-plan's tasks.md / manifest.tasks[].
 R-37 LOCKSTEP: any task ID added here requires the same-commit manifest.tasks[] update.
 -->

@@ -176,7 +176,7 @@ Rationale: <2-3 sentences>
 Related items: <linked items, if any>
 Next step: <e.g. "Ready for /backlog-research" or "Merge with <item>">
 
-Run `/librarian backlog-index` (or wait for the daily sweep) to refresh _backlog.md.
+Run `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run) to refresh _backlog.md.
 ```
 
 ---

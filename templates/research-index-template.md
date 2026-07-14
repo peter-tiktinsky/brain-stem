@@ -21,7 +21,14 @@ Structure below MUST match the generator emission:
     every <spoke>-spoke plan, grouped by parent_plan lineage).
   - One `## Lineage: <lineage>` section per lineage group.
   - Columns in order: | Path | Type | Status | Plan-origin | One-liner | Library |.
-      Path        — relative-path markdown link into ./research/<plan>/<artifact>.
+      Path        — a RESOLVING relative-path markdown link chosen by the artifact's
+                    declared home (two routes): an artifact under _research/ keeps the
+                    farm route ./research/<plan>/<remainder> (the full remainder after
+                    _research/, so nested subdirs resolve); any OTHER declared home
+                    (decisions/, target-state/ incl. canonical/, deliverables/, a legacy
+                    research/ dir, a plan-root file) links by a binder-relative path
+                    straight to the plan file. The link derives from the declared path,
+                    so it resolves regardless of home.
       Type        — explicit type, else inferred from the path stem, else "research".
       Status      — active | finalized | deferred.
       Plan-origin — the contributing plan slug.

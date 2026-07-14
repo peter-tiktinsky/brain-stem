@@ -174,7 +174,7 @@ if schema_path and os.path.isfile(schema_path):
         import jsonschema  # type: ignore
         with open(schema_path, encoding="utf-8") as fh:
             _schema = json.load(fh)
-        jsonschema.Draft202012Validator(_schema).validate(manifest)
+        jsonschema.Draft202012Validator(_schema, format_checker=jsonschema.FormatChecker()).validate(manifest)
     except ImportError:
         pass
     except Exception as exc:
@@ -399,6 +399,17 @@ for t in tasks:
     lines.append("**Status:** %s" % t.get("status", ""))
     lines.append("**Dependencies:** %s" % deps_str)
     lines.append("**Description:** %s" % (t.get("description", "") or ""))
+    # Render the optional planner framing fields when present; omit the lines
+    # cleanly when absent (a task without them looks exactly as before). These carry the
+    # traceability content a planner authors into manifest.tasks[] (build_item = the
+    # build-item id; sot_refs = the deepest source-of-truth clauses) so a rendered tasks.md
+    # loses no framing content the SoT holds.
+    build_item = t.get("build_item")
+    if build_item:
+        lines.append("**Build item:** %s" % build_item)
+    sot_refs = t.get("sot_refs") or []
+    if sot_refs:
+        lines.append("**SoT refs:** %s" % ", ".join(str(s) for s in sot_refs))
     lines.append("")
     lines.append("**File References:**")
     frefs = t.get("file_references") or []

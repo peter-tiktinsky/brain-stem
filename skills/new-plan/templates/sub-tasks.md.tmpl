@@ -17,14 +17,15 @@ updated: {{date}}
 
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/tasks.md.json. Structure = ledger-at-top +
-per-task-at-bottom; <!-- tasks:start --> / <!-- tasks:end --> sentinel pair bounds the
+per-task-at-bottom; the tasks:start/end sentinel pair bounds the
 librarian:tasks-render generated region (NEVER hand-edit inside the sentinels; task-state SoT
-is manifest.tasks[]).
+is manifest.tasks[] per). The literal marker lines appear ONLY as the real pair below —
+never inside this comment (non-literal form only; line-anchored parser blocks on a stray marker line).
 SUB-PLAN tasks: a sub-plan CARRIES real tasks (unlike the master, which aggregates status
 only). The ledger below mirrors manifest.tasks[] (tasks-render --check parity). Task IDs use
 T-N (T-1, T-2, T-3.5 …) and are IMMUTABLE once published. R-37 LOCKSTEP: ledger row count ==
 manifest.tasks[] length; status flips sync via the handoff.md `<!-- task-done: NN/T-M -->`
-sentinels. Per-task Description 200-800 tokens; File References are absolute paths.
+sentinels (). Per-task Description 200-800 tokens; File References are absolute paths.
 parent_plan is REQUIRED in frontmatter at depth >= 3 (R-28).
 -->
 

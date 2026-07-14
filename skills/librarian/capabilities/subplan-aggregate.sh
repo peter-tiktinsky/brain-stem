@@ -152,7 +152,7 @@ if schema_path and os.path.isfile(schema_path):
         import jsonschema  # type: ignore
         with open(schema_path, encoding="utf-8") as fh:
             _schema = json.load(fh)
-        jsonschema.Draft202012Validator(_schema).validate(master)
+        jsonschema.Draft202012Validator(_schema, format_checker=jsonschema.FormatChecker()).validate(master)
     except ImportError:
         pass
     except Exception as exc:

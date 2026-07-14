@@ -324,6 +324,7 @@ for plan_dir, man in manifests:
         row = {
             "plan_slug": slug, "path": path, "type": rtype, "status": status,
             "one_liner": one_liner, "library_refs": lib_refs, "inline": inline,
+            "plan_dir": plan_dir,
         }
         grp.append(row)
         # this plan contributes to the symlink farm (it declares artifacts)
@@ -375,11 +376,32 @@ def render_library_cell(lib_refs):
     return ", ".join(lib_refs)
 
 
-def render_row(row):
+def resolve_pcell(path, plan, plan_dir, binder_home):
+    # Resolving Path link by DECLARED home. A path under the plan's _research/ home is
+    # reachable through the research/<plan-slug>/ dir-symlink farm (which mirrors
+    # <plan>/_research/), so it keeps that farm route with the FULL remainder after
+    # _research/ — the whole remainder, not just the basename, so a nested subdir path
+    # resolves. Any OTHER declared home (decisions/, target-state/ incl. canonical/,
+    # deliverables/, a legacy research/ dir, a plan-root file, a depth-2 sub-plan) is
+    # not mirrored by the farm, so it links by a binder-home-relative path straight to
+    # the plan file. Links derive only from the manifest's DECLARED path, so a later
+    # move that repoints the declaration keeps the row resolving with no renderer change.
+    if not path or path == "—":
+        return "—"
+    if path == "_research" or path.startswith("_research/"):
+        remainder = path[len("_research/"):] if path.startswith("_research/") else ""
+        return md_link(path, "./research/%s/%s" % (plan, remainder))
+    if plan_dir:
+        target = os.path.normpath(os.path.join(plan_dir, path))
+        return md_link(path, os.path.relpath(target, binder_home))
+    # defensive: no plan dir known => keep the legacy farm route with the basename.
+    return md_link(path, "./research/%s/%s" % (plan, os.path.basename(path)))
+
+
+def render_row(row, binder_home):
     path = row["path"] or "—"
-    # plan-relative pointer to the artifact, scoped under the plan's _research view.
     plan = row["plan_slug"]
-    pcell = md_link(path, "./research/%s/%s" % (plan, os.path.basename(path))) if path != "—" else "—"
+    pcell = resolve_pcell(row["path"], plan, row.get("plan_dir", ""), binder_home)
     one = row["one_liner"] or "—"
     cells = [
         pcell,
@@ -453,7 +475,7 @@ for spoke in target_spokes:
         ordered = sorted(rows, key=lambda r: (r["plan_slug"], r["path"], r["one_liner"]))
         inlines = []
         for row in ordered:
-            body_lines.append(render_row(row))
+            body_lines.append(render_row(row, binder_home))
             total_rows += 1
             if row["inline"] is not None:
                 inlines.append(row)
@@ -517,7 +539,16 @@ for spoke in target_spokes:
         for name in existing:
             link = os.path.join(farm_home, name)
             if not os.path.islink(link):
-                # a real dir/file in the farm is NOT ours — never delete it.
+                # a real dir/file in the farm is NOT ours — never delete it. It is a
+                # stray placed inside the binder symlink farm: detect + report so a
+                # sweep can re-home it, but NEVER clobber/remove a non-symlink entry
+                # (the never-clobber posture; removal is not the generator's job).
+                emit({"finding": "farm-stray-regular-entry", "file": link,
+                      "spoke": spoke, "name": name,
+                      "reason": "non-symlink entry inside the research/ symlink farm "
+                                "(a stray placed in a binder interior); re-home to its "
+                                "owning plan — never auto-deleted",
+                      "detected_at": today})
                 continue
             target = want.get(name)
             stale = (name not in want) or (target is not None and not os.path.isdir(target))

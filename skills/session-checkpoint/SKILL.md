@@ -7,14 +7,14 @@ argument-hint: "[optional: explicit blocker or context note to include]"
 
 # /session-checkpoint — Write Session Continuity Block
 
-Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` (per-session canonical path; `<sid>` is `$CLAUDE_SESSION_ID`) in a single atomic write, using the Session Continuity Block schema. This skill is load-bearing for context-pressure enforcement (rule R-26 in the S1 governance rule register; the rule's provenance lives in the JSON rules-index, not a markdown enforcement map). Failure mode is **block and log**: every required field must be populated or explicitly marked `[MISSING]`.
+Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` (per-session canonical path; `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`) in a single atomic write, using the Session Continuity Block schema. This skill is load-bearing for context-pressure enforcement (rule R-26 in the S1 governance rule register; the rule's provenance lives in the JSON rules-index, not a markdown enforcement map). Failure mode is **block and log**: every required field must be populated or explicitly marked `[MISSING]`.
 
 ---
 
 ## Output Contract
 
 **Files written:**
-- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is `$CLAUDE_SESSION_ID`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh /); the legacy bare path under the install root was retired (cross-session-pollution incident class closure,).
+- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh /); the legacy bare path under the install root was retired (cross-session-pollution incident class closure,).
 
 **Schema:** Session Continuity Block, keyed fields (the 10-field block below). The flat scalar lines `plan_id`/`phase`/`task_id` are a binding invariant (see Checkpoint file contract).
 
@@ -43,7 +43,7 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 | 7 | `next_steps` | Ordered list of what to do next on resume. Cold-start-readable — no shorthand. `[MISSING]` only if genuinely unknown. |
 | 8 | `ac_status` | Acceptance criteria checklist from the plan (done/pending per item). If no AC defined, `[MISSING]`. |
 | 9 | `current_blocker` | Current error, test failure, or blocker. Empty string `""` if none — not `[MISSING]`. |
-| 10 | `context_pct_at_checkpoint` | Integer percent read from `$CLAUDE_STATE_ROOT/sessions/<sid>/context-pressure.json` `.pct` field at write time (per-session canonical path; `<sid>` is `$CLAUDE_SESSION_ID`). If file missing, `[MISSING]`. |
+| 10 | `context_pct_at_checkpoint` | Integer percent read from `$CLAUDE_STATE_ROOT/sessions/<sid>/context-pressure.json` `.pct` field at write time (per-session canonical path; `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). If file missing, `[MISSING]`. |
 
 **Do not invent content.** `[MISSING]` is honest; fabrication breaks cold-start recovery.
 
@@ -55,19 +55,32 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 
 `$CLAUDE_STATE_ROOT` is **not** present in a bare shell — it is resolved by `paths.sh`, the same single source of truth the hooks use. Source it first so the skill writes to the **exact** dir the readers (`stop-checkpoint-check.sh`, `pre-compact-checkpoint.sh`, `session-register.sh`) and the writer (`prompt-context.sh`) resolve — the writer/reader convergence. Each Bash tool call is a fresh shell, so re-source `paths.sh` in **every** Bash block below.
 
+The session id resolves env-then-env as `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}` (the harness exports `$CLAUDE_CODE_SESSION_ID` into Bash-tool subshells; `$CLAUDE_SESSION_ID` is the test-injection seam). If **both** are empty, do **NOT** write — an empty `<sid>` collapses `sessions/<sid>/` to `sessions/` and overwrites a single shared file (the cross-session-corruption class). When the R-26 mandate/deny message names the exact `sessions/<sid>/checkpoint.md` path, take that path verbatim and write there.
+
 ```bash
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-CKPT_DIR="$CLAUDE_STATE_ROOT/sessions/$CLAUDE_SESSION_ID"   # binding root: / 
+# Resolve this session's id. $CLAUDE_SESSION_ID is the test-injection seam;
+# $CLAUDE_CODE_SESSION_ID is the value the harness exports into Bash-tool subshells.
+# Refuse to write a bare-path checkpoint: an empty <sid> collapses sessions/<sid>/
+# to sessions/ and corrupts a shared file. If neither resolves, STOP and take the
+# exact per-session path from the R-26 mandate/deny message instead.
+SID="${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+if [ -z "$SID" ]; then
+  echo "session-checkpoint: session id unresolved — refusing to write a bare-path checkpoint. Use the exact sessions/<sid>/checkpoint.md path from the R-26 mandate/deny message." >&2
+  exit 1
+fi
+CKPT_DIR="$CLAUDE_STATE_ROOT/sessions/$SID"   # binding root: / 
 ```
 
 ### Step 1 — Gather context pressure
 
 ```bash
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-jq -r '.pct // "[MISSING]"' "$CLAUDE_STATE_ROOT/sessions/$CLAUDE_SESSION_ID/context-pressure.json" 2>/dev/null || echo "[MISSING]"
+SID="${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+jq -r '.pct // "[MISSING]"' "$CLAUDE_STATE_ROOT/sessions/$SID/context-pressure.json" 2>/dev/null || echo "[MISSING]"
 ```
 
-`$CLAUDE_STATE_ROOT` and `$CLAUDE_SESSION_ID` are the same values used for the `checkpoint.md` per-session path. The pressure file uses per-session paths (); the legacy bare path was retired the same day.
+`$CLAUDE_STATE_ROOT` and the resolved `$SID` (`${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`) are the same values used for the `checkpoint.md` per-session path. The pressure file uses per-session paths (); the legacy bare path was retired the same day.
 
 ### Step 2 — Gather the 10 fields
 
@@ -79,7 +92,7 @@ Write to a temp file first, then `mv` into place. Use the exact template below. 
 
 ### Step 4 — Verify
 
-Confirm the per-session `checkpoint.md` (at `$CLAUDE_STATE_ROOT/sessions/$CLAUDE_SESSION_ID/checkpoint.md`) exists, is non-empty, and mtime is fresh (within 5 seconds of now). Report checkpoint write completion and the `context_pct_at_checkpoint` value to the user in one line.
+Confirm the per-session `checkpoint.md` (at `$CLAUDE_STATE_ROOT/sessions/$SID/checkpoint.md`, the resolved session id) exists, is non-empty, and mtime is fresh (within 5 seconds of now). Report checkpoint write completion and the `context_pct_at_checkpoint` value to the user in one line.
 
 ---
 
@@ -129,7 +142,7 @@ The flat scalar lines `plan_id:` / `phase:` / `task_id:` (each `^[a-z_]+: .+$`) 
 
 ## Checkpoint file contract
 
-`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is `$CLAUDE_SESSION_ID`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written only by `session-register.sh` when it archives the current checkpoint on SessionStart with `source=compact` — that's legitimate post-compaction rotation and should not be disturbed. The legacy bare path under the install root was retired (cross-session-pollution incident class closure).
+`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written only by `session-register.sh` when it archives the current checkpoint on SessionStart with `source=compact` — that's legitimate post-compaction rotation and should not be disturbed. The legacy bare path under the install root was retired (cross-session-pollution incident class closure).
 
 Your scope is strictly the per-session `checkpoint.md`. Overwrite it. Never append. Never write to dated filenames.
 

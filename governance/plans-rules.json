@@ -184,8 +184,10 @@
         "_description": "Leading-dot entries (.git, .gitignore, .DS_Store, .active-plan, dotfiles) are class-exempt so the closed namespace does not fight VCS/OS/pointer machinery."
       }
     },
-    "grandfathered": [],
-    "rollout": "ask"
+    "grandfathered": [
+      "ENFORCEMENT-MAP.md"
+    ],
+    "rollout": "deny"
   },
   "plan_folder_quartet": {
     "required": [
@@ -286,9 +288,8 @@
       "new",
       "triaged",
       "briefed",
-      "planned",
-      "in-progress",
-      "closed"
+      "researching",
+      "planned"
     ],
     "disposition_enum": [
       "FIX NOW",

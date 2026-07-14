@@ -29,8 +29,8 @@
 # Idempotent paths.sh source guard.
 if [[ -z "${CLAUDE_STATE_ROOT:-}" || -z "${COORD_DIR:-}" ]]; then
   # shellcheck source=/dev/null
-  source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null \
-    || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"
+  { [ -r "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" ] && source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"; } \
+    || { [ -r "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh" ] && source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"; }
 fi
 
 # G2 (plan 110): the librarian read-replica manifest leaves the vault for the XDG

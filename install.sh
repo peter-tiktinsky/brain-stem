@@ -1048,6 +1048,42 @@ fi
 #
 # Invariant: zero $CLAUDE_HOME writes — pure reads + a single
 # self-cleaning $TMPDIR scratch for the reconciler before/after diff.
+
+# legacy_historical_shas is DEFINED here (above the G9 dry-run preview) so the
+# preview classifier can consult the SAME reachable-historical-sha set the apply
+# walk's take-new state uses — the definition must precede its first use in the
+# preview block below. Depends only on LEGACY_ADOPT_BASELINES_DIR + python3.
+# reachable-historical-sha resolver for the legacy-adopt lane.
+# legacy_historical_shas <manifest-rel-path> → prints the per-file sha256 for
+# that path from EVERY shipped governance/baselines/foundation-manifest-v*.json
+# (one per line). This is the "any reachable historical sha" set the legacy-adopt
+# take-new disposition consults: an on-disk file that matches ANY reachable
+# historical sha is a known unmodified prior release ⇒ no .foundation-local
+# snapshot needed (take-new is clean). A mismatch against ALL of them ⇒ adopter-
+# modified ⇒ snapshot to .foundation-local before take-new. With a single shipped
+# baseline today this set is the v1.0.2 per-file shas; >=2 baselines is the v2
+# floor-match precondition.
+legacy_historical_shas() {
+  local rel="$1"
+  [ -d "$LEGACY_ADOPT_BASELINES_DIR" ] || return 0
+  REL="$rel" BLDIR="$LEGACY_ADOPT_BASELINES_DIR" python3 -c '
+import glob, json, os, sys
+rel = os.environ["REL"]
+for path in sorted(glob.glob(os.path.join(os.environ["BLDIR"], "foundation-manifest-v*.json"))):
+    try:
+        m = json.load(open(path))
+    except Exception:
+        continue
+    for f in m.get("files", []):
+        if f.get("path") == rel:
+            s = f.get("sha256", "")
+            if s:
+                print(s)
+            break
+' 2>/dev/null
+}
+
+
 upgrade_migrations_to_run=""   # newline-joined selected migration ids (version-delta-gated)
 upgrade_file_disp_preview=""   # newline-joined "<path>\t<would-disposition>" (state-gated)
 # admit LEGACY_ADOPT=1 so a stamp-less
@@ -1128,6 +1164,28 @@ $_mig_id"
     while IFS="$(printf '\t')" read -r _rel _newsha; do
       [ -n "$_rel" ] || continue
       _ondisk="$CLAUDE_HOME/$_rel"
+      # Outstanding <path>.foundation-new sidecar → walk-mirror SKIP, evaluated per
+      # managed file at the TOP of the pass — BEFORE both the sha-mismatch gate below
+      # AND the absent-dest new-ship branch. A parked sidecar means a PRIOR merge
+      # deferred to the user; the apply walk SKIPs the file (sidecar-skip-deferred) at
+      # the top of its own per-file pass — ahead of its absent→new-ship,
+      # on-disk==baseline→replace and on-disk!=baseline→sidecar states — and does NOT
+      # re-take-new until the user resolves it. Consulting it here (not nested inside
+      # the sha-mismatch gate) keeps the preview from promising a no-op ([] on
+      # converged bytes) or a delivery (new-ship on an absent dest) the apply will
+      # actually defer. Lane-scoped to the stamped-upgrade lane (UPGRADE_PRESENT=1) —
+      # the dry-run mirror of the walk's envelope condition; the legacy take-new lane
+      # never sidecar-skips, so the preview must not show one there. The dedicated-gear
+      # rels (.gitignore + overlay-master) route to their own merge gears, never
+      # through the take-new/sidecar path, and never park a sidecar → excluded here.
+      if [ "$UPGRADE_PRESENT" = "1" ] \
+         && [ "$_rel" != ".gitignore" ] \
+         && [ "$_rel" != "governance/overlay-master.json" ] \
+         && [ -e "$_ondisk.foundation-new" ]; then
+        upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	sidecar-skip-deferred
+"
+        continue
+      fi
       if [ -f "$_ondisk" ]; then
         _disksha="$(shasum -a 256 "$_ondisk" 2>/dev/null | awk '{print $1}')"
         if [ -n "$_disksha" ] && [ "$_disksha" != "$_newsha" ]; then
@@ -1153,7 +1211,24 @@ $_mig_id"
 "
             continue
           fi
+          # governance/overlay-master.json is a THREE-WAY-MERGE surface too — the apply
+          # walk routes it through upgrade_overlay_master (OVERLAY-WINS jq merge →
+          # skeleton-merge), NEVER the generic take-new/sidecar branch (that would clobber
+          # the adopter's /govern registrations). On-disk != shipped skeleton means the
+          # registrations diverge from the new skeleton; --apply MERGES them (registrations
+          # preserved, new foundation pillars added). Preview the INTENDED gear
+          # (skeleton-merge); a runtime merge failure downgrades to skeleton-merge-skip (the
+          # enrichment reason notes it). Mirrors the .gitignore carve-out shape — the
+          # ratified inline-elif idiom.
+          if [ "$_rel" = "governance/overlay-master.json" ]; then
+            upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	skeleton-merge
+"
+            continue
+          fi
           # would-mutate. Three-state disambiguation via the frozen baseline.
+          # (The outstanding-.foundation-new sidecar SKIP is consulted at the top of
+          # this loop, ahead of the sha-mismatch gate and the absent-dest branch, so it
+          # is not re-checked here.)
           _disp="replace"
           if [ "$_have_base" = "1" ]; then
             _basesha="$(BMS="$_base_manifest" REL="$_rel" python3 -c '
@@ -1171,6 +1246,18 @@ sys.exit(2)
             # baseline resolved AND on-disk != baseline => adopter EDITED => sidecar.
             if [ -n "$_basesha" ] && [ "$_disksha" != "$_basesha" ]; then
               _disp="sidecar"
+              # before previewing sidecar, consult the SAME legacy_historical_shas
+              # resolver the apply walk's take-new state uses. An on-disk file matching
+              # ANY reachable historical release sha is a KNOWN prior-release build (not
+              # an adopter edit) → the walk clean-`replace`s with NO .foundation-local
+              # sidecar (the misarchive fix, landed walk-side only). Mirror it so the
+              # preview does not over-warn sidecar where the apply will clean-replace.
+              for _s3_hist in $(legacy_historical_shas "$_rel"); do
+                if [ -n "$_disksha" ] && [ "$_disksha" = "$_s3_hist" ]; then
+                  _disp="replace"
+                  break
+                fi
+              done
             fi
           fi
           upgrade_file_disp_preview="${upgrade_file_disp_preview}${_rel}	${_disp}
@@ -1261,8 +1348,8 @@ EOF
   #     is [] ONLY when the home already matches the target. An informational
   #     `untouched` entry must NOT itself make a fully-converged home non-empty, so
   #     the USER-PRESERVE entries are appended ONLY WHEN >=1 actionable disposition
-  #     (replace/sidecar/new-ship/reconcile-hooks/skeleton-merge*) is already
-  #     present — i.e. an actual upgrade is being previewed. WRITE-FREE: only tests
+  #     (replace/sidecar/new-ship/reconcile-hooks/skeleton-merge*/sidecar-skip-deferred)
+  #     is already present — i.e. an actual upgrade is being previewed. WRITE-FREE: only tests
  # on-disk presence of the copied-once surfaces. Emitted in order.
   if [ -n "$upgrade_file_disp_preview" ]; then
     # governance/anchored-spoke-registry.json is SEED-ONCE / USER-PRESERVE-by-omission
@@ -1492,8 +1579,9 @@ if [ "$APPLY_MODE" != "1" ]; then
   "migrations_to_run": (if ($migrations_to_run | rtrimstr("\n")) == "" then [] else ($migrations_to_run | rtrimstr("\n") | split("\n")) end),
   "file_dispositions": (if ($file_dispositions | rtrimstr("\n")) == "" then [] else ($file_dispositions | rtrimstr("\n") | split("\n") | map(split("\t") | (.[0]) as $p | (.[1]) as $d
     | (if   $d == "reconcile-hooks"     then {"class":"THREE-WAY-MERGE", "reason":"missing foundation hook tuple(s) appended (reconciler)", "added_hooks":["see settings-required-hooks.json"]}
-       elif $d == "skeleton-merge"      then {"class":"THREE-WAY-MERGE", "reason":"overlay-wins skeleton-merge (adopter registrations preserved, new foundation pillars added)"}
+       elif $d == "skeleton-merge"      then {"class":"THREE-WAY-MERGE", "reason":"overlay-wins skeleton-merge (adopter registrations preserved, new foundation pillars added); INTENDED gear — a runtime merge failure downgrades to skeleton-merge-skip"}
        elif $d == "skeleton-merge-skip" then {"class":"THREE-WAY-MERGE", "reason":"skeleton-merge skipped (merge failed; adopter overlay untouched)"}
+       elif $d == "sidecar-skip-deferred" then {"class":"THREE-WAY-MERGE", "reason":"outstanding <path>.foundation-new sidecar (prior unresolved merge) — apply SKIPs, deferred to user; nothing taken-new until the merge is resolved"}
        elif $d == "three-way-merge"     then {"class":"THREE-WAY-MERGE", "reason":"installed .gitignore managed-block append (Step 11.8 sentinel; adopter ignore rules preserved, never take-new/sidecar)"}
        elif $d == "new-ship"            then {"class":"FOUNDATION-REPLACE", "reason":"absent on disk; staged into place (NEW-SHIP)"}
        elif $d == "replace"             then {"class":"FOUNDATION-REPLACE", "reason":"on-disk == baseline (adopter unmodified); take-new (upstream fix lands)"}
@@ -1787,36 +1875,6 @@ if [ "$APPLY_MODE" = "1" ] && [ -f "$INSTALLED_BASELINE_MANIFEST_PATH" ] \
     BASELINE_MANIFEST_SNAPSHOT=""
   fi
 fi
-
-# reachable-historical-sha resolver for the legacy-adopt lane.
-# legacy_historical_shas <manifest-rel-path> → prints the per-file sha256 for
-# that path from EVERY shipped governance/baselines/foundation-manifest-v*.json
-# (one per line). This is the "any reachable historical sha" set the legacy-adopt
-# take-new disposition consults: an on-disk file that matches ANY reachable
-# historical sha is a known unmodified prior release ⇒ no .foundation-local
-# snapshot needed (take-new is clean). A mismatch against ALL of them ⇒ adopter-
-# modified ⇒ snapshot to .foundation-local before take-new. With a single shipped
-# baseline today this set is the v1.0.2 per-file shas; >=2 baselines is the v2
-# floor-match precondition.
-legacy_historical_shas() {
-  local rel="$1"
-  [ -d "$LEGACY_ADOPT_BASELINES_DIR" ] || return 0
-  REL="$rel" BLDIR="$LEGACY_ADOPT_BASELINES_DIR" python3 -c '
-import glob, json, os, sys
-rel = os.environ["REL"]
-for path in sorted(glob.glob(os.path.join(os.environ["BLDIR"], "foundation-manifest-v*.json"))):
-    try:
-        m = json.load(open(path))
-    except Exception:
-        continue
-    for f in m.get("files", []):
-        if f.get("path") == rel:
-            s = f.get("sha256", "")
-            if s:
-                print(s)
-            break
-' 2>/dev/null
-}
 
 # upgrade_foundation_file <abs-source> <abs-dest>
 # Three-state disposition for ONE managed-set file (path ∈ files[]). On the true
@@ -3051,6 +3109,46 @@ catch-all. This entry is generic and always-on; it never names a specific direct
 and never blocks.
 RULE_BOUNDEDSPOKE
 seed_rules_entry "25-bounded-spoke-for-cross-cutting-work.md" "$rules_bounded_spoke"
+
+# Entry 5 — durable-artifact routing convention. The always-on counterpart of the
+# closed plans-root namespace (plans-rules.json :: root_namespace + the pre-write-guard
+# root-allowlist arm + the librarian placement-validate plans-scope rule): the guard can
+# only deny a misplaced write — this rule tells the session where the artifact BELONGS.
+# Five routing clauses (funnel-first / flat work-spoke reference/ / world-vs-system
+# discriminator / scratchpad-is-transit / library-universal-only). Generic — never names
+# a specific plan or spoke. Advisory only (never blocks).
+read -r -d '' rules_durable_routing <<'RULE_DURABLEROUTING' || true
+# Durable artifact routing — every research output lands in its owning context
+
+Durable session outputs (research registers, design memos, audit ledgers, syntheses)
+never land at the plans-tree root or in hand-invented ad-hoc directories: the plans root
+is a CLOSED namespace (governance pillar `plans-rules.json :: root_namespace`), enforced
+write-time by the pre-write-guard root-allowlist arm and swept by the librarian
+placement-validate plans-scope rule. Route durable artifacts by these five clauses:
+
+1. Research produced OUTSIDE any plan's scope: mint the owning plan FIRST through the
+   funnel — `promote-from-inbox.sh --capture <slug>` (write the idea note now), then
+   `promote-from-inbox.sh <slug>` (graduate to the `NN-<slug>/` plan when ready) — then
+   land the artifact in that plan's `_research/` and declare it in
+   `manifest.research_artifacts[]`.
+2. Research produced in a WORK-SPOKE session lands FLAT in the spoke's existing
+   `reference/` (single-level `.md` — the work-index indexer is single-level/.md-only
+   by design; nesting makes artifacts index-invisible).
+3. Discriminator: about the WORLD (engagement/domain knowledge) → the vault; about the
+   SYSTEM or the work itself → the owning plan's `_research/`.
+4. The session scratchpad is TRANSIT, never home: the sanctioned move is `mv` into
+   `<plan>/_research/` at graduation. Declaration DERIVES at session close (the
+   session-close capability populates `research_artifacts[]` via plan-research-declare)
+   — never maintain a second, hand-kept declaration surface.
+5. `_library/` stays UNIVERSAL-ONLY — cross-project doctrine that applies everywhere;
+   project-specific research belongs to its owning plan, never the library.
+
+Phase-2 hardening options are RECORDED, not scheduled — data-gated on accumulated
+placement-validate findings: a PreToolUse-on-Bash command screen for plans-root writes,
+and a machine-wide displacement scanner. Neither is built until sweep findings
+demonstrate the need.
+RULE_DURABLEROUTING
+seed_rules_entry "30-durable-artifact-routing.md" "$rules_durable_routing"
 
 # Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
 # Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat
