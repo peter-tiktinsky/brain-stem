@@ -4,6 +4,19 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.12.1]
+
+Patch release — a single, important data-preservation fix. brain-stem regenerates each plan's task list from the plan's manifest, and any notes you add by hand to a task's row are meant to survive every time that list is re-rendered. In prior versions, once a task was marked done — which displays that row's identifier struck-through — the renderer stopped recognizing the row and silently dropped its hand-written note the next time the list was regenerated. It also treated the empty placeholder text in a freshly scaffolded row as if it were a real note and copied it forward on every render. This release fixes both: notes now carry forward on every row, including completed ones, and whole-cell placeholders are dropped instead of preserved. The same fix is applied to the matrix renderer that builds a plan's traceability matrix, so the two stay consistent. **Nothing you author changes and there is nothing to migrate — this stops a loss that could otherwise happen on the next render.** See the [v1.12.1 release notes](docs/release-notes-v1.12.1.md).
+
+### Fixed
+
+- **Hand-written notes on completed tasks are no longer lost when a task list is re-rendered.** brain-stem regenerates a plan's task list from its manifest and preserves the notes you have added to individual task rows. When a task was marked done, that row's identifier is displayed struck-through, and the renderer failed to match the struck form — so on the *next* regeneration it dropped the note on that row entirely. Notes now carry forward on every row, including done and struck-through ones. If you keep notes on completed tasks, upgrading stops this loss before the next time that plan's list is regenerated.
+- **Empty placeholder cells are no longer copied forward as if they were real notes.** A freshly scaffolded task row carries placeholder text in its notes cell; the renderer previously captured that placeholder as a real note and re-emitted it on every subsequent render. A whole-cell placeholder is now treated as empty and dropped, while a genuine note that merely contains braces mid-sentence is preserved.
+
+### Changed
+
+- **Nothing you author changes, and there is nothing to migrate.** This is a correctness fix to how the task-list and matrix renderers preserve your notes. No file format changes, and no manifest field is added or altered.
+
 ## [v1.12.0]
 
 Hardening release — a train of correctness fixes across brain-stem's shipped hooks, capabilities, and installer, plus one safeguard that was inert in prior versions and is now active. Ending a session now reliably marks it closed; the multi-session overlap advisory, the memory-maintenance checks, and a library fallback that were silently no-op'ing now fire; the `install.sh --apply` upgrade preview classifies edge-case files accurately; and the auto-generated binder research links resolve. The activation: the context-pressure **Stop gate** — the "write a checkpoint before you end a long, context-heavy session" safeguard — now reads the session id it needs and enforces, where before it was dormant. A few small conveniences ride along: automatically-rendered traceability matrices, last-updated dates in the backlog (with malformed plan manifests surfaced rather than hidden), and an owning-directory column in the plan index. **Nothing you author changes and there is nothing to migrate.** See the [v1.12.0 release notes](docs/release-notes-v1.12.0.md).

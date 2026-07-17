@@ -212,6 +212,23 @@ def cell(value):
 
 
 _TID_RE = re.compile(r"^T-[0-9]+(\.[0-9]+)?$")
+_STRUCK_ID_RE = re.compile(r"^~~(.+)~~$")
+# A whole-cell braced scaffold placeholder ({{one-line}} double-brace or {one-line} single-brace)
+# is NOT a real Note — it must render empty, not be carried forward forever. Whole-cell anchored,
+# so a legitimate Note that merely contains braces mid-string (e.g. "see {config}") is preserved.
+_PLACEHOLDER_NOTE_RE = re.compile(r"^\{\{.*\}\}$|^\{[^{}]*\}$")
+
+
+def _bare_ledger_id(cell_value):
+    # DERIVE display-form -> bare id. A DONE task renders its ledger id STRUCK (~~T-1~~,
+    # strike() below); the carried-Note lookup keys by the BARE manifest id, so a struck
+    # display id must be de-burred before the _TID_RE match — otherwise ~~T-1~~ fails the
+    # match, its row is skipped, and the hand-authored Note is dropped on the next render
+    # (silent data loss). This normalizer is LOCAL to the ledger parser: _TID_RE stays strict
+    # (it must keep rejecting ~~T-1~~ as a valid manifest id) and the manifest schema is
+    # untouched. The match is whole-cell only, so a stray '~~' inside a title/id cannot spoof it.
+    m = _STRUCK_ID_RE.match(cell_value.strip())
+    return m.group(1).strip() if m else cell_value.strip()
 
 
 def parse_ledger_notes(region):
@@ -222,10 +239,13 @@ def parse_ledger_notes(region):
         cols = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cols) < 5:
             continue
-        tid = cols[0]
+        tid = _bare_ledger_id(cols[0])
         if not _TID_RE.match(tid):
             continue
-        notes[tid] = cols[4]
+        note = cols[4]
+        if _PLACEHOLDER_NOTE_RE.match(note):
+            note = ""
+        notes[tid] = note
     return notes
 
 

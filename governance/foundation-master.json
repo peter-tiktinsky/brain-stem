@@ -493,7 +493,7 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-07-10T21:17:19Z",
+    "built_at": "2026-07-14T07:14:08Z",
     "bundle_version": "ac7a8dd17f5b58b7d65789c44ca33d06b8d0093b3e77e0ac529f84d7de15636c",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
@@ -502,7 +502,7 @@
       "governance/frontmatter-rules.json": "2026-07-06T17:56:13Z",
       "governance/mandatory-files-rules.json": "2026-07-10T21:17:19Z",
       "governance/naming-rules.json": "2026-07-10T21:17:19Z",
-      "governance/plans-rules.json": "2026-07-10T21:17:19Z",
+      "governance/plans-rules.json": "2026-07-14T07:08:44Z",
       "governance/tagging-rules.json": "2026-06-25T01:15:31Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },

@@ -143,8 +143,10 @@ Runtime: `capabilities/rules-index.sh`.
 ## Capability: tasks-render
 
 Regenerates a single plan's `tasks.md` from its `manifest.tasks[]` —
-sentinel-bounded read-replica with operator-narrative + per-row-Notes
-survivorship, idempotent, `--check` parity mode. manifest read-only.
+sentinel-bounded read-replica with operator-narrative preserved and per-row
+ledger Notes carried forward across re-renders (including on done/struck rows;
+whole-cell `{{placeholder}}` cells are dropped, not carried), idempotent,
+`--check` parity mode. manifest read-only.
 Runtime: `capabilities/tasks-render.sh`.
 
 ## Capability: matrix-render

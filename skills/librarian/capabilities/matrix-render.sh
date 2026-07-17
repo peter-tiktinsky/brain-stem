@@ -197,6 +197,18 @@ def cell(value):
 
 
 _TID_RE = re.compile(r"^T-[0-9]+(\.[0-9]+)?$")
+_STRUCK_ID_RE = re.compile(r"^~~(.+)~~$")
+
+
+def _bare_matrix_id(cell_value):
+    # DERIVE display-form -> bare id. Mirrors tasks-render's _bare_ledger_id: a struck
+    # display id (~~T-1~~) must be de-burred before the _TID_RE match, else the row is
+    # skipped and its human-owned survivorship cells are dropped on re-render. matrix-render
+    # does not strike ids today, but the parser must be robust to a struck id so this declared
+    # mirror stays faithful to parse_ledger_notes (sub-01 class-sweep). _TID_RE stays
+    # strict; whole-cell match only.
+    m = _STRUCK_ID_RE.match(cell_value.strip())
+    return m.group(1).strip() if m else cell_value.strip()
 
 
 def parse_prior_rows(region):
@@ -204,7 +216,8 @@ def parse_prior_rows(region):
     Independent verdict) keyed by task id from an existing matrix region. Mirrors
     tasks-render's parse_ledger_notes (:226-238): naive | split, skip the header +
     delimiter rows (their first cell is not a T-N id), take the LAST TWO columns so a
-    filled downstream cell survives a re-render. A row must carry >= 6 columns."""
+    filled downstream cell survives a re-render. A row must carry >= 6 columns. The id
+    cell is de-burred (strike-tolerant) before the match, mirroring parse_ledger_notes."""
     prior = {}
     for line in region.split("\n"):
         if not line.strip().startswith("|"):
@@ -212,7 +225,7 @@ def parse_prior_rows(region):
         cols = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cols) < 6:
             continue
-        tid = cols[0]
+        tid = _bare_matrix_id(cols[0])
         if not _TID_RE.match(tid):
             continue
         prior[tid] = (cols[-2], cols[-1])
