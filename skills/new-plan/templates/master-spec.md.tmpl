@@ -18,10 +18,10 @@ It frames the initiative-wide Goal / Problem / Constraints; each sub-plan carrie
 spec (sub-spec.md.tmpl) and reports status UPWARD into this master's manifest sub_plans[]
 aggregate. The master spec is the binding_spec pointer target the sub-plans cite. Sub-plans
 do NOT communicate peer-to-peer — they route through this master (metadata_flow,).
-created/parent live in the YAML frontmatter; the plan's canonical 8-state status lives on
+created/parent live in the YAML frontmatter; the plan's canonical 6-state status lives on
 manifest.json :: status (DERIVE single-SoT — the artifact carries no status: frontmatter).
-The 8-state vocabulary (researching | planned | in-progress | paused | completed | verified |
-closed | archived; superseded terminal) is defined at governance/plans-rules.json /.
+The 6-state vocabulary (researching | planned | in-progress | paused | completed |
+superseded; completed + superseded terminal) is defined at governance/plans-rules.json.
 Decisions/rationale belong in decisions/ADR-NN-<slug>.md.
 -->
 

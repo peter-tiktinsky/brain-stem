@@ -61,6 +61,41 @@
 #       full runs` prose is a shipped-doc-correctness surface, not advisory. The
 #       cron dispatch itself is registry-driven; this class gates the DOC snapshot
 #       from drifting from the authoritative roster.
+#   (i) the sibling govern skill's executable modes/ <-> process.sh declared
+#       --kind set: every skills/govern/modes/*.sh must be a declared --kind in
+#       process.sh's `case "$KIND" in` dispatcher, and every declared --kind must
+#       have a modes/<kind>.sh — a strict disk<->declaration bijection in BOTH
+#       directions. (govern-modes has no registry of its own; it is audited here
+#       because the govern skill ships no parity gate.)
+#       -> registry-parity-govern-modes-drift
+#       GATED: only when skills/govern/process.sh + modes/ are resolvable (skipped
+#       on a partial tree — no false drift).
+#   (j) every capability's registry default_flags[] must be ACCEPTED by its body's
+#       arg dispatcher — a declared default_flag the body's `case "$1" in` rejects
+#       (falls through to the `*)` unknown-flag exit) is drift. A presence-only
+#       gate never parsed a cap's parser, so a cap could declare a default flag it
+#       rejects rc=2 and ship GREEN. STATIC analysis over the bodies + registry
+#       only — the roster is NEVER executed (executing would commit to the vault).
+#       -> registry-parity-flag-not-accepted
+#   (k) every capability declaring `session-close-step-2` in invocation_modes must
+#       map to a real `run_capability <cap>` callsite in session-close.sh — a
+#       declared close-step-2 mode with no callsite is an inert declaration.
+#       -> registry-parity-session-close-callsite-missing
+#       GATED: the registry's ._parity_pending_session_close_callsites[] allowlist
+#       downgrades the known transitional declarations to ADVISORY (warn; not
+#       counted in TOTAL; parity stays non-RED) until the close wiring lands; a
+#       NON-allowlisted declaration with no callsite fires HARD (error; counted;
+#       turns parity RED). The allowlist is a bounded, provably-shrinking pending
+#       inventory whose legal target state is EMPTY (the capstone-requires-EMPTY
+#       drain contract — NOT a welded floor).
+#   (l) every capability whose body issues a `git commit`/`git push` command MUST
+#       be requires_confirmation:true AND NOT a member of `librarian-full` — the
+#       structural backstop that makes an unconfirmed git-mutating full-roster cap
+#       impossible to ship GREEN. requires_confirmation
+#       had ZERO programmatic consumers before this arm; a per-cap hand guard is not
+#       structural. (A git-commit is not a governed-file write, so a body's empty
+#       writes[] does NOT disqualify — the predicate is confirmation + roster only.)
+#       -> registry-parity-git-confirmation-missing
 #
 # After T-13 (the 4 engine-auditors absent + parallel-run-audit struck) the
 # disk-orphan class reports zero orphans: registered-with-disk == on-disk. This
@@ -146,6 +181,10 @@ ADVISORY_MANIFEST_FICTION=0
 DRIFT_CAP_INDEX_MODE=0
 DRIFT_FULL_ROSTER=0
 DRIFT_GOVERN_MODES=0
+DRIFT_FLAG_ACCEPT=0
+DRIFT_MODES_CALLSITE=0
+ADVISORY_MODES_CALLSITE=0
+DRIFT_GIT_CONFIRM=0
 REPORT_LINES=""
 
 # Class (c): schema_version drift
@@ -438,9 +477,138 @@ if [[ -n "$GOVERN_ROOT" && -f "$GOVERN_PROCESS" && -d "$GOVERN_MODES_DIR" ]]; th
   rm -f "$GM_DECL_FILE" "$GM_DISK_FILE"
 fi
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER + DRIFT_GOVERN_MODES))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d govern-modes=%d; advisory manifest-write-fiction=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$DRIFT_GOVERN_MODES" "$ADVISORY_MANIFEST_FICTION"
+# Class (j): flag-acceptance. Every capability's registry default_flags[] must be
+# ACCEPTED by its body's arg dispatcher. STATIC analysis only — the roster is never
+# executed (executing would commit to the vault). The body's accepted-flag set is
+# the union of the flag tokens in its `case "$1" in` arms (a `-`-leading pattern up
+# to `)`, `|`-split); a declared default_flag NOT in that set is drift (the body's
+# `*)` unknown-flag arm would reject it rc!=0). argv-Python (R-24). Spec-only
+# entries and entries without a disk body (class (b) reports the latter) are skipped.
+FLAG_DRIFT_FILE=$(mktemp -t flag-accept-XXXXXX)
+python3 - "$REGISTRY" "$LIBRARIAN_ROOT" > "$FLAG_DRIFT_FILE" <<'PY'
+import json, re, sys
+registry, root = sys.argv[1], sys.argv[2]
+try:
+    with open(registry, encoding="utf-8") as fh:
+        reg = json.load(fh)
+except Exception:
+    sys.exit(0)
+# accepted flags = union of the `-`-leading case-arm patterns in the body.
+arm_re = re.compile(r'^\s*(-[^)\s]*)\)')
+for name, v in sorted((reg.get("capabilities") or {}).items()):
+    if not isinstance(v, dict):
+        continue
+    if v.get("implementation_status") == "spec-only":
+        continue
+    flags = v.get("default_flags") or []
+    if not flags:
+        continue
+    script = v.get("script") or ""
+    body = root + "/" + script
+    try:
+        with open(body, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        continue  # missing body already reported by class (b)
+    accepted = set()
+    for ln in text.splitlines():
+        m = arm_re.match(ln)
+        if not m:
+            continue
+        for tok in m.group(1).split("|"):
+            tok = tok.strip()
+            if tok.startswith("-"):
+                accepted.add(tok)
+    for f in flags:
+        if f not in accepted:
+            print("%s\t%s" % (name, f))
+PY
+while IFS=$'\t' read -r name flag; do
+  [[ -z "$name" ]] && continue
+  DRIFT_FLAG_ACCEPT=$((DRIFT_FLAG_ACCEPT + 1))
+  if [[ "$MODE" != "dry-run" ]]; then
+    emit_finding "registry-parity-flag-not-accepted" "$name" \
+      "level" "error" "flag" "$flag" \
+      "detail" "registry default_flag not accepted by the body's arg dispatcher (case \"\$1\" rejects it)"
+  fi
+  REPORT_LINES="${REPORT_LINES}- registry-parity-flag-not-accepted: $name → $flag (body rejects its own default flag)"$'\n'
+done < "$FLAG_DRIFT_FILE"
+rm -f "$FLAG_DRIFT_FILE"
+
+# Class (k): session-close-step-2 <-> callsite bijection. A capability declaring
+# `session-close-step-2` in invocation_modes must map to a real `run_capability
+# <cap>` callsite in session-close.sh. A declared close-step-2 mode with no
+# callsite is an inert declaration. The registry's ._parity_pending_session_close_callsites[]
+# allowlist downgrades known transitional declarations to ADVISORY (not counted in
+# TOTAL) until the close wiring lands (single-writer of close wiring); a
+# NON-allowlisted declaration with no callsite fires HARD. GATED on session-close.sh
+# being resolvable (a partial tree skips — no false drift).
+SESSION_CLOSE="$CAPABILITIES_DIR/session-close.sh"
+if [[ -f "$SESSION_CLOSE" ]]; then
+  SC_ALLOWLIST_FILE=$(mktemp -t sc-callsite-allowlist-XXXXXX)
+  jq -r '._parity_pending_session_close_callsites // [] | .[]' "$REGISTRY" 2>/dev/null | sort -u > "$SC_ALLOWLIST_FILE"
+  # comment-stripped run_capability invocation set (a `run_capability <cap>` arg is
+  # the real close callsite; a comment mention is not).
+  SC_INVOKED_FILE=$(mktemp -t sc-invoked-XXXXXX)
+  sed 's/#.*$//' "$SESSION_CLOSE" | grep -oE 'run_capability[[:space:]]+[a-z0-9-]+' \
+    | awk '{print $2}' | sort -u > "$SC_INVOKED_FILE"
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    grep -qxF "$name" "$SC_INVOKED_FILE" && continue   # real callsite present
+    if grep -qxF "$name" "$SC_ALLOWLIST_FILE"; then
+      ADVISORY_MODES_CALLSITE=$((ADVISORY_MODES_CALLSITE + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-session-close-callsite-missing" "$name" \
+          "level" "warn" "advisory" "true" \
+          "detail" "declares session-close-step-2 but has no run_capability callsite in session-close.sh (allowlisted pending close wiring — capstone-requires-EMPTY drain)"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-session-close-callsite-missing (ADVISORY, allowlisted): $name (declared session-close-step-2, no callsite)"$'\n'
+    else
+      DRIFT_MODES_CALLSITE=$((DRIFT_MODES_CALLSITE + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-session-close-callsite-missing" "$name" \
+          "level" "error" \
+          "detail" "declares session-close-step-2 but has no run_capability callsite in session-close.sh"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-session-close-callsite-missing: $name (declared session-close-step-2, no callsite)"$'\n'
+    fi
+  done < <(jq -r '.capabilities | to_entries[] | select(.value.invocation_modes // [] | index("session-close-step-2")) | .key' "$REGISTRY")
+  rm -f "$SC_ALLOWLIST_FILE" "$SC_INVOKED_FILE"
+fi
+
+# Class (l): git-commit-body confirmation. Any capability whose body issues a
+# `git commit`/`git push` command MUST be requires_confirmation:true AND NOT a
+# member of `librarian-full` — the structural backstop that makes an unconfirmed
+# git-mutating full-roster cap impossible to ship GREEN. requires_confirmation had
+# ZERO programmatic consumers before this arm. Comment-stripped body scan (a
+# git-commit mention inside a comment is not a command). The predicate excises the
+# 'non-empty writes' sub-clause: a git-commit is not a governed-file write, so a
+# body's empty output_contract.writes[] does NOT disqualify.
+while IFS=$'\t' read -r name script modes reqconf; do
+  [[ -z "$name" ]] && continue
+  body="$LIBRARIAN_ROOT/$script"
+  [[ -f "$body" ]] || continue   # missing body reported by class (b)
+  # COMMAND-POSITION match only: a real `git commit`/`git push` invocation (line
+  # start, or after ;/&&/||/|/backtick/`$(`), NOT a string-literal or detail-text
+  # mention (which is exactly how THIS auditor names the tokens). Comment-stripped
+  # first so a header/comment mention is never a false command.
+  sed 's/#.*$//' "$body" | grep -qE '(^|[;&|`(]|\$\()[[:space:]]*git[[:space:]]+(commit|push)' || continue
+  violation=""
+  [[ "$reqconf" == "true" ]] || violation="requires_confirmation-not-true"
+  case " $modes " in *" librarian-full "*) violation="${violation:+$violation; }git-mutating-cap-in-librarian-full" ;; esac
+  [[ -z "$violation" ]] && continue
+  DRIFT_GIT_CONFIRM=$((DRIFT_GIT_CONFIRM + 1))
+  if [[ "$MODE" != "dry-run" ]]; then
+    emit_finding "registry-parity-git-confirmation-missing" "$name" \
+      "level" "error" "violation" "$violation" \
+      "detail" "body issues a git-mutating command but is not requires_confirmation:true AND out of librarian-full (the un-recurrable incident class)"
+  fi
+  REPORT_LINES="${REPORT_LINES}- registry-parity-git-confirmation-missing: $name ($violation)"$'\n'
+done < <(jq -r '.capabilities | to_entries[] | select(.value.implementation_status != "spec-only") | [.key, .value.script, ((.value.invocation_modes // []) | join(" ")), (.value.requires_confirmation | tostring)] | @tsv' "$REGISTRY")
+
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER + DRIFT_GOVERN_MODES + DRIFT_FLAG_ACCEPT + DRIFT_MODES_CALLSITE + DRIFT_GIT_CONFIRM))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d govern-modes=%d flag-not-accepted=%d session-close-callsite=%d git-confirmation=%d; advisory manifest-write-fiction=%d session-close-callsite=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$DRIFT_GOVERN_MODES" "$DRIFT_FLAG_ACCEPT" "$DRIFT_MODES_CALLSITE" "$DRIFT_GIT_CONFIRM" "$ADVISORY_MANIFEST_FICTION" "$ADVISORY_MODES_CALLSITE"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else

@@ -43,6 +43,13 @@ if [ "$hook_enabled" = "false" ]; then
 fi
 
 # --- Ensure state file exists (bootstrap) ---
+# A corrupt/truncated state file is quarantined and re-initialized: under set -e
+# an invalid-JSON state would otherwise crash every subsequent SessionEnd with
+# nothing ever healing the file.
+if [[ -f "$STATE_FILE" ]] && ! jq -e . "$STATE_FILE" >/dev/null 2>&1; then
+  mv -f "$STATE_FILE" "${STATE_FILE}.corrupt" 2>/dev/null || rm -f "$STATE_FILE"
+  echo "memory-consolidation-check: corrupt state file quarantined to ${STATE_FILE}.corrupt — re-initializing" >&2
+fi
 if [[ ! -f "$STATE_FILE" ]]; then
   mkdir -p "$MEMORY_DIR"
   cat > "$STATE_FILE" <<'INIT'

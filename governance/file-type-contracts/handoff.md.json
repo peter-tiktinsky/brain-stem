@@ -8,7 +8,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "plan_folder_quartet.required",
   "_design_notes": {
-    "consumer": "hooks/pre-write-guard.sh (append-only enforcement) + skill session-close-and-handoff + librarian plan-index",
+    "consumer": "hooks/pre-write-guard.sh (heading-shape check via section_schema; append-only is documentary — no write-time DENY, per evolution_protocol) + librarian session-close + librarian plan-handoff-index",
     "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet + the session-continuity protocol",
     "evolution_protocol": "Append-only; historical session entries never edited in place. R-37 atomic lockstep — documentary-by-design (the append-only invariant is the lockstep record, NOT a write-time DENY)."
   },

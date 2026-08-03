@@ -95,6 +95,12 @@
     {
       "event": "SessionStart",
       "matcher": null,
+      "command": "~/.claude/hooks/session-start-launchd-bootstrap.sh",
+      "timeout": 10
+    },
+    {
+      "event": "SessionStart",
+      "matcher": null,
       "command": "~/.claude/hooks/memory-review-banner.sh",
       "timeout": 5
     },
@@ -146,12 +152,6 @@
       "timeout": 3
     },
     {
-      "event": "Stop",
-      "matcher": null,
-      "command": "~/.claude/hooks/stop-drift-scan.sh",
-      "timeout": 10
-    },
-    {
       "event": "PreCompact",
       "matcher": "auto|manual",
       "command": "~/.claude/hooks/pre-compact-checkpoint.sh",
@@ -167,6 +167,11 @@
       "matcher": null,
       "command": "~/.claude/hooks/session-episode-write.sh",
       "timeout": 5
+    },
+    {
+      "event": "SessionEnd",
+      "matcher": null,
+      "command": "~/.claude/hooks/memory-consolidation-check.sh"
     },
     {
       "event": "InstructionsLoaded",

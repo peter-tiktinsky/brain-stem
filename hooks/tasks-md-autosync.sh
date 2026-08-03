@@ -1,4 +1,5 @@
 #!/bin/bash
+# BASH-BLINDNESS (R-5, documented-by-design): this Edit|Write write-time governor is blind to Bash-tool writes (heredoc/cp/mv/tee/python) — the "honest residual" labeled at placement-validate.sh:95-96; the rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Hook: tasks-md-autosync — PostToolUse Edit|Write — the WRITE-side consumer of
 # the canonical `<!-- task-done: NN/T-M -->` completion marker, re-pointed to the
 # manifest SoT (T-05).
@@ -203,7 +204,7 @@ log "manifest.tasks[].status=done for [$RESULT] (plan=$PLAN_DIR)"
 RENDER="$SCRIPT_DIR/../skills/librarian/capabilities/tasks-render.sh"
 [ -f "$RENDER" ] || RENDER="${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/tasks-render.sh"
 if [ -f "$RENDER" ]; then
-  if FOUNDATION_TEST_MODE=1 bash "$RENDER" "$PLAN_DIR" >/dev/null 2>&1; then
+  if bash "$RENDER" "$PLAN_DIR" >/dev/null 2>&1; then
     log "tasks-render ok (plan=$PLAN_DIR)"
   else
     log "tasks-render error (plan=$PLAN_DIR)"

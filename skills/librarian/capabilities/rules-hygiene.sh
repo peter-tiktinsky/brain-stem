@@ -33,7 +33,7 @@
 # Test isolation per [[feedback_test_isolation_for_hooks_state]].
 #
 # Tier: judgment. Output Contract: propose-only (writes NOTHING) + block-and-log on
-# its own schema-read. Cron block: skip-non-interactive. Exits 0 with a "skipped
+# its own schema-read. Cron block: weekly. Exits 0 with a "skipped
 # (non-interactive)" log line when invoked outside a TTY and FOUNDATION_TEST_MODE unset.
 #
 # CLI:

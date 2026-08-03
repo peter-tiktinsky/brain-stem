@@ -19,8 +19,9 @@
 # NDJSON schema per `tests/prefilter-contract.md`.
 #
 # Tier: judgment. Output Contract: block-and-log + requires_confirmation.
-# Cron block: skip-non-interactive. Exits 0 with a "skipped (non-interactive)"
-# log line when invoked outside a TTY session and FOUNDATION_TEST_MODE unset.
+# Cron block: weekly. Exits 0 with a "skipped (non-interactive)"
+# log line when invoked outside a TTY session with neither CLAUDECODE nor
+# FOUNDATION_TEST_MODE set (a Claude Code tool-context session runs).
 #
 # CLI:
 #   memory-hygiene.sh                    # emit to $FINDINGS_OUTPUT or stdout
@@ -88,7 +89,7 @@ done
 
 # Judgment-tier non-interactive guard. Bypassed by FOUNDATION_TEST_MODE so
 # synthetic harnesses can fire the capability without a controlling TTY.
-if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${CLAUDECODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
   echo "memory-hygiene: skipped (non-interactive)" >&2
   exit 0
 fi

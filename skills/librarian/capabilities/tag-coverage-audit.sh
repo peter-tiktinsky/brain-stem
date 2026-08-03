@@ -169,6 +169,13 @@ is_exempt_path() {
   return 1
 }
 
+# PASS 1 — walk + exemption + SCAN_COUNT only; queue each non-exempt .md file (in
+# walk order) for a SINGLE batched frontmatter/tag-state pass below. This replaces
+# the fresh `python3`+`import yaml` that was spawned PER FILE inside the walk
+# (~19ms/file, ~57-61s spawn overhead on a 3k-file vault) with ONE interpreter
+# invocation. Queue rows are `REL<TAB>ABS` (REL for the finding, ABS for extraction).
+TCA_QUEUE="$(mktemp -t tca-queue.XXXXXX)"
+TCA_TAB="$(printf '\t')"
 while IFS= read -r file; do
   [ -n "$file" ] || continue
   case "$file" in *.md) ;; *) continue ;; esac   # walker emits all regular files
@@ -179,101 +186,7 @@ while IFS= read -r file; do
     continue
   fi
 
-  # Extract frontmatter once (awk between first two --- lines, like drift-sweep).
-  FM=$(awk '/^---$/{c++;next} c==1{print} c>=2{exit}' "$file" 2>/dev/null)
-
-  if [[ -z "$FM" ]]; then
-    # No frontmatter at all — treat as missing tags field.
-    FINDING_COUNT=$((FINDING_COUNT + 1))
-    MISSING_COUNT=$((MISSING_COUNT + 1))
-    emit_finding "missing_tags_field" "$REL"
-  else
-    # Inspect tags field: missing / empty / populated + per-tag prefix check.
-    TAG_STATE=$(python3 - <<'PYEOF' "$FM"
-import sys, re, yaml
-fm_text = sys.argv[1]
-try:
-    fm = yaml.safe_load(fm_text)
-except Exception:
-    # Unparseable FM — treat as missing to surface for cleanup.
-    print("MISSING")
-    sys.exit(0)
-if not isinstance(fm, dict):
-    print("MISSING")
-    sys.exit(0)
-if 'tags' not in fm:
-    print("MISSING")
-    sys.exit(0)
-val = fm.get('tags')
-if val is None:
-    print("EMPTY")
-    sys.exit(0)
-if isinstance(val, list):
-    if len(val) == 0:
-        print("EMPTY")
-        sys.exit(0)
-        # Populated — print each tag on its own line for bash consumption.
-    prefix = "POPULATED"
-    lines = [prefix]
-    for t in val:
-        lines.append(str(t))
-    print("\n".join(lines))
-    sys.exit(0)
-if isinstance(val, str):
-    # String value — either single-tag or YAML-quirk; treat as populated singleton.
-    print("POPULATED")
-    print(val)
-    sys.exit(0)
-print("MISSING")
-PYEOF
-)
-
-    STATE_HEAD=$(echo "$TAG_STATE" | head -1)
-    case "$STATE_HEAD" in
-      MISSING)
-        FINDING_COUNT=$((FINDING_COUNT + 1))
-        MISSING_COUNT=$((MISSING_COUNT + 1))
-        emit_finding "missing_tags_field" "$REL"
-        ;;
-      EMPTY)
-        FINDING_COUNT=$((FINDING_COUNT + 1))
-        EMPTY_COUNT=$((EMPTY_COUNT + 1))
-        emit_finding "empty_tags_field" "$REL"
-        ;;
-      POPULATED)
-        # Skip prefix validation when allowlist is empty (foundation default).
-        if [[ -z "$ALLOWLIST_PREFIXES" ]]; then
-          continue
-        fi
-        # Validate each tag prefix against allowlist.
-        TAG_LINES=$(echo "$TAG_STATE" | tail -n +2)
-        while IFS= read -r TAG; do
-          [[ -z "$TAG" ]] && continue
-          # Strip leading `#` if present; strip surrounding quotes.
-          CLEAN=$(echo "$TAG" | sed -e 's/^#//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-          PREFIX="${CLEAN%%/*}"
-          [[ -z "$PREFIX" ]] && continue
-
-          # Check allowlist membership.
-          IS_ALLOWED=false
-          for ALLOWED in $ALLOWLIST_PREFIXES; do
-            if [[ "$PREFIX" == "$ALLOWED" ]]; then
-              IS_ALLOWED=true
-              break
-            fi
-          done
-
-          if [[ "$IS_ALLOWED" = false ]]; then
-            FINDING_COUNT=$((FINDING_COUNT + 1))
-            UNRECOGNIZED_COUNT=$((UNRECOGNIZED_COUNT + 1))
-            # Escape quotes in the value for JSON safety.
-            SAFE_VAL=$(echo "$CLEAN" | sed 's/"/\\"/g')
-            emit_finding "unrecognized_tag_prefix" "$REL" "value" "$SAFE_VAL"
-          fi
-        done <<< "$TAG_LINES"
-        ;;
-    esac
-  fi
+  printf '%s%s%s\n' "$REL" "$TCA_TAB" "$file" >> "$TCA_QUEUE"
 
   BATCH_COUNT=$((BATCH_COUNT + 1))
   if [[ $BATCH_COUNT -ge $BATCH_SIZE ]]; then
@@ -281,6 +194,144 @@ PYEOF
     BATCH_COUNT=0
   fi
 done < <(vault_view_walk "$SCAN_ROOT" 2>/dev/null)
+
+# The SINGLE batched pass: extract frontmatter + classify tag-state for EVERY queued
+# file in ONE python3 invocation. Preserves the per-file yaml-based detection
+# byte-for-byte (adopter PyYAML portability is out of scope here). Emits one record
+# per file (in walk order) for bash to consume:
+#   M<TAB>REL   -> missing_tags_field
+#   E<TAB>REL   -> empty_tags_field
+#   P<TAB>REL   -> populated header, followed by its tags as
+#   G<TAB>TAG   -> a tag under the current P (bash runs the prefix check)
+TCA_BATCH="$(mktemp -t tca-batch.XXXXXX)"
+python3 - "$TCA_QUEUE" > "$TCA_BATCH" <<'PYEOF'
+import sys
+queue_path = sys.argv[1]
+try:
+    import yaml
+    HAVE_YAML = True
+except Exception:
+    HAVE_YAML = False
+
+def extract_fm(path):
+    # Mirror `awk '/^---$/{c++;next} c==1{print} c>=2{exit}'`: collect the lines
+    # strictly between the first and second lines that are exactly `---`.
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    out = []
+    c = 0
+    for ln in text.split("\n"):
+        if ln == "---":
+            c += 1
+            if c >= 2:
+                break
+            continue
+        if c == 1:
+            out.append(ln)
+    return "\n".join(out)
+
+def classify(fm_text):
+    # EXACT mirror of the retired per-file python (yaml.safe_load + tag-state). An
+    # empty FM (no/empty frontmatter) yaml.safe_load()s to None -> MISSING, matching
+    # the retired bash empty-FM branch.
+    if not HAVE_YAML:
+        # Degraded (no PyYAML): still flag a no-frontmatter file as MISSING; otherwise
+        # skip (matches the retired per-file path whose `import yaml` failure emitted
+        # nothing for a non-empty FM).
+        return ("MISSING", []) if not fm_text.strip() else None
+    try:
+        fm = yaml.safe_load(fm_text)
+    except Exception:
+        return ("MISSING", [])
+    if not isinstance(fm, dict):
+        return ("MISSING", [])
+    if 'tags' not in fm:
+        return ("MISSING", [])
+    val = fm.get('tags')
+    if val is None:
+        return ("EMPTY", [])
+    if isinstance(val, list):
+        if len(val) == 0:
+            return ("EMPTY", [])
+        return ("POPULATED", [str(t) for t in val])
+    if isinstance(val, str):
+        return ("POPULATED", [val])
+    return ("MISSING", [])
+
+w = sys.stdout.write
+try:
+    with open(queue_path, encoding="utf-8", errors="replace") as qf:
+        rows = qf.read().split("\n")
+except OSError:
+    rows = []
+for row in rows:
+    if not row:
+        continue
+    rel, _, abs_path = row.partition("\t")
+    res = classify(extract_fm(abs_path))
+    if res is None:
+        continue
+    state, tags = res
+    if state == "MISSING":
+        w("M\t%s\n" % rel)
+    elif state == "EMPTY":
+        w("E\t%s\n" % rel)
+    elif state == "POPULATED":
+        w("P\t%s\n" % rel)
+        for t in tags:
+            w("G\t%s\n" % t)
+PYEOF
+
+# PASS 2 — consume the batched records IN WALK ORDER; emit findings byte-identically
+# via emit_finding + the SAME per-tag prefix check (verbatim).
+CUR_REL=""
+while IFS="$TCA_TAB" read -r KIND PAYLOAD; do
+  case "$KIND" in
+    M)
+      FINDING_COUNT=$((FINDING_COUNT + 1))
+      MISSING_COUNT=$((MISSING_COUNT + 1))
+      emit_finding "missing_tags_field" "$PAYLOAD"
+      ;;
+    E)
+      FINDING_COUNT=$((FINDING_COUNT + 1))
+      EMPTY_COUNT=$((EMPTY_COUNT + 1))
+      emit_finding "empty_tags_field" "$PAYLOAD"
+      ;;
+    P)
+      CUR_REL="$PAYLOAD"
+      ;;
+    G)
+      # Skip prefix validation when allowlist is empty (foundation default).
+      [[ -z "$ALLOWLIST_PREFIXES" ]] && continue
+      TAG="$PAYLOAD"
+      # Strip leading `#` if present; strip surrounding quotes.
+      CLEAN=$(echo "$TAG" | sed -e 's/^#//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+      PREFIX="${CLEAN%%/*}"
+      [[ -z "$PREFIX" ]] && continue
+
+      # Check allowlist membership.
+      IS_ALLOWED=false
+      for ALLOWED in $ALLOWLIST_PREFIXES; do
+        if [[ "$PREFIX" == "$ALLOWED" ]]; then
+          IS_ALLOWED=true
+          break
+        fi
+      done
+
+      if [[ "$IS_ALLOWED" = false ]]; then
+        FINDING_COUNT=$((FINDING_COUNT + 1))
+        UNRECOGNIZED_COUNT=$((UNRECOGNIZED_COUNT + 1))
+        # Escape quotes in the value for JSON safety.
+        SAFE_VAL=$(echo "$CLEAN" | sed 's/"/\\"/g')
+        emit_finding "unrecognized_tag_prefix" "$CUR_REL" "value" "$SAFE_VAL"
+      fi
+      ;;
+  esac
+done < "$TCA_BATCH"
+rm -f "$TCA_QUEUE" "$TCA_BATCH"
 
 set -e
 set -o pipefail

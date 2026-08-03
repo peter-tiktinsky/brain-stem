@@ -90,7 +90,11 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 run_master_sub_axis() {
   local td="$SELF_DIR/trinity-drift-detect.sh"
   if [[ -x "$td" || -f "$td" ]]; then
-    bash "$td" --scope "$SCOPE" || true
+    # --plans is documented (22) to run ONLY the master<->sub aggregation axis.
+    # Restrict detection to that axis via trinity-drift-detect's --axis selector so
+    # the standalone close call keeps the trinity-status axis and the two close call
+    # sites emit DISJOINT axes (no double-emit).
+    bash "$td" --scope "$SCOPE" --axis master-sub || true
   fi
   if [[ "$DO_FIX" == "true" ]]; then
     local agg="$SELF_DIR/subplan-aggregate.sh"
@@ -113,93 +117,14 @@ if [[ "$PLANS_ONLY" == "true" ]]; then
   exit 0
 fi
 
-# --- frontmatter-drift sweep (PRESERVED axis) ------------------------
-# DERIVE disposition: UNAFFECTED. This sweep flags only fields in a type's
-# required[] (missing_required). `status` is NOT in the spec/tasks/ideation-brief
-# required[] (foundation-master.frontmatter.types.*.required), so stripping status:
-# from plan artifacts does not trip missing_required. No change here.
-if [[ ! -f "$FOUNDATION_MASTER" ]]; then
-  echo "drift-sweep: foundation-master.json not found at $FOUNDATION_MASTER; "\
-       "running master<->sub axis only" >&2
-  run_master_sub_axis
-  exit 0
-fi
-if [[ -z "${VAULT_ROOT:-}" ]] || [[ ! -d "${VAULT_ROOT:-/nonexistent}" ]]; then
-  echo "drift-sweep: VAULT_ROOT unset/absent; running master<->sub axis only" >&2
-  run_master_sub_axis
-  exit 0
-fi
-
-SCAN_COUNT=0
-FINDING_COUNT=0
-BATCH_COUNT=0
-
-emit_event "{ \"drift_sweep_start\": \"$(date -Iseconds 2>/dev/null || date)\", \"mode\": \"$([ "$DRY_RUN" = true ] && echo 'dry-run' || echo 'live')\" }"
-
-set +e
-set +o pipefail
-
-while IFS= read -r -d '' file; do
-  SCAN_COUNT=$((SCAN_COUNT + 1))
-  REL="${file#$VAULT_ROOT/}"
-  [[ "$REL" == "Logs/.coordination/"* ]] && continue
-  [[ "$REL" == "CLAUDE.md" ]] && continue
-  [[ "$REL" == .claude/projects/* ]] && continue
-  [[ "$REL" == _test* ]] && continue
-
-  FM=$(awk '/^---$/{c++;next} c==1{print} c>=2{exit}' "$file" 2>/dev/null)
-  [[ -z "$FM" ]] && continue
-
-  FILE_TYPE=$(printf '%s\n' "$FM" | grep -E '^type:' 2>/dev/null | head -1 | sed 's/^type:[[:space:]]*//' || true)
-  if [[ -n "$FILE_TYPE" ]]; then
-    SCHEMA_KEY=$(python3 - "$FOUNDATION_MASTER" "$FILE_TYPE" <<'PY' 2>/dev/null
-import json, sys
-bundle = json.load(open(sys.argv[1]))
-t = sys.argv[2]
-type_map = bundle.get('r32_type_aliases', {})
-key = type_map.get(t, t)
-types = bundle.get('frontmatter', {}).get('types', {})
-print(key if (key in types and not key.startswith('_')) else '')
-PY
-)
-    if [[ -z "$SCHEMA_KEY" ]]; then
-      FINDING_COUNT=$((FINDING_COUNT + 1))
-      emit_finding "unregistered_type" "$REL" "type" "$FILE_TYPE"
-    else
-      MISSING=$(printf '%s\n' "$FM" | python3 - "$FOUNDATION_MASTER" "$SCHEMA_KEY" <<'PY' 2>/dev/null
-import json, sys
-bundle = json.load(open(sys.argv[1]))
-key = sys.argv[2]
-fm_lines = sys.stdin.read().splitlines()
-fm = {}
-for ln in fm_lines:
-    if ":" in ln:
-        k, _, v = ln.partition(":")
-        fm[k.strip()] = v.strip()
-types = bundle.get('frontmatter', {}).get('types', {})
-req = types.get(key, {}).get('required', [])
-missing = [f for f in req if not fm.get(f)]
-print(",".join(missing))
-PY
-)
-      if [[ -n "$MISSING" ]]; then
-        FINDING_COUNT=$((FINDING_COUNT + 1))
-        emit_finding "missing_required" "$REL" "schema_key" "$SCHEMA_KEY" "missing" "$MISSING"
-      fi
-    fi
-  fi
-
-  BATCH_COUNT=$((BATCH_COUNT + 1))
-  if [[ $BATCH_COUNT -ge $BATCH_SIZE ]]; then
-    emit_event "{ \"progress\": $SCAN_COUNT, \"findings_so_far\": $FINDING_COUNT }"
-    BATCH_COUNT=0
-  fi
-done < <(find "$VAULT_ROOT" -name "*.md" -print0 2>/dev/null)
-
-set -e
-set -o pipefail
-
-emit_event "{ \"drift_sweep_end\": \"$(date -Iseconds 2>/dev/null || date)\", \"files_scanned\": $SCAN_COUNT, \"findings\": $FINDING_COUNT }"
-
-# Always run the master<->sub axis after the vault sweep.
+# --- vault frontmatter-drift axis: RETIRED (redundant with frontmatter-enforce) ---
+# The vault frontmatter sweep (find "$VAULT_ROOT" -name "*.md" + unregistered_type /
+# missing_required emission) was RETIRED as REDUNDANT with the frontmatter-enforce vault
+# lane, which owns the same governed surface. Two independent reasons made it dead weight:
+# (1) it was symlink-inert — `find` WITHOUT -L reached only the handful of physical
+# vault-root .md, never the symlink-composed governed surface; and (2) it never triggered
+# at session-close, which runs `drift-sweep --plans` (the PLANS_ONLY early-exit above
+# returns before this axis). Retiring it removes a second broken sweep of the same surface
+# rather than maintaining two. The PRESERVED master<->sub aggregation axis
+# (run_master_sub_axis) is the sole remaining responsibility of the default lane.
 run_master_sub_axis

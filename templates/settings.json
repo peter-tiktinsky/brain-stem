@@ -108,6 +108,11 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/session-start-launchd-bootstrap.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/memory-review-banner.sh",
             "timeout": 5
           },
@@ -155,11 +160,6 @@
             "type": "command",
             "command": "~/.claude/hooks/stop-checkpoint-check.sh",
             "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/stop-drift-scan.sh",
-            "timeout": 10
           }
         ]
       }
@@ -187,6 +187,10 @@
             "type": "command",
             "command": "~/.claude/hooks/session-episode-write.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/memory-consolidation-check.sh"
           }
         ]
       }

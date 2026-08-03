@@ -123,17 +123,75 @@ else:
     REQUIRED = []
     CONDITIONAL = {}
 
+def _dest_paths(lines):
+    """Shared block-list-aware destination-path extraction (mirrors the overlap
+    first-pass reader writers-overlap-refresh.sh:124-130). Handles a block-list
+    `- path: X` (a `{{mustache}}` path is captured WHOLE — the char-class does NOT
+    exclude `}`), an inline flow-style `destinations: [{path: X}]` (bracket-scoped
+    so the `}`/`,`/`]` delimiters fire ONLY on genuine flow-style, never on a
+    block-list mustache line), and an inline-scalar `destinations: X`. Pure-regex,
+    NO PyYAML (the close-wired cap gains no runtime prereq)."""
+    paths = []
+    for line in lines:
+        m = re.search(r"(?:^|[-\s])path:\s*[\"']?([^\"'\n]+?)[\"']?\s*$", line)
+        if m:
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
+    for line in lines:
+        if "[" not in line:
+            continue
+        for m in re.finditer(r"path:\s*[\"']?([^\"',}\]\n]+)", line):
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
+    for line in lines:
+        m = re.match(r"^destinations:\s*(.+?)\s*$", line)
+        if m:
+            raw = m.group(1).strip()
+            if raw and not raw.startswith("[") and not raw.startswith("{"):
+                v = raw.strip("\"'")
+                if v and v not in paths:
+                    paths.append(v)
+    return paths
+
 def parse_fm(text):
+    # Block-list-aware frontmatter reader. A required key is recognized as
+    # PRESENT even when its value is a block-list (`- ...`) or a nested map (indented
+    # `key:` children) on the lines below it — the flat scalar parse read those as
+    # empty "" and false-flagged the wizard's yaml.safe_dump block-list destinations
+    # tags and nested authentication/source. Scalar + inline flow-style values on
+    # the same line are still read directly, so inline-scalar / legacy shapes stay
+    # PRESENT (backward-compat). Destination `- path:` tokens are summarized into
+    # `__dest_paths__` for the catalog Destinations column.
     if not text.startswith("---"):
         return None
     end = text.find("\n---", 3)
     if end == -1:
         return None
+    lines = text[3:end].splitlines()
+    n = len(lines)
     fm = {}
-    for line in text[3:end].splitlines():
+    for i, line in enumerate(lines):
         m = re.match(r"^([A-Za-z0-9_-]+):\s*(.*?)\s*$", line)
-        if m:
-            fm[m.group(1)] = m.group(2)
+        if not m:
+            continue
+        key, inline = m.group(1), m.group(2)
+        if inline != "":
+            fm[key] = inline
+            continue
+        # empty inline value: PRESENT iff a block-list `- ...` or an indented
+        # nested-map child follows on the next non-blank line (else genuinely empty).
+        present = ""
+        for j in range(i + 1, n):
+            nxt = lines[j]
+            if nxt.strip() == "":
+                continue
+            if re.match(r"^\s*-\s", nxt) or re.match(r"^\s+\S", nxt):
+                present = "__block__"
+            break
+        fm[key] = present
+    fm["__dest_paths__"] = _dest_paths(lines)
     return fm
 
 def cell(v):
@@ -176,8 +234,15 @@ for fn in sorted(os.listdir(writers_dir)):
         continue
     project = fm.get("project") or ""
     proj_cell = cell(project) if project else "—"
-    dest = fm.get("destinations", "")
-    dest_summary = cell(dest)[:60] if dest else "—"
+    # Destinations column: summarize the real block-list `- path:` tokens (was
+    # fm.get("destinations") which read the empty block-list scalar -> `—`). Fall
+    # back to a parsed inline-scalar `destinations:` value for a legacy writer.
+    dpaths = fm.get("__dest_paths__") or []
+    if not dpaths:
+        _d0 = fm.get("destinations", "")
+        if _d0 and _d0 != "__block__" and not str(_d0).startswith("["):
+            dpaths = [str(_d0).strip("\"'")]
+    dest_summary = cell(", ".join(dpaths))[:60] if dpaths else "—"
     rows.append((project, name, "| %s | %s | %s | %s | %s | %s |" % (
         proj_cell, cell(name), cell(kind) or "—", cell(fm.get("status")) or "—",
         cell(fm.get("last_run")) or "—", dest_summary)))

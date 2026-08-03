@@ -8,7 +8,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "plan_folder_quartet.conditional[0]",
   "_design_notes": {
-    "consumer": "hooks/pre-write-guard.sh (body-immutability enforcement post first amendment-pointer-block) + librarian plan-index",
+    "consumer": "librarian plan-index; body-immutability is documentary — no write-time DENY (no immutability guard branch), per evolution_protocol",
     "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet",
     "evolution_protocol": "Body frozen post-Session-1; amendments via prepended amendment-pointer-block referencing the canonical reference. Body preserved as the Session 0 research record. R-37 atomic lockstep — documentary-by-design (the frozen-body + amendment-pointer-block protocol is the lockstep record, NOT a write-time DENY)."
   },

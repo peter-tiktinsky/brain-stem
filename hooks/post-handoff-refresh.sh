@@ -1,4 +1,5 @@
 #!/bin/bash
+# BASH-BLINDNESS (R-5, documented-by-design): this Edit|Write write-time governor is blind to Bash-tool writes (heredoc/cp/mv/tee/python) — the "honest residual" labeled at placement-validate.sh:95-96; the rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Hook: post-handoff-refresh — PostToolUse Edit|Write — re-derive the affected
 # spoke's binder surfaces the instant a plan handoff.md is written, so a handoff
 # write with NO accompanying manifest write still refreshes the chronicle/binder

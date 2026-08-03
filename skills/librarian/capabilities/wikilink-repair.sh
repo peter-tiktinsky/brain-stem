@@ -39,7 +39,7 @@ fi
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || source "$_REPO_LIB/findings.sh"
 
-DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$HOME/.claude/hooks/doc-dependencies.json}"
+DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$CLAUDE_HOME_RES/hooks/doc-dependencies.json}"
 APPLY="false"
 SCOPE_PATH=""
 REPORT_PATH=""
@@ -225,46 +225,63 @@ for path in md_files:
             target_base_md = target_base
             target_base = target_base[:-3]
 
-        # Check #1 — does target exist as a vault file (any path)?
+        # ONE resolver modeling Obsidian's basename-uniqueness rule, in BOTH
+        # directions. `candidates` = every vault file sharing the target basename;
+        # `seed` = doc-dependency-registry basenames.
+        #   - an exact rel-path match (path-qualified) always resolves;
+        #   - EXACTLY ONE candidate  -> RESOLVED: a stale-path-but-unique-basename
+        #     link resolves in Obsidian, so it is not broken (this is the direction
+        #     that used to over-flag when the registry shipped empty). When the link
+        #     is a stale PATH and the registry seeds the rename, propose canonicalizing
+        #     it (an opt-in repair suggestion, NOT a broken finding; emits nothing on
+        #     a clean adopter whose registry ships empty);
+        #   - MULTIPLE candidates    -> AMBIGUOUS / flagged: Obsidian cannot resolve
+        #     a bare/partial target deterministically (this is the direction that used
+        #     to silently pass, a false negative);
+        #   - ZERO candidates        -> genuinely broken / flagged: a true-broken
+        #     memory ref living OUTSIDE the vault stays flagged.
         candidates = all_md_by_basename.get(target_base_md, set())
-        if candidates:
-            # If the target path was already explicit and lives at exactly one of the candidates, it's fine
-            if "/" in target:
-                # user specified a path — check if that exact rel path exists
-                tgt_rel = target if target.endswith(".md") else target + ".md"
-                exists = any(c == tgt_rel for c in candidates)
-                if exists:
-                    continue
-                # stale path → broken
-                broken_count += 1
-                # check registry seed for basename
-                seed = seed_by_basename.get(target_base_md, set())
-                if len(candidates) == 1 and seed:
-                    # single-candidate + registry seed confirms → propose repair
-                    new_rel = next(iter(candidates))
-                    emit({"finding": "wikilink-repair-suggestion",
-                          "file": rel_path, "old_target": target,
-                          "new_target": new_rel[:-3] if new_rel.endswith(".md") else new_rel,
-                          "seed": "doc-dependency-registry",
-                          "apply": apply})
-                    proposed += 1
-                    if apply:
-                        per_file_rewrites[path].append((target, new_rel[:-3] if new_rel.endswith(".md") else new_rel))
-                        applied += 1
-                else:
-                    emit({"finding": "broken-wikilink",
-                          "file": rel_path, "target": target,
-                          "candidates": sorted(list(candidates)),
-                          "in_registry": bool(seed),
-                          "note": "No single-candidate + registry-seed match; manual review."})
-                    unresolved += 1
-            else:
-                # bare basename — Obsidian resolves by basename; if exactly one candidate, link is fine
+        seed = seed_by_basename.get(target_base_md, set())
+        path_qualified = ("/" in target)
+
+        # An exact rel-path match (path-qualified) resolves regardless of multiplicity.
+        if path_qualified:
+            tgt_rel = target if target.endswith(".md") else target + ".md"
+            if any(c == tgt_rel for c in candidates):
                 continue
-        else:
-            # target file doesn't exist anywhere in vault
+
+        if len(candidates) == 1:
+            # Basename resolves to exactly one vault file -> Obsidian resolves it.
+            if path_qualified and seed:
+                # Stale path + registry knows the rename -> propose canonicalization.
+                new_rel = next(iter(candidates))
+                new_target = new_rel[:-3] if new_rel.endswith(".md") else new_rel
+                emit({"finding": "wikilink-repair-suggestion",
+                      "file": rel_path, "old_target": target,
+                      "new_target": new_target,
+                      "seed": "doc-dependency-registry",
+                      "apply": apply})
+                proposed += 1
+                if apply:
+                    per_file_rewrites[path].append((target, new_target))
+                    applied += 1
+            # else: bare unique basename OR a path-qualified stale path with no
+            # registry seed -> RESOLVED via basename-uniqueness; emit nothing.
+            continue
+        elif len(candidates) >= 2:
+            # Ambiguous: multiple vault files share this basename; Obsidian cannot
+            # resolve a bare/partial target deterministically -> flag for review.
             broken_count += 1
-            seed = seed_by_basename.get(target_base_md, set())
+            emit({"finding": "broken-wikilink",
+                  "file": rel_path, "target": target,
+                  "candidates": sorted(list(candidates)),
+                  "in_registry": bool(seed),
+                  "ambiguous": True,
+                  "note": "Ambiguous: %d vault files share this basename; Obsidian cannot resolve deterministically." % len(candidates)})
+            unresolved += 1
+        else:
+            # Zero candidates -> genuinely broken.
+            broken_count += 1
             if seed:
                 # registry knows this file name but it's not in vault — likely renamed/moved
                 emit({"finding": "broken-wikilink-registry-known",

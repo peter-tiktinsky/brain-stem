@@ -1,18 +1,7 @@
 {
   "schema_version": 1,
-  "_note": "Librarian capability registry. The output_contract block per entry is the contract-of-record: files-written · schema · validation · failure-mode + the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit DIRECTLY; no generator regenerates this file (feedback_manifest_no_hand_edit scopes to read-replica manifests, e.g. librarian-manifest.json, NOT this primary registry). Home: skills/librarian/capability-registry.json. 37 capabilities: the 15 built bodies + the 22 ported capabilities (frontmatter-enforce … session-close, ported as-is, with the lib/→hooks/lib/ path translation). The 10 CUT vault/engagement-specific caps (architect-triage, classify, cluster-by-topic, cron-log-architecture, draft-canonical-file, people-audit, sync-check, transcript-mine, write-frontmatter, entity-parity) have 0 registry keys / 0 bodies / 0 SKILL.md headings. mem-promote is a standalone skill (not here); the 4 engine-auditors (active-gates-rebuild/l3-registry-audit/update-harness-validated/parallel-run-audit) are ABSENT BY CONSTRUCTION from skills/librarian/capabilities/. The disk↔registry↔SKILL.md bijection (capability-registry-parity, classes a/b/e) holds at 39 after T-4 added chronicle-index (the live base was 38: 37 .sh bodies + the spec-only review key; the earlier '37' in this note was stale — read the live count, never trust this prose: feedback B2). This count is the live registry length.",
-  "_parity_pending_manifest_writes": [
-    "governance-parity-audit",
-    "log-subtype-canonical",
-    "writers-index-refresh",
-    "writers-overlap-refresh",
-    "writers-health-audit",
-    "trinity-drift-detect",
-    "drift-sweep",
-    "plan-index",
-    "backup",
-    "rename-history-sync"
-  ],
+  "_note": "Librarian capability registry. Each entry's output_contract block is the contract-of-record: files-written · schema · validation · failure-mode, plus the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit this file DIRECTLY — no generator regenerates it (the no-hand-edit rule applies to read-replica manifests such as librarian-manifest.json, not to this primary registry). Home: skills/librarian/capability-registry.json. A strict disk↔registry↔SKILL.md bijection over the shipped capability bodies is enforced by capability-registry-parity (classes a/b/e). Read the live registry length rather than any count quoted in prose.",
+  "_parity_pending_manifest_writes": [],
   "capabilities": {
     "governance-parity-audit": {
       "tier": "mechanical",
@@ -32,7 +21,7 @@
         "governance/_index.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.governance_parity",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -88,7 +77,7 @@
         "governance/log-subtype-registry.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.log_subtype_canonical",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -270,7 +259,7 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/_situating.md (atomic temp+os.replace; full-file regenerate — the eager, force-ingested binder surface (the sole binder cover); frontmatter type:index REUSED (; no new file-type, no governance-type lockstep) PLUS the generated:true sentinel; machine-derived from each contributing plan's manifest — plan roster + per-plan status + an AGGREGATE project-level status by RULE (no native aggregate field; precedence in-progress>paused>planned>completed>closed) + active focus (the in-progress plan's current task/blocker) + a latest-handoff pointer per in-progress plan + pointers to research-index.md/decision-log.md/handoff-chronicle.md + the ~/work/<spoke>/deliverables/ path; EXCLUDES the non-derivable library-refs / active-SoT free pointer (deliberately omitted; no curated cover) and EXCLUDES all work-spoke directory-map content (the work-side directory-map domain); bounded < 9728B force-ingest budget, defensively trimmed if a degenerate roster overflows)",
+          "{plans_root}/_projects/<spoke>/_situating.md (atomic temp+os.replace; full-file regenerate — the eager, force-ingested binder surface (the sole binder cover); frontmatter type:index REUSED (no new file-type, no governance-type lockstep) PLUS the generated:true sentinel; machine-derived from each contributing plan's manifest — plan roster + per-plan status + an AGGREGATE project-level status by RULE (no native aggregate field; precedence in-progress>paused>planned>completed>closed) + active focus (the in-progress plan's current task/blocker) + a latest-handoff pointer per in-progress plan + pointers to research-index.md/decision-log.md/handoff-chronicle.md + the ~/work/<spoke>/deliverables/ path; EXCLUDES the non-derivable library-refs / active-SoT free pointer (deliberately omitted; no curated cover) and EXCLUDES all work-spoke directory-map content (the work-side directory-map domain); bounded < 9728B force-ingest budget, defensively trimmed if a degenerate roster overflows)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. manifest-parse-failed defensive-skip + card-over-budget findings"
         ],
         "schema": null,
@@ -400,7 +389,7 @@
         "governance/frontmatter-rules.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.writers_index_refresh",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -429,7 +418,7 @@
         "governance/doc-dependencies.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.writers_overlap_refresh",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -457,7 +446,7 @@
         "governance/vault-writers-rules.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.writers_health_audit",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -506,7 +495,7 @@
       "script": "capabilities/rules-index.sh"
     },
     "tasks-render": {
-      "tier": "judgment",
+      "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc"
       ],
@@ -534,7 +523,7 @@
       "script": "capabilities/tasks-render.sh"
     },
     "matrix-render": {
-      "tier": "judgment",
+      "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc"
       ],
@@ -550,7 +539,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{PLANS_ROOT}/<slug>/.md (matrix sentinel region; manifest read-only; render owns the SoT-derived columns, downstream-filled Build-artifact/Independent-verdict columns preserved via the prior-notes survivorship pattern)"
+          "{PLANS_ROOT}/<slug>/traceability-matrix.md (matrix sentinel region; manifest read-only; render owns the SoT-derived columns, downstream-filled Build-artifact/Independent-verdict columns preserved via the prior-notes survivorship pattern)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
         "validation": "manifest validated against schemas/plan-manifest-schema.json before render; --check parity mode; line-anchored sentinel location (block-and-log on ambiguity)",
@@ -560,7 +549,7 @@
       "script": "capabilities/matrix-render.sh"
     },
     "subplan-aggregate": {
-      "tier": "judgment",
+      "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
         "session-close"
@@ -579,8 +568,8 @@
         "writes": [
           "{PLANS_ROOT}/<master>/manifest.json :: sub_plans[] (pull-based read-replica; graduation_timestamp WRITER)"
         ],
-        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field,)",
-        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying per",
+        "schema": "schemas/plan-manifest-schema.json (sub_plans[] field)",
+        "validation": "master manifest validated; sub manifests read-only; coarse-bucket keying",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -600,7 +589,7 @@
         "schemas/plan-manifest-schema.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.trinity",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -630,7 +619,7 @@
         "capabilities/subplan-aggregate.sh"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.sweep",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -660,7 +649,7 @@
         "schemas/plan-manifest-schema.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "inventory.plan_index",
+      "writes_manifest_subtree": null,
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -675,16 +664,17 @@
       "script": "capabilities/plan-index.sh"
     },
     "backlog-index": {
-      "tier": "judgment",
+      "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "cron"
+        "session-close"
       ],
       "cron_block": "skip-non-interactive",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
         "governance/plans-rules.json",
+        "governance/anchored-spoke-registry.json",
         "schemas/plan-manifest-schema.json"
       ],
       "emits_findings": true,
@@ -693,43 +683,16 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{PLANS_ROOT}/_backlog.md (backlog sentinel region)"
+          "{PLANS_ROOT}/_backlog.md (backlog + backlog-settled sentinel regions)",
+          "{PLANS_ROOT}/_inbox/_index.md (machine-written inbox index: rosters + remediation highlights)",
+          "{PLANS_ROOT}/_inbox/<slug>.md (write-if-changed terminal-resolution restamps by the closure loop)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "reader cap — master-row-only policy (READS sub_plans[] aggregate) + satellite-pointer retarget to plan dir/handoff.md",
+        "validation": "reader cap for plan rows (master-row-only; READS sub_plans[] aggregate); Project Dir cells resolved from the project: spoke key via governance/anchored-spoke-registry.json; closure loop stamps resolution: only when the target plan reaches lifecycle.terminal_status — settled notes byte-stable on re-run",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
       "script": "capabilities/backlog-index.sh"
-    },
-    "plan-archive": {
-      "tier": "judgment",
-      "invocation_modes": [
-        "ad-hoc",
-        "cron"
-      ],
-      "cron_block": "skip-non-interactive",
-      "dependencies": [
-        "hooks/lib/paths.sh",
-        "hooks/lib/findings.sh",
-        "governance/plans-rules.json",
-        "schemas/plan-manifest-schema.json"
-      ],
-      "emits_findings": true,
-      "writes_manifest_subtree": null,
-      "default_flags": [],
-      "requires_confirmation": false,
-      "output_contract": {
-        "writes": [
-          "{PLANS_ROOT}/_archive.md (quarterly retrospective rows)",
-          "{PLANS_ROOT}/<slug>/manifest.json (status flip closed -> archived)"
-        ],
-        "schema": "schemas/plan-manifest-schema.json",
-        "validation": "reader cap — master-subtree archival gate (READS sub_plans[] aggregate; a master archives only when every sub is terminal); data-driven cooldown",
-        "failure_mode": "block-and-log"
-      },
-      "implementation_status": "shipped",
-      "script": "capabilities/plan-archive.sh"
     },
     "capability-registry-parity": {
       "tier": "mechanical",
@@ -792,7 +755,7 @@
       "output_contract": {
         "writes": [
           "librarian-manifest drift_findings.coverage_guard scan summary (manifest_set, atomic)",
-          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — coverage-guard-sentinel-escaped / coverage-guard-allowlist-nonempty / coverage-guard-corpus-absent"
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — coverage-guard-sentinel-escaped / coverage-guard-allowlist-nonempty"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract) + schemas/librarian-manifest-schema.json (drift_findings.coverage_guard subtree, additionalProperties)",
         "validation": "reads the reach-verified sentinel corpus + its carried allowlist files; asserts every sentinel's fixture exists + is fired + catches (corpus GREEN) and every _parity_pending is empty (allowlist empty across all subs); corpus absent -> block-and-log no-op",
@@ -876,7 +839,7 @@
         "governance/foundation-master.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "drift_findings.{provides_canonicality,size_monitoring,schema_type_coverage}",
+      "writes_manifest_subtree": "drift_findings.frontmatter.{provides_canonicality,size_monitoring,schema_type_coverage}",
       "default_flags": [
         "--recent",
         "--check"
@@ -884,7 +847,7 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "librarian-manifest drift_findings.{provides_canonicality,size_monitoring,schema_type_coverage} (manifest_set, atomic)",
+          "librarian-manifest drift_findings.frontmatter.{provides_canonicality,size_monitoring,schema_type_coverage} (manifest_set, atomic)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "schemas/librarian-manifest-schema.json (drift_findings.* subtree)",
@@ -910,9 +873,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.placement",
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -941,9 +902,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "xref_graph",
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -974,9 +933,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.stale",
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -996,7 +953,7 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1007,9 +964,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": "drift_findings.tag_coverage",
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1059,9 +1014,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1096,7 +1049,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "DT-3 surface-and-walk: emits plan-terminal-lag when a plan is non-terminal under a TERMINAL parent_plan master; writes NO status (never auto-closes / auto-stamps verified); TERMINAL byte-identical to plan-archive.sh:148 / trinity-drift-detect.sh:83 / subplan-aggregate.sh:134 (parity-gated by ac-terminal-set-parity.sh)",
+        "validation": "DT-3 surface-and-walk: emits plan-terminal-lag when a plan is non-terminal under a TERMINAL parent_plan master; writes NO status (never auto-closes / auto-stamps verified); TERMINAL byte-identical to trinity-drift-detect.sh:103 / subplan-aggregate.sh:127 / plan-terminal-lag-check.sh:99 (parity-gated by ac-terminal-set-parity.sh)",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1117,9 +1070,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1169,7 +1120,7 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh"
@@ -1197,16 +1148,14 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1224,7 +1173,7 @@
       "invocation_modes": [
         "ad-hoc"
       ],
-      "cron_block": "skip-non-interactive",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1253,7 +1202,7 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1261,9 +1210,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1280,8 +1227,7 @@
     "backup": {
       "tier": "mechanical",
       "invocation_modes": [
-        "ad-hoc",
-        "librarian-full"
+        "ad-hoc"
       ],
       "cron_block": "none",
       "dependencies": [
@@ -1291,7 +1237,7 @@
       "emits_findings": false,
       "writes_manifest_subtree": null,
       "default_flags": [],
-      "requires_confirmation": false,
+      "requires_confirmation": true,
       "output_contract": {
         "writes": [],
         "schema": null,
@@ -1307,7 +1253,7 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh"
@@ -1344,9 +1290,7 @@
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
-      "default_flags": [
-        "--check"
-      ],
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1393,18 +1337,15 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full",
-        "session-close-step-2b"
+        "librarian-full"
       ],
       "cron_block": "none",
       "dependencies": [
         "hooks/lib/paths.sh"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": "rename_history",
-      "default_flags": [
-        "--check"
-      ],
+      "writes_manifest_subtree": null,
+      "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
@@ -1558,7 +1499,7 @@
       "invocation_modes": [
         "ad-hoc"
       ],
-      "cron_block": "skip-non-interactive",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1583,11 +1524,11 @@
       "script": "capabilities/memory-hygiene.sh"
     },
     "memory-staleness": {
-      "tier": "judgment",
+      "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc"
       ],
-      "cron_block": "skip-non-interactive",
+      "cron_block": "weekly",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",

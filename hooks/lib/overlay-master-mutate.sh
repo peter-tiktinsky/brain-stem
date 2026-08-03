@@ -346,8 +346,9 @@ fi
 #      multiplication error on REPLACE path).
 #   2. Default deep-merge stripped payload via jq `*`.
 #   3. Walk declared UNION leaves; for each, compute per-leaf merge:
-#      array+array -> concat+unique; object+object -> recursive merge;
-#      mixed/missing -> payload-wins fallback. Result re-set into pillar slot.
+#      array+array -> concat + ORDER-PRESERVING dedup (opdedup; matches the read
+#      side EXACTLY — NOT jq `unique`, which sorts); object+object ->
+#      recursive merge; mixed/missing -> payload-wins fallback. Re-set into slot.
 WORKING="$CURRENT"
 i=1
 for p in $PILLARS; do
@@ -361,6 +362,10 @@ for p in $PILLARS; do
     --argjson existing_pillar "$EXISTING_PILLAR_VALUE" \
     --argjson union_paths "$UNION_PATHS_JSON" \
     '
+      # Order-preserving dedup (first occurrence wins, input order retained) —
+      # IDENTICAL to the read side (hooks/lib/foundation-overlay-load.sh). jq
+      # `unique` SORTS (destroys path_routing.rules order); this does not.
+      def opdedup: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
       (
         $union_paths
         | map(select(startswith($pillar + ".")))
@@ -384,7 +389,7 @@ for p in $PILLARS; do
           | if $e_val == null and $p_val == null then
               .
             elif (($e_val | type) == "array") and (($p_val | type) == "array") then
-              setpath([$pillar] + $sp; (($e_val + $p_val) | unique))
+              setpath([$pillar] + $sp; (($e_val + $p_val) | opdedup))
             elif (($e_val | type) == "object") and (($p_val | type) == "object") then
               setpath([$pillar] + $sp; ($e_val * $p_val))
             elif $p_val != null then

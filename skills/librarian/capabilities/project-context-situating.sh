@@ -186,7 +186,7 @@ def read_text(path):
 
 # --- walk every manifest under the plans tree -------------------------------
 # Each manifest carries project: (the owning-spoke machine identity),
-# parent_plan: (lineage), title: (display), status: (canonical 8-state),
+# parent_plan: (lineage), title: (display), status: (canonical 6-state),
 # tasks[]: (each with id + status). The plan slug is the dir basename.
 def walk_manifests(root):
     found = []
@@ -236,16 +236,16 @@ def field(man, key, default=""):
 #   in-progress  if ANY contributing plan is in-progress (active work)
 #   paused       elif ANY is paused (work held)
 #   planned      elif ANY is planned or researching (work queued)
-#   completed    elif ANY is completed or verified (work done, not yet closed)
-#   closed       elif ALL are closed/archived/superseded (spoke at rest)
+#   completed    elif ANY is completed (work done — the sole terminal done-state)
+#   superseded   elif ALL are superseded (spoke fully at rest)
 #   unknown      else (no contributing plan carried a status)
 # This is a non-native derivation; it is documented here (the only home) so a
 # reader knows the aggregate is computed, not stored.
 ACTIVE = "in-progress"
-# At-rest (terminal) plan statuses — a spoke is "closed" only when ALL its plans
-# are at rest. Reused by the roster's non-terminal filter: at-rest plans are
-# summarized by a count line + a chronicle pointer instead of listed row-by-row.
-AT_REST = {"closed", "archived", "superseded"}
+# At-rest (terminal) plan statuses — a spoke is fully at rest only when ALL its
+# plans are terminal. Reused by the roster's non-terminal filter: at-rest plans
+# are summarized by a count line + a chronicle pointer instead of listed row-by-row.
+AT_REST = {"completed", "superseded"}
 def aggregate_status(statuses):
     s = set(x for x in statuses if x)
     if not s:
@@ -256,10 +256,10 @@ def aggregate_status(statuses):
         return "paused"
     if "planned" in s or "researching" in s:
         return "planned"
-    if "completed" in s or "verified" in s:
+    if "completed" in s:
         return "completed"
     if s <= AT_REST:
-        return "closed"
+        return "superseded"
     return "unknown"
 
 
@@ -419,7 +419,7 @@ def render_card(spoke, st):
         "",
         "**Project status (aggregate, by rule): `%s`** — derived from the per-plan "
         "statuses below (no native aggregate field; precedence: in-progress > paused "
-        "> planned > completed > closed)." % agg,
+        "> planned > completed > superseded)." % agg,
         "",
     ]
 
@@ -481,7 +481,7 @@ def render_card(spoke, st):
     # PLAN ROSTER — rendered LAST and STRUCTURALLY BOUNDED. Keyed per-spoke off
     # the manifest `project:` (the true-owner axis). The roster lists only
     # non-terminal plans, collapses child sub-plans under their parent_plan, and
-    # is hard-capped with a `+N more` line; at-rest (closed/archived/superseded)
+    # is hard-capped with a `+N more` line; at-rest (completed/superseded)
     # plans are summarized by a count line + a handoff-chronicle pointer instead of
     # listed row-by-row. This bounds the card without any byte-slicing.
     lines.append("## Plan roster")
@@ -543,7 +543,7 @@ def render_card(spoke, st):
 
     if terminal_count:
         lines.append(
-            "_%d terminal plan%s (closed/archived/superseded) not shown — see the "
+            "_%d terminal plan%s (completed/superseded) not shown — see the "
             "handoff chronicle (linked under Binder surfaces)._"
             % (terminal_count, "" if terminal_count == 1 else "s"))
         lines.append("")

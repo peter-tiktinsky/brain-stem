@@ -29,7 +29,7 @@ if [[ -z "${VAULT_LOGS:-}" ]]; then
     || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; }
 fi
 
-DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$HOME/.claude/hooks/doc-dependencies.json}"
+DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$CLAUDE_HOME_RES/hooks/doc-dependencies.json}"
 
 CMD="${1:-}"
 case "$CMD" in

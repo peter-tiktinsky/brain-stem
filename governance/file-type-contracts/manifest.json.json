@@ -8,7 +8,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "plan_folder_quartet.required",
   "_design_notes": {
-    "consumer": "hooks/pre-write-guard.sh (R-27 + prose-prohibited check) + librarian plan-index + plan-archive + backlog-index",
+    "consumer": "hooks/pre-write-guard.sh (R-27) + librarian plan-index + backlog-index",
     "lockstep_pair": "tasks.md (R-37 coupled via manifest.tasks[]) + spec.md (R-37 coupled via spec_path) + schemas/plan-manifest-schema.json",
     "evolution_protocol": "R-37 atomic lockstep with tasks.md + plan-manifest-schema.json"
   },

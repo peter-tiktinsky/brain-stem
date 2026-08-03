@@ -1,13 +1,16 @@
 #!/bin/bash
-# post-tool-use-manifest.sh — PostToolUse manifest-verify hook.
+# BASH-BLINDNESS (R-5, documented-by-design): this Edit|Write write-time governor is blind to Bash-tool writes (heredoc/cp/mv/tee/python) — the "honest residual" labeled at placement-validate.sh:95-96; the rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
+# post-tool-use-manifest.sh — PostToolUse manifest-verify hook ((c)).
 #
-# The verify-after-write surface: re-reads the
+# mints the (c) verify-after-write surface: re-reads the
 # just-written plan manifest, validates JSON well-formedness + (when a
 # validator is present) schema conformance against
 # schemas/plan-manifest-schema.json, and surfaces any warnings via
 # additionalContext. ADVISORY only — PostToolUse runs AFTER the write and
 # cannot undo it; this is defense-in-depth for what the PreToolUse
-# manifest-substance branch misses.
+# manifest-substance branch ((a)) misses.
+#
+# Scope note: this is the (c) verify body.
 #
 # Hook contract (Claude Code PostToolUse):
 #   stdin  - JSON event payload: {tool_name, tool_input: {file_path, ...}, ...}
@@ -79,7 +82,7 @@ WARNINGS=""
 if ! jq empty "$FILE_PATH" >/dev/null 2>&1; then
   WARNINGS="manifest.json is NOT well-formed JSON after this write — jq failed to parse ${FILE_PATH}. The manifest is the structured SoT for plan/task state; a malformed manifest breaks plan-index, the orchestrator DAG-walk, and the status guards."
   # Emit and stop: schema validation is moot on unparseable JSON.
-  PAYLOAD=$(jq -n --arg ctx "[manifest-verify] $WARNINGS" \
+  PAYLOAD=$(jq -n --arg ctx "[(c) manifest-verify] $WARNINGS" \
     '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":$ctx}}' 2>/dev/null)
   [[ -n "$PAYLOAD" ]] && printf '%s\n' "$PAYLOAD"
   exit 0
@@ -87,8 +90,9 @@ fi
 
 # --- (2) Schema conformance (when a validator is present) ---------------
 # Prefer the deployed schema (CLAUDE_HOME-portable; PLAN_MANIFEST_SCHEMA test override
-# wins). The ${CLAUDE_HOME:-$HOME/.claude}/schemas/... candidate is all an
-# adopter needs (zero dev-repo residue in the adopter-runtime hook surface).
+# wins). The bare dev-repo fallback is dropped — the
+# ${CLAUDE_HOME:-$HOME/.claude}/schemas/... candidate is all an adopter needs (zero
+# dev-repo residue in the adopter-runtime hook surface).
 SCHEMA_PATH="${PLAN_MANIFEST_SCHEMA:-}"
 if [[ -z "$SCHEMA_PATH" ]]; then
   for _cand in \
@@ -123,7 +127,7 @@ fi
 
 # --- Surface advisory ----------------------------------------------------
 if [[ -n "$WARNINGS" ]]; then
-  PAYLOAD=$(jq -n --arg ctx "[manifest-verify] $WARNINGS (advisory — the write already landed)" \
+  PAYLOAD=$(jq -n --arg ctx "[(c) manifest-verify] $WARNINGS (advisory — the write already landed)" \
     '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":$ctx}}' 2>/dev/null)
   [[ -n "$PAYLOAD" ]] && printf '%s\n' "$PAYLOAD"
 fi

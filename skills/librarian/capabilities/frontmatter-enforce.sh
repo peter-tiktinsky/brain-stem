@@ -84,7 +84,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Pre-load existing drift_findings for persistent ID reconciliation ---
-EXISTING_DRIFT="$(manifest_get '.drift_findings' '{}')"
+# Read the OWN sub-leaf (.drift_findings.frontmatter), in LOCKSTEP with the
+# scope-partitioned write below (persist). The reconcile prior-set (prior_dc/prior_sm/
+# prior_st) must read the SAME sub-leaf the write persists — reading the parent object
+# after the first partitioned run would return a set with no DC/SM/ST keys and reset the
+# persistent finding IDs every close. The scope-partition discipline mirrors
+# placement-validate.sh ("each scope owns its own leaf... sibling scopes are never clobbered").
+EXISTING_DRIFT="$(manifest_get '.drift_findings.frontmatter' '{}')"
 # Env-var overrides for testing (waiver-audit precedent).
 DRIFT_ALLOWLIST_FILE="${FM_DRIFT_ALLOWLIST_FILE_OVERRIDE:-${CLAUDE_HOME:-$HOME/.claude}/hooks/drift-allowlist.json}"
 FOUNDATION_MASTER="${FM_FOUNDATION_MASTER:-${FOUNDATION_MASTER:-${GOVERNANCE_DIR:-${CLAUDE_HOME:-$HOME/.claude}/governance}/foundation-master.json}}"
@@ -385,12 +391,13 @@ def _load_required_matrix():
 REQUIRED = _load_required_matrix()
 
 # Deliverables live under the Work/ surface (a symlink to the external work home).
-# FIX #7: build_scope() now passes os.walk(..., followlinks=(walk=="scope"))
-# so a SCOPED invocation (`frontmatter-enforce.sh --scope <vault>/Work`) descends
-# the Work/ symlink and reaches deliverables under Work/<spoke>/deliverables/;
-# the whole-vault default run keeps followlinks=False so Work/ stays symlink-inert
-# (no new whole-vault Work findings — the regression guard). This REQUIRED row makes
-# the field check real once the scoped scan reaches a deliverable.
+# build_scope() follows symlinks on the scoped Work lane AND the whole-vault --full lane
+# so a SCOPED invocation (`frontmatter-enforce.sh --scope <vault>/Work`) descends the Work/
+# symlink and reaches deliverables under Work/<spoke>/deliverables/, and --full reaches
+# vault-proper clusters behind symlinks. The --full lane prunes the external symlink
+# surfaces (Plans/Projects/Wiki/Work/Skills) at the vault root so it does not walk those
+# foreign trees; the mtime-gated --recent default stays symlink-inert (the regression guard).
+# This REQUIRED row makes the field check real once the scan reaches a deliverable.
 
 # Tag prefix allowlist sourced from foundation-master#tagging.taxonomy.dimension_prefixes.
 # Foundation ships system-utility dimensions (status, log); user-facing dimensions
@@ -404,7 +411,19 @@ def _load_tag_prefixes():
     except Exception:
         return ()
     raw = bundle.get("tagging", {}).get("taxonomy", {}).get("dimension_prefixes", None)
+    if raw is None:
+        return ()
     if not isinstance(raw, list):
+        # fail-loud: a wrong-shape (dict/other) dimension_prefixes leaf
+        # would silently degrade to 0 tag validation (fail-OPEN) — the exact brick
+        # this closes. Warn on stderr so the mis-shape is surfaced, then degrade
+        # safely. Post-the loader unions the array-shape leaf; a dict here
+        # means an un-reconciled overlay (run the dict->array reconcile migration).
+        sys.stderr.write(
+            "frontmatter-enforce: tagging.taxonomy.dimension_prefixes is %s, expected a list "
+            "— tag-taxonomy validation degraded (fail-loud). Re-run `/govern register --kind "
+            "tag-extension` (array-shape emit) to repair the overlay.\n" % type(raw).__name__
+        )
         return ()
     return tuple((p if p.endswith("/") else p + "/") for p in raw if isinstance(p, str))
 
@@ -530,9 +549,13 @@ def build_scope():
                 continue
             files.append((full, rel))
         return files
-    # FIX #7: descend the Work/ symlink ONLY in the scoped Work-deliverable
-    # audit lane; the whole-vault default run stays symlink-inert (regression guard).
-    follow = (walk == "scope")
+    # Descend the vault-view symlinks in the scoped Work-deliverable lane AND the whole-vault
+    # --full lane so both reach content behind the symlinks; the mtime-gated --recent default
+    # stays symlink-inert (regression guard). The --full lane additionally prunes the external
+    # symlink surfaces (Plans/Projects/Wiki/Work/Skills — governed elsewhere) at the
+    # vault root, so it reaches vault-proper clusters behind symlinks without walking those
+    # foreign trees (mirrors placement-validate's followlinks + external-surface prune).
+    follow = walk in ("scope", "full")
     # Symlink-loop guard: when following symlinks, track realpath(dirpath) and prune
     # any subdir whose realpath was already visited so a self-referential symlink
     # cannot make the walk hang (standard followlinks=True hardening).
@@ -546,6 +569,9 @@ def build_scope():
             visited.add(rp)
             dirnames[:] = [d for d in dirnames
                            if os.path.realpath(os.path.join(dirpath, d)) not in visited]
+        if walk == "full" and os.path.relpath(dirpath, root) == ".":
+            dirnames[:] = [d for d in dirnames
+                           if d not in ("Plans", "Projects", "Wiki", "Work", "Skills")]
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("node_modules", "_test")]
         for fn in filenames:
             if not fn.endswith(".md"):
@@ -1132,9 +1158,16 @@ if dry_run:
 PY
 
 # --- If drift payload was produced, persist it via manifest_set ---
-if [[ -s "$DRIFT_OUT" ]]; then
+# Gate the persist on NOT dry_run — `--dry-run` must be read-only. Only the
+# per-file rewrite (will_apply) was dry-run-gated before; this shell-level manifest_set
+# ran unconditionally, mutating the shared manifest under --dry-run (a contract violation).
+# Write the OWN sub-leaf (.drift_findings.frontmatter) — manifest_set REPLACES
+# its target leaf wholesale, so writing the parent `.drift_findings` object obliterated
+# the sibling `.placement.*` (placement-validate) and `.stale` (stale-detect) leaves.
+# Each scope owns its own sub-leaf; sibling scopes are never clobbered.
+if [[ "$DRY_RUN" != "true" ]] && [[ -s "$DRIFT_OUT" ]]; then
   SKIP="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("1" if d.get("skip_drift") else "0")' "$DRIFT_OUT" 2>/dev/null || echo 0)"
   if [[ "$SKIP" != "1" ]]; then
-    manifest_set '.drift_findings' "$(cat "$DRIFT_OUT")"
+    manifest_set '.drift_findings.frontmatter' "$(cat "$DRIFT_OUT")"
   fi
 fi

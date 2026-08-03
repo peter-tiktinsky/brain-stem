@@ -239,7 +239,7 @@ def flat_files(title, plan_dir):
         "**Goal:** {One sentence. When this ships, what is true that wasn't true before?}\n\n"
         "<!-- Head-immutable post Session 1: Goal / Problem Statement / Constraints "
         "(governance/file-type-contracts/spec.md.json). created/parent live in the YAML "
-        "frontmatter; the plan's canonical 8-state status lives on manifest.json :: status "
+        "frontmatter; the plan's canonical 6-state status lives on manifest.json :: status "
         "(DERIVE single-SoT — the artifact carries no status: frontmatter). Cap ~500 lines. -->\n\n"
         "## Problem Statement\n\n"
         "{2-4 sentences. What's broken, missing, or suboptimal today?}\n\n"

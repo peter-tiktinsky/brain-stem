@@ -1,4 +1,5 @@
 #!/bin/bash
+# BASH-BLINDNESS (R-5, documented-by-design): this Edit|Write write-time governor is blind to Bash-tool writes (heredoc/cp/mv/tee/python) — the "honest residual" labeled at placement-validate.sh:95-96; the rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Hook: post-manifest-binder-refresh — PostToolUse Edit|Write — re-derive the
 # affected spoke's binder surfaces the instant a plan manifest is written, so the
 # binder stays fresh BETWEEN session-closes (T-10). This is the in-session
@@ -107,7 +108,7 @@ if [ "$PMBR_TRIGGER" = "manifest" ]; then
   _tr_render="$_REPO_ROOT/skills/librarian/capabilities/tasks-render.sh"
   [ -f "$_tr_render" ] || _tr_render="$CLAUDE_HOME_RES/skills/librarian/capabilities/tasks-render.sh"
   if [ -f "$_tr_render" ] && [ -f "$_tr_plan_dir/tasks.md" ]; then
-    if PLANS_ROOT="$PLANS_ROOT" FOUNDATION_TEST_MODE=1 bash "$_tr_render" "$_tr_plan_dir" >/dev/null 2>&1; then
+    if PLANS_ROOT="$PLANS_ROOT" bash "$_tr_render" "$_tr_plan_dir" >/dev/null 2>&1; then
       log "tasks-render ok (structural manifest trigger; plan=$_tr_plan_dir)"
     else
       log "tasks-render error (structural manifest trigger; plan=$_tr_plan_dir)"
@@ -116,20 +117,20 @@ if [ "$PMBR_TRIGGER" = "manifest" ]; then
 fi
 
 # BESIDE the tasks-render trigger: on the same STRUCTURAL manifest edit, ALSO re-render
-# .md so the manifest<->matrix mirror (the 8th incident drift site) stays
+# traceability-matrix.md so the manifest<->matrix mirror (the 8th incident drift site) stays
 # derived from manifest.tasks[]. matrix-render is OPT-IN per file: it fires ONLY when the
 # matrix already carries the <!-- matrix:start --> sentinel (a matrix that has adopted the
 # rendered shape). This protects the historical hand-authored matrices — which carry
 # verdicts and no sentinel — from an auto-rewrite; they are never touched until intentionally
 # converted. Idempotent (re-render without a change == byte-identical); matrix-render writes
-# .md, which the gate above skips, so no re-trigger loop.
+# traceability-matrix.md, which the gate above skips, so no re-trigger loop.
 if [ "$PMBR_TRIGGER" = "manifest" ]; then
   _mx_plan_dir="$(dirname "$FILE_PATH")"
   _mx_render="$_REPO_ROOT/skills/librarian/capabilities/matrix-render.sh"
   [ -f "$_mx_render" ] || _mx_render="$CLAUDE_HOME_RES/skills/librarian/capabilities/matrix-render.sh"
-  _mx_file="$_mx_plan_dir/.md"
+  _mx_file="$_mx_plan_dir/traceability-matrix.md"
   if [ -f "$_mx_render" ] && [ -f "$_mx_file" ] && grep -q '<!-- matrix:start -->' "$_mx_file" 2>/dev/null; then
-    if PLANS_ROOT="$PLANS_ROOT" FOUNDATION_TEST_MODE=1 bash "$_mx_render" "$_mx_plan_dir" >/dev/null 2>&1; then
+    if PLANS_ROOT="$PLANS_ROOT" bash "$_mx_render" "$_mx_plan_dir" >/dev/null 2>&1; then
       log "matrix-render ok (structural manifest trigger; plan=$_mx_plan_dir)"
     else
       log "matrix-render error (structural manifest trigger; plan=$_mx_plan_dir)"

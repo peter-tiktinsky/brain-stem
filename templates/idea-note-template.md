@@ -4,6 +4,7 @@ type: idea
 status: new
 created: {{DATE}}
 updated: {{DATE}}
+project: {{PROJECT}}
 disposition:
 tags: []
 ---
@@ -17,7 +18,18 @@ tags: []
      ~/.claude-plans/_inbox/<slug>.md; rendered into _backlog.md by
      librarian:backlog-index. No NN- prefix — the prefix is assigned at
      graduation. status ∈ {new, triaged, briefed}; disposition ∈
-     {FIX NOW, ABSORB, STANDALONE, DEFERRED} (set during triage). -->
+     {FIX NOW, ABSORB, STANDALONE, DEFERRED} (set during triage).
+
+     project: the owning-spoke key (registry-resolved; stamped mechanically at
+     capture). The disposition's TARGET and terminal RESOLUTION are recorded later
+     as machine-joinable frontmatter, not authored empty at capture:
+       promoted_to:  NN-<slug>                          # a graduated idea's landing plan
+       absorbed_into: NN-<slug>[/SS-<subslug>][ :: T-N] # an ABSORB's owning plan/sub-plan/task
+       resolution:   promoted | absorbed | resolved | dropped   # terminal; stamped by the
+       resolved_at:  YYYY-MM-DD                          # backlog-index closure loop when the
+                                                         # target plan reaches a terminal status
+     A target key must resolve against the plan roster (an existing NN-<slug> or
+     NN-<slug>/SS-<subslug> dir); an artifact pointer is not a valid target. -->
 
 ## Idea
 

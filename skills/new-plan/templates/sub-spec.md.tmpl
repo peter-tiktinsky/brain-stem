@@ -19,10 +19,10 @@ graduation_timestamp UPWARD into the master manifest's sub_plans[] aggregate (th
 reconciler pulls it). It does NOT communicate peer-to-peer with sibling sub-plans — route any
 cross-sub ordering through the master (metadata_flow / R-63). The binding_spec pointer above
 cites the master spec as the initiative authority.
-created/parent live in the YAML frontmatter; the sub-plan's canonical 8-state status lives on
+created/parent live in the YAML frontmatter; the sub-plan's canonical 6-state status lives on
 its OWN manifest.json :: status (DERIVE single-SoT — the artifact carries no status:
-frontmatter). The 8-state vocabulary (researching | planned | in-progress | paused | completed
-| verified | closed | archived; superseded terminal) is at governance/plans-rules.json /.
+frontmatter). The 6-state vocabulary (researching | planned | in-progress | paused | completed
+| superseded; completed + superseded terminal) is at governance/plans-rules.json.
 parent_plan is REQUIRED in frontmatter at depth >= 3 (R-28).
 -->
 

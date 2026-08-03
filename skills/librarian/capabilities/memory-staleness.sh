@@ -32,22 +32,24 @@
 #     "last_validated": "<YYYY-MM-DD>", "days_since": <int>,
 #     "interval_days": <int>, "reason": "..." }
 #
-# Tier: judgment (propose-only). Output Contract: propose-only + adopter
-# reviews via /librarian invocation. Cron block: skip-non-interactive.
+# Tier: mechanical (propose-only). Output Contract: propose-only + adopter
+# reviews via /librarian invocation. Cron block: weekly.
 #
 # CLI:
 #   memory-staleness.sh                    # emit to $FINDINGS_OUTPUT or stdout
 #   memory-staleness.sh --scope <path>     # override MEMORY_DIR
+#   memory-staleness.sh --all-projects     # sweep EVERY ~/.claude/projects/*/memory dir
 #   memory-staleness.sh --dry-run          # summary counts only
 #   memory-staleness.sh --help             # usage
 #
 # Env overrides:
 #   MEMORY_DIR              Override session memory dir (else resolved via
 #                           lib/paths.sh::resolve_memory_dir).
+#   MEMORY_PROJECTS_ROOT    (--all-projects) projects root to enumerate
+#                           (default: $CLAUDE_HOME/projects).
 #   FINDINGS_OUTPUT         (default: stdout)
 #   MEMORY_SCHEMA_PATH      (default: $FOUNDATION_REPO/schemas/memory-schema.json
 #                           — overrides per-type half-life table)
-#   FOUNDATION_TEST_MODE    Bypass non-interactive guard (test/CI runners).
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
 # ([[feedback_python_heredoc_argv]]).
@@ -73,21 +75,39 @@ fi
 
 SCOPE=""
 DRY_RUN="false"
+ALL_PROJECTS="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
+    --all-projects) ALL_PROJECTS="true"; shift ;;
     -h|--help) sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "memory-staleness: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
 
-# Judgment-tier non-interactive guard. Bypassed by FOUNDATION_TEST_MODE so
-# synthetic harnesses can fire the capability without a controlling TTY.
-if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
-  echo "memory-staleness: skipped (non-interactive)" >&2
-  exit 0
+# CROSS-PROJECT sweep. resolve_memory_dir is cwd/git-slug-keyed, so a bare invocation
+# audits ONLY the current project's memory while N project memory dirs exist.
+# --all-projects enumerates EVERY $CLAUDE_HOME/projects/*/memory dir and re-runs the
+# per-project scan against each by re-invoking this capability with --scope. The single-
+# project path (below) is unchanged. MEMORY_PROJECTS_ROOT overrides the root for tests.
+if [[ "$ALL_PROJECTS" == "true" ]]; then
+  _ms_root="${MEMORY_PROJECTS_ROOT:-$CLAUDE_HOME_RES/projects}"
+  _ms_rc=0
+  if [[ -d "$_ms_root" ]]; then
+    for _ms_p in "$_ms_root"/*/memory; do
+      [[ -d "$_ms_p" ]] || continue
+      if [[ "$DRY_RUN" == "true" ]]; then
+        env -u MEMORY_DIR -u MEMORY_INDEX_PATH bash "$0" --scope "$_ms_p" --dry-run || _ms_rc=$?
+      else
+        env -u MEMORY_DIR -u MEMORY_INDEX_PATH bash "$0" --scope "$_ms_p" || _ms_rc=$?
+      fi
+    done
+  else
+    echo "memory-staleness --all-projects: projects root absent: $_ms_root" >&2
+  fi
+  exit "$_ms_rc"
 fi
 
 if [[ -n "${MEMORY_DIR:-}" ]]; then

@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # modes/tag-extension.sh — handler for /govern register --kind tag-extension.
 #
-# Single-pillar mutation against tagging.taxonomy.dimension_prefixes.
-# No hook auto-fire — operator-driven mode.
+# Single-pillar mutation against tagging.taxonomy.dimension_prefixes per
+# -orthogonal locks. No hook auto-fire — operator-driven mode.
 #
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
 mode_propose() {
-  local dimension values
+  local dimension
   dimension=""
-  values=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --dimension)    dimension="$2";    shift 2 ;;
-      --values)       values="$2";       shift 2 ;;
       --proposed-by)  PROPOSED_BY="$2";  shift 2 ;;
       *) shift ;;
     esac
@@ -24,21 +22,16 @@ mode_propose() {
     printf 'tag-extension.mode_propose: --dimension <prefix> required\n' >&2
     return 2
   fi
-  if [ -z "$values" ]; then
-    printf 'tag-extension.mode_propose: --values <comma-list> required\n' >&2
-    return 2
-  fi
 
   local proposed_by
   proposed_by="${PROPOSED_BY:-user-direct}"
 
-  # Convert "v1,v2,v3" → ["v1","v2","v3"] via jq.
-  local values_array
-  values_array=$(printf '%s' "$values" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
-
+  # dimension_prefixes is an ARRAY of prefix-slugs; the mode APPENDS the
+  # new slug (the `--values` flag is dropped — no dimension_values leaf). The
+  # declared ARRAY shape matches what the loader, guard, and audit-half all read;
+  # a dict-shape emit dropped the foundation status/log/project prefixes.
   jq -nc \
     --arg dimension "$dimension" \
-    --argjson values "$values_array" \
     --arg proposed_by "$proposed_by" \
     '
       {
@@ -50,20 +43,18 @@ mode_propose() {
             pillar: "tagging",
             payload: {
               taxonomy: {
-                dimension_prefixes: {
-                  ($dimension): $values
-                }
+                dimension_prefixes: [ $dimension ]
               }
             },
             field_descriptions: {
-              ($dimension): ("Allowed tag values under #" + $dimension + "/* — extends the taxonomy enum")
+              ($dimension): ("Allowed tag prefix #" + $dimension + "/* — appends the new prefix slug to the taxonomy dimension_prefixes set")
             }
           }
         ],
         notes: [
           "Tag-extension is single-pillar; no R-37 bundling.",
-          "Write-time merge (lib/overlay-master-mutate.sh): per-leaf strategy declared in lib/merge-strategy-registry.json. tagging.taxonomy.dimension_prefixes is declared UNION: array-shape payloads concat+dedup against existing overlay state; dict-shape payloads fall through to object recursive merge (legacy fixture shape).",
-          "Read-time R-52 collision (lib/foundation-overlay-load.sh): if dimension EXISTS in foundation-master.tagging.taxonomy.dimension_prefixes AND adopter overlay declares the same dimension, overlay wins (adopter shadows foundation). Shadowing requires per-entry `_override_reason: \"<text>\"` inline on the shadowing payload entry (canonical shape). Foundation+overlay UNION semantics at the dimension_prefixes leaf are produced by the helper at read time, not by the library at write time."
+          "Write-time union (lib/overlay-master-mutate.sh): tagging.taxonomy.dimension_prefixes is declared UNION in lib/merge-strategy-registry.json — the new prefix slug is concat+deduped (order-preserving) against the existing overlay array.",
+          "Read-time union (lib/foundation-overlay-load.sh): the foundation dimension_prefixes array and the adopter overlay array are unioned order-preserving (foundation-first) at read time, so the foundation prefixes (status/log/project) are PRESERVED and the adopter-declared new prefix is appended. R-52 collision (adopter shadows a foundation entry) requires per-entry `_override_reason: \"<text>\"` inline on the shadowing payload entry (canonical shape). The union is REAL on BOTH sides — the read-side loader unions the declared-union leaves, not merely the write-side library."
         ]
       }
     '

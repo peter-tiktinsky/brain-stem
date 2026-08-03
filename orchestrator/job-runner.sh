@@ -207,7 +207,7 @@ JSON_LINE=""
 if [[ -f "$OUTPUT_FILE" ]]; then
   # SessionEnd hooks emit non-JSON text AFTER the claude -p result line, so the
   # whole file often doesn't parse as JSON. Extract the result line specifically.
-  JSON_LINE=$(grep -m1 '^{"type":"result"' "$OUTPUT_FILE" 2>/dev/null)
+  JSON_LINE=$(grep -m1 '^{"type":"result"' "$OUTPUT_FILE" 2>/dev/null || true)
   # Fallback: if claude -p shape shifts, try first line that parses as JSON.
   if [[ -z "$JSON_LINE" ]] && head -1 "$OUTPUT_FILE" | jq empty 2>/dev/null; then
     JSON_LINE=$(head -1 "$OUTPUT_FILE")

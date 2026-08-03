@@ -1,4 +1,5 @@
 #!/bin/bash
+# BASH-BLINDNESS (R-5, documented-by-design): this Edit|Write write-time governor is blind to Bash-tool writes (heredoc/cp/mv/tee/python) — the "honest residual" labeled at placement-validate.sh:95-96; the rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Hook: post-work-map-refresh — PostToolUse Edit|Write — re-derive the affected work
 # spoke's work-map directory-map block the instant a file under a work spoke is
 # written, so the work CLAUDE.md's "what lives where" map stays fresh BETWEEN
@@ -75,9 +76,31 @@ fi
 # --- GATE: fire ONLY on a write under $WORK_HOME/ (a fast no-op otherwise) ------
 # PostToolUse fires on every Edit|Write — this gate keeps an ungated work-map
 # re-derive from running on unrelated writes.
+#
+# A vault-view Work/<spoke> symlink-addressed write does NOT literally carry
+# the physical "$WORK_HOME"/ prefix, so realpath-normalize FILE_PATH (and $WORK_HOME)
+# before the prefix test — a symlink-addressed write then resolves to its physical
+# $WORK_HOME/<spoke>/... form and passes the gate, matching the both-forms reach the
+# plans-tree siblings (post-handoff-refresh / post-manifest-binder-refresh) already
+# have. Precise structural fix: a path that does NOT resolve under $WORK_HOME stays a
+# no-op, so there is no broad */Work/* glob false-positive on unrelated writes. The
+# fast literal path is tried first so a physical write skips the realpath cost.
+_pwm_realpath() {
+  realpath "$1" 2>/dev/null \
+    || python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null \
+    || printf '%s' "$1"
+}
 case "$FILE_PATH" in
-  "$WORK_HOME"/*) ;;
-  *) exit 0 ;;
+  "$WORK_HOME"/*) ;;                         # fast path: a physical $WORK_HOME/ write
+  *)
+    _FP_RES="$(_pwm_realpath "$FILE_PATH")"
+    _WH_RES="$(_pwm_realpath "$WORK_HOME")"
+    case "$_WH_RES" in */) _WH_RES="${_WH_RES%/}" ;; esac
+    case "$_FP_RES" in
+      "$_WH_RES"/*) FILE_PATH="$_FP_RES"; WORK_HOME="$_WH_RES" ;;
+      *) exit 0 ;;
+    esac
+    ;;
 esac
 
 # --- resolve the OWNING SPOKE = the first path component under $WORK_HOME -------

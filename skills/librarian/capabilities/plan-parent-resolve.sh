@@ -520,7 +520,7 @@ in_scope() {
   # _research/ is NOT excluded: declared research_artifacts[] pointers land there
   # and MUST be walkable by the resolver (R-FLOW-MAINT-8).
   case "/$rel/" in
-    */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*) return 1 ;;
+    */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*|*/sp08-fixture-inputs/*|*/synthetic-plans/*) return 1 ;;
   esac
 
   # PRUNE the top-level infra dirs — _library binder/library

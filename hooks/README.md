@@ -1,6 +1,6 @@
 # hooks/
 
-Claude Code hooks shipped by brain-stem. Default-on hooks are wired into `templates/settings.json`; four are conditional fragments the installer merges based on manifest opt-in flags; one is opt-in advanced.
+Claude Code hooks shipped by brain-stem. Default-on hooks are wired into `templates/settings.json`; one is a conditional fragment the installer merges based on a manifest opt-in flag; one is opt-in advanced.
 
 ## What hooks are
 
@@ -35,23 +35,21 @@ Always installed. Wired into `templates/settings.json`.
 | SessionStart | `memory-seed.sh` | Lazy `MEMORY.md` seed. |
 | SessionStart | `memory-review-banner.sh` | Memory-review pending-count banner (`/librarian review`). |
 | Stop | `stop-checkpoint-check.sh` | Block stop on stale checkpoint at high context-pressure (R-26). |
-| Stop | `stop-drift-scan.sh` | Touched-file drift advisory at session end (R-36). |
 | PreCompact[auto\|manual] | `pre-compact-checkpoint.sh` | Pre-compact session-state snapshot. |
 | SessionEnd | `session-deregister.sh` | Multi-session coordination cleanup. |
 | statusLine | `worker-statusline.sh` | Statusline rendering. |
 
 Plus supporting scripts spawned conditionally: `memory-consolidation-check.sh` + `memory-consolidation-run.sh` (the first-party memory-consolidation hygiene pass), `auto-commit-surfaces.sh`, `reconcile-sessions.sh`, `tasks-md-autosync.sh`.
 
-## Conditional fragments (4)
+## Conditional fragments (1)
 
-Off by default. The installer reads `manifest.behavioral.hook_preferences` and merges the matching fragment from `templates/settings-fragments/` only if you opted in.
+Off by default. The installer reads `manifest.behavioral.hook_preferences` and merges the matching fragment from `templates/settings-fragments/` only if you opted in. One fragment ships:
 
 | Fragment | Manifest flag | When you'd enable it |
 |---|---|---|
-| `memory-consolidation.json` | `hooks.memory_consolidation.enabled` | You want the **first-party memory-consolidation hook** — brain-stem's own non-LLM hygiene consolidation at SessionEnd. (This is NOT claude-mem; claude-mem is an optional adopter-installed plugin that self-wires via its own marketplace hooks.) |
-| `auto-commit.json` | `hooks.auto_commit.enabled` | Your `~/.claude/` and/or vault are git repos. |
-| `tasks-md-autosync.json` | `hooks.tasks_autosync.enabled` | You use the plan workflow with `tasks.md` task-status markers. |
 | `multi-session.json` | `hooks.multi_session.enabled` | You expect concurrent Claude Code sessions on the same vault. |
+
+The first-party **memory-consolidation** hook is now **default-on** — `memory-consolidation-check.sh` is wired into the default `templates/settings.json` SessionEnd, so it needs no fragment. (This is NOT claude-mem; claude-mem is an optional adopter-installed plugin that self-wires via its own marketplace hooks.) `tasks-md-autosync.sh` is likewise default-wired into `templates/settings.json`. Neither ships a settings fragment.
 
 The installer never strips entries from the default `templates/settings.json`; fragments are additive only. To turn off a default-on hook, edit your own `~/.claude/settings.json` post-install.
 

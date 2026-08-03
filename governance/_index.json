@@ -170,7 +170,6 @@
       "loaded_by": [
         "hooks/pre-write-guard.sh",
         "skills/librarian/capabilities/plan-index.sh",
-        "skills/librarian/capabilities/plan-archive.sh",
         "skills/librarian/capabilities/backlog-index.sh"
       ],
       "r37_coupled_surfaces": [
@@ -181,14 +180,13 @@
         "skills/librarian/capabilities/tasks-render.sh (renders manifest.tasks[] → tasks.md read-replica; mirrors backlog-index.sh, sentinel-bounded survivorship + --check parity)",
         "hooks/lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
         "skills/librarian/capabilities/plan-index.sh (consumes lifecycle.status_enum + root_files)",
-        "skills/librarian/capabilities/plan-archive.sh (consumes lifecycle.status_transitions.closed_to_archived)",
         "skills/librarian/capabilities/backlog-index.sh (renders {researching,planned} manifests + _inbox/*.md idea notes into the unified _backlog.md)",
         "skills/new-plan/lib/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
         "templates/idea-note-template.md (inbox capture template)",
-        "templates/{spec,tasks,handoff,ideation-brief}-template.md (plan-quartet templates; authored-to-contract — see file-type-contracts pillar coupling)",
+        "templates/ideation-brief-template.md (ideation-brief template; plan-quartet artifacts are scaffolded from skills/new-plan/templates/*.tmpl — authored-to-contract, see file-type-contracts pillar coupling)",
         "skills/backlog-triage/SKILL.md (captures/classifies _inbox/<slug>.md idea notes; consumes inbox.funnel_status_enum + backlog_row.disposition_enum)",
         "skills/backlog-research/SKILL.md (reads triaged inbox notes + {researching} manifests; --promote graduation; never hand-writes _backlog.md)",
-        "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index + archival → plan-archive; consumes backlog_row.stale_advisory_days)",
+        "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index; archival is the plan-index display-only view; consumes backlog_row.stale_advisory_days)",
         "governance/foundation-master.json (forward — composed plans slot)"
       ]
     }
@@ -342,20 +340,6 @@
       "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },
     {
-      "id": "R-36",
-      "home": "meta-block",
-      "category": "C2",
-      "name": "Touched-file drift scan",
-      "tier": "advisory",
-      "enforcement_layer": [
-        "hooks/stop-drift-scan.sh (Stop advisory)"
-      ],
-      "status": "active",
-      "rule_text": "On Stop, touched files are scanned for drift and surfaced advisorily.",
-      "failure_mode": "Files touched in a session drift from their governed shape without surfacing.",
-      "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
-    },
-    {
       "id": "R-42",
       "home": "meta-block",
       "category": "C2",
@@ -427,7 +411,7 @@
     }
   ],
   "dissolved_schemas": {
-    "_description": "Registry of schemas that have been semantically dissolved into pillars or the foundation-master bundle. Files remain physically present in foundation-repo until the last consumer migrates. 'Dissolved' = no new authoring; canonical authority has moved to the named successors. Each entry carries `frozen_at`, `successors`, `consumer_migration_status`, `final_deletion_gating_task`.",
+    "_description": "Registry of schemas that were semantically dissolved into pillars or the foundation-master bundle. 'Dissolved' = no new authoring; canonical authority lives at the named successors. Each entry carries `frozen_at` and `successors`.",
     "schemas/vault-schema.json": {
       "frozen_at": "2026-05-14",
       "successors": {
@@ -440,25 +424,12 @@
         "_tag_prefixes": "governance/tagging-rules.json#taxonomy.dimension_prefixes",
         "_tag_prefixes_meta": "governance/tagging-rules.json#taxonomy (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to fields)"
       },
-      "consumer_migration_status": {
-        "governance_authoring": "MIGRATED — governance pillars are the canonical authoring home",
-        "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
-        "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
-        "hooks_config_gate_config": "DISSOLVED — gate-config frozen with marker; physical deletion pending",
-        "install_sh": "PENDING — install.sh schema-copy list update pending",
-        "onboarding_bootstrap_schemas_sh": "PENDING — bootstrap-schemas.sh update pending",
-        "tests": "PENDING — fixtures update pending",
-        "docs": "PENDING — research/* + target-state/* + docs/* updates pending"
-      },
-      "final_deletion_gating_task": "the physical file deletion happens atomically with the last consumer migration (migrate-then-drop in the same commit)",
-      "drop_then_fail_loudly_disallowed": true,
-      "frozen_artifact_policy": "File at schemas/vault-schema.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_canonical_successors` pointer block. No new authoring against this file — all updates go to the named successors. install.sh continues to ship the file until the ship list is updated."
+      "status": "DISSOLVED AND REMOVED — the file no longer ships; the named successors are canonical."
     },
     "governance/enforcement-map.schema.json": {
       "frozen_at": "2026-05-16",
       "retired_at": "2026-05-18",
-      "retirement_artifact": "governance/enforcement-map.schema.json.retired",
-      "reason": "Operator decision to retire entirely; rule-shape validation migrates. Validator pointer redirected to governance/foundation-master.json — the populated 8-pillar bundle already conforms to the rule shapes the retired schema defined, so it serves as the rule-shape attestation surface post-retirement.",
+      "reason": "Retired entirely; rule-shape validation migrates. Validator pointer redirected to governance/foundation-master.json — the populated 8-pillar bundle already conforms to the rule shapes the retired schema defined, so it serves as the rule-shape attestation surface post-retirement.",
       "canonical_successor": "governance/foundation-master.json (validator pointer)",
       "consumer_redirect_target": "governance/foundation-master.json",
       "documentary_citations_preserved": "References in scope_note + source fields of governance/foundation-master.json, governance/frontmatter-rules.json, governance/tagging-rules.json, governance/mandatory-files-rules.json, governance/_index.json are historical attribution to the original design doc, not active validator reads — preserved as-is."
@@ -475,16 +446,7 @@
         "r47.tag_cap": "governance/foundation-master.json#r47_tag_cap (interim — relocates to tagging-rules.json#taxonomy)",
         "r37.coupled_surfaces": "governance/_index.json#pillars[].r37_coupled_surfaces (declared per-pillar)"
       },
-      "consumer_migration_status": {
-        "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
-        "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
-        "tools_build_foundation_master_sh": "READS THIS FILE — interim contributor for r32/r47 slot composition; dependency drops when the file is physically deleted",
-        "install_sh": "PENDING — install.sh schema-copy list update pending physical deletion",
-        "tests": "PENDING — fixtures update pending; any fixture asserting gate-config presence flips to foundation-master.json equivalents"
-      },
-      "final_deletion_gating_task": "gate-config physical retirement; deletion of schemas/gate-config.json + schemas/gate-config-schema.json + the tools/build-foundation-master.sh GATE_CONFIG dependency. Atomic with same-commit consumer-migration verification.",
-      "drop_then_fail_loudly_disallowed": true,
-      "frozen_artifact_policy": "File at schemas/gate-config.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_dissolved_marker` pointer block. No new authoring against this file — all updates go to the named successors. tools/build-foundation-master.sh continues to read it as interim contributor until physical deletion."
+      "status": "DISSOLVED AND REMOVED — the file no longer ships; the named successors are canonical."
     }
   }
 }

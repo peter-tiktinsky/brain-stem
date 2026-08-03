@@ -281,6 +281,14 @@ def render_block_body(spoke, info):
             lines.append("- `deliverables/` — polished, audience-facing work.")
         if info["has_ref"]:
             lines.append("- `reference/` — raw notes / source material.")
+        # A FLAT spoke can ALSO hand-carry sub-project dirs (a subdir that owns its own
+        # deliverables/ or reference/). The FLAT/else branch previously dropped info["subprojects"]
+        # entirely — only the master branch rendered them (283-284) — so a FLAT spoke that grew a
+        # sub-project rendered a map missing it (while work-index-maintain still minted its
+        # _index.md). Render them here too, mirroring the master branch's "— sub-project." label; a
+        # FLAT-context top-level bullet (no nested "Sub-projects:" parent, hence no indent).
+        for sp in info["subprojects"]:
+            lines.append("- `%s/` — sub-project." % sp)
         # a FLAT spoke can ALSO carry plain top-level folders
         # (e.g. People/) — render them the way the MASTER branch already does (279-281).
         # Was: the FLAT/else branch dropped info["other_dirs"] entirely.

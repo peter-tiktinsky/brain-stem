@@ -2,24 +2,25 @@
 # subplan-aggregate — Pull-based master sub_plans[] aggregator. Reads each
 # sub-plan's published status into the master manifest's sub_plans[]
 # read-replica. The master aggregate is a librarian-generated read-replica
-# (same trust class as _index.md; NEVER hand-edited).
+# (same trust class as _index.md; NEVER hand-edited) per.
 #
-# Librarian body.
+# Librarian aggregator body. The filename `subplan-aggregate` is consistent with the
+# aggregator role.
 #
 # Element shape written into master.sub_plans[] (schema gate
 # schemas/plan-manifest-schema.json :: sub_plans):
 #   { sub_plan_id, slug, status, graduation_timestamp }
-# keyed on the canonical 8-state status. The master display keys on
-# coarse buckets active/done/verified/closed — derived from the
+# keyed on the canonical 6-state status. The master display keys on
+# coarse buckets active/done/superseded — derived from the
 # single canonical status; no second status field.
 #
 # graduation_timestamp WRITER: this aggregator is the graduation_timestamp
-# writer. When a sub publishes a TERMINAL status (verified/closed) upward and
+# writer. When a sub publishes a TERMINAL status ({completed, superseded}) upward and
 # its own manifest carries a graduation_timestamp, the value is copied into the
 # master read-replica; if the sub is terminal but carries no timestamp, the
 # aggregator stamps the publish-upward moment (UTC now). The librarian
-# RECONCILER (trinity-drift-detect/drift-sweep) READS this — it never
-# writes graduation_timestamp.
+# RECONCILER (trinity-drift-detect/drift-sweep, T-15) READS this — it never
+# writes graduation_timestamp (cross-ref pattern).
 #
 # Output Contract
 #   Files written: <master-dir>/manifest.json :: sub_plans[] (the read-replica
@@ -48,7 +49,6 @@
 #   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
 #   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
-#   FOUNDATION_TEST_MODE     bypass the non-interactive guard
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
@@ -75,11 +75,6 @@ while [[ $# -gt 0 ]]; do
     *) TARGET="$1"; shift ;;
   esac
 done
-
-if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
-  echo "subplan-aggregate: skipped (non-interactive)" >&2
-  exit 0
-fi
 
 if [[ -z "$TARGET" ]]; then
   echo "subplan-aggregate: missing <master-dir> argument (see --help)" >&2
@@ -125,10 +120,9 @@ now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 COARSE = {
     "researching": "active", "planned": "active", "in-progress": "active", "paused": "active",
     "completed": "done",
-    "verified": "verified",
-    "closed": "closed", "archived": "closed", "superseded": "closed",
+    "superseded": "superseded",
 }
-TERMINAL = {"verified", "closed", "archived", "superseded"}
+TERMINAL = {"completed", "superseded"}
 
 def emit(d):
     line = json.dumps(d, ensure_ascii=False)
@@ -162,11 +156,15 @@ if schema_path and os.path.isfile(schema_path):
 
 # enumerate sub-plan subdirectories (execution-order NN- prefixed dirs with a
 # manifest.json). The sub-plan convention is NN-<slug>/ under the
-# master dir.
+# master dir (the SP-NN-* family in this very).
 prior = {}
+prior_by_slug = {}
 for sp in (master.get("sub_plans") or []):
-    if isinstance(sp, dict) and sp.get("sub_plan_id"):
-        prior[sp["sub_plan_id"]] = sp
+    if isinstance(sp, dict):
+        if sp.get("sub_plan_id"):
+            prior[sp["sub_plan_id"]] = sp
+        if sp.get("slug"):
+            prior_by_slug[sp["slug"]] = sp
 
 sub_plans = []
 for entry in sorted(os.listdir(master_dir)):
@@ -176,7 +174,7 @@ for entry in sorted(os.listdir(master_dir)):
     if entry in ("tests", "_orchestrator"):
         continue
     sub_manifest = os.path.join(sub_dir, "manifest.json")
-    # ordinal: NN- prefix (optional SP- prefix)
+    # ordinal: NN- prefix, or SP-NN- prefix (this)
     m = re.match(r"^(?:SP-)?(\d{1,2})[-_]", entry)
     if not m and not os.path.isfile(sub_manifest):
         continue
@@ -197,14 +195,27 @@ for entry in sorted(os.listdir(master_dir)):
     status = sm.get("status", "")
     sub_id = sm.get("sub_plan_id", ordinal) or ordinal
     grad = sm.get("graduation_timestamp")
-    # Stamp graduation when terminal + missing on the sub.
+    # Graduation-stamp idempotency. When a terminal sub carries no own grad, DO
+    # NOT manufacture a fresh now() on every run — that re-stamps the element each
+    # close, spuriously rewrites the master, and reports a perpetual false
+    # drift=true. Instead, if the master's EXISTING element for this sub already
+    # carries a grad AND the sub's status is UNCHANGED from that element, carry the
+    # existing grad forward (idempotent — no re-stamp, no finding). A genuine first
+    # stamp (no prior grad, or a real status change) still fires exactly once and
+    # emits the subplan-graduation-stamped finding.
     stamped = False
     if status in TERMINAL and not grad:
-        grad = now_iso
-        stamped = True
-        emit({"finding": "subplan-graduation-stamped", "file": sub_manifest,
-              "sub_plan_id": sub_id, "slug": slug, "status": status,
-              "graduation_timestamp": grad, "detected_at": now_iso[:10]})
+        prior_el = prior.get(sub_id) or prior_by_slug.get(slug)
+        prior_grad = prior_el.get("graduation_timestamp") if isinstance(prior_el, dict) else None
+        prior_status = prior_el.get("status") if isinstance(prior_el, dict) else None
+        if prior_grad and prior_status == status:
+            grad = prior_grad
+        else:
+            grad = now_iso
+            stamped = True
+            emit({"finding": "subplan-graduation-stamped", "file": sub_manifest,
+                  "sub_plan_id": sub_id, "slug": slug, "status": status,
+                  "graduation_timestamp": grad, "detected_at": now_iso[:10]})
     element = {
         "sub_plan_id": sub_id,
         "slug": slug,

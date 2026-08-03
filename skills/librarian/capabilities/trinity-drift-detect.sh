@@ -43,6 +43,8 @@
 #   trinity-drift-detect.sh                # emit findings to $FINDINGS_OUTPUT or stdout
 #   trinity-drift-detect.sh --scope <path> # limit walk root
 #   trinity-drift-detect.sh --dry-run      # summary counts, no emission
+#   trinity-drift-detect.sh --axis <a>     # a = all (default) | master-sub | trinity-status
+#                                          # request ONE axis so two callers emit DISJOINT axes
 #   trinity-drift-detect.sh --help
 #
 # Bash 3.2 clean per R-23. No declare -A, no =~, no ${var,,}.
@@ -62,14 +64,24 @@ fi
 
 SCOPE=""
 DRY_RUN="false"
+# Axis selector. `all` (default) = current full-axis behavior (both the trinity-
+# status axis and the master<->sub aggregation axis); `master-sub` = only the
+# R-61/62/63 aggregation axis; `trinity-status` = only the trinity axis. Additive:
+# a caller that passes no --axis gets the unchanged full-axis behavior.
+AXIS="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --axis) AXIS="$2"; shift 2 ;;
+    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "trinity-drift-detect: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
+case "$AXIS" in
+  all|master-sub|trinity-status) ;;
+  *) echo "trinity-drift-detect: unknown --axis '$AXIS' (expected: all|master-sub|trinity-status)" >&2; exit 2 ;;
+esac
 
 PLANS_SCOPE="${SCOPE:-${PLANS_DIR:-$HOME/.claude-plans}}"
 if [[ ! -d "$PLANS_SCOPE" ]]; then
@@ -77,15 +89,18 @@ if [[ ! -d "$PLANS_SCOPE" ]]; then
   exit 2
 fi
 
-python3 - "$PLANS_SCOPE" "$DRY_RUN" <<'PY'
+python3 - "$PLANS_SCOPE" "$DRY_RUN" "$AXIS" <<'PY'
 import json, os, re, sys
 from datetime import datetime
 
-plans_scope, dry_run_s = sys.argv[1:3]
+plans_scope, dry_run_s, axis = sys.argv[1:4]
 dry_run = (dry_run_s == "true")
+# Gate the two axes on the selector. `all` runs both (default).
+run_trinity = axis in ("all", "trinity-status")
+run_master_sub = axis in ("all", "master-sub")
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
 iso_now = datetime.now().isoformat(timespec="seconds")
-TERMINAL = {"verified", "closed", "archived", "superseded"}
+TERMINAL = {"completed", "superseded"}
 
 def emit(payload):
     if dry_run:
@@ -103,21 +118,6 @@ def read_text(path):
             return f.read()
     except Exception:
         return None
-
-def parse_fm_status(path):
-    t = read_text(path)
-    if t is None:
-        return "", None
-    if not t.startswith("---"):
-        return "", None
-    end = t.find("\n---", 3)
-    if end == -1:
-        return "", "parse-failure"
-    for line in t[3:end].strip().split("\n"):
-        m = re.match(r"^status\s*:\s*(.*?)\s*$", line)
-        if m:
-            return m.group(1).strip().strip('"').strip("'"), None
-    return "", None
 
 def load_manifest(path):
     t = read_text(path)
@@ -168,7 +168,7 @@ def parse_task_ledger(path):
 def norm(s):
     return (s or "").strip().lower()
 
-COMPLETE_SET = {"complete", "completed", "done", "implemented", "verified"}
+COMPLETE_SET = {"complete", "completed", "done", "implemented"}
 PENDING_SET = {"not-started", "not started", "pending", "planned", "todo"}
 
 def is_complete(s):
@@ -177,8 +177,7 @@ def is_complete(s):
 def is_pending(s):
     return norm(s) in PENDING_SET
 
-counts = {"spec-manifest-divergence": 0, "trinity-task-ledger-lag": 0,
-          "header-trinity-divergence": 0, "parse-failure": 0,
+counts = {"trinity-task-ledger-lag": 0, "parse-failure": 0,
           "master-sub-aggregation-drift": 0, "sub-publishes-upward-gap": 0,
           "sub-peer-isolation": 0}
 inspected = 0
@@ -196,24 +195,22 @@ def inspect_trinity(dirpath):
         return
     inspected += 1
     rel = os.path.relpath(dirpath, plans_scope)
-    spec_s, spec_err = parse_fm_status(spec_p)
     manifest_s, manifest_err = parse_manifest_status(manifest_p)
     has_tasks = os.path.isfile(tasks_p)
-    tasks_s, tasks_err = parse_fm_status(tasks_p) if has_tasks else ("", None)
     ledger, ledger_err = parse_task_ledger(tasks_p) if has_tasks else ([], None)
-    errs = [e for e in (spec_err, manifest_err, tasks_err, ledger_err) if e]
+    errs = [e for e in (manifest_err, ledger_err) if e]
     if errs:
         emit({"finding": "trinity-status-drift", "file": rel, "drift_class": "parse-failure",
-              "spec_status": spec_s, "manifest_status": manifest_s, "tasks_status": tasks_s,
+              "manifest_status": manifest_s,
               "task_ledger": ledger, "parse_errors": errs, "detected_at": iso_now})
         counts["parse-failure"] += 1
         return
-    # RETIRED (DERIVE / manifest-as-sole-status-SoT): the `spec-manifest-divergence`
-    # axis compared the spec.md FRONTMATTER status (spec_s) against the manifest.
-    # Under DERIVE, plan artifacts no longer carry status: frontmatter, so spec_s is
-    # always empty and this axis detects a field that no longer exists. The manifest
-    # is the single status SoT — there is no artifact status to reconcile against it.
-    # (counts["spec-manifest-divergence"] stays initialized to 0 for stable payloads.)
+    # RETIRED (DERIVE / manifest-as-sole-status-SoT): the `spec-manifest-divergence` and
+    # `header-trinity-divergence` sub-axes compared spec.md/tasks.md FRONTMATTER status
+    # against the manifest / each other. Under DERIVE, plan artifacts no longer carry
+    # status: frontmatter — the manifest is the single status SoT — so both read a field
+    # that no longer exists. They are fully removed: no counters, no artifact-frontmatter
+    # parsing, and no spec/tasks status payload fields.
     #
     # PRESERVED: `trinity-task-ledger-lag` reads the MANIFEST status (manifest_s) and
     # the per-task ledger **Status:** lines (parse_task_ledger) — NEITHER is artifact
@@ -222,15 +219,10 @@ def inspect_trinity(dirpath):
         lagging = [x for x in ledger if not is_complete(x["status"])]
         if lagging:
             emit({"finding": "trinity-status-drift", "file": rel,
-                  "drift_class": "trinity-task-ledger-lag", "spec_status": spec_s,
-                  "manifest_status": manifest_s, "tasks_status": tasks_s,
+                  "drift_class": "trinity-task-ledger-lag",
+                  "manifest_status": manifest_s,
                   "task_ledger": ledger, "lagging_tasks": lagging, "detected_at": iso_now})
             counts["trinity-task-ledger-lag"] += 1
-    # RETIRED (DERIVE): the `header-trinity-divergence` axis compared the spec.md
-    # FRONTMATTER status (spec_s) against the tasks.md FRONTMATTER status (tasks_s).
-    # Both are artifact frontmatter that DERIVE removes — spec_s and tasks_s are
-    # always empty now — so this axis detects fields that no longer exist. Retired.
-    # (counts["header-trinity-divergence"] stays initialized to 0 for stable payloads.)
 
 def inspect_master_sub(master_dir):
     """NET-NEW master<->sub aggregation axis (R-61/62/63)."""
@@ -311,19 +303,23 @@ try:
         plan_dir = os.path.join(plans_scope, entry)
         if not os.path.isdir(plan_dir):
             continue
-        inspect_trinity(plan_dir)
-        inspect_master_sub(plan_dir)
+        if run_trinity:
+            inspect_trinity(plan_dir)
+        if run_master_sub:
+            inspect_master_sub(plan_dir)
         for sub in sorted(os.listdir(plan_dir)):
             if sub.startswith(".") or sub.startswith("_") or sub in ("tests", "_orchestrator"):
                 continue
             sub_dir = os.path.join(plan_dir, sub)
             if os.path.isdir(sub_dir):
-                inspect_trinity(sub_dir)
+                if run_trinity:
+                    inspect_trinity(sub_dir)
                 # a nested sub can ITSELF be a master-of-subs
                 # (master-of-masters, R-61/62/63); check its aggregation axis too (was:
                 # inspect_master_sub ran ONLY on the depth-1 top-level plan_dir). Safe
                 # no-op on a non-master sub (early-returns without a manifest / sub_plans).
-                inspect_master_sub(sub_dir)
+                if run_master_sub:
+                    inspect_master_sub(sub_dir)
 except FileNotFoundError:
     pass
 

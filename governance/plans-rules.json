@@ -1,9 +1,9 @@
 {
   "schema_version": "2.0.0",
   "pillar": "plans",
-  "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 8-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
+  "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
   "_design_notes": {
-    "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; Branch 4 librarian-only writes; manifest-substance branch), skills/librarian/capabilities/{plan-index,plan-archive,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
+    "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; librarian-only root-file writes), skills/librarian/capabilities/{plan-index,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
     "lockstep_pair": "schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh",
     "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its schema + contracts + hook move in one commit."
   },
@@ -76,7 +76,7 @@
       "status": "active",
       "source": "governance/plans-rules.json :: _rules (SoT; master/sub aggregation)",
       "rule_text": "Master sub_plans[] aggregation-integrity: the master manifest's sub_plans[].status read-replica MUST agree with each sub-plan's real published status. Cross-file invariant enforced by the librarian reconciler (NOT write-time) — extends trinity-drift-detect.sh / drift-sweep.sh with the master<->sub aggregation axis; detects (and optionally --fix) drift.",
-      "failure_mode": "A master's sub_plans[] read-replica goes stale against the subs' real status; the master shows a sub as in-progress that has actually verified (or vice-versa); orchestration decisions read a phantom aggregate. Cross-file -> reconciler at session-close, never a blocking write-time path."
+      "failure_mode": "A master's sub_plans[] read-replica goes stale against the subs' real status; the master shows a sub as in-progress that has actually completed (or vice-versa); orchestration decisions read a phantom aggregate. Cross-file -> reconciler at session-close, never a blocking write-time path."
     },
     {
       "id": "R-62",
@@ -107,21 +107,6 @@
       "failure_mode": "A sub declares a direct dependency on a sibling sub, recreating the agent-teams peer model the orchestrator-worker model deliberately rejects (MAST coordination-failure class). Advisory drift finding at session-close."
     }
   ],
-  "_retired_tombstones": [
-    {
-      "id": "R-15",
-      "home": "plans",
-      "category": "C3",
-      "tier": "audit",
-      "enforcement_layer": [],
-      "status": "retired",
-      "retired_at": "2026-05-22",
-      "retired_reason": "PLAN->BACKLOG. Superseded by the librarian-emitted ~/.claude-plans/_backlog.md + _archive.md (writers_allowed=[librarian]; generated_by=librarian:backlog-index|plan-archive).",
-      "source": "governance/plans-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
-      "rule_text": "[RETIRED] Vault-root System Backlog satellite mandate. Tombstone — declared for provenance, never fires, renders only in the rules-index retired section.",
-      "failure_mode": "n/a (retired tombstone)"
-    }
-  ],
   "root_files": {
     "_index.md": {
       "mandatory": true,
@@ -133,13 +118,6 @@
     "_backlog.md": {
       "mandatory": true,
       "generated_by": "librarian:backlog-index",
-      "writers_allowed": [
-        "librarian"
-      ]
-    },
-    "_archive.md": {
-      "mandatory": true,
-      "generated_by": "librarian:plan-archive",
       "writers_allowed": [
         "librarian"
       ]
@@ -163,8 +141,7 @@
         "kind": "file",
         "members": [
           "_index.md",
-          "_backlog.md",
-          "_archive.md"
+          "_backlog.md"
         ],
         "_description": "Librarian-generated root registry files (also enumerated under root_files above)."
       },
@@ -218,21 +195,12 @@
       "sub_peer_communication": "FORBIDDEN — route through master manifest",
       "aggregation_model": "pull-based-derived-read-replica (librarian reconciler reads each sub's published status into the master's sub_plans[]; never hand-edited; same class as _index.md)",
       "required_artifacts": {
-        "_description": "Per-transition required artifacts a status flip MUST present. Consumed by the PreToolUse manifest-substance branch (closed-requires-verified) and the librarian reconciler.",
+        "_description": "Per-transition required artifacts a status flip MUST present. Consumed by the librarian reconciler.",
         "in-progress->completed": [
           "spec.md",
           "tasks.md",
           "manifest.json"
-        ],
-        "completed->verified": [
-          "harness_validated[] fresh verdict-pass entry (machine-stamped by the dogfood-harness)"
-        ],
-        "verified->closed": [
-          "status == verified (the load-bearing closed-requires-verified guard)"
         ]
-      },
-      "validation": {
-        "promotion_eligible": "A status promotion to `verified` is eligible only through an actual validation pass (the R-46-cousin verdict gate; plan-manifest-schema.json). `verified` is machine-stamped, never human-set."
       },
       "advisory_rules": [
         "R-63 (sub-peer-isolation; advisory reconciler drift finding)"
@@ -281,9 +249,24 @@
       "Initiative",
       "Status",
       "Disposition",
+      "Target",
       "Updated",
       "Notes"
     ],
+    "settled_section": {
+      "sentinels": [
+        "<!-- backlog-settled:start -->",
+        "<!-- backlog-settled:end -->"
+      ],
+      "required_fields": [
+        "Item",
+        "Resolution",
+        "Landed In",
+        "Project Dir",
+        "Settled"
+      ],
+      "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — graduated items joined from plan manifests' promoted_from plus in-place inbox notes carrying a terminal resolution; never hand-kept."
+    },
     "status_enum": [
       "new",
       "triaged",
@@ -318,13 +301,18 @@
         "title",
         "type",
         "status",
-        "created"
+        "created",
+        "project"
       ],
       "optional": [
         "updated",
         "disposition",
         "tags",
-        "related"
+        "related",
+        "promoted_to",
+        "absorbed_into",
+        "resolution",
+        "resolved_at"
       ]
     },
     "funnel_status_enum": [
@@ -332,22 +320,28 @@
       "triaged",
       "briefed"
     ],
+    "resolution_enum": [
+      "promoted",
+      "absorbed",
+      "resolved",
+      "dropped"
+    ],
+    "index_file": "_inbox/_index.md",
     "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation"
   },
-  "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 8-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 8-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
+  "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 6-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 6-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
   "lifecycle": {
-    "_description": "ONE canonical 8-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the pre-write-guard manifest-substance branch + the librarian reconciler enforce.",
+    "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; archival is a display-only view filter over completed plans, never a status.",
     "status_enum": [
       "researching",
       "planned",
       "in-progress",
       "paused",
       "completed",
-      "verified",
-      "closed",
-      "archived"
+      "superseded"
     ],
-    "terminal_from_any_non_archived": [
+    "terminal_status": [
+      "completed",
       "superseded"
     ],
     "transitions": {
@@ -363,40 +357,10 @@
       },
       "in-progress->completed": {
         "setter": "human",
-        "_note": "completed = human's claim that work is done"
-      },
-      "completed->verified": {
-        "setter": "machine",
-        "_note": "verified = machine-stamped, reachable ONLY through an actual validation pass (the R-46-cousin verdict gate, the dogfood-harness verdict-pass). The stamper's home is the dogfood-harness seam."
-      },
-      "verified->closed": {
-        "setter": "human",
-        "guard": "closed-requires-verified"
-      },
-      "closed->archived": {
-        "gate": "volume-cooldown",
-        "setter": "librarian"
+        "_note": "completed = the human's claim that work is done; the sole terminal done-state"
       }
     },
-    "guards": {
-      "closed_requires_verified": {
-        "_description": "LOAD-BEARING write-time guard. A status flip to `closed` is FORBIDDEN unless status == verified. 'Done' is unforgeable, spec-gaming-proof. Enforced by the hooks/pre-write-guard.sh manifest-substance branch (matcher Edit|Write on **/manifest.json), rollout ask->deny.",
-        "forbids": "status -> closed when status != verified",
-        "enforcement_layer": [
-          "hooks/pre-write-guard.sh manifest-substance branch"
-        ],
-        "rollout": "ask -> deny on low false-positive rate"
-      },
-      "closed_to_archived": {
-        "_description": "closed -> archived is VOLUME/COOLDOWN-gated, NOT calendar. A calendar (cooldown_days) gate is deliberately NOT used — archival is driven by librarian-cycle volume, not elapsed days.",
-        "gate_type": "volume-cooldown",
-        "parameter": {
-          "unit": "librarian-cycle ticks since closed",
-          "threshold": 3
-        },
-        "_parameter_note": "Default N=3 librarian-cycle ticks since closed. NOT a calendar gate."
-      }
-    }
+    "guards": {}
   },
   "validation": {
     "five_validation_classes": [

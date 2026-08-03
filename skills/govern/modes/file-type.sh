@@ -93,8 +93,8 @@ mode_propose() {
           }
         ],
         notes: [
-          "R-37 atomic across both pillars — frontmatter.types and file_type_contracts.<type-slug> bundle in a single library invocation.",
-          "frontmatter.types entry derives {required, optional, tier} from the contract.frontmatter; remaining contract content (enums, body shape) lives in file_type_contracts.",
+          "R-37 lockstep: frontmatter.types and file_type_contracts.<type-slug> are written together in one atomic library invocation (both applied or neither).",
+          "frontmatter.types entry derives {required, optional, tier} from the contract.frontmatter; the file_type_contracts entry (enums, body/section shape) is READ at write time by pre-write-guard B2/enum via the overlay union (a real reader — falls back to the union .file_type_contracts.<type> when the on-disk contract is absent).",
           "If --contract not supplied, the proposal carries a MV stub: required = [type, tags, created, updated], optional = [], tier = standard, free_form body. Operator extends per-field before commit."
         ]
       }

@@ -28,8 +28,8 @@
 # An ad-hoc invocation (no --session-close) ALWAYS runs (unconditional scan); the
 # change-gate applies only to the session-close cadence.
 # Recommended changes incorporated (verdict):
-#   (a) Do NOT copy memory-staleness's TTY skip-non-interactive guard — session-
-#       close is always model-invoked; gate ONLY on FOUNDATION_TEST_MODE.
+#   (a) Do NOT add a TTY skip-non-interactive guard — session-close is always
+#       model-invoked; gate ONLY on FOUNDATION_TEST_MODE.
 #   (b) Registry cron_block = "none" — cadence is session-close, NOT cron.
 #   (c) propose-only with NO --fix. The auto-fix "rename-cascade-known subset" is
 #       DEFERRED (rename-cascade.sh has no plain-text-path mode today); filed as a
@@ -281,7 +281,14 @@ HOME = os.environ.get("HOME", os.path.expanduser("~"))
 # A path token: starts with / or ~ , ends at whitespace or a closing bracket/paren/
 # quote/comma/backtick. Require at least one `/` after the root and a file-ish or
 # dir-ish shape. We accept tokens ending in `.md`/`.json`/`.sh`/etc OR a directory.
-PATH_TOKEN_RE = re.compile(r'(?<![\w`/])([~/][^\s`"\'\)\]\>,;]+)')
+# The lookbehind excludes a preceding word-char or `/` (a mid-token / sub-path
+# fragment) but MUST NOT exclude a backtick: a backtick-wrapped `~/path` is the
+# shipped rules-corpus convention, so the leading tilde MUST be captured (expand()
+# then rewrites `~/` -> HOME and the pointer resolves; excluding the backtick here
+# dropped the tilde and captured `/path`, which never resolved). The trailing char
+# class still stops at the closing backtick, so only the pointer inside the code
+# span is captured.
+PATH_TOKEN_RE = re.compile(r'(?<![\w/])([~/][^\s`"\'\)\]\>,;]+)')
 
 # Trailing punctuation that commonly abuts a path in prose.
 TRAILING = ".,;:)]}>—`'\""
@@ -387,11 +394,16 @@ for f in files:
                 continue
             if "/" not in tok[1:]:
                 continue
+            # Skip a `//`-lstripped URL residue: a `https://host/path` token sheds
+            # its scheme (`https:`) to the leading-char match and is captured as
+            # `//host/path`, which is NOT a filesystem pointer. (A genuine POSIX
+            # `//abs` path is implementation-defined and never a curated pointer,
+            # so skipping it is safe.)
+            if tok.startswith("//"):
+                continue
             # Only consider tokens that point at a concrete fs entry shape: must
             # carry a filename extension OR end without a trailing slash (a dir or
-            # file). Skip obvious non-paths (URLs already excluded — they don't
-            # start with / or ~; a `http(s)://` host is excluded by the leading
-            # char guard).
+            # file).
             if tok in seen:
                 continue
             seen.add(tok)

@@ -8,7 +8,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "plan_folder_quartet.required",
   "_design_notes": {
-    "consumer": "hooks/pre-write-guard.sh (head-immutable enforcement post Session 1) + librarian capabilities (plan-index / plan-archive)",
+    "consumer": "librarian capabilities (plan-index); head-immutable is documentary — no write-time DENY (no immutability guard branch), a convention the plan author maintains once the head sections are frozen",
     "lockstep_pair": "governance/plans-rules.json",
     "evolution_protocol": "R-37 atomic lockstep with plans-rules.json"
   },

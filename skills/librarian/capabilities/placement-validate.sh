@@ -135,7 +135,7 @@ if [[ "$PV_PLANS_MODE" == "1" ]]; then
     done
   done
   [[ "$DRY_RUN" == "true" ]] && printf 'placement-validate: scanned=%d findings=%d (plans-root-namespace)\n' "$PV_SCANNED" "$PV_FINDINGS"
-  _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null)
+  _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null || true)
   [ -n "$_PV_OPEN_JSON" ] || _PV_OPEN_JSON='[]'
   jq -nc --argjson sc "$PV_SCANNED" --argjson fc "$PV_FINDINGS" --argjson oe "$_PV_OPEN_JSON" \
     --arg ls "$(date -u +%Y-%m-%dT%H:%M:%S)" \
@@ -178,12 +178,38 @@ PROJECT_ALLOWLIST = re.compile(r"^(_index\.md|File-Index\.md|.+ - .+\.md)$")
 # Directories to skip entirely
 SKIP_DIRS = ("Archive", ".git", ".claude", ".obsidian", "_test")
 
+# Reach fix: the vault view is symlink-composed — the governed vault-proper surface
+# (the cluster + Reference/, etc.) lives behind symlinked directories, so a
+# followlinks=False walk reached only the handful of PHYSICAL vault-root files (the
+# starvation: ~5 of thousands). The FIVE EXTERNAL symlink surfaces
+# (Plans/Projects/Wiki/Work/Skills) are governed elsewhere (plans-rules / work
+# contracts), NOT by these vault placement rules — pruning them at the TOP LEVEL keeps
+# them in-graph (their existence) but out of emission, so the reach fix never descends
+# them into a symlink-surface false-positive flood. The subtree Projects/ inside the
+# cluster (Engagements/*/Projects/) is unaffected — only the top-level Projects/ symlink
+# surface is pruned.
+EXTERNAL_SYMLINK_SURFACES = ("Plans", "Projects", "Wiki", "Work", "Skills")
+
 findings_count = 0
 scanned = 0
 
-for dirpath, dirnames, filenames in os.walk(scope_root):
-    dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith('.')]
+# followlinks=True to reach the governed surface behind the vault-view symlinks, with the
+# standard realpath cycle-guard (mirrors frontmatter-enforce build_scope) so a
+# self-referential/circular symlink cannot make the walk hang.
+_visited = set()
+for dirpath, dirnames, filenames in os.walk(scope_root, followlinks=True):
+    _rp = os.path.realpath(dirpath)
+    if _rp in _visited:
+        dirnames[:] = []
+        continue
+    _visited.add(_rp)
+    dirnames[:] = [d for d in dirnames
+                   if os.path.realpath(os.path.join(dirpath, d)) not in _visited]
     rel_dir = os.path.relpath(dirpath, scope_root)
+    _prune = set(SKIP_DIRS)
+    if rel_dir == ".":
+        _prune |= set(EXTERNAL_SYMLINK_SURFACES)
+    dirnames[:] = [d for d in dirnames if d not in _prune and not d.startswith('.')]
 
     for fn in filenames:
         if fn.startswith("."):

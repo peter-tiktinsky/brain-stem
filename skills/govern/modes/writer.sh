@@ -306,8 +306,8 @@ sys.stdout.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
   # OR `declined` (re-proposable) — NEVER when `enabled` (already opted in; default-on for all
   # subsequent writers). No re-prompt within this registration. The model surfaces the
   # WRITER-HEALTH-PROPOSE line and records the accept/decline by setting
-  # behavioral.hook_preferences.writers_health_check in the user-manifest (installer/cron-dispatch.sh
-  # reads it). NO session-close.sh edit -> this stays out of the R2 cluster.
+  # behavioral.hook_preferences.writers_health_check in the user-manifest (the cadence-window
+  # gate sweep_due() in hooks/lib/cadence.sh reads it). NO session-close.sh edit here.
   local _wh_um _wh_key
   _wh_um="${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}"
   _wh_key="unset"

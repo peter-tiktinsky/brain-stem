@@ -4,7 +4,7 @@ description: >
   The GTD review loop over the manifest-derived backlog. Scans the pre-plan idea
   inbox + the in-flight plan manifests for funnel/lifecycle staleness and missing
   dispositions, enforces the R-29/30/31/56 lifecycle rules, and with --fix applies
-  safe auto-maintenance (auto-archive lifecycle + auto-flag missing dispositions).
+  safe auto-maintenance (auto-flag missing dispositions).
   Delegates table regeneration to the librarian. Use as a scheduled maintenance task
   or on demand. Trigger on: "backlog hygiene", "clean up backlog", "/backlog-hygiene",
   "stale backlog items", or any request to audit backlog freshness.
@@ -14,35 +14,35 @@ argument-hint: "[--dry-run] [--fix]"
 
 # Backlog Hygiene
 
-The GTD review-loop stage of the orchestration funnel and the **declared
+The GTD review-loop stage of the orchestration funnel () and the **declared
 enforcement home for R-29 / R-30 / R-31 / R-56** (`plans-rules.json :: _rules[]
 enforcement_layer: ["skill:backlog-hygiene"]` — these rules have NO enforcement until
 this skill ships). Periodic sweep over the manifest-derived backlog: flags
 funnel/lifecycle timeouts and missing dispositions and produces a hygiene report so the
 active backlog stays trustworthy. It is a **reporter + delegator** — it never moves
-rows and never writes `_backlog.md`; with `--fix` it applies only the two safe
-auto-maintenance operations the lifecycle rules sanction.
+rows and never writes `_backlog.md`; with `--fix` it applies only the single safe
+auto-maintenance operation the disposition rule (R-56) sanctions.
 
-The backlog is a **manifest-derived read replica**:
+The backlog is a **manifest-derived read replica** ():
 - `{paths.plans_root}/_backlog.md` is the unified rendered view, owned exclusively by
   `librarian:backlog-index` (`writers_allowed: ["librarian"]`).
-- `{paths.plans_root}/_archive.md` is owned exclusively by `librarian:plan-archive`
-  (event-driven `closed → archived` promotion, cooldown-gated).
+- Archival is **not** a separate store: the plan-index default-hides `completed` plans
+  older than 14 days into a collapsed view (`/librarian plan-index --all` shows them). It
+  is a display-only render-time filter — no row moves, no status changes, no archive file.
 - Pre-plan ideas live as `{paths.plans_root}/_inbox/<slug>.md` notes (funnel status
   `new / triaged / briefed`).
 - In-flight plans are `{paths.plans_root}/<NN>-<slug>/manifest.json` with the canonical
-  8-state `lifecycle.status` (`researching / planned / in-progress / paused / completed /
-  verified / closed / archived`).
+  6-state `lifecycle.status` (`researching / planned / in-progress / paused / completed /
+  superseded`).
 - Session history lives **with the work item** in the plan dir / master `handoff.md` +
-  git — there is NO per-plan progress satellite (RETIRED entirely; the entire
+  git — there is NO per-plan progress satellite (: RETIRED entirely; the entire
   satellite-health check class + the old `--fix` skeleton-render + the
   `See [[Logs/...]]` reference regex are GONE, not relocated).
 
 Hygiene reads R-29/30/31/56 + `backlog_row.stale_advisory_days` from the landed
-`governance/plans-rules.json`, computes findings, and **delegates** the two mutating
-operations it must NOT perform itself:
+`governance/plans-rules.json`, computes findings, and **delegates** the one mutating
+operation it must NOT perform itself:
 - **Table regeneration** → `librarian:backlog-index` (recommended, or run `/librarian backlog-index`).
-- **Archival of closed plans** → `librarian:plan-archive` (recommended, or run `/librarian plan-archive`).
 
 Curly-brace tokens (`{paths.plans_root}`, `{paths.hooks_state}`) resolve at runtime
 from `user-manifest.json` via `hooks/lib/paths.sh`.
@@ -58,15 +58,10 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
     whose disposition has been missing past `backlog_row.stale_advisory_days[1]` (the
     21d escalation), so the GTD loop has a row to act on. Below 21d it is reported, not
     auto-set.
-  - **auto-archive lifecycle (R-29/30/31)** — for every `closed` plan past its archival
-    threshold, recommends the archival to `librarian:plan-archive` and stamps an
-    `archive-eligible` finding; hygiene NEVER moves the row itself (the cooldown +
-    required-on-close field check live in `plan-archive`).
 
 **Never written:**
 - `{paths.plans_root}/_backlog.md` — librarian-owned. Regeneration is delegated to `librarian:backlog-index`.
-- `{paths.plans_root}/_archive.md` — librarian-owned. Archival is delegated to `librarian:plan-archive`.
-- No per-plan progress satellite, no skeleton-render, no vault `Logs/` write.
+- No per-plan progress satellite, no skeleton-render, no vault `Logs/` write ().
 
 **Schema:** the report is written outside the vault (no `frontmatter-rules.json#types`
 gate). With `--fix`, any frontmatter mutation on an idea note validates against
@@ -85,9 +80,9 @@ what went wrong.
 
 ## Hard rules
 
-1. **Never regenerate the view; never move rows.** Hygiene flags; it never writes `_backlog.md`/`_archive.md` and never moves a row into archive. Regen + archival are delegated.
-2. **Delegate regeneration + archival.** Recommend (or invoke) `librarian:backlog-index` and `librarian:plan-archive`; never reimplement them.
-3. **`--fix` is auto-maintenance, not report-only.** It applies exactly two safe operations — auto-flag stale-missing dispositions (R-56) and stamp closed plans archive-eligible for `plan-archive` (R-29/30/31 lifecycle). It is NOT the retired skeleton-render and NOT a no-op report.
+1. **Never regenerate the view; never move rows.** Hygiene flags; it never writes `_backlog.md` and never moves a row. Regeneration is delegated; archival is a display-only plan-index filter (no row ever moves).
+2. **Delegate regeneration.** Recommend (or invoke) `librarian:backlog-index`; never reimplement it.
+3. **`--fix` is auto-maintenance, not report-only.** It applies exactly one safe operation — auto-flag stale-missing dispositions (R-56). It is NOT the retired skeleton-render and NOT a no-op report.
 4. **Dry-run is safe.** With `--dry-run`, the report is produced in memory and zero files are written (no `--fix` mutations either).
 5. **Report always written** (unless `--dry-run`). Even on "all clear", so `morning-brief` has a fresh data point.
 6. **Date math uses the `updated` frontmatter field** (inbox notes) or `manifest.updated` (plans), not file modification times or git history.
@@ -97,17 +92,17 @@ what went wrong.
 ```sh
 /backlog-hygiene             # report-only sweep
 /backlog-hygiene --dry-run   # preview; write nothing at all
-/backlog-hygiene --fix       # also apply safe auto-maintenance (R-56 flag + R-29/30/31 archive-eligible)
+/backlog-hygiene --fix       # also apply safe auto-maintenance (R-56 disposition flag)
 ```
 
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--dry-run` | off | Produce the report only; write zero files (suppresses both the report write and `--fix`). |
-| `--fix` | off | Apply safe auto-maintenance: auto-flag missing dispositions past the 21d escalation (R-56) + stamp `closed` plans archive-eligible (R-29/30/31). Mutually exclusive with `--dry-run`. |
+| `--fix` | off | Apply safe auto-maintenance: auto-flag missing dispositions past the 21d escalation (R-56). Mutually exclusive with `--dry-run`. |
 
-> `closed → archived` promotion itself is owned by `librarian:plan-archive`
-> (event-driven, cooldown-gated). Hygiene reports archive-eligible plans + delegates;
-> it never moves rows.
+> Archival is a display-only plan-index view filter (default-hides `completed` plans
+> older than 14 days; `--all` shows them). Nothing is promoted, moved, or stamped —
+> hygiene never touches archival.
 
 ---
 
@@ -141,7 +136,6 @@ For each item, compute `days_stale = today - updated`.
 | `researching` | 3 days | No research output produced | Alert | Check whether the research session failed; restart or defer |
 | `planned` | 14 days | Planned but not started | Warning | Confirm still intended; start, defer, or close |
 | `in-progress` | 7 days | No file changes in the plan dir | Alert | Check whether blocked; update `manifest.updated`, or close |
-| `closed` | (no timeout) | Eligible for archival (R-29/30/31 lifecycle) | Info | **Delegate to `librarian:plan-archive`**; with `--fix`, stamp `archive-eligible` |
 
 **Refinement:** for `in-progress` plans, if the plan directory has recent git activity, the item is moving even though `updated` is old — flag as "needs `manifest.updated` refresh" rather than as stale work.
 
@@ -153,24 +147,22 @@ For each item, compute `days_stale = today - updated`.
 | Manifest status orphan | A manifest declares a `status` outside `plans-rules.json :: lifecycle.status_enum` | Error |
 | Slug violation | A plan slug does not conform to `slug_rules.pattern`, or an inbox slug carries a `NN-` prefix (violates `inbox.slug_pattern`) | Warning |
 | Missing brief | A `briefed` inbox note or a `researching` plan with no `00-ideation-brief.md` at the expected location | Warning |
-| Stuck dependency | An item blocked by another whose status is `archived` or `closed` (dependency resolved; should unblock) | Warning |
+| Stuck dependency | An item blocked by another whose status is `completed` or `superseded` (dependency resolved; should unblock) | Warning |
 
 Where `librarian:backlog-index` already emitted a `backlog-row-missing-disposition` / `manifest-status-orphan` / `slug-violation` finding (Step 1.5), reuse it and escalate by `stale_for_days` rather than recomputing — hygiene is the severity-escalation consumer.
 
 ### 4. Apply `--fix` auto-maintenance (only with `--fix`, never `--dry-run`)
 
-Two safe, lifecycle-rule-sanctioned operations — nothing else is auto-fixed (oversized rows, ambiguous staleness, and conflicts all require judgment and are reported only):
+One safe, disposition-rule-sanctioned operation — nothing else is auto-fixed (oversized rows, ambiguous staleness, and conflicts all require judgment and are reported only):
 
 1. **R-56 auto-flag missing dispositions.** For every idea note / `{researching, planned}` manifest whose disposition is missing AND `days_stale ≥ stale_advisory_days[1]` (21d escalation), set `disposition: DEFERRED` in place (and append a `## Notes` flag line on idea notes / record it in the manifest) so the row stops floating and the GTD loop has something to act on. Validate the edited frontmatter before write; roll back + downgrade to report-only on failure.
-2. **R-29/30/31 archive-eligible stamp.** For every `closed` plan, emit an `archive-eligible` finding and recommend `librarian:plan-archive`. Hygiene does NOT move the row — `plan-archive` applies the cooldown + required-on-close field check + the atomic `closed → archived` flip.
 
-### 5. Delegate regeneration + archival
+### 5. Delegate regeneration
 
-Hygiene does NOT regenerate `_backlog.md` or move rows into `_archive.md`. Instead:
+Hygiene does NOT regenerate `_backlog.md`. Instead:
 - If any inbox note / manifest changed disposition or status (including this run's `--fix` flags) since the last `_backlog.md` regen, recommend (or, interactively, invoke) **`librarian:backlog-index`**.
-- For every `closed` plan flagged archive-eligible in Step 2/4, recommend **`librarian:plan-archive`**.
 
-Surface both as explicit "Recommended next step" lines in the report. Skip when `--dry-run`.
+Surface it as an explicit "Recommended next step" line in the report. Skip when `--dry-run`. (Archival needs no step — the plan-index display filter hides aged `completed` plans automatically at render time.)
 
 ### 6. Write the hygiene report
 
@@ -203,7 +195,6 @@ Write `{paths.hooks_state}/backlog-hygiene-report.md` (skip entirely on `--dry-r
 ## Recommended next steps
 
 - Regenerate the view: `/librarian backlog-index` (N rows would change)
-- Archive closed plans: `/librarian plan-archive` (N eligible)
 
 ## Summary
 
@@ -221,6 +212,6 @@ Issues: N (breakdown by severity) · Auto-fixes: N (if --fix)
 
 [Top 3 most urgent items, if any]
 
-Recommended: <`/librarian backlog-index` and/or `/librarian plan-archive`, if applicable>
+Recommended: <`/librarian backlog-index`, if applicable>
 Full report: {paths.hooks_state}/backlog-hygiene-report.md
 ```

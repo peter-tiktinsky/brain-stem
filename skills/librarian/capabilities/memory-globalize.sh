@@ -114,7 +114,7 @@ done
 #                            PostToolUse hook fires this with --apply when the
 #                            operator opts into fully-auto promotion).
 if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${MEMORY_GLOBALIZE_AUTO:-}" ]] \
-   && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+   && [[ -z "${CLAUDECODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
   echo "memory-globalize: skipped (non-interactive)" >&2
   exit 0
 fi

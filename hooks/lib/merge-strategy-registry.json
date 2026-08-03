@@ -1,10 +1,9 @@
 {
   "_description": "Per-leaf merge-strategy registry consumed by hooks/lib/overlay-master-mutate.sh. Default deep-merge semantics (jq `*` operator: recursive object merge; arrays replaced) preserve adopter-override-wins semantics at the entity level. Declared UNION leaves are the explicit exception: foundation declares the list-typed shape; adopter extends rather than shadows. Per-leaf UNION at these paths produces concat+dedup (`(existing + payload) | unique`) at write time.",
-  "_design_rationale": "Three leaves are conceptually SETS, not maps: dimension_prefixes (allowed tag-prefix slugs), user_facing_dimensions (subset elevated for cap-25 audit), registered_archetypes (consultant/researcher/developer/manager + adopter extensions). Foundation lists these as arrays; adopter overlay declares additional members rather than replacing the foundation list. Without UNION semantics, the only way an adopter can preserve foundation members while adding new ones is to repeat the foundation set verbatim in their overlay — fragile and silently breaks on foundation upgrades that touch the list. UNION matches `_adopter_extension_path` notation `overlay-master.tagging.taxonomy.dimension_prefixes[]` already documented in tagging-rules.json.",
+  "_design_rationale": "Two leaves are conceptually SETS, not maps: dimension_prefixes (allowed tag-prefix slugs) and user_facing_dimensions (subset elevated for cap-25 audit). Foundation lists these as arrays; adopter overlay declares additional members rather than replacing the foundation list. Without UNION semantics, the only way an adopter can preserve foundation members while adding new ones is to repeat the foundation set verbatim in their overlay — fragile and silently breaks on foundation upgrades that touch the list. UNION matches `_adopter_extension_path` notation `overlay-master.tagging.taxonomy.dimension_prefixes[]` already documented in tagging-rules.json.",
   "strategies": {
     "tagging.taxonomy.dimension_prefixes": "union",
     "tagging.taxonomy.user_facing_dimensions": "union",
-    "tagging.taxonomy.registered_archetypes": "union",
     "frontmatter.path_routing.rules": "union"
   },
   "default": "replace",

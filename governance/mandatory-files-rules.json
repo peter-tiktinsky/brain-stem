@@ -60,7 +60,7 @@
         "_note": "Count BOTH the raw line count AND the comment-stripped line count, and gate on the LARGER of the two until MEMORY.md comment-stripping is empirically verified — HTML-comment blocks (<!-- -->) must not buy unlimited headroom. memory-consolidation-run.sh Check 8 implements this."
       },
       "overflow_routing": {
-        "_description": "Cold-spill seam — DOCUMENTED ONLY (pre-built, cheap). At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill is v-next, volume-gated, no calendar gate). The fixed section order below makes the cold boundary always knowable.",
+        "_description": "Cold-spill seam — documented design, not yet built. At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill ships in a future version, volume-gated). The fixed section order below makes the cold boundary always knowable.",
         "fixed_section_order": [
           "Semantic",
           "Procedural",
@@ -143,22 +143,6 @@
       "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
       "exemption_paths_source": "mandates._index_md.exemption_paths",
       "self_healing_capability": "skills/librarian/capabilities/index-maintain.sh (R-34 self-healing boundary — mutations bounded to mechanically-derivable values; semantic content flagged for review, never auto-overwritten)"
-    }
-  ],
-  "_retired_tombstones": [
-    {
-      "id": "R-09",
-      "home": "mandatory-files",
-      "category": "C1",
-      "surface": "Logs",
-      "tier": "autogovern",
-      "enforcement_layer": [],
-      "status": "retired",
-      "retired_at": "2026-06-15",
-      "retired_reason": "Logs/ retired as a vault root — the adopter vault ships ZERO Logs/, so the autogovern tier loses its only adopter target. The post-write-verify.sh Logs/ auto-govern branch is removed and machine exhaust relocates to the XDG state tier (~/.local/state/brain-stem). Superseded by a later governance decision.",
-      "source": "governance/mandatory-files-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
-      "rule_text": "[RETIRED] Logs/ auto-govern rule (was tier autogovern, category C1: a Logs/ write was never denied — post-write-verify.sh auto-applied frontmatter/tagging governance, librarian reconciled at audit-time). Tombstone — declared for provenance, never fires; renders only in the rules-index retired section.",
-      "failure_mode": "n/a (retired tombstone)"
     }
   ]
 }

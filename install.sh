@@ -1101,10 +1101,17 @@ if [ "$UPGRADE_PRESENT" = "1" ] || [ "$LEGACY_ADOPT" = "1" ]; then
   #     high-water log, READ-ONLY (the runner's selection predicate, without
   #     executing any migration). Self-contained header read so this stays inside
   #     the "install.sh" deliverable (no dependency on sourcing the runner).
-  if [ -n "$TARGET_VERSION" ] && [ -d "$CLAUDE_HOME/migrations" ]; then
+  #     Enumerate the TARGET release's migrations from $SOURCE_REPO/installer/migrations
+  #     — the write-free source-of-truth Step 8.2 copies to $CLAUDE_HOME/migrations at
+  #     apply time. Reading the PRE-copy $CLAUDE_HOME/migrations instead reported
+  #     migrations_to_run:[] for every adopter (the release's new migrations are not on
+  #     disk until AFTER this preview runs), so preview != apply for a corpus-mutating
+  #     release. High-water dedup still consults $PRIOR_MIGRATIONS_APPLIED (below), the
+  #     adopter's already-applied set — that stays home-keyed.
+  if [ -n "$TARGET_VERSION" ] && [ -d "$SOURCE_REPO/installer/migrations" ]; then
     _mig_floor="$INSTALLED_VERSION"
     [ "$_mig_floor" = "(none)" ] && _mig_floor="v0.0.0"
-    for _migf in "$CLAUDE_HOME/migrations"/[0-9][0-9][0-9][0-9]-*.sh; do
+    for _migf in "$SOURCE_REPO/installer/migrations"/[0-9][0-9][0-9][0-9]-*.sh; do
       [ -e "$_migf" ] || continue
       # read the leading-comment `# migration:` and `# applies_at:` headers only
       _mig_id=""; _mig_aa=""
@@ -2672,11 +2679,11 @@ fi
 # (Vault Writers/) ships with its seed content (an _index.md) so the adopter
 # starts with a populated writers surface, not an empty placeholder. Authoring
 # contract for what may live under vault-init/ at docs/vault-init-authoring.md.
-# The per-plan backlog satellite is retired: backlog +
-# archive now live as librarian-emitted files at ${PLANS_DIR:-$HOME/.claude-plans}/_backlog.md
-# + _archive.md under Plans Pillar governance (writers_allowed: ["librarian"]
-# per governance/plans-rules.json :: root_files). Downstream cascade across
-# naming/doc-deps pillars + hooks + librarian SKILL.md tracked separately.
+# The per-plan backlog satellite is retired: the backlog now lives as the
+# librarian-emitted ${PLANS_DIR:-$HOME/.claude-plans}/_backlog.md under Plans
+# Pillar governance (writers_allowed: ["librarian"] per
+# governance/plans-rules.json :: root_files); archival is the plan-index
+# display-only view (no _archive.md file ships or is generated).
 # cp -R dropped from the upgrade path → per-file files[] walk.
 if [ -d "$SOURCE_REPO/vault-init" ]; then
   if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
@@ -2794,7 +2801,7 @@ done
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
 # MIGRATE-STATE surface), a distinct path the templates walk never touches.
-for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md spec-template.md tasks-template.md handoff-template.md ideation-brief-template.md idea-note-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
+for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md ideation-brief-template.md idea-note-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
   upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition
@@ -3631,6 +3638,21 @@ else
   warn "python3 jsonschema module not available; install-time config-vs-schema validation skipped (pip3 install jsonschema to enable). Configs were JSON-syntax-validated by Step 13."
 fi
 
+# PyYAML prereq (mirrors the jsonschema prereq+warn above). The two `govern`
+# frontmatter-rendering modes — /govern register --kind writer and --kind
+# doc-amender-prompt — render YAML frontmatter via python3's yaml module
+# (yaml.safe_dump) and hard-fail (return 3) when it is absent. macOS system
+# python ships no PyYAML, so a bare adopter would otherwise hit a terse
+# unexplained failure the first time they register a writer / doc-amender
+# prompt, with no install-time signal that a prerequisite was missing. Probe it
+# here and, on absence, warn-and-continue (graceful degrade — never abort the
+# install) naming both gated modes + the exact `pip3 install pyyaml` remediation.
+if python3 -c "import yaml" 2>/dev/null; then
+  :
+else
+  warn "python3 pyyaml module not available; the two frontmatter-rendering govern modes (/govern register --kind writer and /govern register --kind doc-amender-prompt) will fail to render frontmatter (return 3) until it is installed (pip3 install pyyaml to enable)."
+fi
+
 # Step 13.5: parse-validate foundation-manifest.json baseline
 # Generator is at $SOURCE_REPO/generate-foundation-manifest.sh; output is
 # committed at $SOURCE_REPO/governance/foundation-manifest.json at release-cut time.
@@ -4069,6 +4091,8 @@ info "  - render plists for ALL declared jobs (post-onboarding) — loop the shi
 info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging \"\$job\"; done"
 info "  - render a single job manually:"
 info "    \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging <job-id>"
+info "  - load the lanes NOW (real launchctl bootstrap): the SessionStart hook (session-start-launchd-bootstrap.sh) does this automatically in your next Aqua session; this is the manual fallback for a headless / non-session install — the production (no --staging-dir) render bootstraps each label:"
+info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh \"\$job\"; done"
 info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
 info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --full --dry-run   # preview proposed created/id/schema_version/description"
 info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --fix --full        # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"

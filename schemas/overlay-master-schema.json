@@ -53,7 +53,22 @@
     },
     "tagging_pillar": {
       "type": "object",
-      "description": "Adopter shadow for tagging-rules.json — parallel structure. Stub min-viable; refines on first /govern register --kind tag-extension mutation."
+      "description": "Adopter shadow for tagging-rules.json — parallel structure. The declared-UNION set-leaves (taxonomy.dimension_prefixes, taxonomy.user_facing_dimensions) are typed as arrays of prefix-slug strings so a dict-shape union leaf is schema-REJECTED at the mutate lane (retires the min-viable {type:object} stub). Read + write both apply order-preserving concat+dedup on these leaves.",
+      "properties": {
+        "taxonomy": {
+          "type": "object",
+          "properties": {
+            "dimension_prefixes": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "user_facing_dimensions": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
     },
     "naming_pillar": {
       "type": "object",

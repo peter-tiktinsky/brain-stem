@@ -33,7 +33,7 @@ code path. Plans-tree creation is ORTHOGONAL — use `/new-plan` or
 /govern register --kind file-type --name <type-slug> --contract <path-to-file-type-contract.json>
 
 # Tag-dimension extension (operator-driven; no hook auto-fire)
-/govern register --kind tag-extension --dimension <prefix> --values <comma-list>
+/govern register --kind tag-extension --dimension <prefix>
 
 # Class D — new vault-writer registration (hook auto-fire OR wizard OR direct)
 /govern register --kind writer --writer-name <name> --writer-kind <connector|agentic-flow|auto-research|scheduled-skill|custom> [--writer-subtype <s>] [--writer-skill <skill-slug>]
@@ -285,9 +285,7 @@ R-37 atomic across the two pillars.
       "pillar": "tagging",
       "payload": {
         "taxonomy": {
-          "dimension_prefixes": {
-            "delivery": ["spec", "build", "ship", "retro"]
-          }
+          "dimension_prefixes": ["delivery"]
         }
       }
     }
@@ -410,11 +408,12 @@ writes. Original triggering write proceeds (frictionless skip per
 - Writer-reference write failure (pre-write-guard.sh DENY) — surfaced
   by the standard write path; the skill does NOT retry; the operator
   must address the schema violation and re-invoke.
-- Vault-root CLAUDE.md self-update failure (folder mode Class A step
-  6) — emitted as a sidecar `_claude-md-tree-update-failed.json` next to
-  vault-root CLAUDE.md; the overlay mutation (step 5) is NOT rolled
-  back (canonical; survives). Librarian governance-parity-audit
-  surfaces `vault-claude-md-tree-drift` finding for operator triage.
+- Vault-root CLAUDE.md self-update failure, or the missing-CLAUDE.md
+  deferral (folder mode Class A step 6) — surfaced as a plain stderr
+  advisory naming the target and the missing/failed vault-root CLAUDE.md;
+  the overlay mutation (step 5) is NOT rolled back (canonical; survives).
+  No sidecar is written and no drift finding is emitted — a recovery net
+  no code delivers would be a fiction.
 
 ## Constraints
 

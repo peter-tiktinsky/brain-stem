@@ -47,6 +47,18 @@ if [ "$proj" = "2" ]; then
   exit 0
 fi
 
+# --- array-tolerance: the canonical dimension_prefixes shape is an ARRAY
+# of prefix-slugs. The `with_entries` object-reprojection below hard-
+# fails on an array (`Cannot use number (0) as object key`, rc=5), which halts
+# run-migrations and rolls the whole upgrade back at install.sh exit 41. The
+# canonical array needs no reprojection here — tolerate it as a converge no-op.
+# The dict/object -> canonical-array reconciliation is 0005's job.
+dp_type="$(jq -r '.tagging.taxonomy.dimension_prefixes | type' "$OVERLAY" 2>/dev/null || true)"
+if [ "$dp_type" = "array" ]; then
+  printf '0003: dimension_prefixes already the canonical array shape — converge no-op (0005 reconciles non-array shapes)\n' >&2
+  exit 0
+fi
+
 printf '0003: projecting dimension_prefixes through the new taxonomy shape; atomic-write\n' >&2
 tmp="$OVERLAY.upgrade.$$"
 # Re-project: stamp projected_schema=2; normalize each dimension prefix into the
@@ -65,6 +77,12 @@ if jq '
         )
     )
 ' "$OVERLAY" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+  # The bare `mv -f` is an INTENTIONAL atomic-write WITHIN this migration's own
+  # transaction (temp-write + atomic rename): migrations run at install-time,
+  # before the write-time governance chain is armed, and each migration owns its
+  # atomic swap. It deliberately does NOT route through the mutate-validation
+  # path (reconciliation scope) — the overlay is being reshaped, not
+  # governance-mutated. run-migrations halts the chain on a non-zero exit.
   mv -f "$tmp" "$OVERLAY" || { rm -f "$tmp"; printf '0003: atomic mv failed\n' >&2; exit 1; }
   printf '0003: reprojected taxonomy (projected_schema=2)\n' >&2
   exit 0

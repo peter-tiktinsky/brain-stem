@@ -50,7 +50,7 @@ HOOK_AUDIT_LOG_EFF="${HOOK_AUDIT_LOG:-$CLAUDE_STATE_ROOT/audit/hook-audit.log}"
 if [[ -z "${HOOK_AUDIT_LOG:-}" && ! -f "$HOOK_AUDIT_LOG_EFF" && -f "$CLAUDE_HOME_RES/hooks/state/hook-audit.log" ]]; then
   HOOK_AUDIT_LOG_EFF="$CLAUDE_HOME_RES/hooks/state/hook-audit.log"
 fi
-DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$HOME/.claude/hooks/doc-dependencies.json}"
+DOC_DEP_FILE_EFF="${DOC_DEP_FILE:-$CLAUDE_HOME_RES/hooks/doc-dependencies.json}"
 
 SCOPE="all"
 DRY_RUN="false"

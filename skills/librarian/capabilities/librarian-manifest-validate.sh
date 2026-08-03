@@ -1,21 +1,27 @@
 #!/bin/bash
-# librarian-manifest-validate — Validate a staged librarian-manifest.json write
-# against schemas/librarian-manifest-schema.json. Mechanical-tier; runtime gate
-# for capabilities that emit writes_manifest_subtree.
-# Landed: T-9a (2026-04-29). Closes audit-05 (T-7.5
-# explicit consumer mandate). See spec.md "Capability-Registry Schema"
-# §writes_manifest_subtree consumer mandate.
+# librarian-manifest-validate — Validate a librarian-manifest.json payload against
+# schemas/librarian-manifest-schema.json (block-and-log DENY on a schema-invalid
+# manifest). Mechanical-tier.
+#
+# STATUS — schema validator, wired at session-close (the close-step-2 manifest-validation
+# step, advisory) AND invocable ad-hoc. Behaviorally CORRECT on direct invoke
+# (`--file bad.json` -> rc=1 DENY; a schema-valid manifest -> exit 0 silent). Earlier
+# headers claimed a "runtime gate / writes_manifest_subtree consumer mandate" — that was
+# fiction; the actual reach is the session-close close-step-2 wiring plus ad-hoc invoke.
+#
 # Invocation:
 #   librarian-manifest-validate.sh                       # validate live manifest
 #   librarian-manifest-validate.sh --file <path>         # validate <path>
 #   librarian-manifest-validate.sh --stdin               # read JSON from stdin
 #   librarian-manifest-validate.sh --schema-file <path>  # override schema
 #   librarian-manifest-validate.sh --dry-run             # report-only, no log
+#
 # Validator tier selection (auto, override via MANIFEST_VALIDATOR):
 #   - tier-1 ajv   — preferred if `ajv` binary in $PATH (full draft 2020-12)
 #   - tier-2 python-jsonschema — fallback if `python3 -m jsonschema` works
 #   - tier-3 minimal — ALWAYS available; verifies JSON parses + top-level
 #                       required[] keys present + schema_version matches const
+#
 # Block-and-log semantics:
 #   - schema-valid input: exit 0 silent (no findings emitted)
 #   - schema-invalid input: emit finding to FINDINGS_OUTPUT/stdout + log
@@ -23,17 +29,20 @@
 #                           + exit 1 (DENY)
 #   - missing schema file: graceful skip with advisory finding + exit 0
 #   - no validator available + tier-3 unreachable (Python broken): advisory + 0
+#
 # Env overrides (testing):
 #   MANIFEST_VALIDATOR    — force tier selection: ajv | python-jsonschema | minimal
 #   SCHEMAS_DIR           — relocate schemas/ root (default: $CLAUDE_HOME/schemas)
 #   MANIFEST_PATH         — override target manifest path (default: live manifest)
 #   FINDINGS_OUTPUT       — append findings to this file instead of stdout
 #   ERROR_LOG_DIR         — override $CLAUDE_HOME/logs/librarian-errors/
+#
 # Exit codes:
 #   0 — validation passed OR graceful skip (advisory emitted)
 #   1 — validation failed (DENY; finding + diagnostic written)
 #   2 — unknown flag
 #   3 — payload file missing or unreadable
+#
 # Bash 3.2 clean per R-23.
 
 set -uo pipefail

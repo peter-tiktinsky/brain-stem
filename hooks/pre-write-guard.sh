@@ -1,16 +1,17 @@
 #!/bin/bash
 # Hook: PreToolUse (Edit|Write) — Guards and reminders for specific file patterns.
+#
 # Manifest edits:     BLOCKED (must use /librarian to regenerate)
 # Plan file writes:   R-40 frontmatter-type advisory on canonical plan artifacts
 # Skill file edits:   4-step change protocol checklist
+#
 # ENFORCEMENT-MAP rules implemented here (see ~/.claude-plans/ENFORCEMENT-MAP.md):
 #   R-01  dead plans path DENY                        — line 26+
 #   R-03  System Governance.md size guard             — line 39+ (SG_MAX_LINES hardcoded 400; dev-vault hub only)
 #   R-04  vault-root allowlist                        — line ~532
 #   R-54  doc-dependency cascade                      — line ~495
 #   R-09  RETIRED (G3) — vault Logs/ no longer ships; the Logs/ autogovern tier
-#         and the post-write-verify.sh autogovern branch were removed. Tombstoned
-#         at governance/mandatory-files-rules.json :: _retired_tombstones.
+#         and the post-write-verify.sh autogovern branch were removed.
 #   R-23  cron wrapper bash 3.2 compatibility         — line 39+
 #   R-24  claude-mem SessionEnd protection            — line 78+
 #   R-27  plan naming + status enforcement            — line 123+
@@ -20,7 +21,6 @@
 #   R-29/R-30/R-31  backlog row size + sentinel pattern  — ~/.claude/skills/backlog-hygiene/SKILL.md
 #   R-34  self-healing boundary                          — documentary
 #   R-35  stage-gated promotion framework               — documentary
-#   R-36  Stop-hook touched-file drift scan            — ~/.claude/hooks/stop-drift-scan.sh
 #   R-37  schema-addition lockstep commit rule         — documentary (enforced by git atomicity); NO hook branch exists. T-3 audit (2026-05-21) confirmed: the "R-37 atomic lockstep DENY" referenced in the tasks.md T-3 description is a misframing — there is no enforcement code to retrofit. Documentary-only across pre-write-guard.sh.
 #   R-38  blockquote summary advisory                  — ~/.claude/hooks/post-write-verify.sh (combined R-38+R-39 block)
 #   R-39  provides: presence advisory                  — ~/.claude/hooks/post-write-verify.sh (same block)
@@ -47,6 +47,64 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 # No file path → nothing to guard
 [[ -z "$FILE_PATH" ]] && exit 0
 
+# === merge-strategy registry read+write BIJECTION + union-leaf SHAPE structural arm.
+# Rides this already-registered PreToolUse Edit|Write hook (no new settings wiring). Fires
+# ONLY on a write to the merge-strategy registry or the overlay-master (the union
+# producers), so no normal write is affected. The registry once had a WRITE consumer but
+# ZERO read consumers — a passing-audit trap (a declared union the read path silently
+# dropped). DENY a registry write unless every .strategies union key is read by BOTH the
+# loader AND the mutate producer (the read+write bijection); DENY a union leaf that is not
+# array-shaped on the overlay producer (the shape guard — closes the mutate-lane-only
+# shape-guard gap). ===
+MSBIJ_BASE=$(basename "$FILE_PATH" 2>/dev/null || true)
+if [[ "$MSBIJ_BASE" == "merge-strategy-registry.json" || "$MSBIJ_BASE" == "overlay-master.json" ]]; then
+  _MSBIJ_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd 2>/dev/null || true)
+  if [[ "$TOOL_NAME" == "Write" ]]; then
+    MSBIJ_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
+  elif [[ "$TOOL_NAME" == "Edit" ]] && [[ -f "$FILE_PATH" ]]; then
+    MSBIJ_CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
+  else
+    MSBIJ_CONTENT=""
+  fi
+
+  if [[ "$MSBIJ_BASE" == "merge-strategy-registry.json" ]] && [[ -n "$MSBIJ_CONTENT" ]]; then
+    MSBIJ_UNION_KEYS=$(printf '%s' "$MSBIJ_CONTENT" | jq -r '(.strategies // {}) | to_entries[] | select(.value=="union") | .key' 2>/dev/null || true)
+    if [[ -n "$MSBIJ_UNION_KEYS" ]]; then
+      MSBIJ_LOADER="${MSBIJ_LOADER_SRC:-${FOUNDATION_OVERLAY_LOAD:-$_MSBIJ_DIR/lib/foundation-overlay-load.sh}}"
+      MSBIJ_MUTATE="${MSBIJ_MUTATE_SRC:-$_MSBIJ_DIR/lib/overlay-master-mutate.sh}"
+      MSBIJ_LOADER_OK=0; MSBIJ_MUTATE_OK=0
+      [[ -r "$MSBIJ_LOADER" ]] && grep -qE 'merge-strategy-registry|MERGE_REGISTRY|\.strategies' "$MSBIJ_LOADER" && MSBIJ_LOADER_OK=1
+      [[ -r "$MSBIJ_MUTATE" ]] && grep -qE 'merge-strategy-registry|MERGE_REGISTRY|\.strategies' "$MSBIJ_MUTATE" && MSBIJ_MUTATE_OK=1
+      if [[ "$MSBIJ_LOADER_OK" != "1" || "$MSBIJ_MUTATE_OK" != "1" ]]; then
+        MSBIJ_MISS=""
+        [[ "$MSBIJ_LOADER_OK" != "1" ]] && MSBIJ_MISS="the READ loader (hooks/lib/foundation-overlay-load.sh)"
+        [[ "$MSBIJ_MUTATE_OK" != "1" ]] && MSBIJ_MISS="${MSBIJ_MISS:+$MSBIJ_MISS and }the WRITE mutate library (hooks/lib/overlay-master-mutate.sh)"
+        format_output_deny "PreToolUse" "[merge-strategy bijection] the registry declares union leaves but ${MSBIJ_MISS} does not CONSUME the registry. Every .strategies union key MUST be read by BOTH the loader AND the mutate library — a write-consumer without a read-consumer is a passing-audit trap (a declared union the read path silently drops). Wire the missing producer before adding or altering a union row."
+        exit 0
+      fi
+    fi
+  fi
+
+  if [[ "$MSBIJ_BASE" == "overlay-master.json" ]] && [[ -n "$MSBIJ_CONTENT" ]]; then
+    # Shape guard on the overlay producer: the declared-union set-leaves MUST be
+    # arrays (a dict-shape leaf is the brick this arm closes). Validated here on
+    # ALL producers of overlay-master.json, not just the govern mutate lane whose
+    # jsonschema currently reaches it.
+    MSBIJ_BADSHAPE=$(printf '%s' "$MSBIJ_CONTENT" | jq -r '
+      [ {p:"tagging.taxonomy.dimension_prefixes", v:.tagging.taxonomy.dimension_prefixes},
+        {p:"tagging.taxonomy.user_facing_dimensions", v:.tagging.taxonomy.user_facing_dimensions},
+        {p:"frontmatter.path_routing.rules", v:.frontmatter.path_routing.rules} ]
+      | map(select(.v != null and (.v | type) != "array") | .p) | .[]
+    ' 2>/dev/null || true)
+    if [[ -n "$MSBIJ_BADSHAPE" ]]; then
+      MSBIJ_BADLIST=$(printf '%s' "$MSBIJ_BADSHAPE" | tr '\n' ' ' | sed 's/ *$//')
+      format_output_deny "PreToolUse" "[union-leaf shape] the overlay declares a non-array (dict/other) shape on a declared-UNION leaf: ${MSBIJ_BADLIST}. Union leaves (dimension_prefixes / user_facing_dimensions / path_routing.rules) MUST be arrays — a dict-shape leaf bricks the read-side union. Emit the declared array shape."
+      exit 0
+    fi
+  fi
+fi
+# === end merge-strategy registry bijection + shape arm =====================
+
 # ===: WORK_CONFIGURED-gated spoke-scoped remap prelude =======
 # When an agent launched from ~/work/<spoke>/ writes a deliverable, the physical
 # path is $WORK_HOME/<spoke>/<rest> but the GOVERNED surface is the vault-view
@@ -57,6 +115,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 # R-32/R-33/R-47 schema enforcement (1466) — governs the write as Work/<spoke>/…
 # It MUST precede those consumers; it is inserted before the G1 gate (CORRECTED
 # from a later draft window because :1169 runs first).
+#
 # Three-way gate — ALL must hold to remap (else byte-identical pass-through):
 #   1. WORK_CONFIGURED=1            (vault + Work/ view + WORK_HOME all present)
 #   2. FILE_PATH under $WORK_HOME/  (a work-home physical write)
@@ -122,38 +181,11 @@ if [[ "${WORK_CONFIGURED:-0}" == "1" ]] && [[ "$FILE_PATH" == "$WORK_HOME/"* ]];
   fi
 fi
 # === end remap prelude ======================================
-
-# === G1: live-mutation gate ============================================
-# Plan-agnostic manifest-driven gate. Reads each active plan's
-# `live_mutation_scope` block from its manifest.json; evaluates detection
-# signals (cwd_pattern / plan_id_pattern / plan_mode_env_var / opt-in
-# transcript_regex); honors exempt_paths, basename-match-env nonce
-# overrides, sentinel overrides, and per-plan bypass env vars.
-# Plans declare scope in their own manifest; they do not edit hook
-# code (R-55). This gate reads each plan's declared live-mutation
-# scope and enforces it.
-# Helper path overridable via $G1_HELPER for fixture testing.
-G1_HELPER="${G1_HELPER:-$HOME/.claude/hooks/lib/live-guard.sh}"
-G1_CRASH_DIR="${HOOKS_STATE_OVERRIDE:-$HOOKS_STATE}"
-mkdir -p "$G1_CRASH_DIR" 2>/dev/null || true
-
-G1_OUTPUT=""
-G1_EXIT=0
-if [[ -x "$G1_HELPER" ]]; then
-  set +e
-  G1_OUTPUT=$(FILE_PATH="$FILE_PATH" TOOL_NAME="$TOOL_NAME" HOOKS_STATE="$HOOKS_STATE" CLAUDE_HOME="$CLAUDE_HOME" "$G1_HELPER" 2>>"$G1_CRASH_DIR/live-guard-crashes.log")
-  G1_EXIT=$?
-  set -e
-  if [[ "$G1_EXIT" -ne 0 ]]; then
-    printf '%s live-guard.sh exit=%s; failed open\n' "$(date -u +%FT%TZ)" "$G1_EXIT" >> "$G1_CRASH_DIR/live-guard-crashes.log" 2>/dev/null || true
-  fi
-fi
-
-if [[ "$G1_EXIT" -eq 0 && -n "$G1_OUTPUT" ]]; then
-  printf '%s\n' "$G1_OUTPUT"
-  exit 0
-fi
-# === end G1 ================================================================
+#
+# (The R-55 live-mutation gate that formerly ran here — a fails-open exec of a
+# never-shipped helper — has been removed: that write-time enforcement was never built
+# for any adopter, so the block was inert. Plans still declare live_mutation_scope in
+# their own manifest; no hook-code edit is required.)
 
 # === R-52 write-time DENY (T-5, — per-entry shape) ==
 # Narrow gate: fires ONLY when $FILE_PATH = overlay-master.json AND the
@@ -161,9 +193,11 @@ fi
 # `_override_reason`. The SINGLE call site that fires foundation-overlay-load.sh
 # WITHOUT --force-override — every other hook-side read passes the flag
 # (hook reads are not overlay writes per).
+#
 # Per: per-write `--force-override` bypass at the /govern register
 # layer; here, R52_FORCE_OVERRIDE=1 env var bypasses for direct-Edit/Write
 # flows (e.g. test substrate). No persistent disable.
+#
 # Helper path resolution duplicates the pattern (foundation-repo +
 # post-install layouts) because this branch fires BEFORE in hook flow.
 T5_OVERLAY_TARGET="${OVERLAY_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/overlay-master.json}"
@@ -222,6 +256,7 @@ fi
 # === end R-52 write-time DENY ============================================
 
 # --- BLOCK: Writes to the dead plans path (migrated 2026-04-13) ---
+#
 # The path ~/.claude/plans/ is now a permanent placeholder
 # containing only README.md. Claude Code's harness recreates the folder
 # intermittently and that's accepted as cosmetic. ANY Edit|Write to that
@@ -310,8 +345,8 @@ fi
 
 # === Branch #4: plans-tree-librarian-generated (T-7;..) ====
 # Enforces librarian-only
-# writes to the 3 plans-tree root files (_index.md / _backlog.md / _archive.md).
-# Detection: path-glob match against $HOME/.claude-plans/_{index,backlog,archive}.md.
+# writes to the 2 plans-tree root files (_index.md / _backlog.md).
+# Detection: path-glob match against $HOME/.claude-plans/_{index,backlog}.md.
 # Caller-detection: env-var stamp CLAUDE_LIBRARIAN_WRITE=1 (per).
 # Action: DENY when env unset; advisory directs caller to the librarian skill.
 # Positioned BEFORE R-27 because the librarian-generated registry files are
@@ -324,9 +359,9 @@ fi
 B4_PT_PARENT="${PLANS_DIR:-$HOME/.claude-plans}"
 if [[ "$(dirname "$FILE_PATH")" == "$B4_PT_PARENT" ]]; then
   case "$(basename "$FILE_PATH")" in
-    _index.md|_backlog.md|_archive.md)
+    _index.md|_backlog.md)
       if [[ "${CLAUDE_LIBRARIAN_WRITE:-0}" != "1" ]]; then
-        B4_REASON="Plans-tree librarian-generated file write blocked (Branch #4 /-). _index.md, _backlog.md, and _archive.md are generated by the librarian. Use the librarian skills (plan-index / backlog-index / plan-archive) to update; direct writes to these 3 files are denied unless the caller exports CLAUDE_LIBRARIAN_WRITE=1 before writing."
+        B4_REASON="Plans-tree librarian-generated file write blocked (Branch #4 /-). _index.md and _backlog.md are generated by the librarian (plan-index / backlog-index). Direct writes to these files are denied unless the caller exports CLAUDE_LIBRARIAN_WRITE=1 before writing."
         format_output_deny "PreToolUse" "$B4_REASON"
         exit 0
       fi
@@ -340,6 +375,7 @@ fi
 # === end Branch #4 ====================================================
 
 # === Plans-root closed-namespace allowlist arm (positioned BEFORE R-27) ======
+# BASH-BLINDNESS (R-5, documented-by-design): this PreToolUse Edit|Write MINT-arm — like the whole Edit|Write write-time cohort — is blind to Bash-tool writes (heredoc/cp/mv/tee/python), so a Bash-scaffolded root entry / manifest bypasses it; the "honest residual" labeled at placement-validate.sh:95-96. The rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Enforces plans-rules.json :: root_namespace — the plans-tree root is a CLOSED namespace.
 # A write that would MINT A NEW root entry (a top-level entry under $PLANS_DIR that does not
 # yet exist) whose class is `nonconforming` — neither an NN-<slug> plan / flat NN-*.md plan,
@@ -366,7 +402,7 @@ if [[ "$FILE_PATH" == "$PR_PLANS_DIR/"* ]]; then
   PR_TOP="${PR_REL%%/*}"
   # Scope: a NEW top-level entry (not yet on disk) that is NOT NN-prefixed. An NN-prefixed
   # entry is a would-be plan governed by R-27 (prefix + status) and the plan-artifact branches
-  # below (spec/manifest via R-27 + manifest-substance, handoff via the section-schema branch);
+  # below (spec/manifest via R-27, handoff via the section-schema branch);
   # deferring NN-prefixed entries here keeps this arm from short-circuiting those owners on
   # emit (e.g. an invalid-slug NN- dir must still reach the handoff section-schema DENY). The
   # T-4 placement sweep is the backstop that flags an invalid-slug NN- dir as nonconforming.
@@ -397,20 +433,25 @@ fi
 # enforcement. Scoped NARROWLY to plan-root files — sub-tasks, handoffs, test
 # artifacts, and orchestrator exhaust are explicitly NOT enforced (they inherit
 # status from the parent plan via the stale-detect scope fix in the same session).
+#
 # Enforced files:
 #   ~/.claude-plans/*.md                        (flat root plans)
 #   ~/.claude-plans/*/spec.md
 #   ~/.claude-plans/*/00-ideation-brief.md
 #   ~/.claude-plans/*/README.md                 (folder-style plans' index doc)
 #   ~/.claude-plans/*/manifest.json             (top-level status field)
+#
 # Whitelisted (vault-wide registries, not plans):
 #   ~/.claude-plans/ENFORCEMENT-MAP.md
 #   ~/.claude-plans/_index.md
+#
 # Detection: reconstruct post-write content; require one of
 #   (a) **Status:** <value> header bullet
 #   (b) YAML frontmatter status: <value>
 #   (c) manifest.json top-level "status" field (manifest writes only)
+#
 # Escape hatch: PLAN_STATUS_OK=1 env var (logged to hook-audit.log)
+#
 # bash 3.2 clean: no associative arrays, no ${var,,}, no readarray, no &>>
 # R-27 plan-root classification — sourced from canonical helper to eliminate
 # the demonstrated hook ↔ librarian drift surface. (2026-04-19/20).
@@ -530,13 +571,15 @@ fi
 # sub-plan roots. Depth-3 sub-plan spec.md/manifest.json are governed PEERS
 # carrying their OWN canonical status (vocabulary), NOT status-derived
 # shadows of the master. A sub-plan can be `paused` independently of its master.
+#
 # This block is the-owned hook substance complementing the depth-3 globs
 # authored in governance/naming-rules.json :: R-27.enforcement_scope
 # ({plans_root}/*/*/spec.md + {plans_root}/*/*/manifest.json). It asserts,
 # directly (without depending on the classify_plan_path helper being
 # depth-3-aware): (a) parent dir matches {plans_root}/NN-{master}/NN-{sub}/;
 # (b) target is spec.md or manifest.json; (c) for manifest.json, status: is
-# present + its value is in the 8-state enum.
+# present + its value is in the canonical 6-state plan-status enum (plans-rules.json).
+#
 # Status-acceptance mirrors R-27 (a)/(b)/(c). DENY at write-time on a missing
 # or out-of-vocabulary status; escape hatch PLAN_STATUS_OK=1.
 PLANS_ROOT_FOR_R27="${PLANS_DIR:-$HOME/.claude-plans}"
@@ -568,8 +611,8 @@ $R27D3_NEW"
         ;;
     esac
 
-    # canonical 8-state enum (+ superseded terminal).
-    R27D3_ENUM="researching planned in-progress paused completed verified closed archived superseded"
+    # Canonical 6-state plan status enum (completed + superseded terminal).
+    R27D3_ENUM="researching planned in-progress paused completed superseded"
     R27D3_STATUS_OK=0
     R27D3_STATUS_VAL=""
 
@@ -610,7 +653,7 @@ except Exception:
 
     if [[ "$R27D3_STATUS_OK" != "1" ]]; then
       if [[ "$FILE_PATH" == *manifest.json ]]; then
-        R27D3_REASON="Plan naming convention (R-27 depth-3): this depth-3 sub-plan manifest at ${R27D3_MASTER_DIR}/${R27D3_SUB_DIR}/ must carry a top-level status: field whose value is in the canonical 8-state vocabulary (researching|planned|in-progress|paused|completed|verified|closed|archived; superseded terminal). Found: '${R27D3_STATUS_VAL:-<none>}'. A sub-plan is a first-class governed peer carrying its OWN canonical status, not a status-derived shadow of its master. Escape hatch: export PLAN_STATUS_OK=1 (logged)."
+        R27D3_REASON="Plan naming convention (R-27 depth-3): this depth-3 sub-plan manifest at ${R27D3_MASTER_DIR}/${R27D3_SUB_DIR}/ must carry a top-level status: field whose value is in the canonical 6-state vocabulary (researching|planned|in-progress|paused|completed|superseded). Found: '${R27D3_STATUS_VAL:-<none>}'. A sub-plan is a first-class governed peer carrying its OWN canonical status, not a status-derived shadow of its master. Escape hatch: export PLAN_STATUS_OK=1 (logged)."
       else
         R27D3_REASON="Plan naming convention (R-27 depth-3): this depth-3 sub-plan spec.md at ${R27D3_MASTER_DIR}/${R27D3_SUB_DIR}/ has no authoritative status. Accepted: (a) **Status:** header bullet with a single lifecycle token, (b) YAML frontmatter status: field, OR (c) a sibling manifest.json carrying a top-level status: field (the sub-plan spec.md is manifest-derived; the manifest is the single status SoT). DENY fires only when neither an inline marker nor a sibling-manifest status is present. Escape hatch: export PLAN_STATUS_OK=1 (logged)."
       fi
@@ -744,105 +787,6 @@ if [[ "$FILE_PATH" == *"librarian-manifest.json"* ]]; then
   exit 0
 fi
 
-# === manifest status-transition SUBSTANCE branch ==
-# Write-time substance-verifying guard. Matcher Edit|Write + if: on
-# **/manifest.json (plan-tree manifests). Verifies FACTS, not the label string:
-#   - a status -> closed flip requires status==verified (the load-bearing
-#     closed-requires-verified guard, §Decision; layer (a)) AND
-#     the close-conditional artifacts present (the plan quartet);
-#   - a status -> verified flip requires a fresh harness_validated[]
-#     verdict-pass entry (the stamper's home is the S2/
-#     dogfood-harness, NOT this hook — this branch only GUARDS the transition).
-# Cross-file invariants (R-61/R-62/R-63) live in the librarian reconciler
-# ((b)), NEVER in this blocking write-time path.
-# Rollout (§Decision): launch as `ask`, promote to `deny` once FP-rate
-# is low. v1.0.0 default = ask; MANIFEST_SUBSTANCE_ROLLOUT env overrides for
-# test/CI (`deny` to exercise the strict path). Escape hatch:
-# MANIFEST_SUBSTANCE_OK=1 (logged).
-PLANS_ROOT_FOR_MS="${PLANS_DIR:-$HOME/.claude-plans}"
-# '(logged)' hatch repair: the guard message advertises "MANIFEST_SUBSTANCE_OK=1 (logged)",
-# but when MANIFEST_SUBSTANCE_OK=1 the whole branch is skipped and NO audit line was ever
-# written. Append the advertised line here (mirrors the CLAUDE_MEM override append) so the
-# bypass is auditable.
-if [[ "${MANIFEST_SUBSTANCE_OK:-0}" == "1" ]] && \
-   [[ "$FILE_PATH" == "$PLANS_ROOT_FOR_MS"/*/manifest.json || "$FILE_PATH" == "$PLANS_ROOT_FOR_MS"/*/*/manifest.json ]]; then
-  { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | MANIFEST_SUBSTANCE_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
-fi
-if [[ "${MANIFEST_SUBSTANCE_OK:-0}" != "1" ]] && \
-   [[ "$FILE_PATH" == "$PLANS_ROOT_FOR_MS"/*/manifest.json || "$FILE_PATH" == "$PLANS_ROOT_FOR_MS"/*/*/manifest.json ]]; then
-  MS_ROLLOUT="${MANIFEST_SUBSTANCE_ROLLOUT:-ask}"   # ask (v1.0.0 default) | deny
-
-  # Reconstruct the post-write manifest content.
-  MS_CONTENT=""
-  case "$TOOL_NAME" in
-    Write)
-      MS_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
-      ;;
-    Edit)
-      if [[ -f "$FILE_PATH" ]]; then
-        MS_OLD=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty')
-        MS_NEW=$(echo "$INPUT" | jq -r '.tool_input.new_string // empty')
-        MS_REPLACE_ALL=$(echo "$INPUT" | jq -r '.tool_input.replace_all // false')
-        MS_OLD_B64=$(printf '%s' "$MS_OLD" | base64)
-        MS_NEW_B64=$(printf '%s' "$MS_NEW" | base64)
-        MS_CONTENT=$(python3 -c "
-import sys, base64
-with open(sys.argv[1]) as f: c = f.read()
-old = base64.b64decode(sys.argv[2]).decode('utf-8')
-new = base64.b64decode(sys.argv[3]).decode('utf-8')
-print(c.replace(old, new) if sys.argv[4]=='true' else c.replace(old, new, 1), end='')
-" "$FILE_PATH" "$MS_OLD_B64" "$MS_NEW_B64" "$MS_REPLACE_ALL" 2>/dev/null)
-      fi
-      ;;
-  esac
-
-  if [[ -n "$MS_CONTENT" ]]; then
-    MS_NEW_STATUS=$(printf '%s' "$MS_CONTENT" | jq -r '.status // empty' 2>/dev/null)
-    MS_OLD_STATUS=""
-    [[ -f "$FILE_PATH" ]] && MS_OLD_STATUS=$(jq -r '.status // empty' "$FILE_PATH" 2>/dev/null)
-
-    MS_VIOLATION=""
-
-    # Guard 1: status -> closed requires status==verified + the close-conditional
-    # quartet present. ("done" is unforgeable;.)
-    if [[ "$MS_NEW_STATUS" == "closed" && "$MS_OLD_STATUS" != "closed" ]]; then
-      if [[ "$MS_OLD_STATUS" != "verified" ]]; then
-        MS_VIOLATION="closed-requires-verified: a status flip to 'closed' requires the current status to be 'verified' (found '${MS_OLD_STATUS:-<unset>}'). 'verified' is machine-stamped by the dogfood-harness verdict-pass; you cannot skip it. (§Decision; layer (a).)"
-      else
-        MS_PLAN_DIR="$(dirname "$FILE_PATH")"
-        for _q in spec.md tasks.md manifest.json; do
-          if [[ ! -f "$MS_PLAN_DIR/$_q" ]]; then
-            MS_VIOLATION="closed requires the close-conditional artifacts present — missing ${_q} in ${MS_PLAN_DIR}. (subplan_rules.metadata_flow.required_artifacts verified->closed.)"
-            break
-          fi
-        done
-      fi
-    fi
-
-    # Guard 2: status -> verified requires a fresh harness_validated[] verdict-pass.
-    if [[ -z "$MS_VIOLATION" && "$MS_NEW_STATUS" == "verified" && "$MS_OLD_STATUS" != "verified" ]]; then
-      MS_FRESH_PASS=$(printf '%s' "$MS_CONTENT" | jq -r '[.harness_validated[]? | select(.verdict=="pass" and .harness_freshness=="fresh")] | length' 2>/dev/null)
-      if [[ -z "$MS_FRESH_PASS" || "$MS_FRESH_PASS" -lt 1 ]]; then
-        MS_VIOLATION="verified-requires-fresh-verdict: a status flip to 'verified' requires a fresh harness_validated[] verdict-pass entry (verdict=='pass', harness_freshness=='fresh'). 'verified' is reachable ONLY through an actual validation pass. The stamper is the dogfood-harness, not a hand-edit."
-      fi
-    fi
-
-    if [[ -n "$MS_VIOLATION" ]]; then
-      MS_MSG="[(a) manifest-substance guard] ${MS_VIOLATION} Escape hatch: export MANIFEST_SUBSTANCE_OK=1 (logged)."
-      if [[ "$MS_ROLLOUT" == "deny" ]]; then
-        format_output_deny "PreToolUse" "$MS_MSG"
-        exit 0
-      else
-        # v1.0.0 rollout default: ask (advisory, allow + surface). Promote to
-        # deny once FP-rate is low (§Decision rollout idiom).
-        format_output_allow "PreToolUse" "$MS_MSG (advisory at v1.0.0; rollout=ask)"
-      fi
-    fi
-  fi
-fi
-# === end (a) manifest status-transition substance branch ===========
-
-
 # === HCM-3 handoff.md section_schema write-time DENY (sub 04 / T-3) ==
 # Stops the per-spoke handoff-chronicle degrading to an all-fallback projection: a
 # NEW session ENTRY appended to a plan-tree handoff.md must use a heading shape the
@@ -853,6 +797,7 @@ fi
 # that contract section_schema; it is hardcoded here so enforcement agrees with the
 # fixed recognizer NOW (the single foundation-master.json rebuild that composes the
 # contract for other consumers is R1-DEFERRED per sub 04).
+#
 # SCOPE (false-positive floor, per the R-27 advisory-first precedent): fires ONLY
 # on a NEWLY-ADDED H2 heading that STARTS with the canonical `Session` /
 # `Alignment Session` entry keyword but does NOT conform. Narrative H2s that merely
@@ -905,21 +850,25 @@ fi
 # === Plan-artifact frontmatter advisory (R-40) ============================
 # R-40 plan-frontmatter type advisory
 # Tier 1 advisory per R-35 stage-gated promotion framework.
+#
 # Canonical filename-to-type map (mirrors plans-schema.json _filename_map):
 #   spec.md              → type: spec
 #   tasks.md             → type: tasks
 #   handoff.md           → type: handoff
 #   00-ideation-brief.md → type: ideation-brief
 #   manifest.json        → type: manifest (JSON, not frontmatter — skipped here)
+#
 # Scope: only emit R-40 advisory for the 4 canonical Markdown filenames.
 # Other .md under ~/.claude-plans/ (research notes, session logs, etc.) pass
 # silently through this block.
+#
 # R-15 (PLAN→BACKLOG reminder) RETIRED 2026-05-22 per T-15 Tier B:
 # vault-root System Backlog.md retired from foundation ship; backlog
 # lifecycle now librarian-owned at ~/.claude-plans/_backlog.md per
 # governance/plans-rules.json :: root_files (writers_allowed=[librarian];
 # generated_by=librarian:backlog-index). Branch #4 (~line 243) enforces
-# librarian-only writes to _backlog.md/_archive.md/_index.md.
+# librarian-only writes to _backlog.md/_index.md.
+#
 # Never blocks. Always exit 0 with permissionDecision: allow.
 if [[ "$FILE_PATH" == *"/.claude-plans/"*".md" ]]; then
   R40_ADVISORY=""
@@ -975,14 +924,14 @@ PYEOF
       # ~80 legacy plans); emit a nudge + an audit-trail line so the
       # advisory->block promotion gate has a false-positive-rate baseline.
       if [[ "$PL_EXPECTED_TYPE" == "spec" ]]; then
-        SE_STATUS_VAL=$(printf '%s\n' "$PL_CONTENT" | grep -m1 -E '^\*\*Status:\*\*' | sed -E 's/^\*\*Status:\*\*[[:space:]]*//; s/[[:space:]]*$//')
+        SE_STATUS_VAL=$(printf '%s\n' "$PL_CONTENT" | grep -m1 -E '^\*\*Status:\*\*' | sed -E 's/^\*\*Status:\*\*[[:space:]]*//; s/[[:space:]]*$//' || true)
         if [[ -n "$SE_STATUS_VAL" ]]; then
           # resolve lifecycle.status_enum from the SHIPPED foundation-master.json
           # bundle slot (.plans.lifecycle.status_enum) via ${CLAUDE_HOME:-$HOME/.claude}.
           # No repo-only-FOUNDATION_REPO-first resolution; the bundle
           # carries the slot adopter-side. $PLANS_RULES_PATH test-override accepted
           # (reads .plans.lifecycle.status_enum then .lifecycle.status_enum so a raw
-          # plans-rules.json fixture still resolves). Hardcoded fallback = 8-state.
+          # plans-rules.json fixture still resolves). Hardcoded fallback = canonical 6-state.
           SE_ENUM=""
           if [[ -n "${PLANS_RULES_PATH:-}" && -f "${PLANS_RULES_PATH}" ]]; then
             SE_ENUM=$(jq -r '(.plans.lifecycle.status_enum // .lifecycle.status_enum)[]?' "${PLANS_RULES_PATH}" 2>/dev/null || true)
@@ -991,7 +940,7 @@ PYEOF
             SE_FOUNDATION="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
             [[ -f "$SE_FOUNDATION" ]] && SE_ENUM=$(jq -r '.plans.lifecycle.status_enum[]?' "$SE_FOUNDATION" 2>/dev/null || true)
           fi
-          [[ -z "$SE_ENUM" ]] && SE_ENUM=$'researching\nplanned\nin-progress\npaused\ncompleted\nverified\nclosed\nsuperseded\narchived'
+          [[ -z "$SE_ENUM" ]] && SE_ENUM=$'researching\nplanned\nin-progress\npaused\ncompleted\nsuperseded'
           SE_MATCH=0
           while IFS= read -r _tok; do
             [[ -z "$_tok" ]] && continue
@@ -1139,6 +1088,7 @@ fi
 # (Skills/*.md design docs and
 # .claude/skills/*.md spec mirrors) are not runtime — the skill-change
 # checklist is not relevant to them.
+#
 # Branch #1 Class D: when the
 # SKILL.md ## Output Contract section declares vault writes AND no
 # writer-reference file in Vault Writers/ has writer_skill: <slug>, append
@@ -1362,7 +1312,7 @@ if [[ "$FILE_PATH" == *"/.claude/projects/"*"/memory/"*".md" ]] && \
   MEMORY_INDEX="$MEMORY_DIR/MEMORY.md"
   NEW_BASE="$(basename "$FILE_PATH" .md)"
   if [[ -f "$MEMORY_INDEX" ]]; then
-    KEYWORDS=$(echo "$NEW_BASE" | tr '_' '\n' | grep -v -E '^(user|feedback|project|reference)$' | tr '\n' '|')
+    KEYWORDS=$(echo "$NEW_BASE" | tr '_' '\n' | grep -v -E '^(user|feedback|project|reference)$' | tr '\n' '|' || true)
     KEYWORDS="${KEYWORDS%|}"
     if [[ -n "$KEYWORDS" ]]; then
       MATCHES=$(grep -iE "$KEYWORDS" "$MEMORY_INDEX" | grep '^\- \[' || true)
@@ -1494,6 +1444,13 @@ FOUNDATION_MASTER="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/gover
 BUNDLE_JSON=""
 if [[ -f "$FOUNDATION_MASTER" ]]; then
   BUNDLE_JSON=$(cat "$FOUNDATION_MASTER")
+  # Corrupt bundle → the same fail-OPEN degrade as a missing bundle, but VISIBLY:
+  # under set -euo pipefail an invalid-JSON bundle would otherwise kill the hook
+  # at the first jq slice with stderr discarded — a silently-dead write gate.
+  if ! jq -e . <<<"$BUNDLE_JSON" >/dev/null 2>&1; then
+    echo "pre-write-guard: $FOUNDATION_MASTER is not valid JSON — governance gates degrade to fail-open for this invocation" >&2
+    BUNDLE_JSON=""
+  fi
 fi
 
 # === Derived shell-var slices (jq on in-memory bundle) =======================
@@ -1530,9 +1487,11 @@ fi
 # invocation per hook fire instead of N. Per spec risk row (helper ~50ms
 # per call): one call per fire is acceptable; existing in-block load below
 # is replaced by a no-op pass-through using $UNION_JSON.
+#
 # Helper invoked with --force-override: hook READ for enforcement, not
 # overlay WRITE. R-52 write-time DENY is the SINGLE branch WITHOUT
 # --force-override (added in T-5 at a narrow file-path scope).
+#
 # Helper path resolution mirrors the in-block pattern: $FOUNDATION_OVERLAY_LOAD
 # env override for test isolation, else $_HOOK_DIR/../lib/foundation-overlay-load.sh.
 # Fall-back to UNION_JSON="$BUNDLE_JSON" if helper unavailable or fails
@@ -1773,6 +1732,13 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
       B2_CONTRACT="${CLAUDE_HOME:-$HOME/.claude}/governance/file-type-contracts/${B2_TYPE}.md.json"
       if [[ -f "$B2_CONTRACT" ]]; then
         B2_PATTERN=$(jq -r '.historical_data_warning_pattern // empty' "$B2_CONTRACT" 2>/dev/null || true)
+      elif [[ -n "${UNION_JSON:-}" ]]; then
+        # an adopter file-type contract (authored via /govern register
+        # --kind file-type) lives in the OVERLAY pillar file_type_contracts.<type>,
+        # not the on-disk governance/file-type-contracts/<type>.md.json (never
+        # written for an adopter type). Fall back to the union pillar so the
+        # adopter's per-type contract is actually READ (pre-fix it was 0-readers).
+        B2_PATTERN=$(jq -r --arg t "$B2_TYPE" '.file_type_contracts[$t].historical_data_warning_pattern // empty' <<<"$UNION_JSON" 2>/dev/null || true)
       fi
     fi
   fi
@@ -1781,7 +1747,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   if [[ -n "$B2_PATTERN" ]]; then
     if printf '%s\n' "$B2_BASENAME" | grep -qE "$B2_PATTERN"; then
       # Extract leading YYYY-MM-DD date portion if present.
-      B2_PARSED_DATE=$(printf '%s\n' "$B2_BASENAME" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+      B2_PARSED_DATE=$(printf '%s\n' "$B2_BASENAME" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE "$B2_PATTERN"' (:1815) whose default ^\d{4}-\d{2}-\d{2} is equivalent to this ^[0-9]{4}-[0-9]{2}-[0-9]{2} (BSD grep -E \d==[0-9]); guarded by [[ -n "$B2_PARSED_DATE" ]] at :1818
       if [[ -n "$B2_PARSED_DATE" ]] && [[ "$B2_PARSED_DATE" < "$B2_TODAY" ]]; then
         B2_CTX="[Historical Data Warning] This file's basename indicates a past date (${B2_PARSED_DATE} < ${B2_TODAY} in ${B2_TZ}). Are you intentionally modifying historical content? If you're capturing a correction or addendum, consider creating a new dated file referencing the original instead. (Advisory only — write proceeds.) Source pattern: $([ -n "$B2_TYPE" ] && echo "file-type-contracts/${B2_TYPE}.md.json :: historical_data_warning_pattern" || echo "vault-writers-rules.json :: historical_data_warning_default")."
         format_output_allow "PreToolUse" "$B2_CTX"
@@ -1812,6 +1778,21 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] &&
       # from B3_CONTRACT (the file-type-contract pillar 6 file); the pillar 7
       # vault_writers content is consumed by Branch #2 above. Dead-var assignment
       # removed; if a future check needs pillar 7 here, read $UNION_JSON.vault_writers.
+      # when the on-disk vault-writer.md.json is absent, fall back to the
+      # union file_type_contracts.vault-writer pillar (an adopter overlay-authored
+      # contract) — materialize it to a temp so the enum reads (frontmatter_enums
+      # writer_kind/status) consume the union pillar, closing the 0-readers gap.
+      B3_CONTRACT_TMP=""
+      if [[ ! -f "$B3_CONTRACT" ]] && [[ -n "${UNION_JSON:-}" ]]; then
+        B3_UNION_CONTRACT=$(jq -c '.file_type_contracts["vault-writer"] // empty' <<<"$UNION_JSON" 2>/dev/null || true)
+        if [[ -n "$B3_UNION_CONTRACT" ]]; then
+          B3_CONTRACT_TMP="$(mktemp 2>/dev/null || true)"
+          if [[ -n "$B3_CONTRACT_TMP" ]]; then
+            printf '%s' "$B3_UNION_CONTRACT" > "$B3_CONTRACT_TMP"
+            B3_CONTRACT="$B3_CONTRACT_TMP"
+          fi
+        fi
+      fi
       if [[ -f "$B3_CONTRACT" ]]; then
         B3_CONTENT=""
         if [[ "$TOOL_NAME" == "Write" ]]; then
@@ -1872,6 +1853,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] &&
               [[ -n "$B3_COND_MISSING" ]] && B3_PROBLEMS="${B3_PROBLEMS}Missing for writer_kind=${B3_KIND}: [${B3_COND_MISSING}]. "
             fi
 
+            [[ -n "$B3_CONTRACT_TMP" ]] && rm -f "$B3_CONTRACT_TMP" 2>/dev/null || true
             if [[ -n "$B3_PROBLEMS" ]]; then
               B3_REASON="Vault Writers/ schema violation (Branch #3 /). ${B3_PROBLEMS}Files in Vault Writers/ must be writer reference files conforming to governance/file-type-contracts/vault-writer.md.json. Use \`/govern register --kind writer\` to author new writers, or update frontmatter to match the schema. Excluded paths (_index.md, _overlap-matrix.md) are librarian-managed."
               format_output_deny "PreToolUse" "$B3_REASON"
@@ -1879,6 +1861,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$B3_VW_PREFIX"* ]] &&
             fi
           fi
         fi
+        [[ -n "$B3_CONTRACT_TMP" ]] && rm -f "$B3_CONTRACT_TMP" 2>/dev/null || true
       fi
       ;;
   esac
@@ -1989,6 +1972,7 @@ print(content, end='')
         if [[ -n "$UNION_JSON" ]]; then
           # T-6 part-2: alias keys now read from pillar-nested
           # `.frontmatter.r32_type_aliases` (was top-level `.r32_type_aliases`).
+          # errexit-crash-guard-ok: FP zero-match unreachable: the foundation bundle always ships >=1 non-_description frontmatter.type key; empty falls through to the [[ -z ]] fallback at :2037
           R32_UNION_ACCEPTED_TYPES=$(jq -r \
             '(.frontmatter.types // {} | keys[]?), (.frontmatter.r32_type_aliases // {} | keys[]?)' \
             <<<"$UNION_JSON" 2>/dev/null \
@@ -2030,15 +2014,32 @@ print(content, end='')
         R32_TAXONOMY_UNION_PREFIXES=""
         R32_TAXONOMY_UNION_LIST=""
         R32_TAXONOMY_UNION_REGEX=""
+        # fail-loud: dimension_prefixes MUST be an ARRAY of prefix-slugs.
+        # On a DICT (a legacy/corrupted overlay, or a mixed-shape union that
+        # resolves payload-wins to a dict) `.dimension_prefixes[]?` iterates dict
+        # VALUES and builds a GARBAGE regex -> status/log vanish -> every Strict-
+        # tier tagged write DENIES with a cause-free error. The old `-z` fallback
+        # fired ONLY on an EMPTY regex, so non-empty garbage slipped through.
+        # Shape-check FIRST; on wrong-shape fail LOUD (foundation-only fallback +
+        # explicit shape warning) rather than silently into garbage.
+        R32_TAXONOMY_SHAPE_OK=1
         if [[ -n "$UNION_JSON" ]]; then
-          R32_TAXONOMY_UNION_PREFIXES=$(jq -r '.tagging.taxonomy.dimension_prefixes[]?' <<<"$UNION_JSON" 2>/dev/null)
-          if [[ -n "$R32_TAXONOMY_UNION_PREFIXES" ]]; then
-            R32_TAXONOMY_UNION_LIST=$(echo "$R32_TAXONOMY_UNION_PREFIXES" | awk 'NF{printf "#%s/, ", $0}' | sed 's/, $//')
-            R32_TAXONOMY_UNION_REGEX=$(echo "$R32_TAXONOMY_UNION_PREFIXES" | awk 'NF{printf "%s|", $0}' | sed 's/|$//')
+          R32_TAXONOMY_LEAF_TYPE=$(jq -r '.tagging.taxonomy.dimension_prefixes | type' <<<"$UNION_JSON" 2>/dev/null)
+          if [[ "$R32_TAXONOMY_LEAF_TYPE" == "array" ]]; then
+            R32_TAXONOMY_UNION_PREFIXES=$(jq -r '.tagging.taxonomy.dimension_prefixes[]?' <<<"$UNION_JSON" 2>/dev/null)
+            if [[ -n "$R32_TAXONOMY_UNION_PREFIXES" ]]; then
+              R32_TAXONOMY_UNION_LIST=$(echo "$R32_TAXONOMY_UNION_PREFIXES" | awk 'NF{printf "#%s/, ", $0}' | sed 's/, $//')
+              R32_TAXONOMY_UNION_REGEX=$(echo "$R32_TAXONOMY_UNION_PREFIXES" | awk 'NF{printf "%s|", $0}' | sed 's/|$//')
+            fi
+          elif [[ -n "$R32_TAXONOMY_LEAF_TYPE" ]] && [[ "$R32_TAXONOMY_LEAF_TYPE" != "null" ]]; then
+            # Wrong-shape leaf present (dict/other) — fail LOUD, do NOT build garbage.
+            R32_TAXONOMY_SHAPE_OK=0
+            printf 'pre-write-guard.sh: R-32 tagging.taxonomy.dimension_prefixes wrong-shape (%s, expected array) — falling back to the foundation-only tag-prefix allowlist. Re-run `/govern register --kind tag-extension` (array-shape emit) to repair the overlay.\n' "$R32_TAXONOMY_LEAF_TYPE" >&2
           fi
         fi
-        # Fall-back: helper unavailable → foundation-only regex/list
-        if [[ -z "$R32_TAXONOMY_UNION_REGEX" ]]; then
+        # Fall-back: helper unavailable, EMPTY regex, OR wrong-shape leaf →
+        # foundation-only regex/list (fail loud, not into garbage).
+        if [[ -z "$R32_TAXONOMY_UNION_REGEX" ]] || [[ "$R32_TAXONOMY_SHAPE_OK" != "1" ]]; then
           R32_TAXONOMY_UNION_REGEX="$GATE_R47_PREFIX_REGEX"
           R32_TAXONOMY_UNION_LIST="$GATE_R47_PREFIX_LIST"
         fi
@@ -2133,6 +2134,7 @@ print(content, end='')
         # (daily-note, people, log, weekly-summary, daily-archive,
         # inbox-archive, meeting-note). Adopters extend by declaring
         # additional types with expected_path via overlay-master.json.
+        #
         # SCHEMA_KEY gate intentionally dropped: SCHEMA_KEY is foundation-only
         # (built from GATE_R32_ACCEPTED_TYPES at, BUNDLE_JSON-sourced),
         # so an overlay-only type would have empty SCHEMA_KEY and never fire
@@ -2171,7 +2173,7 @@ print(content, end='')
         TAGS_BLOCK=$(echo "$FRONTMATTER" | awk '/^tags:[[:space:]]*$/{found=1;next} found && /^  - /{print; next} found{exit}')
         TAGS_INLINE_CONTENT=""
         if echo "$FRONTMATTER" | grep -qE '^tags:[[:space:]]*\['; then
-          TAGS_INLINE_CONTENT=$(echo "$FRONTMATTER" | grep -E '^tags:[[:space:]]*\[' | head -1 | sed -E 's/^tags:[[:space:]]*\[[[:space:]]*//; s/[[:space:]]*\].*//')
+          TAGS_INLINE_CONTENT=$(echo "$FRONTMATTER" | grep -E '^tags:[[:space:]]*\[' | head -1 | sed -E 's/^tags:[[:space:]]*\[[[:space:]]*//; s/[[:space:]]*\].*//')  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE ^tags:...\[' (:2219) which uses the identical pattern, guaranteeing this grep matches
         fi
         TAGS_RAW="${TAGS_INLINE_CONTENT}${TAGS_BLOCK}"
 
@@ -2180,6 +2182,7 @@ print(content, end='')
         # write has missing or empty tags. Graph-view diagnostic per
         # feedback_tags_as_validity_diagnostic — orphan files surface as
         # enforcement alerts. Observation gate 2026-05-19.
+        #
         # POSITIVE-LIST SEMANTICS (T-3, 2026-04-22):
         # Exempt paths are enumerated explicitly below. Future top-level folder
         # additions MUST either (a) add a path pattern here or (b) rely on

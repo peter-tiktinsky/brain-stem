@@ -114,23 +114,35 @@ def derive_glob(path):
     return MUSTACHE.sub("*", path)
 
 def writer_destinations(fm_block):
-    """Best-effort extraction of destination path tokens + write_shape from a
-    writer-reference frontmatter block. Tolerates inline-list or block-list
-    YAML for destinations[].path and an optional destinations[].write_shape."""
+    """Shared block-list-aware destination extraction. The first-pass
+    line-anchored reader captures block-list `- path: X` and single-line `path: X`
+    with a char-class that does NOT exclude `}`, so a `{{mustache}}` destination is
+    captured WHOLE (never truncated at the first `}`). Inline flow-style
+    `destinations: [{path: X}]` is captured by a SEPARATE bracket-scoped pass whose
+    `}`/`,`/`]` delimiters fire ONLY on genuine flow-style lines (a block-list
+    mustache line has no `[` and was captured whole above — Risk row 3 guard).
+    Pure-regex, no PyYAML. The prior redundant 2nd inline pass ran a `[^"',}\n]`
+    char-class over the WHOLE block and truncated block-list mustache paths at the
+    first `}`, injecting a garbage token derive_glob could not collapse -> a phantom
+    cluster + duplicate findings; it is DROPPED."""
     paths = []
     shapes = []
     for line in fm_block.splitlines():
         m = re.search(r"(?:^|[-\s])path:\s*[\"']?([^\"'\n]+?)[\"']?\s*$", line)
         if m:
-            paths.append(m.group(1).strip())
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
         m2 = re.search(r"write_shape:\s*[\"']?([A-Za-z0-9_-]+)", line)
         if m2:
             shapes.append(m2.group(1).strip())
-    # also catch a single inline "destinations: [ {path: X} ]" style
-    for m in re.finditer(r"path:\s*[\"']?([^\"',}\n]+)", fm_block):
-        v = m.group(1).strip()
-        if v and v not in paths:
-            paths.append(v)
+    for line in fm_block.splitlines():
+        if "[" not in line:
+            continue
+        for m in re.finditer(r"path:\s*[\"']?([^\"',}\]\n]+)", line):
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
     return paths, shapes
 
 def writer_name(fm_block, fallback):
@@ -162,7 +174,10 @@ for fn in sorted(os.listdir(writers_dir)):
         g = derive_glob(p)
         glob_writers.setdefault(g, set()).add(name)
         writer_shape[(g, name)] = shape
-        writer_paths.setdefault(name, []).append(g)
+        # dedupe: a writer contributing the SAME glob twice (e.g. two paths that
+        # collapse to one *-glob) must not double-count into a cluster.
+        if g not in writer_paths.setdefault(name, []):
+            writer_paths[name].append(g)
 
 clusters = {g: sorted(ws) for g, ws in glob_writers.items() if len(ws) >= 2}
 

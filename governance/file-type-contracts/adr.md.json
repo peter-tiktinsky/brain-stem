@@ -9,7 +9,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "decision_records",
   "_design_notes": {
-    "consumer": "librarian plan-index (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
+    "consumer": "librarian plan-decision-log (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
     "lockstep_pair": "governance/plans-rules.json :: decision_records (convention) + schemas/plan-manifest-schema.json :: decision_records[] (manifest pointer shape)",
     "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + plans-rules.json decision_records convention + plan-manifest-schema.json decision_records[] + governance/_index.json coupled_surfaces move in one commit"
   },

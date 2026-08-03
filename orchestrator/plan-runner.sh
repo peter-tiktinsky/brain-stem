@@ -198,7 +198,7 @@ topo_order() {
       if grep -q "^${b}	" "$indeg_file"; then
         printf '%s\t%s\n' "$slug" "$b" >> "$edges_file"
         local cur
-        cur=$(grep "^${b}	" "$indeg_file" | head -1 | cut -f2)
+        cur=$(grep "^${b}	" "$indeg_file" | head -1 | cut -f2)  # errexit-crash-guard-ok: FP zero-match impossible (outer grep -q at :204 guarantees a match) + errexit suppressed: topo_order runs only inside ORDER=$(topo_order) cmd-sub
         cur=$((cur + 1))
         grep -v "^${b}	" "$indeg_file" > "${indeg_file}.t" || true
         printf '%s\t%s\n' "$b" "$cur" >> "${indeg_file}.t"
@@ -212,7 +212,7 @@ topo_order() {
   total=$(wc -l < "$indeg_file" | tr -d ' ')
   while [ "$emitted" -lt "$total" ]; do
     local ready
-    ready=$(grep '	0$' "$indeg_file" | head -1 | cut -f1)
+    ready=$(grep '	0$' "$indeg_file" | head -1 | cut -f1)  # errexit-crash-guard-ok: FP errexit suppressed: topo_order runs only inside ORDER=$(topo_order) cmd-sub (bash 3.2 cmd-subs don't inherit -e); cycle zero-match handled by [ -z "$ready" ] at :222
     if [ -z "$ready" ]; then
       # Cycle or no zero-in-degree node left — emit the remainder as-is
       # (R-63: sub-peer cycles route through the master; advisory).
@@ -226,11 +226,11 @@ topo_order() {
     printf '%s\t-1\n' "$ready" >> "${indeg_file}.t"
     mv "${indeg_file}.t" "$indeg_file"
     local succ
-    succ=$(grep "^${ready}	" "$edges_file" 2>/dev/null | cut -f2)
+    succ=$(grep "^${ready}	" "$edges_file" 2>/dev/null | cut -f2)  # errexit-crash-guard-ok: FP errexit suppressed via ORDER=$(topo_order) cmd-sub; leaf-node empty succ tolerated by 'for s in $succ'
     local s
     for s in $succ; do
       local cur
-      cur=$(grep "^${s}	" "$indeg_file" | head -1 | cut -f2)
+      cur=$(grep "^${s}	" "$indeg_file" | head -1 | cut -f2)  # errexit-crash-guard-ok: FP zero-match impossible (edge target $s always present in indeg_file) + errexit suppressed via cmd-sub
       [ "$cur" = "-1" ] && continue
       cur=$((cur - 1))
       grep -v "^${s}	" "$indeg_file" > "${indeg_file}.t" || true

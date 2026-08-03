@@ -150,11 +150,30 @@ def fm_field(fmb, key):
     return m.group(1).strip() if m else ""
 
 def fm_paths(fmb):
+    # Shared block-list-aware destination-path extraction (the SAME reader
+    # as writers-overlap-refresh.sh writer_destinations + writers-index-refresh.sh
+    # _dest_paths). The first-pass line-anchored reader captures block-list
+    # `- path: X` with a char-class that does NOT exclude `}`, so a `{{mustache}}`
+    # destination is captured WHOLE — the prior `[^"',}\n]` char-class truncated it
+    # at the first `}` -> MUSTACHE.sub left a broken token -> the glob matched
+    # nothing -> a false unresolved-destination even when the path genuinely
+    # resolves. Inline flow-style `destinations: [{path: X}]` is captured by a
+    # bracket-scoped pass whose `}`/`,`/`]` delimiters fire ONLY on genuine
+    # flow-style lines. Pure-regex, no PyYAML (no new runtime prereq).
     paths = []
-    for m in re.finditer(r"path:\s*[\"']?([^\"',}\n]+)", fmb):
-        v = m.group(1).strip()
-        if v:
-            paths.append(v)
+    for line in fmb.splitlines():
+        m = re.search(r"(?:^|[-\s])path:\s*[\"']?([^\"'\n]+?)[\"']?\s*$", line)
+        if m:
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
+    for line in fmb.splitlines():
+        if "[" not in line:
+            continue
+        for m in re.finditer(r"path:\s*[\"']?([^\"',}\]\n]+)", line):
+            v = m.group(1).strip()
+            if v and v not in paths:
+                paths.append(v)
     return paths
 
 # skill registry slug set

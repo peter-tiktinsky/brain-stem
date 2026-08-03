@@ -1,5 +1,6 @@
 #!/bin/bash
 # Hook: spec-context-inject — Inject the active plan's spec authority as context.
+#
 # PRIMARY firing: SessionStart (+ source:compact). The goal-anchor lands from turn 1
 # and re-fires after compaction (fixing post-compaction instruction loss). The
 # UserPromptSubmit slot is RETAINED for (a) picking up a mid-session arming (the
@@ -9,18 +10,23 @@
 # Behavior: master/sub plans are first-class (the master-spec payload is
 # load-bearing); the canonical status vocabulary gates firing; agent-reload
 # loads non-superseded decision_records[].
+#
 # Trigger: keys on the canonical `status == in-progress` (re-points off the
 # retired top_level_status). The hook fires for in-progress plans the foundation ships;
-# closed/superseded/completed/etc. plans are skipped.
+# completed/superseded/etc. plans are skipped.
+#
 # 3-way payload dispatch:
 #   flat  -> own spec head + manifest AC + non-superseded decision_records[]
 #   sub   -> own spec head + AC + master spec head + master sub_plans[] sibling-status
 #            + master dependencies + non-superseded decision_records[]
 #   master-> own spec head + sub_plans[] rollup + non-superseded decision_records[]
+#
 # Sentinel keyed (session x plan x source) so a compaction re-fires (a fresh
 # source:compact gets a distinct sentinel from the original source:startup).
+#
 # Injected text is FACTUAL, not imperative ("The authoritative spec for the active
 # plan is <path>. ...") per + Anthropic hooks prompt-injection guidance.
+#
 # Fail-open: silent on any error; never blocks. Size-capped below the hook-output
 # validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (portable;
 # NO literal $HOME/.claude path in the body).
@@ -171,15 +177,13 @@ TARGET_ABS="$HOME/$PLAN_REL"
 
 TARGET_MANIFEST="$TARGET_ABS/manifest.json"
 
-# (T-13): closed-skip exit-case keyed on the canonical vocabulary.
-# Re-point off the's non-canonical spellings: `complete`->`completed`;
-# DROP `cancelled` (not in the 8-state enum); KEEP `closed` + `superseded` +
-# `archived` (canonical terminal states). The hook already reads `.status`
-# (NOT top_level_status) — preserved. here is a schema-field
-# CANONICALIZATION, not a field rename (the schema retired top_level_status at).
+# Terminal-skip exit-case keyed on the canonical 6-state vocabulary: a terminal
+# plan gets no active-context injection. The terminal set is {completed, superseded}
+# (completed is the sole terminal done-state; superseded is the off-ramp). The hook
+# reads `.status` (NOT the retired top_level_status alias).
 TARGET_STATUS=$(manifest_status "$TARGET_MANIFEST")
 case "$TARGET_STATUS" in
-  closed|completed|verified|superseded|archived) exit 0 ;;
+  completed|superseded) exit 0 ;;
 esac
 
 # Determine the plan TYPE for the 3-way dispatch.

@@ -11,7 +11,15 @@
 # pending-investigations-reminder.sh.
 # Fail-open: any error / missing manifest exits 0 with no output.
 
-MANIFEST="${MANIFEST_PATH:-${CLAUDE_STATE_ROOT:-$HOME/.claude/state}/manifests/librarian-manifest.json}"
+# Source the canonical path resolver so $CLAUDE_STATE_ROOT resolves to the real XDG
+# state tier (the pattern the librarian capabilities use; canonical resolver at
+# hooks/lib/manifest.sh). SCRIPT_DIR-relative so it resolves both in the installed
+# layout (~/.claude/hooks/lib/paths.sh) and the source tree. Best-effort: sourcing is
+# fail-open (2>/dev/null || true) so a missing lib never turns the reader fatal.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || true
+
+MANIFEST="${MANIFEST_PATH:-$CLAUDE_STATE_ROOT/manifests/librarian-manifest.json}"
 [ -r "$MANIFEST" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 

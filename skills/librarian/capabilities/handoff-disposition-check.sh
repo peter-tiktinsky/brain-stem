@@ -11,7 +11,10 @@
 # Unresolved-language regex (case-insensitive):
 #   (^|[^a-z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)([^a-z]|$)
 #
-# Disposition tags (same line or next 2 lines after hit):
+# Disposition tags (same line, or within the next 2 lines — SCOPED PER-ITEM: the
+# lookahead is TRUNCATED at the first subsequent line that is itself a hit-line or
+# starts a new bullet/list item, so a disposition belonging to the NEXT item can
+# no longer satisfy this hit):
 #   FIX NOW | ABSORB | STANDALONE | deferred-to:<slug>
 #
 # Emits blocking finding 'handoff-disposition-missing' per unresolved hit.
@@ -88,6 +91,9 @@ disp_re = re.compile(
     r"\b(FIX NOW|ABSORB|STANDALONE|deferred[- ]to:)",
     re.IGNORECASE,
 )
+# A new bullet / ordered-list item starts a new logical item — the per-item
+# disposition-window boundary.
+item_re = re.compile(r"^\s*([-*+]|\d+[.)])\s")
 try:
     with open(path) as f:
         lines = f.readlines()
@@ -97,8 +103,19 @@ for i, line in enumerate(lines):
     m = hit_re.search(line)
     if not m:
         continue
-    # Window: current line + 2 lookahead lines.
-    window = "".join(lines[i:i+3])
+    # Per-item disposition window: the hit's OWN line plus up to 2 lookahead
+    # lines, TRUNCATED at the first subsequent line that is itself a
+    # hit-line or starts a new bullet/list item — a disposition beyond that
+    # boundary belongs to the NEXT item and must not satisfy this hit. R-25's
+    # "same line or within the next 2 lines" contract holds for the single-item
+    # case; only the cross-item bleed is closed.
+    window_lines = [line]
+    for j in range(i + 1, min(i + 3, len(lines))):
+        nxt = lines[j]
+        if hit_re.search(nxt) or item_re.match(nxt):
+            break
+        window_lines.append(nxt)
+    window = "".join(window_lines)
     if disp_re.search(window):
         continue
     # Emit one record per missing-disposition hit.

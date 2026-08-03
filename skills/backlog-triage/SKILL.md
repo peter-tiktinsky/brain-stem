@@ -60,11 +60,18 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
 
 **Schema:** idea-note frontmatter validated against
 `governance/plans-rules.json :: inbox.note_frontmatter` before write — `type: idea`;
-required `{title, type, status, created}`; `status ∈ inbox.funnel_status_enum`
-(`new / triaged / briefed`); `disposition ∈ backlog_row.disposition_enum`
-(`FIX NOW / ABSORB / STANDALONE / DEFERRED`) when set. The note is NOT a
-`frontmatter-rules.json#types` vault type — it lives in the plans tree, hook-unblocked
-(`hooks/lib/plan-path.sh::classify_plan_path` returns `is_plan=0`).
+required `{title, type, status, created, project}` (`project:` is the registry-resolved
+owning-spoke key, stamped mechanically at capture); optional
+`{updated, disposition, tags, related, promoted_to, absorbed_into, resolution, resolved_at}`;
+`status ∈ inbox.funnel_status_enum` (`new / triaged / briefed`);
+`disposition ∈ backlog_row.disposition_enum` (`FIX NOW / ABSORB / STANDALONE / DEFERRED`)
+when set. The disposition TARGET is a machine-joinable plan-dir key —
+`absorbed_into:` for ABSORB, `promoted_to:` for a graduated idea — resolvable against the
+plan roster as `NN-<slug>` or a sub-plan `NN-<slug>/SS-<subslug>`, with an optional
+` :: T-N` task suffix. The terminal `resolution ∈ {promoted, absorbed, resolved, dropped}`
+(+ `resolved_at`) is stamped by the `librarian:backlog-index` closure loop, not by triage.
+The note is NOT a `frontmatter-rules.json#types` vault type — it lives in the plans tree,
+hook-unblocked (`hooks/lib/plan-path.sh::classify_plan_path` returns `is_plan=0`).
 
 **Pre-write validation:**
 1. Read the unified `_backlog.md` view + every `_inbox/*.md` note + every
@@ -77,6 +84,15 @@ required `{title, type, status, created}`; `status ∈ inbox.funnel_status_enum`
 5. In `--item` mode, refuse if the target note is not in `new` status — triage is a one-way
    `new → triaged` transition. (A `briefed` note has already been researched; re-triaging is a no-op.)
 6. In item mode, only the target note is modified; every other inbox note + manifest is byte-identical.
+7. **ABSORB requires a machine-resolvable target** (R-25's inbox mirror — the "specific
+   target" discipline). Refuse an `ABSORB` disposition unless `absorbed_into:` names a
+   target that resolves against the plans root as an **existing plan dir** `NN-<slug>` or
+   sub-plan dir `NN-<slug>/SS-<subslug>` (an optional ` :: T-N` task suffix is stripped for
+   the existing-plan-dir check). A body-prose "master T-2" with no resolvable
+   `absorbed_into:` is a block-and-log failure — an ABSORB with nowhere to land is exactly
+   the stale-frontmatter class this funnel closes. (The mechanical backstop for a note that
+   slips past triage is the `inbox-absorb-target-missing` finding the `librarian:backlog-index`
+   closure loop emits.)
 
 **Failure mode:** **block and log** — the skill aborts on validation failure rather
 than writing partial state. The capture helper validates before any write and rolls
@@ -149,7 +165,7 @@ Classification rules:
 ### 4. Capture (inline-idea mode) or classify-in-place (`--item` mode)
 
 **Inline-idea mode (capture + classify):**
-1. Delegate capture to the mechanical helper — it renders `templates/idea-note-template.md`, applies the inbox `slug_pattern`, and version-on-collision protects an existing capture:
+1. Delegate capture to the mechanical helper — it writes the idea-note shape (field-parity with `templates/idea-note-template.md`), stamps the registry-resolved `project:` key, applies the inbox `slug_pattern`, and version-on-collision protects an existing capture:
    ```sh
    FOUNDATION_REPO={foundation_repo} bash {foundation_repo}/skills/new-plan/lib/promote-from-inbox.sh --capture <slug> [--title "<Human Title>"]
    ```
@@ -172,6 +188,7 @@ Do NOT touch `_backlog.md` in either mode — the next `librarian:backlog-index`
 Item: <slug>  (_inbox/<slug>.md)
 Funnel status: <new | triaged>
 Disposition: <FIX NOW | ABSORB | STANDALONE | DEFERRED | —>
+Target: <absorbed_into: NN-<slug>[/SS-<subslug>][ :: T-N] — REQUIRED + resolvable for ABSORB; — otherwise>
 Rationale: <2-3 sentences>
 Related items: <linked items, if any>
 Next step: <e.g. "Ready for /backlog-research" or "Merge with <item>">

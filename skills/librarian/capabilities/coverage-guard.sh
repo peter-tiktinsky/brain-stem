@@ -110,17 +110,18 @@ PY
   manifest_set ".drift_findings.coverage_guard" "$summary" 2>/dev/null || true
 }
 
-# --- adopter-degrade: corpus absent -> block-and-log no-op, exit 0 -------------
+# --- adopter-degrade: corpus absent -> pure no-op, exit 0 ----------------------
+# The 58-sentinel corpus is test infrastructure (band-4), absent on EVERY adopter
+# install, so this path is GUARANTEED on every clean adopter close. It MUST NOT emit
+# a counted finding: session-close tallies findings via `wc -l`, so any emit here
+# floors findings-total >=1 and contradicts the "clean vault is 0" invariant. Report
+# to stdout + record a no-op scan summary in the manifest (a subtree write via
+# manifest_set, NOT a counted finding); emit NOTHING into the counted findings stream.
 if [ ! -f "$CORPUS" ]; then
-  if [ "$MODE" != "dry-run" ]; then
-    emit_finding "coverage-guard-corpus-absent" "$CORPUS" \
-      "level" "info" \
-      "detail" "sentinel corpus not present (test infrastructure, not shipped) — coverage-guard is a no-op on this install"
-  fi
   _cg_manifest_write "$CORPUS" 0 0 0 0 0
   echo "## Coverage Guard (no-op: corpus absent)"
   echo ""
-  echo "- corpus not found: $CORPUS"
+  echo "- corpus not found: $CORPUS (test infrastructure, not shipped) — no counted finding contributed"
   exit 0
 fi
 
@@ -147,6 +148,7 @@ ORCH="$TESTS_DIR/install-verify-orchestrator.sh"
 
 SENTINELS_TOTAL=0
 SENTINELS_ESCAPED=0
+SENTINELS_INFRA=0
 ALLOWLIST_SCOPES=0
 ALLOWLIST_NONEMPTY=0
 FINDINGS_N=0
@@ -185,19 +187,33 @@ while IFS=$'\t' read -r sid fx; do
   # the orchestrator invokes them in. Each gets its OWN fresh runtime-state jail;
   # stdin from /dev/null so a stdin-reading fixture cannot drain the enumeration.
   _cg_hs="$(mktemp -d 2>/dev/null)"
-  if env -i \
+  env -i \
        HOME="${HOME:-}" PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" \
        TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
        USER="${USER:-}" LOGNAME="${LOGNAME:-}" \
        FOUNDATION_REPO="$REPO" HOOKS_STATE_OVERRIDE="$_cg_hs" \
        CLAUDE_HOME="$_cg_hs/no-claude-home" \
-       bash "$fpath" >/dev/null 2>&1 </dev/null; then
-    rm -rf "$_cg_hs"
+       bash "$fpath" >/dev/null 2>&1 </dev/null
+  _fx_rc=$?
+  rm -rf "$_cg_hs"
+  if [ "$_fx_rc" -eq 0 ]; then
+    :   # sentinel CAUGHT its planted defect (fixture exit 0)
+  elif [ "$_fx_rc" -eq 2 ]; then
+    # exit-2 is every fixture harness's documented SETUP / INFRA-DEGRADED exit: a
+    # dependency the clean env cannot supply (e.g. a sub-invocation that cannot
+    # source its libs under the deliberately-nonexistent CLAUDE_HOME), NOT a sentinel
+    # escape. Reserve it as a DISTINCT info outcome that does NOT count as an escape
+    # and does NOT floor findings/RED. A genuine escape still exits 1/error and IS
+    # counted below — so the fix cannot mask a real escape as infra-degraded.
+    SENTINELS_INFRA=$((SENTINELS_INFRA + 1))
+    [ "$MODE" != "dry-run" ] && emit_finding "coverage-guard-sentinel-infra-degraded" "$fx" \
+      "level" "info" "sentinel_id" "$sid" "reason" "fixture-infra-degraded" \
+      "detail" "fixture exited 2 (setup/infra-degraded in the clean env) — reserved as infra, not counted as a sentinel escape"
+    REPORT="${REPORT}- coverage-guard-sentinel-infra-degraded: id=$sid $bn (fixture exit-2 infra-degraded — NOT an escape)"$'\n'
   else
-    rm -rf "$_cg_hs"
     SENTINELS_ESCAPED=$((SENTINELS_ESCAPED + 1)); FINDINGS_N=$((FINDINGS_N + 1))
     [ "$MODE" != "dry-run" ] && emit_finding "coverage-guard-sentinel-escaped" "$fx" \
-      "level" "error" "sentinel_id" "$sid" "reason" "fixture-red"
+      "level" "error" "sentinel_id" "$sid" "reason" "fixture-red" "exit_code" "$_fx_rc"
     REPORT="${REPORT}- coverage-guard-sentinel-escaped: id=$sid $bn (fixture RED — planted defect not caught)"$'\n'
   fi
 done < <(jq -r '.sentinels[] | [(.id|tostring), .fixture] | @tsv' "$CORPUS")
@@ -235,9 +251,9 @@ done < <(jq -r '(._carried_forward // {}) | to_entries[] | [.key, .value] | @tsv
 # === self-parity manifest write + report ======================================
 _cg_manifest_write "$CORPUS" "$SENTINELS_TOTAL" "$SENTINELS_ESCAPED" "$ALLOWLIST_SCOPES" "$ALLOWLIST_NONEMPTY" "$FINDINGS_N"
 
-printf '## Coverage Guard (%d finding%s: sentinels=%d escaped=%d allowlist-scopes=%d allowlist-nonempty=%d)\n\n' \
+printf '## Coverage Guard (%d finding%s: sentinels=%d escaped=%d infra-degraded=%d allowlist-scopes=%d allowlist-nonempty=%d)\n\n' \
   "$FINDINGS_N" "$([ "$FINDINGS_N" = "1" ] && echo '' || echo 's')" \
-  "$SENTINELS_TOTAL" "$SENTINELS_ESCAPED" "$ALLOWLIST_SCOPES" "$ALLOWLIST_NONEMPTY"
+  "$SENTINELS_TOTAL" "$SENTINELS_ESCAPED" "$SENTINELS_INFRA" "$ALLOWLIST_SCOPES" "$ALLOWLIST_NONEMPTY"
 if [ -n "$REPORT" ]; then
   printf '%s' "$REPORT"
 else

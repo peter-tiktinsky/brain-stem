@@ -288,9 +288,13 @@ for f in "$MEMORY_DIR"/*.md; do
         fi
 
         ORIG="$line"
-        line=$(echo "$line" | sed -E "s/\byesterday\b/$YESTERDAY/gi")
-        line=$(echo "$line" | sed -E "s/\btoday\b/$ANCHOR/gi")
-        line=$(echo "$line" | sed -E "s/\btomorrow\b/$TOMORROW/gi")
+        # Portable word boundary: BSD sed treats `\b` as a literal backspace (a silent
+        # no-op on macOS), so anchor on non-alphanumeric capture groups (valid on BOTH
+        # BSD and GNU sed). \1/\3 re-emit the surrounding boundary chars; the plural
+        # (`yesterdays`) is spared because its trailing char is alphanumeric.
+        line=$(echo "$line" | sed -E "s/(^|[^[:alnum:]])(yesterday)([^[:alnum:]]|\$)/\1$YESTERDAY\3/gi")
+        line=$(echo "$line" | sed -E "s/(^|[^[:alnum:]])(today)([^[:alnum:]]|\$)/\1$ANCHOR\3/gi")
+        line=$(echo "$line" | sed -E "s/(^|[^[:alnum:]])(tomorrow)([^[:alnum:]]|\$)/\1$TOMORROW\3/gi")
 
         if [[ "$line" != "$ORIG" ]]; then
           CHANGED=true

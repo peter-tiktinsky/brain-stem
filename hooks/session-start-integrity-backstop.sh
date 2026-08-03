@@ -108,10 +108,18 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
   /usr/bin/lockf -k -t 2 "$REGISTRY_LOCK" "$0" "$@" >/dev/null 2>&1 || true
   # --- lock RELEASED here. Spawn the detached close ONCE if the child found a crash.
   if [ -f "$AUTO_CLOSE_FOUND_SENTINEL" ]; then
+    # The re-exec'd child wrote the crashed session's id into the sentinel content; read it
+    # and thread it into the detached close so the recovery close reconciles the CRASHED
+    # session's spoke/handoff, not the recovering session's own $PWD.
+    _crashed_sid="$(head -1 "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null | tr -d '[:space:]')"
     rm -f "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
-      ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+      if [ -n "$_crashed_sid" ]; then
+        ( "$SESSION_CLOSE" --session-id "$_crashed_sid" >/dev/null 2>&1 & ) || true
+      else
+        ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+      fi
     fi
   fi
   # T-8: SessionStart reconcile trigger, fired here in the LOCK-RELEASED context
@@ -130,6 +138,7 @@ reg=$(read_registry 2>/dev/null) || exit 0
 sids=$(printf '%s' "$reg" | jq -r '.sessions // {} | keys[]' 2>/dev/null) || exit 0
 
 found=0
+crashed_sid=""
 for sid in $sids; do
   status=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].status // ""' 2>/dev/null)
   swept=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].auto_close_swept_at // ""' 2>/dev/null)
@@ -163,6 +172,11 @@ for sid in $sids; do
   # Crashed/killed session that never closed cleanly + unswept -> mark it swept.
   reg=$(printf '%s' "$reg" | jq --arg s "$sid" --arg now "$now" \
     '.sessions[$s].auto_close_swept_at = $now' 2>/dev/null)
+  # Capture the FIRST crashed session's id to thread into the recovery close spawn, so the
+  # detached close reconciles the CRASHED session's spoke/handoff (session-close reads
+  # .sessions[<id>].touched_files for its R-25 scan) rather than the recovering session's
+  # own $PWD. The spawn fires once; the first crashed row is the threaded identity.
+  [ -z "$crashed_sid" ] && crashed_sid="$sid"
   found=1
 done
 
@@ -178,13 +192,20 @@ done
 if [ "$found" -eq 1 ]; then
   [ -n "$reg" ] && write_registry "$reg"
   if [ -n "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] && [ -n "${AUTO_CLOSE_FOUND_SENTINEL:-}" ]; then
-    # Locked re-exec: hand the found flag to the lock-released parent; DO NOT spawn.
-    : > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    # Locked re-exec: hand the crashed session's id to the lock-released parent via the
+    # sentinel CONTENT (the parent — which does not run this sweep — reads it back and
+    # threads it into the spawn); DO NOT spawn here (the spawn must run lock-released).
+    printf '%s\n' "$crashed_sid" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
   else
-    # Unlocked (lockf-absent) inline path: no held lock to release -> spawn here.
+    # Unlocked (lockf-absent) inline path: no held lock to release -> spawn here, threading
+    # the crashed session's id so the close reconciles the crashed spoke.
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
-      ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+      if [ -n "$crashed_sid" ]; then
+        ( "$SESSION_CLOSE" --session-id "$crashed_sid" >/dev/null 2>&1 & ) || true
+      else
+        ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+      fi
     fi
   fi
 fi

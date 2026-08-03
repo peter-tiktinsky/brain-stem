@@ -343,8 +343,9 @@ emit_pairs() {
   # vault tree EXACTLY per. Includes Vault Writers/
   # + Logs/Archive/ subdir scaffolds (the Meetings/ seed folder + the meeting-note
   # TYPE/contract are parked out of foundation; ingestor parked). System Backlog carryover RETIRED
-  # 2026-05-22 per graduation (backlog + archive now live as librarian-emitted
-  # files at ~/.claude-plans/_backlog.md + _archive.md under Plans Pillar governance).
+  # graduation: the backlog now lives as a librarian-emitted file at
+  # ~/.claude-plans/_backlog.md under Plans Pillar governance (the former _archive.md is
+  # retired — migration 0007 removes it and nothing generates it).
   # cp -R wholesale matches install.sh Step 8.7 ship posture; sha256-protected baselines.
   d="$SOURCE_REPO/vault-init"
   if [ -d "$d" ]; then

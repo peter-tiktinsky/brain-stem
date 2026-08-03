@@ -1,18 +1,29 @@
 #!/bin/bash
-# sanctioned-schema-drift-detect — verify the 2 sanctioned schemas in the
+# sanctioned-schema-drift-detect — verify all shipped schemas in the
 # live tree match foundation-repo distribution-source.
 #
-# Defense-in-depth against unsanctioned drift between
-# live ~/.claude/schemas/ and foundation-repo schemas/. Sanctioned schemas
-# are plans-schema.json + plan-manifest-schema.json.
+# Defense-in-depth against unsanctioned drift between live ~/.claude/schemas/ and
+# foundation-repo schemas/. It checks all shipped schemas (schemas/*.json in the
+# foundation-manifest); the fallback pair is plans-schema + plan-manifest-schema
+# (vault-schema.json dissolved).
 #
 # Usage: sanctioned-schema-drift-detect.sh [--json]
 #
-# Env overrides (test-only; production resolves both via the install layout):
-#   FOUNDATION_REPO   default: $HOME/Code/brain-stem
+# BUILD-DOGFOOD-ONLY. This compares the LIVE schemas against the foundation-repo
+# distribution SOURCE — a diff that only has meaning where a foundation repo exists
+# (the build box). On an adopter install there is NO second copy to diff, so the cap
+# CLEAN-SKIPS (rc=0, no findings). An adopter schema TAMPER is a separate, out-of-scope
+# concern (a live-hash vs manifest-recorded-hash mechanism), NOT this live-vs-source
+# check — the clean-skip is deliberate, not a coverage regression.
+#
+# Env overrides:
+#   FOUNDATION_REPO   the foundation source repo (default: $HOME/Code/brain-stem);
+#                     when its governance/ + schemas/ are absent this is an adopter
+#                     install and the cap clean-skips
 #   LIVE_SCHEMAS      default: $HOME/.claude/schemas
 #
-# Exit 0: no drift detected (all sanctioned schemas byte-identical to source)
+# Exit 0: no drift detected (all sanctioned schemas byte-identical to source) OR
+#         adopter clean-skip (no foundation repo present)
 # Exit 1: drift detected (writes finding lines to stdout)
 # Exit 2: usage / unknown flag
 
@@ -48,6 +59,21 @@ for arg in "$@"; do
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+# Build-dogfood gate (mirrors governance-parity-audit's is_build_dogfood): the
+# live-vs-source diff only has meaning where a foundation repo exists. On an adopter
+# install (no foundation repo) there is no distribution SOURCE to diff against, so a
+# live-vs-source check is meaningless and every schema would false-report
+# MISSING-SOURCE. Clean-skip rc=0 with NO findings — a DELIBERATE adopter skip, not a
+# coverage regression (adopter schema tamper = a separate manifest-hash mechanism).
+if [ ! -d "$FOUNDATION_REPO/governance" ] || [ ! -d "$FOUNDATION_REPO/schemas" ]; then
+  if [[ "$JSON_MODE" == "true" ]]; then
+    printf '{"drift_count":0,"findings":[],"skipped":"adopter-no-foundation-repo"}\n'
+  else
+    echo "SKIP: no foundation repo at $FOUNDATION_REPO (adopter install) — build-dogfood-only ship-integrity check, clean-skip (rc=0, 0 findings)"
+  fi
+  exit 0
+fi
 
 drift_count=0
 findings=()

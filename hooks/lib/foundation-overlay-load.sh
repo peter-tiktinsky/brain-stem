@@ -38,6 +38,18 @@ FORCE_OVERRIDE=0
 # narrow via --collision-pillars <comma-sep> for testing/staged rollout.
 COLLISION_PILLARS="frontmatter,tagging,naming,mandatory_files,doc_dependencies,file_type_contracts,vault_writers,plans"
 
+# Per-leaf merge-strategy registry (read-side union). Declared UNION
+# leaves get an ORDER-PRESERVING concat+dedup in place of the bare `. * $o`
+# array-REPLACE below; every other leaf keeps deep-merge REPLACE semantics.
+# Default: the sibling hooks/lib/merge-strategy-registry.json (co-located with
+# this loader AND overlay-master-mutate.sh — the WRITE consumer of the SAME
+# registry; read + write must agree). Env override $MERGE_REGISTRY for fixture
+# testing. Empty / missing registry -> degrades to legacy REPLACE-everywhere.
+if [ -z "${MERGE_REGISTRY:-}" ]; then
+  _BS_SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd 2>/dev/null || printf '%s' "$_BS_CLAUDE_HOME/hooks/lib")
+  MERGE_REGISTRY="$_BS_SCRIPT_DIR/merge-strategy-registry.json"
+fi
+
 # ---- Usage ------------------------------------------------------------------
 
 usage() {
@@ -225,9 +237,51 @@ EOF2
   fi
 fi
 
-# ---- Deep-merge: overlay wins per R-52 --------------------------------------
+# ---- Registry-driven union merge: overlay wins per R-52, with an ----
+# ---- ORDER-PRESERVING concat+dedup on every declared-union leaf -------------
+#
+# The bare `. * $o` recursive object-merge REPLACES arrays, so every declared-
+# union leaf (merge-strategy-registry.json .strategies[*]=="union") was blindly
+# replaced instead of unioned — bricking an adopter's first non-empty extension
+# (e.g. /govern register --kind tag-extension dropped the foundation
+# status/log/project prefixes). Consume the registry and, for each declared-
+# union leaf, produce a FOUNDATION-FIRST order-preserving concat+dedup (NOT jq
+# `unique`, which sorts). Dict-shape union leaves fall back to object-recursive-
+# merge (registry _shape_handling; preserves the baseline fixture shape);
+# mixed shape (array one side / dict the other) resolves payload(overlay)-wins.
+# Every non-union leaf keeps `. * $o` REPLACE semantics. The dedup matches the
+# WRITE side (overlay-master-mutate.sh) EXACTLY so read + write agree.
+UNION_PATHS_JSON='[]'
+if [ -r "$MERGE_REGISTRY" ]; then
+  UNION_PATHS_JSON=$(jq -c '(.strategies // {}) | to_entries | map(select(.value == "union") | .key)' "$MERGE_REGISTRY" 2>/dev/null) || UNION_PATHS_JSON='[]'
+  [ -z "$UNION_PATHS_JSON" ] && UNION_PATHS_JSON='[]'
+fi
 
-UNION_JSON=$(printf '%s' "$FOUNDATION_JSON" | jq --argjson o "$OVERLAY_JSON" '. * $o' 2>/dev/null)
+UNION_JSON=$(jq -n \
+  --argjson foundation "$FOUNDATION_JSON" \
+  --argjson overlay "$OVERLAY_JSON" \
+  --argjson union_paths "$UNION_PATHS_JSON" \
+  '
+    # Order-preserving dedup: first occurrence wins, input order retained.
+    # Handles scalar AND object array members (any(.[]; . == $x) equality).
+    def opdedup: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+    ($union_paths | map(split("."))) as $usp
+    | ($foundation * $overlay) as $base
+    | reduce $usp[] as $sp ($base;
+        ($foundation | getpath($sp)) as $f
+        | ($overlay | getpath($sp)) as $o
+        | if ($f == null) and ($o == null) then .
+          elif (($f | type) == "array") and (($o | type) == "array") then
+            setpath($sp; (($f + $o) | opdedup))
+          elif (($f | type) == "object") and (($o | type) == "object") then
+            setpath($sp; ($f * $o))
+          elif $o != null then
+            setpath($sp; $o)
+          else
+            setpath($sp; $f)
+          end
+      )
+  ' 2>/dev/null)
 if [ -z "$UNION_JSON" ]; then
   printf 'foundation-overlay-load.sh: deep-merge failed\n' >&2
   exit 5

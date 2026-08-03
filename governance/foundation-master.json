@@ -157,20 +157,6 @@
       {
         "category": "C2",
         "enforcement_layer": [
-          "hooks/stop-drift-scan.sh (Stop advisory)"
-        ],
-        "failure_mode": "Files touched in a session drift from their governed shape without surfacing.",
-        "home": "meta-block",
-        "id": "R-36",
-        "name": "Touched-file drift scan",
-        "rule_text": "On Stop, touched files are scanned for drift and surfaced advisorily.",
-        "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)",
-        "status": "active",
-        "tier": "advisory"
-      },
-      {
-        "category": "C2",
-        "enforcement_layer": [
           "hooks/session-register.sh -> track-vault-write -> prompt-context.sh (default 3-hook loop)"
         ],
         "failure_mode": "The default session-wiring loop is broken or mis-ordered; coordination + context-injection degrade.",
@@ -240,28 +226,18 @@
       }
     ],
     "dissolved_schemas": {
-      "_description": "Registry of schemas that have been semantically dissolved into pillars or the foundation-master bundle. Files remain physically present in foundation-repo until the last consumer migrates. 'Dissolved' = no new authoring; canonical authority has moved to the named successors. Each entry carries `frozen_at`, `successors`, `consumer_migration_status`, `final_deletion_gating_task`.",
+      "_description": "Registry of schemas that were semantically dissolved into pillars or the foundation-master bundle. 'Dissolved' = no new authoring; canonical authority lives at the named successors. Each entry carries `frozen_at` and `successors`.",
       "governance/enforcement-map.schema.json": {
         "canonical_successor": "governance/foundation-master.json (validator pointer)",
         "consumer_redirect_target": "governance/foundation-master.json",
         "documentary_citations_preserved": "References in scope_note + source fields of governance/foundation-master.json, governance/frontmatter-rules.json, governance/tagging-rules.json, governance/mandatory-files-rules.json, governance/_index.json are historical attribution to the original design doc, not active validator reads — preserved as-is.",
         "frozen_at": "2026-05-16",
-        "reason": "Operator decision to retire entirely; rule-shape validation migrates. Validator pointer redirected to governance/foundation-master.json — the populated 8-pillar bundle already conforms to the rule shapes the retired schema defined, so it serves as the rule-shape attestation surface post-retirement.",
-        "retired_at": "2026-05-18",
-        "retirement_artifact": "governance/enforcement-map.schema.json.retired"
+        "reason": "Retired entirely; rule-shape validation migrates. Validator pointer redirected to governance/foundation-master.json — the populated 8-pillar bundle already conforms to the rule shapes the retired schema defined, so it serves as the rule-shape attestation surface post-retirement.",
+        "retired_at": "2026-05-18"
       },
       "schemas/gate-config.json": {
-        "consumer_migration_status": {
-          "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
-          "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
-          "install_sh": "PENDING — install.sh schema-copy list update pending physical deletion",
-          "tests": "PENDING — fixtures update pending; any fixture asserting gate-config presence flips to foundation-master.json equivalents",
-          "tools_build_foundation_master_sh": "READS THIS FILE — interim contributor for r32/r47 slot composition; dependency drops when the file is physically deleted"
-        },
-        "drop_then_fail_loudly_disallowed": true,
-        "final_deletion_gating_task": "gate-config physical retirement; deletion of schemas/gate-config.json + schemas/gate-config-schema.json + the tools/build-foundation-master.sh GATE_CONFIG dependency. Atomic with same-commit consumer-migration verification.",
-        "frozen_artifact_policy": "File at schemas/gate-config.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_dissolved_marker` pointer block. No new authoring against this file — all updates go to the named successors. tools/build-foundation-master.sh continues to read it as interim contributor until physical deletion.",
         "frozen_at": "2026-05-14",
+        "status": "DISSOLVED AND REMOVED — the file no longer ships; the named successors are canonical.",
         "successors": {
           "r32.accepted_types": "governance/foundation-master.json#types | keys (canonical 21) + foundation-master.json#r32_type_aliases | keys (5 aliases) — derived at runtime",
           "r32.exempt_paths": "governance/foundation-master.json#r32_exempt_paths (interim — final resting pending; frontmatter-rules.json is leading candidate)",
@@ -274,20 +250,8 @@
         }
       },
       "schemas/vault-schema.json": {
-        "consumer_migration_status": {
-          "docs": "PENDING — research/* + target-state/* + docs/* updates pending",
-          "governance_authoring": "MIGRATED — governance pillars are the canonical authoring home",
-          "hooks_config_gate_config": "DISSOLVED — gate-config frozen with marker; physical deletion pending",
-          "hooks_post_write_verify": "MIGRATED — reads foundation-master.json bundle exclusively",
-          "hooks_pre_write_guard": "MIGRATED — reads foundation-master.json bundle exclusively",
-          "install_sh": "PENDING — install.sh schema-copy list update pending",
-          "onboarding_bootstrap_schemas_sh": "PENDING — bootstrap-schemas.sh update pending",
-          "tests": "PENDING — fixtures update pending"
-        },
-        "drop_then_fail_loudly_disallowed": true,
-        "final_deletion_gating_task": "the physical file deletion happens atomically with the last consumer migration (migrate-then-drop in the same commit)",
-        "frozen_artifact_policy": "File at schemas/vault-schema.json remains intact (content preserved) and carries `_dissolved: true` top-level marker + `_canonical_successors` pointer block. No new authoring against this file — all updates go to the named successors. install.sh continues to ship the file until the ship list is updated.",
         "frozen_at": "2026-05-14",
+        "status": "DISSOLVED AND REMOVED — the file no longer ships; the named successors are canonical.",
         "successors": {
           "_path_rules": "governance/frontmatter-rules.json#path_routing (renamed for clarity)",
           "_tag_prefixes": "governance/tagging-rules.json#taxonomy.dimension_prefixes",
@@ -452,7 +416,6 @@
         "loaded_by": [
           "hooks/pre-write-guard.sh",
           "skills/librarian/capabilities/plan-index.sh",
-          "skills/librarian/capabilities/plan-archive.sh",
           "skills/librarian/capabilities/backlog-index.sh"
         ],
         "path": "plans-rules.json",
@@ -464,14 +427,13 @@
           "skills/librarian/capabilities/tasks-render.sh (renders manifest.tasks[] → tasks.md read-replica; mirrors backlog-index.sh, sentinel-bounded survivorship + --check parity)",
           "hooks/lib/plan-path.sh (classify_plan_path: _inbox/<slug>.md → is_plan=0 so R-27 prefix/status never fires; hook-unblocked inbox surface)",
           "skills/librarian/capabilities/plan-index.sh (consumes lifecycle.status_enum + root_files)",
-          "skills/librarian/capabilities/plan-archive.sh (consumes lifecycle.status_transitions.closed_to_archived)",
           "skills/librarian/capabilities/backlog-index.sh (renders {researching,planned} manifests + _inbox/*.md idea notes into the unified _backlog.md)",
           "skills/new-plan/lib/promote-from-inbox.sh (idea→plan graduation helper; migrates inbox body → 00-ideation-brief.md + scaffolds the NN- quartet)",
           "templates/idea-note-template.md (inbox capture template)",
-          "templates/{spec,tasks,handoff,ideation-brief}-template.md (plan-quartet templates; authored-to-contract — see file-type-contracts pillar coupling)",
+          "templates/ideation-brief-template.md (ideation-brief template; plan-quartet artifacts are scaffolded from skills/new-plan/templates/*.tmpl — authored-to-contract, see file-type-contracts pillar coupling)",
           "skills/backlog-triage/SKILL.md (captures/classifies _inbox/<slug>.md idea notes; consumes inbox.funnel_status_enum + backlog_row.disposition_enum)",
           "skills/backlog-research/SKILL.md (reads triaged inbox notes + {researching} manifests; --promote graduation; never hand-writes _backlog.md)",
-          "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index + archival → plan-archive; consumes backlog_row.stale_advisory_days)",
+          "skills/backlog-hygiene/SKILL.md (reports over _inbox + _backlog.md + manifests; delegates regen → backlog-index; archival is the plan-index display-only view; consumes backlog_row.stale_advisory_days)",
           "governance/foundation-master.json (forward — composed plans slot)"
         ],
         "rule_id_range": [
@@ -493,8 +455,8 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-07-14T07:14:08Z",
-    "bundle_version": "ac7a8dd17f5b58b7d65789c44ca33d06b8d0093b3e77e0ac529f84d7de15636c",
+    "built_at": "2026-07-17T03:37:24Z",
+    "bundle_version": "1cbfcf58d6fbfce9e350e178b9d548a7d987bbfeefaccbbd75c30b1d31a1f820",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-07-06T17:56:13Z",
@@ -622,7 +584,7 @@
       "$id": "brain-stem/governance/file-type-contracts/CLAUDE.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh (size cap + section presence) + hooks/post-write-verify.sh (Mustache substitution validation post-install)",
+        "consumer": "skills/onboarder (author-claude-home.sh renders the {{...}} placeholders at onboard time); documentary otherwise — no write-time guard consumes size_limits or required_sections (the size target + required sections mirror the shipped template + its locked shape record), and post-write-verify.sh explicitly skips CLAUDE.md",
         "evolution_protocol": "R-37 atomic lockstep — runtime artifact + template + alignment-lock-record updated in one commit",
         "lockstep_pair": "templates/vault-claude-md-template.md (shipped) + its locked shape record"
       },
@@ -656,7 +618,7 @@
       ],
       "size_limits": {
         "max_lines": 80,
-        "rationale": "v3.1 hard cap per operator directive.",
+        "rationale": "Hard cap keeps the always-loaded project instructions inside a bounded context budget.",
         "soft_target_lines_max": 50,
         "soft_target_lines_min": 30
       },
@@ -793,19 +755,15 @@
       },
       "consumers": [
         {
-          "implementation_target": "hooks/post-write-verify.sh",
           "loop_guard": "if [[ \"$FILE_PATH\" == */_index.md ]]; then exit 0; fi  (one-line check at hook entry)",
           "name": "post-write-verify.sh",
           "role": "Tier 1 live-sync + auto-bootstrap on Edit/Write tool calls",
-          "status": "existing-hook-extension",
           "type": "hook"
         },
         {
           "contract_path": "skills/librarian/capabilities/index-maintain.sh",
-          "implementation_target": "skills/librarian/capabilities/index-maintain.sh",
           "name": "index-maintain.sh",
           "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)",
-          "status": "new-capability",
           "type": "librarian-capability"
         }
       ],
@@ -929,7 +887,7 @@
       "$id": "brain-stem/governance/file-type-contracts/adr.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "librarian plan-index (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
+        "consumer": "librarian plan-decision-log (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
         "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + plans-rules.json decision_records convention + plan-manifest-schema.json decision_records[] + governance/_index.json coupled_surfaces move in one commit",
         "lockstep_pair": "governance/plans-rules.json :: decision_records (convention) + schemas/plan-manifest-schema.json :: decision_records[] (manifest pointer shape)"
       },
@@ -1036,7 +994,7 @@
       "contract_rationale": "A deliverable is durable, project-scoped work product the author owns and edits across its lifecycle, so the contract governs only the lifecycle frontmatter and leaves the body free-form; deliverables are too varied in shape for one body-structure to fit, and per-kind structure belongs to an archetype subtype rather than the universal base.",
       "description": "Thin lifecycle-only contract for durable, human/agent-authored deliverables under the Work/ surface — the durable + human-authored quadrant the binder, library, and workshop do not fill. Deliverables are heterogeneous (a brief, a deck-source, a memo, and a multi-page report share no body shape), so this contract governs frontmatter and lifecycle ONLY: it carries no body-structure and no length governance, leaving the body free-form. The frontmatter type registration (type: deliverable) lives in governance/frontmatter-rules.json#types.deliverable; this contract carries the lifecycle enums (status, audience) and the audit-time placement signal. Enforcement fires at BOTH layers: write-time on REGISTERED-spoke Work/ writes — the pre-write-guard.sh remap prelude rewrites a registered Work/<spoke>/ write onto the vault path BEFORE the 3-tier schema block, so the write IS governed — with the librarian suite over the Work/ symlink view as the audit-time backstop for everything else (unregistered spokes, hand-authored files reached via the scoped symlink walk). A deliverable is never machine-written. Note the bounded exception: foundation capabilities DO machine-write generated, sentinel-bounded files into the work root (the auto-maintained work-side directory map and the work-subfolder _index.md navigation files, each carrying a generated sentinel). Those generated surfaces are NOT deliverables and are out of this contract's scope; they are disjoint from the deliverable class, so the never-machine-written boundary for human/agent-authored deliverables is unchanged.",
       "frontmatter": {
-        "_note": "The real required[] enforcement surface is governance/frontmatter-rules.json#types.deliverable; this block mirrors the universal typed cohort + its value-typing for legibility. Value-typing is enforced write-time by the pre-write-guard.sh property-type format regex (R-64).",
+        "_note": "The real required[] enforcement surface is governance/frontmatter-rules.json#types.deliverable; this block mirrors the universal typed cohort + its value-typing for legibility. Value-typing is checked write-time by the pre-write-guard.sh property-type format regex (R-64) as a Tier-1 advisory — it warns, it does not block.",
         "cohort": [
           "type",
           "description",
@@ -1080,9 +1038,9 @@
       "$id": "brain-stem/governance/file-type-contracts/doc-amender-prompt.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "skills/doc-amender (T-28)",
+        "consumer": "skills/doc-amender",
         "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries",
-        "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in (per T-30)"
+        "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in"
       },
       "applies_to": {
         "path_glob": "$VAULT_WRITER_STATE_ROOT/prompts/*.md"
@@ -1236,7 +1194,7 @@
       "$id": "brain-stem/governance/file-type-contracts/handoff.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh (append-only enforcement) + skill session-close-and-handoff + librarian plan-index",
+        "consumer": "hooks/pre-write-guard.sh (heading-shape check via section_schema; append-only is documentary — no write-time DENY, per evolution_protocol) + librarian session-close + librarian plan-handoff-index",
         "evolution_protocol": "Append-only; historical session entries never edited in place. R-37 atomic lockstep — documentary-by-design (the append-only invariant is the lockstep record, NOT a write-time DENY).",
         "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet + the session-continuity protocol"
       },
@@ -1277,7 +1235,7 @@
       "$id": "brain-stem/governance/file-type-contracts/ideation-brief.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh (body-immutability enforcement post first amendment-pointer-block) + librarian plan-index",
+        "consumer": "librarian plan-index; body-immutability is documentary — no write-time DENY (no immutability guard branch), per evolution_protocol",
         "evolution_protocol": "Body frozen post-Session-1; amendments via prepended amendment-pointer-block referencing the canonical reference. Body preserved as the Session 0 research record. R-37 atomic lockstep — documentary-by-design (the frozen-body + amendment-pointer-block protocol is the lockstep record, NOT a write-time DENY).",
         "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet"
       },
@@ -1385,7 +1343,7 @@
       "$id": "brain-stem/governance/file-type-contracts/manifest.json.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh (R-27 + prose-prohibited check) + librarian plan-index + plan-archive + backlog-index",
+        "consumer": "hooks/pre-write-guard.sh (R-27) + librarian plan-index + backlog-index",
         "evolution_protocol": "R-37 atomic lockstep with tasks.md + plan-manifest-schema.json",
         "lockstep_pair": "tasks.md (R-37 coupled via manifest.tasks[]) + spec.md (R-37 coupled via spec_path) + schemas/plan-manifest-schema.json"
       },
@@ -1410,7 +1368,7 @@
       "$id": "brain-stem/governance/file-type-contracts/spec.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/pre-write-guard.sh (head-immutable enforcement post Session 1) + librarian capabilities (plan-index / plan-archive)",
+        "consumer": "librarian capabilities (plan-index); head-immutable is documentary — no write-time DENY (no immutability guard branch), a convention the plan author maintains once the head sections are frozen",
         "evolution_protocol": "R-37 atomic lockstep with plans-rules.json",
         "lockstep_pair": "governance/plans-rules.json"
       },
@@ -1452,7 +1410,7 @@
       "$id": "brain-stem/governance/file-type-contracts/tasks.md.json",
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
-        "consumer": "hooks/tasks-md-autosync.sh + librarian plan-index + manifest auto-sync sentinels (<!-- task-done: NN/T-M -->)",
+        "consumer": "hooks/tasks-md-autosync.sh + librarian tasks-render + manifest auto-sync sentinels (<!-- task-done: NN/T-M -->)",
         "evolution_protocol": "R-37 atomic lockstep with manifest.json",
         "lockstep_pair": "manifest.tasks[] in same plan-tree (R-37 coupled_surfaces)"
       },
@@ -1656,7 +1614,7 @@
         "path_routing (was vault-schema.json `_path_rules`; renamed for clarity)"
       ],
       "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
-      "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the file remains physically present as a frozen artifact carrying a `_dissolved: true` marker until the last consumer migrates — no new authoring against the dissolved file.",
+      "evolution_protocol": "R-37 atomic lockstep — frontmatter-rules.json + pre-write-guard.sh SCHEMA_KEY case + post-write-verify.sh type_map updated in one commit. NOTE: schemas/vault-schema.json was DISSOLVED into this pillar + governance/tagging-rules.json; the dissolved file no longer ships — author against this pillar and governance/tagging-rules.json only.",
       "lockstep_pair": "pre-write-guard.sh (SCHEMA_KEY case) + post-write-verify.sh (type_map)",
       "source_dependencies": []
     },
@@ -1672,7 +1630,7 @@
         "home": "frontmatter",
         "id": "R-32",
         "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`, `system-governance-spoke`) are DENIED with the retirement reference and per-type `replacement` guidance. For `engagement` and `project` the replacement points the author to the folder-lineage convention (field-level propagation via `engagement:` / `project:` frontmatter fields); `system-governance-spoke` retires with no replacement type (the file is now plain user content). See `retired_types` block.",
-        "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + the narrative spoke + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
+        "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
         "schema_source": "governance/frontmatter-rules.json#types",
         "source": "governance/frontmatter-rules.json :: _rules (SoT)",
         "status": "active",
@@ -1708,7 +1666,7 @@
           "git commit-boundary atomicity",
           "librarian governance-parity-audit (audit-time drift detection)"
         ],
-        "failure_mode": "Schema-touching changes that land in one surface without the others produce silent drift — the pillar declares a new type the hook does not recognize; the narrative spoke documents fields the pillar has not added; the rule registry references a field name the pillar spells differently. Within weeks the surfaces diverge enough that no single artifact is authoritative. Drift is detectable but already-broken when the audit surfaces it. R-37's structural commitment is that partial-surface commits are treated as the error they are; the close-out merge boundary and the librarian audit are the regression checks that catch drift before it ossifies.",
+        "failure_mode": "Schema-touching changes that land in one surface without the others produce silent drift — the pillar declares a new type the hook does not recognize; the rule registry references a field name the pillar spells differently. Within weeks the surfaces diverge enough that no single artifact is authoritative. Drift is detectable but already-broken when the audit surfaces it. R-37's structural commitment is that partial-surface commits are treated as the error they are; the close-out merge boundary and the librarian audit are the regression checks that catch drift before it ossifies.",
         "home": "meta-block",
         "id": "R-37",
         "meta_rule_reference": "governance/_index.json cross_cutting_meta_rules[] R-37",
@@ -2060,22 +2018,6 @@
       "evolution_protocol": "R-37 documentary lockstep — this pillar + governance/file-type-contracts/<file>.json + hooks move in one commit; no write-time DENY for R-37 (git commit-boundary + librarian governance-parity-audit).",
       "lockstep_pair": "governance/file-type-contracts/{_index.md,vault-writer.md}.json + hooks/post-write-verify.sh"
     },
-    "_retired_tombstones": [
-      {
-        "category": "C1",
-        "enforcement_layer": [],
-        "failure_mode": "n/a (retired tombstone)",
-        "home": "mandatory-files",
-        "id": "R-09",
-        "retired_at": "2026-06-15",
-        "retired_reason": "Logs/ retired as a vault root — the adopter vault ships ZERO Logs/, so the autogovern tier loses its only adopter target. The post-write-verify.sh Logs/ auto-govern branch is removed and machine exhaust relocates to the XDG state tier (~/.local/state/brain-stem). Superseded by a later governance decision.",
-        "rule_text": "[RETIRED] Logs/ auto-govern rule (was tier autogovern, category C1: a Logs/ write was never denied — post-write-verify.sh auto-applied frontmatter/tagging governance, librarian reconciled at audit-time). Tombstone — declared for provenance, never fires; renders only in the rules-index retired section.",
-        "source": "governance/mandatory-files-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
-        "status": "retired",
-        "surface": "Logs",
-        "tier": "autogovern"
-      }
-    ],
     "_rules": [
       {
         "body_structure_contract": "governance/file-type-contracts/vault-writer.md.json",
@@ -2180,7 +2122,7 @@
           "rule": "G1: a vault-pointer-shaped line whose START sits past the 200-line OR max_bytes fold (byte cap governs) loads invisibly — the harness truncates the index at the fold and the pointer never reaches the model. hooks/pre-write-guard.sh emits a distinct POINTER PLACEMENT ADVISORY (concatenated with any total-cap advisory into one emit) at write-time."
         },
         "overflow_routing": {
-          "_description": "Cold-spill seam — DOCUMENTED ONLY (pre-built, cheap). At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill is v-next, volume-gated, no calendar gate). The fixed section order below makes the cold boundary always knowable.",
+          "_description": "Cold-spill seam — documented design, not yet built. At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill ships in a future version, volume-gated). The fixed section order below makes the cold boundary always knowable.",
           "archive_created": false,
           "archive_target": "MEMORY-archive.md",
           "auto_spill": "v-next (volume-gated; NOT a calendar gate)",
@@ -2321,7 +2263,7 @@
         "failure_mode": "Plans without numeric prefix or status break librarian plan-index regeneration. Shame slugs degrade plan-index, backlog routing, and search-by-name.",
         "home": "naming",
         "id": "R-27",
-        "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) an authoritative status. The status is satisfied by any of: a `**Status:**` header bullet, YAML `status:` frontmatter, a `manifest.json` top-level `status` field, OR — for `spec.md` and `00-ideation-brief.md` — a sibling `manifest.json` carrying a top-level `status` field. spec.md/00-ideation-brief.md are manifest-derived: the manifest is the single status SoT, so an artifact carrying no inline status defers to its plan's manifest and DENYs only when the manifest carries no status either. Flat-root plans and README.md have no sibling manifest and keep the inline `**Status:**`/`status:` requirement; a `manifest.json` write keeps its OWN top-level `status`. Status values use the canonical 8-state lifecycle.status_enum; the spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
+        "rule_text": "New or edited plan-root files must carry (a) an `NN-` numeric prefix on their top-level path segment AND (b) an authoritative status. The status is satisfied by any of: a `**Status:**` header bullet, YAML `status:` frontmatter, a `manifest.json` top-level `status` field, OR — for `spec.md` and `00-ideation-brief.md` — a sibling `manifest.json` carrying a top-level `status` field. spec.md/00-ideation-brief.md are manifest-derived: the manifest is the single status SoT, so an artifact carrying no inline status defers to its plan's manifest and DENYs only when the manifest carries no status either. Flat-root plans and README.md have no sibling manifest and keep the inline `**Status:**`/`status:` requirement; a `manifest.json` write keeps its OWN top-level `status`. Status values use the canonical 6-state lifecycle.status_enum; the spec-status-enum advisory rides inside R-27 (advisory; never retro-denies legacy plans). Sub-task files, handoffs, and orchestrator artifacts inherit from parent per R-28 and are NOT required to carry status. DENY at write-time.",
         "sanctioned_creation_paths": [
           "/new-plan",
           "/backlog-research"
@@ -2347,8 +2289,7 @@
         "tier": "deny",
         "whitelist": [
           "_index.md",
-          "_backlog.md",
-          "_archive.md"
+          "_backlog.md"
         ]
       },
       {
@@ -2400,27 +2341,12 @@
     "schema_version": "2.0.0"
   },
   "plans": {
-    "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 8-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
+    "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
     "_design_notes": {
-      "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; Branch 4 librarian-only writes; manifest-substance branch), skills/librarian/capabilities/{plan-index,plan-archive,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
+      "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; librarian-only root-file writes), skills/librarian/capabilities/{plan-index,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
       "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its schema + contracts + hook move in one commit.",
       "lockstep_pair": "schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh"
     },
-    "_retired_tombstones": [
-      {
-        "category": "C3",
-        "enforcement_layer": [],
-        "failure_mode": "n/a (retired tombstone)",
-        "home": "plans",
-        "id": "R-15",
-        "retired_at": "2026-05-22",
-        "retired_reason": "PLAN->BACKLOG. Superseded by the librarian-emitted ~/.claude-plans/_backlog.md + _archive.md (writers_allowed=[librarian]; generated_by=librarian:backlog-index|plan-archive).",
-        "rule_text": "[RETIRED] Vault-root System Backlog satellite mandate. Tombstone — declared for provenance, never fires, renders only in the rules-index retired section.",
-        "source": "governance/plans-rules.json :: _retired_tombstones (provenance preserved per status:retired tombstone semantics)",
-        "status": "retired",
-        "tier": "audit"
-      }
-    ],
     "_rules": [
       {
         "category": "C3",
@@ -2483,7 +2409,7 @@
         "enforcement_layer": [
           "librarian"
         ],
-        "failure_mode": "A master's sub_plans[] read-replica goes stale against the subs' real status; the master shows a sub as in-progress that has actually verified (or vice-versa); orchestration decisions read a phantom aggregate. Cross-file -> reconciler at session-close, never a blocking write-time path.",
+        "failure_mode": "A master's sub_plans[] read-replica goes stale against the subs' real status; the master shows a sub as in-progress that has actually completed (or vice-versa); orchestration decisions read a phantom aggregate. Cross-file -> reconciler at session-close, never a blocking write-time path.",
         "home": "plans",
         "id": "R-61",
         "rule_text": "Master sub_plans[] aggregation-integrity: the master manifest's sub_plans[].status read-replica MUST agree with each sub-plan's real published status. Cross-file invariant enforced by the librarian reconciler (NOT write-time) — extends trinity-drift-detect.sh / drift-sweep.sh with the master<->sub aggregation axis; detects (and optionally --fix) drift.",
@@ -2521,7 +2447,7 @@
         "tier": "advisory"
       }
     ],
-    "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 8-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 8-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
+    "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 6-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 6-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
     "backlog_row": {
       "_stale_advisory_days_note": "[advisory_threshold, escalation_threshold] in days for a backlog row missing a disposition. backlog-index emits backlog-row-missing-disposition once per run; backlog-hygiene escalates severity Warning->Alert by stale_for_days against these thresholds (R-56).",
       "disposition_enum": [
@@ -2535,9 +2461,24 @@
         "Initiative",
         "Status",
         "Disposition",
+        "Target",
         "Updated",
         "Notes"
       ],
+      "settled_section": {
+        "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — graduated items joined from plan manifests' promoted_from plus in-place inbox notes carrying a terminal resolution; never hand-kept.",
+        "required_fields": [
+          "Item",
+          "Resolution",
+          "Landed In",
+          "Project Dir",
+          "Settled"
+        ],
+        "sentinels": [
+          "<!-- backlog-settled:start -->",
+          "<!-- backlog-settled:end -->"
+        ]
+      },
       "stale_advisory_days": [
         14,
         21
@@ -2590,72 +2531,57 @@
         "triaged",
         "briefed"
       ],
+      "index_file": "_inbox/_index.md",
       "note_frontmatter": {
         "optional": [
           "updated",
           "disposition",
           "tags",
-          "related"
+          "related",
+          "promoted_to",
+          "absorbed_into",
+          "resolution",
+          "resolved_at"
         ],
         "required": [
           "title",
           "type",
           "status",
-          "created"
+          "created",
+          "project"
         ],
         "type_value": "idea"
       },
       "note_glob": "_inbox/*.md",
+      "resolution_enum": [
+        "promoted",
+        "absorbed",
+        "resolved",
+        "dropped"
+      ],
       "slug_pattern": "^[a-z][a-z0-9-]+$",
       "writers_allowed": [
         "any"
       ]
     },
     "lifecycle": {
-      "_description": "ONE canonical 8-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the pre-write-guard manifest-substance branch + the librarian reconciler enforce.",
-      "guards": {
-        "closed_requires_verified": {
-          "_description": "LOAD-BEARING write-time guard. A status flip to `closed` is FORBIDDEN unless status == verified. 'Done' is unforgeable, spec-gaming-proof. Enforced by the hooks/pre-write-guard.sh manifest-substance branch (matcher Edit|Write on **/manifest.json), rollout ask->deny.",
-          "enforcement_layer": [
-            "hooks/pre-write-guard.sh manifest-substance branch"
-          ],
-          "forbids": "status -> closed when status != verified",
-          "rollout": "ask -> deny on low false-positive rate"
-        },
-        "closed_to_archived": {
-          "_description": "closed -> archived is VOLUME/COOLDOWN-gated, NOT calendar. A calendar (cooldown_days) gate is deliberately NOT used — archival is driven by librarian-cycle volume, not elapsed days.",
-          "_parameter_note": "Default N=3 librarian-cycle ticks since closed. NOT a calendar gate.",
-          "gate_type": "volume-cooldown",
-          "parameter": {
-            "threshold": 3,
-            "unit": "librarian-cycle ticks since closed"
-          }
-        }
-      },
+      "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; archival is a display-only view filter over completed plans, never a status.",
+      "guards": {},
       "status_enum": [
         "researching",
         "planned",
         "in-progress",
         "paused",
         "completed",
-        "verified",
-        "closed",
-        "archived"
+        "superseded"
       ],
-      "terminal_from_any_non_archived": [
+      "terminal_status": [
+        "completed",
         "superseded"
       ],
       "transitions": {
-        "closed->archived": {
-          "gate": "volume-cooldown",
-          "setter": "librarian"
-        },
-        "completed->verified": {
-          "_note": "verified = machine-stamped, reachable ONLY through an actual validation pass (the R-46-cousin verdict gate, the dogfood-harness verdict-pass). The stamper's home is the dogfood-harness seam.",
-          "setter": "machine"
-        },
         "in-progress->completed": {
-          "_note": "completed = human's claim that work is done",
+          "_note": "completed = the human's claim that work is done; the sole terminal done-state",
           "setter": "human"
         },
         "in-progress<->paused": {
@@ -2666,10 +2592,6 @@
           "setter": "human"
         },
         "researching->planned": {
-          "setter": "human"
-        },
-        "verified->closed": {
-          "guard": "closed-requires-verified",
           "setter": "human"
         }
       }
@@ -2684,13 +2606,6 @@
       ]
     },
     "root_files": {
-      "_archive.md": {
-        "generated_by": "librarian:plan-archive",
-        "mandatory": true,
-        "writers_allowed": [
-          "librarian"
-        ]
-      },
       "_backlog.md": {
         "generated_by": "librarian:backlog-index",
         "mandatory": true,
@@ -2739,8 +2654,7 @@
           "kind": "file",
           "members": [
             "_index.md",
-            "_backlog.md",
-            "_archive.md"
+            "_backlog.md"
           ]
         }
       },
@@ -2774,27 +2688,18 @@
           "Files under _orchestrator/"
         ],
         "required_artifacts": {
-          "_description": "Per-transition required artifacts a status flip MUST present. Consumed by the PreToolUse manifest-substance branch (closed-requires-verified) and the librarian reconciler.",
-          "completed->verified": [
-            "harness_validated[] fresh verdict-pass entry (machine-stamped by the dogfood-harness)"
-          ],
+          "_description": "Per-transition required artifacts a status flip MUST present. Consumed by the librarian reconciler.",
           "in-progress->completed": [
             "spec.md",
             "tasks.md",
             "manifest.json"
-          ],
-          "verified->closed": [
-            "status == verified (the load-bearing closed-requires-verified guard)"
           ]
         },
         "sub_peer_communication": "FORBIDDEN — route through master manifest",
         "sub_publishes_upward": [
           "status",
           "graduation_timestamp"
-        ],
-        "validation": {
-          "promotion_eligible": "A status promotion to `verified` is eligible only through an actual validation pass (the R-46-cousin verdict gate; plan-manifest-schema.json). `verified` is machine-stamped, never human-set."
-        }
+        ]
       },
       "naming": "NN-{slug}/ in execution order",
       "parent_plan_required_at_depth": 3
@@ -2886,7 +2791,7 @@
         "seed_taxonomy_exempt_paths": [
           "Vault Writers/_index.md"
         ],
-        "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation seeds #vault-writers on Vault Writers/_index.md to model good tagging for adopters; the foundation taxonomy itself ships user_facing_dimensions:[] BY DESIGN (taxonomy.user_facing_dimensions), so that seed tag is NOT a member of the foundation allowlist and the tag-taxonomy membership arm would flag it. This one glob surface exempts EXACTLY that seed from the tag-not-in-taxonomy membership check ONLY — the seed stays byte-unchanged, still obeys the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle).",
+        "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation seeds #vault-writers on Vault Writers/_index.md to model good tagging for adopters; the foundation taxonomy ships NO vault-writers dimension (its user-facing dimension set is project-only — taxonomy.user_facing_dimensions), so that seed tag is NOT a member of the foundation allowlist and the tag-taxonomy membership arm would flag it. This one glob surface exempts EXACTLY that seed from the tag-not-in-taxonomy membership check ONLY — the seed stays byte-unchanged, still obeys the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle).",
         "source": "governance/tagging-rules.json :: _rules (SoT; tags-as-validity-diagnostic principle)",
         "status": "active",
         "tier": "advisory"
@@ -2915,8 +2820,8 @@
     "schema_version": "2.0.0",
     "taxonomy": {
       "_adopter_extension_path": "overlay-master.tagging.taxonomy.dimension_prefixes[] + .user_facing_dimensions[]",
-      "_description": "Faceted tag taxonomy (canonical authority). Foundation user_facing_dimensions ship [] empty — concrete user-facing dimensions belong to adopter overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions, populated by onboarding archetype seeds at install time. Foundation ships taxonomy SHAPE + system-utility dimensions (status, log) governed by log-subtype-registry. Runtime allowlist = foundation + overlay-master union.",
-      "_runtime_allowlist_resolution": "Hook union-resolve over foundation-master.tagging.taxonomy.dimension_prefixes + overlay-master.tagging.taxonomy.dimension_prefixes — foundation-master.json composes the runtime view from this pillar; the adopter overlay extends it.",
+      "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry) + ONE user-facing dimension: project (see _project_dimension_note). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
+      "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it.",
       "canonical_authority": "governance/tagging-rules.json#taxonomy (the dissolved-schema anchors _tag_prefixes / _tag_prefixes_meta resolve to dimension_prefixes / (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to) here)",
       "cap_25_applies_to": "user_facing_dimensions",
       "dimension_prefixes": [

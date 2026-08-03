@@ -25,7 +25,7 @@
 #
 # NOT plan roots, even though they sit at $PLANS_DIR root (root_namespace registry
 # surfaces, derived from the pillar via classify_root_entry — no longer hard-coded):
-#   $PLANS_DIR/_index.md  $PLANS_DIR/_backlog.md  $PLANS_DIR/_archive.md
+#   $PLANS_DIR/_index.md  $PLANS_DIR/_backlog.md
 #   $PLANS_DIR/_inbox/    $PLANS_DIR/_projects/   $PLANS_DIR/_library/
 # (ENFORCEMENT-MAP.md is NOT an enumerated registry surface; it is carried only by the
 #  pillar's TRANSITIONAL root_namespace.grandfathered list — treated as registry-class
@@ -67,7 +67,7 @@ _root_ns_registry_members() {
     [[ -f "$master" ]] && out=$(jq -r '.plans.root_namespace | ((.allowed_entry_classes.root_files.members[]?), (.allowed_entry_classes.funnel_registry_surfaces.members[]?), (.grandfathered[]?))' "$master" 2>/dev/null)
     [[ -z "$out" && -f "$pillar" ]] && out=$(jq -r '.root_namespace | ((.allowed_entry_classes.root_files.members[]?), (.allowed_entry_classes.funnel_registry_surfaces.members[]?), (.grandfathered[]?))' "$pillar" 2>/dev/null)
   fi
-  [[ -z "$out" ]] && out=$'_index.md\n_backlog.md\n_archive.md\n_inbox\n_projects\n_library'
+  [[ -z "$out" ]] && out=$'_index.md\n_backlog.md\n_inbox\n_projects\n_library'
   _ROOT_NS_REG_CACHE="$out"
   printf '%s' "$out"
 }
@@ -148,14 +148,18 @@ is_plan_root_file() {
   esac
   local rel="${file#$PLANS_DIR/}"
   local top="${rel%%/*}"
-  # Reconciled to root_namespace: registry surfaces + dot entries are NOT plan roots.
-  # (A nonconforming flat *.md falls through to the flat-plan branch so R-27 still governs
-  # a non-NN root .md — ENFORCEMENT-MAP.md is nonconforming, no longer a special-cased
-  # registry.)
-  case "$(classify_root_entry "$top")" in
+  # Reconciled to root_namespace: registry surfaces + dot entries are NOT plan roots, and
+  # a flat *.md at root is a plan ONLY when it classifies `plan` (i.e. matches the pillar's
+  # legacy_flat_plans pattern). A nonconforming bare .md (any _-prefixed name, or any name
+  # outside the legacy_flat_plans pattern) is NOT a plan here — three-site agreement with
+  # classify_root_entry + walk_plan_roots (Finding 3: the permissive fallback used to
+  # mis-classify a de-sanctioned root .md 1|1|0).
+  local _cls
+  _cls="$(classify_root_entry "$top")"
+  case "$_cls" in
     registry|dot) return 1 ;;
   esac
-  if [[ "$rel" != */* ]] && [[ "$rel" == *.md ]]; then
+  if [[ "$rel" != */* ]] && [[ "$rel" == *.md ]] && [[ "$_cls" == "plan" ]]; then
     return 0
   fi
   if [[ "$rel" == */* ]] && [[ "${rel#*/}" != */* ]]; then
@@ -196,11 +200,16 @@ classify_plan_path() {
   esac
   local rel="${file#$PLANS_DIR/}"
   local top="${rel%%/*}"
-  # Reconciled to root_namespace: registry surfaces + dot entries are NOT plan roots.
-  case "$(classify_root_entry "$top")" in
+  # Reconciled to root_namespace: registry surfaces + dot entries are NOT plan roots, and a
+  # flat *.md at root is a plan ONLY when it classifies `plan` (pillar legacy_flat_plans
+  # pattern). A nonconforming bare .md (any _-prefixed name, or any name outside the
+  # legacy_flat_plans pattern) is NOT a plan here — three-site agreement (Finding 3).
+  local _cls
+  _cls="$(classify_root_entry "$top")"
+  case "$_cls" in
     registry|dot) echo "0|0|${top}"; return ;;
   esac
-  if [[ "$rel" != */* ]] && [[ "$rel" == *.md ]]; then
+  if [[ "$rel" != */* ]] && [[ "$rel" == *.md ]] && [[ "$_cls" == "plan" ]]; then
     echo "1|0|${top}"; return
   fi
   # Depth-2 plan-root-file branch. The `$top != _*` carve-out keeps an _inbox / _projects /

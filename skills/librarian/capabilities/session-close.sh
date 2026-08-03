@@ -23,8 +23,7 @@
 #             (cron-log-architecture, sync-check, architect-triage) were struck.
 #   Step 2b : rename cascade. Runs
 #             rename-detect.sh over last-24h git log across VAULT + PLANS,
-#             appends to doc-dependencies.json rename_history, then
-#             dry-run-cascades inbound wikilinks. No --apply from session
+#             then dry-run-cascades inbound wikilinks. No --apply from session
 #             close — human-initiated.
 #   Step 2c : pending-reconciliation sweep (invokes
 #             ~/.claude/hooks/reconcile-sessions.sh). Fires in every mode;
@@ -66,6 +65,14 @@
 
 set -uo pipefail
 
+# Capture whether the CALLER explicitly chose a plans root, BEFORE paths.sh resolves a
+# fallback below. Consumed by the corpus-walk dead-switch: a fallback-resolved PLANS_DIR
+# must not be mistaken for a deliberate caller choice.
+_SC_PLANS_CALLER_SET=0
+if [[ -n "${PLANS_ROOT:-}" || -n "${PLANS_DIR:-}" ]]; then
+  _SC_PLANS_CALLER_SET=1
+fi
+
 # ---- paths ------------------------------------------------------------------
 
 if [[ -z "${VAULT_LOGS:-}" || -z "${COORD_DIR:-}" || -z "${CLAUDE_STATE_ROOT:-}" ]]; then
@@ -78,9 +85,43 @@ if [[ -z "${VAULT_LOGS:-}" || -z "${COORD_DIR:-}" || -z "${CLAUDE_STATE_ROOT:-}"
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 fi
 
+# --- test-harness plans-corpus isolation (class-level dead-switch) -----------
+# session-close runs several plans-CORPUS-walking steps (the completed_at stamp; the
+# auto-fired drift-sweep --plans --fix -> subplan-aggregate; plan-index; ...). Each
+# resolves the plans root from paths.sh's fallback ($HOME/.claude-plans / user-manifest)
+# when the caller does not override it. Under a TEST/CI harness that reaches session-close
+# — including the SessionEnd DETACHED auto-close spawn (hooks/session-deregister.sh), which
+# runs the real session-close inheriting the caller's env with no PLANS_DIR of its own —
+# that fallback silently resolves to the operator's LIVE corpus. PLANS_DIR_DEAD marks a
+# test/CI context; when it is armed AND the caller chose NO plans root, re-point the plans
+# root to an isolated empty throwaway so EVERY corpus-walking step operates on an empty
+# tree, never the live corpus. Production (dead-switch empty) and tests that own their
+# plans root (PLANS_ROOT/PLANS_DIR set) are unaffected.
+if [[ -n "${PLANS_DIR_DEAD:-}" && "$_SC_PLANS_CALLER_SET" == "0" ]]; then
+  _SC_DEAD_PLANS="${CLAUDE_STATE_ROOT:-${TMPDIR:-/tmp}}/.session-close-dead-plans.$$"
+  mkdir -p "$_SC_DEAD_PLANS" 2>/dev/null || true
+  PLANS_DIR="$_SC_DEAD_PLANS"
+  PLANS_ROOT="$_SC_DEAD_PLANS"
+  export PLANS_DIR PLANS_ROOT
+fi
+
 CAPS_DIR="${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities"
 RECONCILE_SESSIONS_SH="${CLAUDE_HOME:-$HOME/.claude}/hooks/reconcile-sessions.sh"
 SESSION_REGISTRY="$COORD_DIR/session-registry.json"
+
+# Cadence gate for the schedulable roster. sweep_due() decides — from a durable last-run
+# ledger and a rolling window — whether a capability that declares a cron_block cadence is
+# due to fire again at this detached close (the deterministic trigger that replaces the
+# absent background scheduler). Sourced here so the cadence-roster step below can consult
+# it; guarded so an install lacking the lib degrades to no cadence firing (never a crash).
+_SC_CADENCE_LIB="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/cadence.sh"
+CADENCE_AVAILABLE=0
+if [[ -r "$_SC_CADENCE_LIB" ]]; then
+  # shellcheck source=/dev/null
+  if source "$_SC_CADENCE_LIB" 2>/dev/null && command -v sweep_due >/dev/null 2>&1; then
+    CADENCE_AVAILABLE=1
+  fi
+fi
 
 LOG_DIR="${SESSION_CLOSE_LOG_DIR:-$CLAUDE_STATE_ROOT/logs}"
 
@@ -423,13 +464,11 @@ run_reconcile_sweep() {
   fi
 }
 
-# ---- build-dogfood detection (T-02 G2 reconcile) -------------
-# governance-parity-audit is R-37's enforcement vehicle but its 6
-# repo-only pillar inputs + unshipped narrative spokes are unsatisfiable on an
-# adopter (LOCKED G2: pre-launch INTERNAL only; gap-register /
-# backward-obs). Operator-recommended G2<->resolution (ratified at
-# ): chain it ONLY on the build's own dogfood session-close, EXCLUDED from
-# the shipped adopter chain. Signal = the foundation source repo present at
+# ---- build-dogfood detection -----------------------------------------------
+# governance-parity-audit is R-37's enforcement vehicle, but its repo-only
+# pillar inputs are unsatisfiable on an adopter install, so it chains ONLY on
+# the build's own dogfood session-close and is EXCLUDED from the shipped
+# adopter chain. Signal = the foundation source repo present at
 # $FOUNDATION_REPO (default ~/Code/brain-stem) with a governance/ pillar tree —
 # the build box, never an adopter install.
 is_build_dogfood() {
@@ -485,8 +524,28 @@ step2_integrity() {
   # serialization-cluster edit (128 -> here -> 140/11); it does NOT touch the post-128
   # SELF_SESSION_ID/--session-id flow.
   run_capability frontmatter-enforce --scope "${VAULT_ROOT:-}/Work" --check
+  # Plans-lane frontmatter contract check. The Work lane above validates the Work
+  # deliverable surface behind the Work/ symlink; the plans tree carries its own
+  # frontmatter contract that no close lane reached. A scoped lane over the vault's Plans/
+  # symlink surface (the scoped walker descends it, the same mechanism as the Work lane)
+  # surfaces contract-violating frontmatter in the plans tree too. Its findings flow into
+  # the per-run sink and are bounded by the triage digest (a high-volume first pass does not
+  # flood the log). Projects/Skills/Wiki stay out of the close lane until their contract
+  # policy settles.
+  if [[ -n "${VAULT_ROOT:-}" ]]; then
+    run_capability frontmatter-enforce --scope "${VAULT_ROOT}/Plans" --check
+  fi
   run_capability xref-check
   run_capability placement-validate
+  # Feed the starved plans-root placement reader. The default call above reaches only
+  # vault-proper (the external symlink surfaces are pruned at top level), so the
+  # plans-root-namespace arm — which writes .drift_findings.placement.plans_root, the
+  # leaf the SessionStart placement reader consumes — has no other scheduled caller. A
+  # second call scoped to the plans root runs that rule so the leaf is populated at close
+  # (a sibling leaf; the vault scope is never clobbered).
+  if [[ -n "${PLANS_DIR:-}" ]]; then
+    run_capability placement-validate --scope "$PLANS_DIR"
+  fi
   run_capability stale-detect
   # T-7: pointer-currency scan — advisory, propose-only,
   # CHANGE-GATED. Verifies every plain-text absolute-path pointer in MEMORY.md +
@@ -496,15 +555,15 @@ step2_integrity() {
   # — defeats alert-fatigue. Positioned between stale-detect and the close-out
   # write so its findings flow into the per-run sink with the rest of step 2.
   run_capability pointer-currency-scan --session-close
-  # Forward the session's touched files to the R-25
-  # handoff-disposition close-time scan. TOUCHED_FILES_CSV (98, captured from
-  # --touched-files) was never threaded, so under the Bash-tool subshell
-  # handoff-disposition-check saw empty stdin and scanned 0 handoff.md — R-25
-  # close-time enforcement was a no-op. Split the CSV (bash-3.2-safe IFS split;
-  # no clobber of $@) into repeated --files args; an empty CSV calls the cap bare
-  # (a clean 0-missing no-op). handoff-disposition-check.sh accepts repeated
-  # --files (42) or newline stdin (49). Does NOT touch the post-128
-  # SELF_SESSION_ID flow.
+  # Forward the session's touched files to the R-25 handoff-disposition close-time
+  # scan. When a caller supplied --touched-files, split that CSV (bash-3.2-safe IFS
+  # split; no clobber of $@) into repeated --files args. When the CSV is empty — the
+  # detached SessionEnd spawn passes none — fall back to the session registry: read
+  # .sessions[$SELF_SESSION_ID].touched_files and feed the *handoff.md entries, so the
+  # scan sees the session's real handoff instead of empty stdin (R-25 close-time
+  # enforcement was a silent 0-handoff.md no-op on the detached path). Only handoff.md
+  # entries are passed. handoff-disposition-check.sh accepts repeated --files or
+  # newline stdin.
   _hd_files=()
   if [[ -n "$TOUCHED_FILES_CSV" ]]; then
     _hd_oifs="$IFS"; IFS=','
@@ -513,6 +572,14 @@ step2_integrity() {
       _hd_files+=(--files "$_hd_f")
     done
     IFS="$_hd_oifs"
+  elif [[ -n "$SELF_SESSION_ID" && -f "$SESSION_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    while IFS= read -r _hd_f; do
+      [[ -z "$_hd_f" ]] && continue
+      case "$_hd_f" in
+        *handoff.md) _hd_files+=(--files "$_hd_f") ;;
+      esac
+    done < <(jq -r --arg s "$SELF_SESSION_ID" \
+      '.sessions[$s].touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null)
   fi
   if [[ ${#_hd_files[@]} -gt 0 ]]; then
     run_capability handoff-disposition-check "${_hd_files[@]}"
@@ -533,6 +600,135 @@ step2_integrity() {
   # BEFORE plan-handoff-index's full re-derive (below), which de-dupes the appended
   # block idempotently (the re-derive owns the whole file; the append is absorbed).
   run_capability binder-handoff-append-wrapper --spoke "$active_spoke"
+  # completed_at stamp + no-verdict soft-surface. The archival display view-filter
+  # needs a per-plan completion date the manifest does not otherwise carry. Stamp
+  # `completed_at` (date-only) ONLY on the plan(s) the closing session was anchored to
+  # (the arm-pointer chain: $PLANS_DIR/.active-plan -> <plan>/.active-sp) when
+  # that target has transitioned to `completed` without the field — TRANSITION-SCOPED,
+  # never a whole-tree walk. A legacy `completed` manifest that is NOT the armed target
+  # keeps falling back to `updated` (schema-documented). The SAME transition-scoped
+  # block also marks `research_closed: true` on the armed target when it reaches a
+  # TERMINAL status {completed, superseded} without the flag (the plan-research-declare
+  # reader consumes it to stop ratifying undeclared research artifacts). Also
+  # advisory-surface a just-completed plan carrying no harness_validated[] verdict-pass
+  # (the receipt lives in that field, not a status). Block-and-log, atomic os.replace,
+  # findings to the per-run sink; session-close stays advisory.
+  if [[ "$TEST_MODE" == "true" ]]; then
+    record_capability "completed-at-stamp" "stub" "test-mode"
+  elif [[ "$DRY_RUN" == "true" ]]; then
+    record_capability "completed-at-stamp" "dry-run" "would stamp completed_at on the armed plan if it reached completed"
+  else
+    _ca_plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" 2>/dev/null <<'PY'
+import json, os, sys, tempfile
+from datetime import date
+
+plans_root = sys.argv[1]
+today = os.environ.get("SESSION_CLOSE_TODAY") or date.today().isoformat()
+sink = os.environ.get("FINDINGS_OUTPUT", "")
+
+def emit(d):
+    if not sink:
+        return
+    with open(sink, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(d, ensure_ascii=False) + "\n")
+
+def read_pointer(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+# Session-anchored (armed) plan target from the arm-pointer chain:
+# $PLANS_DIR/.active-plan names the armed plan; <plan>/.active-sp names the armed sub
+# (a dot value or an absent .active-sp means the plan root manifest itself). The stamp
+# is scoped to that target ONLY -- the plan this session worked, and thus the one that
+# could have transitioned to completed. No whole-tree walk over legacy completed
+# manifests.
+targets = []
+plan = read_pointer(os.path.join(plans_root, ".active-plan"))
+if plan and os.path.isdir(os.path.join(plans_root, plan)):
+    plan_dir = os.path.join(plans_root, plan)
+    targets.append(os.path.join(plan_dir, "manifest.json"))
+    sp = read_pointer(os.path.join(plan_dir, ".active-sp"))
+    if sp and sp != "." and os.path.isdir(os.path.join(plan_dir, sp)):
+        targets.append(os.path.join(plan_dir, sp, "manifest.json"))
+
+stamped = 0
+for mpath in targets:
+    if not os.path.isfile(mpath):
+        continue
+    try:
+        with open(mpath, encoding="utf-8") as fh:
+            m = json.load(fh)
+    except Exception:
+        continue
+    if not isinstance(m, dict):
+        continue
+    status = m.get("status")
+    did_completed_at = False
+    did_research_closed = False
+    # completed_at: date-only, only on a `completed` armed target lacking the field.
+    if status == "completed" and not m.get("completed_at"):
+        m["completed_at"] = today
+        did_completed_at = True
+    # research_closed: mark the armed target as research-closed when it reaches a
+    # TERMINAL status {completed, superseded} without the flag. Transition-scoped to the
+    # armed target ONLY (never a whole-tree walk); the plan-research-declare reader
+    # consumes the flag to stop ratifying undeclared research artifacts.
+    if status in ("completed", "superseded") and not m.get("research_closed"):
+        m["research_closed"] = True
+        did_research_closed = True
+    if not (did_completed_at or did_research_closed):
+        continue
+    d = os.path.dirname(mpath) or "."
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".manifest.", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(m, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, mpath)
+    except Exception:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+        continue
+    slug = os.path.basename(os.path.dirname(mpath))
+    if did_completed_at:
+        stamped += 1
+        emit({"finding": "completed-at-stamped", "file": mpath, "plan_slug": slug,
+              "completed_at": today, "detected_at": today})
+        hv = m.get("harness_validated") or []
+        has_pass = any(isinstance(e, dict) and e.get("verdict") == "pass" for e in hv)
+        if not has_pass:
+            emit({"finding": "completed-no-harness-verdict", "file": mpath, "plan_slug": slug,
+                  "note": "completed plan carries no harness_validated[] verdict-pass (advisory)",
+                  "detected_at": today})
+    if did_research_closed:
+        emit({"finding": "research-closed-stamped", "file": mpath, "plan_slug": slug,
+              "status": status, "detected_at": today})
+print(stamped)
+PY
+)"
+    record_capability "completed-at-stamp" "ok" "${_ca_stamped:-0} plan(s) stamped completed_at (armed target)"
+  fi
+  # Reconcile the master<->sub aggregation axis BEFORE rendering the master _index.md
+  # rollup. drift-sweep --plans --fix runs ONLY the master<->sub aggregation axis and
+  # repairs each master's sub_plans[] read-replica via subplan-aggregate (single-writer
+  # invariant), reading manifests fresh from disk (no upstream dep). It precedes
+  # plan-index so the rollup reflects the just-reconciled sub_plans[] in the SAME close
+  # (no one-close lag). subplan-aggregate is idempotent, so a second consecutive close
+  # leaves the master manifest byte-stable.
+  run_capability drift-sweep --plans --fix
+  # Regenerate the _backlog.md read-replica AFTER the reconciler so it renders from a
+  # reconciled sub_plans[] (a still-stale replica would render orphan flags). On a clean
+  # adopter install this close is the only trigger for the backlog renderer — no cron
+  # owner ships behind it.
+  run_capability backlog-index
   run_capability plan-index
   # ACTIVE-SPOKE-ONLY: wire the 3 binder
   # generators — today triggered by ZERO session events (orphaned). They re-derive
@@ -580,33 +776,46 @@ step2_integrity() {
   # report — it does NOT auto-close, never auto-stamps `verified` (the
   # dogfood-harness machine-gate is preserved), and touches no aggregation
   # (unchanged). Runs AFTER the binder card (@project-context-situating) and
-  # adjacent to plan-parent-resolve: like drift-sweep below, the lag scan reads
-  # plan+master manifests fresh, so it fires after the read-replicas regenerate.
+  # adjacent to plan-parent-resolve. The lag scan reads plan+master manifests fresh
+  # from disk, so it carries no read-replica dependency — the master<->sub
+  # reconciler (drift-sweep --plans --fix) already ran above, before plan-index, and
+  # this scan's position relative to it does not change its result.
   # Findings flow into the per-run sink via run_capability's FINDINGS_OUTPUT
   # wiring; the cap exits non-zero on findings (mirroring handoff-disposition-check)
   # while session-close stays advisory (run_capability records it and returns 0).
   run_capability plan-terminal-lag-check
   run_capability plan-parent-resolve
-  # (T-03): chain the vault-health writers-* refreshers (/.6,
-  # R-44 _index regen). writers-index-refresh -> Vault Writers/_index.md catalog;
+  # Chain the vault-health writers-* refreshers (R-44 _index regen).
+  # writers-index-refresh -> Vault Writers/_index.md catalog;
   # writers-overlap-refresh -> _overlap-matrix.md. writers-health-audit is NOT
   # chained here — it is a findings-JSONL no-vault-write sweep (cron_block:daily,
-  # registry-declared); its daily home is a documented carry-over per
-  # (zero cron_block runtime consumers; a librarian-full launchd is DEFER-v1.1,
-  # not's lane). The cron_block:daily declaration is intact in
-  # capability-registry.json.
+  # registry-declared); its scheduled home is the registry's cron_block
+  # declaration, not this close chain. The cron_block:daily declaration is
+  # intact in capability-registry.json.
   run_capability writers-index-refresh
   run_capability writers-overlap-refresh
-  # (a) (T-04): auto-fire the master<->sub reconciler (pull-based
-  # derived aggregation;/R-61/R-62). drift-sweep --plans --fix runs
-  # ONLY the master<->sub aggregation axis and repairs each master's sub_plans[]
-  # read-replica via subplan-aggregate (single-writer invariant). Without this the
-  # master sub_plans[] never auto-reconciles.
-  run_capability drift-sweep --plans --fix
-  # (T-02): R-37's enforcement vehicle, build-dogfood only.
+  # governance-parity-audit R-37 backstop. Split so the R-37 enforcement
+  # backstop reaches adopters: the master-slot + file-type-contract-parity arms are
+  # adopter-satisfiable (the governance dir resolver falls back to the live install's
+  # governance/, which ships the composed master + the file-type contracts), so the
+  # default audit fires at EVERY close. The --upgrade shadow-guard arm needs a
+  # repo-only diff-context, so on the build box the audit runs --upgrade (base arms +
+  # shadow walk); on an adopter it runs the base arms only.
   if is_build_dogfood; then
+    run_capability governance-parity-audit --upgrade
+  else
     run_capability governance-parity-audit
   fi
+  # The registry/manifest meta-gates. Both declare the session-close-step-2 invocation
+  # mode in capability-registry.json yet had no caller at close, so the meta-gate tier was
+  # inert on an adopter. Honor the declared mode: invoke each exactly ONCE here.
+  # capability-registry-parity walks the registry <-> on-disk capability-body parity;
+  # librarian-manifest-validate checks the librarian manifest shape. Both are advisory
+  # (findings route to the per-run sink; session-close stays exit 0). Each also carries a
+  # monday rolling cron_block, but it is DELIBERATELY not enumerated in the sweep_due()
+  # cadence roster below — the step-2 mode is its single fire, so there is no double-fire.
+  run_capability capability-registry-parity
+  run_capability librarian-manifest-validate
   # The reach-verified coverage guard: a standing, report-only regression guard
   # over the sentinel corpus. It self-gates on corpus presence (a no-op when the
   # corpus is absent — every adopter install), so it needs NO is_build_dogfood
@@ -616,37 +825,35 @@ step2_integrity() {
   run_capability coverage-guard
 }
 
-# ---- Step 2b: rename cascade (T-4) ----------------------------
-# Detect renames in the last 24h across VAULT + PLANS repos; append audit
-# rows to doc-dependencies.json; cascade inbound wikilinks (dry-run only —
-# user runs --apply separately per T-2 contract). Idempotent: re-running
-# without new commits produces zero new findings.
+# ---- Step 2b: rename cascade -----------------------------------------------
+# Detect renames in the last 24h across VAULT + PLANS repos; cascade inbound
+# wikilinks (dry-run only — user runs --apply separately). Idempotent:
+# re-running without new commits produces zero new findings. The rename-history
+# append step is retired from this chain — its canonical store moved and no
+# populator ships; that standalone history capability stays available ad-hoc /
+# via librarian-full.
 step2b_rename_cascade() {
   if [[ "$TEST_MODE" == "true" ]]; then
     record_capability "rename-detect" "stub" "test-mode"
-    record_capability "rename-history-sync" "stub" "test-mode"
     record_capability "rename-cascade" "stub" "test-mode"
     return 0
   fi
   if [[ "$DRY_RUN" == "true" ]]; then
-    record_capability "rename-cascade-pipeline" "dry-run" "would invoke rename-detect | tee (rename-history-sync append) | rename-cascade"
+    record_capability "rename-cascade-pipeline" "dry-run" "would invoke rename-detect | rename-cascade"
     return 0
   fi
   local rd="$CAPS_DIR/rename-detect.sh"
-  local rhs="$CAPS_DIR/rename-history-sync.sh"
   local rc="$CAPS_DIR/rename-cascade.sh"
-  if [[ ! -x "$rd" || ! -x "$rc" || ! -x "$rhs" ]]; then
+  if [[ ! -x "$rd" || ! -x "$rc" ]]; then
     record_capability "rename-cascade-pipeline" "skip" "not-installed"
     return 0
   fi
-  # Capture NDJSON once, feed both downstream consumers.
-  # T-1: set FINDINGS_OUTPUT in the capability environment so any
-  # findings these caps emit land in the shared per-run sink. rename-detect's
-  # STDOUT is its rename-record data pipeline (captured to $tmp_nd, fed to the
-  # downstream consumers) — NOT findings — so it must stay on stdout; setting
-  # FINDINGS_OUTPUT routes its findings (if any) to the sink and keeps the data
-  # channel clean. rename-history-sync / rename-cascade have no data stdout, so
-  # their findings go to the sink while their info stdout stays discarded.
+  # Capture the rename-record NDJSON once, feed the cascade consumer.
+  # Set FINDINGS_OUTPUT in the capability environment so any findings these caps
+  # emit land in the shared per-run sink. rename-detect's STDOUT is its
+  # rename-record data pipeline (captured to $tmp_nd, fed to the cascade) — NOT
+  # findings — so it must stay on stdout; setting FINDINGS_OUTPUT routes its
+  # findings (if any) to the sink and keeps the data channel clean.
   local tmp_nd="${TMPDIR:-/tmp}/session-close-rename-$$.ndjson"
   if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rd" --since "24 hours ago" > "$tmp_nd" 2>/dev/null; then
     record_capability "rename-detect" "ok" "$(wc -l < "$tmp_nd" | tr -d ' ') record(s)"
@@ -656,11 +863,6 @@ step2b_rename_cascade() {
     return 0
   fi
   if [[ -s "$tmp_nd" ]]; then
-    if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rhs" append < "$tmp_nd" >/dev/null 2>&1; then
-      record_capability "rename-history-sync" "ok" ""
-    else
-      record_capability "rename-history-sync" "error" "exit $?"
-    fi
     if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rc" < "$tmp_nd" >/dev/null 2>&1; then
       record_capability "rename-cascade" "ok" "dry-run"
     else
@@ -672,13 +874,56 @@ step2b_rename_cascade() {
   rm -f "$tmp_nd"
 }
 
-# ---- Step 2d: trinity-drift-detect ------------------------------------------
-# T-4 (2026-04-22). After 2c pending-reconciliation, walk all plan
-# dirs for spec/manifest/tasks-ledger drift. Advisory. Uses shared find-emission
+# ---- Step 2d: trinity-drift-detect (trinity-status axis) --------------------
+# After 2c pending-reconciliation, walk all plan dirs for spec/manifest/tasks-
+# ledger (artifact/ledger) drift. Advisory. Uses the shared find-emission
 # contract (FINDINGS_OUTPUT honored). Scoped runs still invoke — detection is
-# cheap + read-only.
+# cheap + read-only. Restricted to `--axis trinity-status`: the master<->sub
+# aggregation axis is already covered by drift-sweep --plans (--axis master-sub),
+# so the two close call-sites emit DISJOINT axes — 0 duplication, both covered.
 step2d_trinity_drift() {
-  run_capability trinity-drift-detect
+  run_capability trinity-drift-detect --axis trinity-status
+}
+
+# ---- Step 2e: cadence-gated maintenance roster -----------------------------
+# The reconciler / auditor / vault-maintenance / cross-project-hygiene capabilities that
+# declare a cron_block cadence in capability-registry.json have no background scheduler on
+# an adopter install — this detached close is their deterministic trigger. sweep_due()
+# (hooks/lib/cadence.sh) fires each one only when its rolling window has elapsed (a cold
+# ledger fires once, then the window governs), stamping a durable per-capability ledger so
+# an in-window re-close skips it. The roster is an EXPLICIT per-capability list, not a blind
+# registry enumeration: the two session-close-step-2 meta-gates and the dormant-until-opt-in
+# audits are wired (or gated) elsewhere and must not double-fire here. Findings flow into the
+# per-run sink and the triage digest. index-maintain runs dry-run-first (no destructive
+# re-derive on a clean adopter); the two memory caps sweep every project memory dir
+# (--all-projects); rules-hygiene runs headless (its deterministic drift classes emit while
+# the judgment class stays interactive-gated).
+step2e_cadence_roster() {
+  if [[ "$TEST_MODE" == "true" ]]; then
+    record_capability "cadence-roster" "stub" "test-mode"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    record_capability "cadence-roster" "dry-run" "would consult sweep_due() for the schedulable maintenance roster"
+    return 0
+  fi
+  [[ "$CADENCE_AVAILABLE" == "1" ]] || return 0
+  # Reconciler + auditor tier.
+  sweep_due index-maintain        >/dev/null 2>&1 && run_capability index-maintain --dry-run
+  sweep_due rules-index           >/dev/null 2>&1 && run_capability rules-index
+  sweep_due library-index         >/dev/null 2>&1 && run_capability library-index
+  sweep_due skill-parity          >/dev/null 2>&1 && run_capability skill-parity
+  sweep_due waiver-audit          >/dev/null 2>&1 && run_capability waiver-audit
+  sweep_due tag-coverage-audit    >/dev/null 2>&1 && run_capability tag-coverage-audit
+  # Mechanical vault-maintenance tier.
+  sweep_due wikilink-repair       >/dev/null 2>&1 && run_capability wikilink-repair
+  sweep_due log-archive           >/dev/null 2>&1 && run_capability log-archive
+  sweep_due log-subtype-canonical >/dev/null 2>&1 && run_capability log-subtype-canonical
+  sweep_due library-log-rotate    >/dev/null 2>&1 && run_capability library-log-rotate
+  # Cross-project hygiene tier.
+  sweep_due memory-hygiene        >/dev/null 2>&1 && run_capability memory-hygiene --all-projects
+  sweep_due memory-staleness      >/dev/null 2>&1 && run_capability memory-staleness --all-projects
+  sweep_due rules-hygiene         >/dev/null 2>&1 && run_capability rules-hygiene
 }
 
 # ---- (former Step 3: sync-check / Step 4c: architect-triage) ---------------
@@ -748,8 +993,15 @@ write_log() {
     echo ""
     echo "- Capabilities invoked: see chain above"
     echo "- Errors: $ERRORS_COUNT"
+    echo "- Findings: $FINDINGS_COUNT"
     echo "- Scope: $SCOPE"
     echo ""
+    if [[ -n "$FINDINGS_DIGEST" ]]; then
+      echo "## Findings Digest (top categories)"
+      echo ""
+      echo "$FINDINGS_DIGEST"
+      echo ""
+    fi
     if [[ "$ERRORS_COUNT" -gt 0 ]]; then
       echo "## Error Findings"
       echo ""
@@ -766,19 +1018,57 @@ step2_integrity
 step2b_rename_cascade
 run_reconcile_sweep
 step2d_trinity_drift
+step2e_cadence_roster
 
-# T-1 (closes3-notwired-swallowed-1): count the per-run findings
-# sink AFTER the capability chain and BEFORE write_log emits `findings-total:`.
-# FINDINGS_COUNT is no longer left at its 0 init — it reflects the real count of
-# findings every chained capability routed to RUN_FINDINGS_NDJSON. Clean vault
-# is 0 (empty sink); a vault with drift is the non-zero line count.
+# Count the per-run findings sink AFTER the capability chain and BEFORE write_log emits
+# `findings-total:`. FINDINGS_COUNT reflects the REAL count of findings every chained
+# capability routed to RUN_FINDINGS_NDJSON. Clean vault is 0 (empty sink); a vault with
+# drift is the non-zero line count.
+#
+# Detect-tier digest: the upstream detect-tier precision fixes made findings-total a real
+# 0-baseline (a clean adopter close is 0 — no false-positive noise floor to threshold on),
+# so the sink is a trustworthy signal rather than a large floor to count-then-discard.
+# Summarize it into a BOUNDED top-N-by-category triage digest rendered in the close log, so
+# a high-finding close is triaged (top categories + their counts) instead of flooding the
+# log or being silently dropped. No threshold gate — the digest surfaces whatever the run
+# produced, bounded to a fixed cap of rendered lines.
+FINDINGS_DIGEST=""
 if [[ -f "$RUN_FINDINGS_NDJSON" ]]; then
   FINDINGS_COUNT=$(wc -l < "$RUN_FINDINGS_NDJSON" | tr -d ' ')
+  if [[ "$FINDINGS_COUNT" -gt 0 ]] && command -v python3 >/dev/null 2>&1; then
+    FINDINGS_DIGEST="$(python3 - "$RUN_FINDINGS_NDJSON" 2>/dev/null <<'PY'
+import json, sys
+from collections import Counter
+path = sys.argv[1]
+TOP_N = 10
+cats = Counter()
+with open(path, encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            d = json.loads(line)
+        except Exception:
+            cats["unparseable"] += 1
+            continue
+        cat = d.get("finding") or d.get("category") or "uncategorized"
+        cats[str(cat)] += 1
+for cat, n in cats.most_common(TOP_N):
+    print("- %s: %d" % (cat, n))
+extra = len(cats) - TOP_N
+if extra > 0:
+    print("- ... and %d more categor%s (top %d shown)" % (extra, "y" if extra == 1 else "ies", TOP_N))
+PY
+)"
+  fi
 fi
 
 write_log
 
 rm -f "$RUN_FINDINGS_NDJSON"
+# Tidy the dead-switch throwaway plans root, if the corpus-isolation guard created one.
+[[ -n "${_SC_DEAD_PLANS:-}" ]] && rm -rf "$_SC_DEAD_PLANS" 2>/dev/null
 
 # T-4 (B-1 #3): session-close stays advisory (Exit 0 always) for runtime
 # capability errors and benign environmental degradation — but a REQUIRED cap

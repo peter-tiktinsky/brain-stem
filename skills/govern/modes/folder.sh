@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # modes/folder.sh — Class A handler for /govern register --kind folder.
+#
 # Class A trigger (new top-level vault folder). R-37 atomic across
 # frontmatter.path_routing + (if applicable)
 # mandatory_files. Step 6 of protocol (vault-root CLAUDE.md tree
@@ -8,6 +9,7 @@
 # out: a Work spoke is an external-root project workspace whose identity
 # lives in its own CLAUDE.md, so its registration never appends to the
 # vault-root CLAUDE.md tree.
+#
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
@@ -153,8 +155,10 @@ mode_commit() {
 
   # Step 6 of — vault-root CLAUDE.md tree self-update.
   # Foundation-repo authoring: vault path is provided via env. Failure here
-  # does NOT roll back the overlay (canonical; survives); operator triages
-  # via librarian governance-parity-audit `vault-claude-md-tree-drift` finding.
+  # does NOT roll back the overlay (canonical; survives); the failure or the
+  # missing-CLAUDE.md deferral is surfaced as a plain stderr advisory (no sidecar,
+  # no drift finding — a recovery net no code delivers would be a fiction).
+  #
   # Work/* carve-out: a Work-spoke target is an external-root project workspace,
   # NOT a vault-root user cluster — its identity lives in its own CLAUDE.md, never
   # the vault-root CLAUDE.md Vault Structure tree. Skip the tree-append entirely
@@ -165,7 +169,7 @@ mode_commit() {
     *)
       _folder_claude_md_tree_append "$target" || {
         local update_rc=$?
-        printf 'folder.mode_commit: vault-root CLAUDE.md tree self-update failed rc=%s — overlay commit retained; surface as drift finding\n' "$update_rc" >&2
+        printf 'folder.mode_commit: vault-root CLAUDE.md tree self-update failed rc=%s — overlay commit retained (canonical; survives)\n' "$update_rc" >&2
         # Non-fatal — overlay mutation already committed.
       }
       ;;
@@ -192,14 +196,11 @@ _folder_claude_md_tree_append() {
   esac
 
   if [ ! -f "$claude_md" ]; then
-    # No vault-root CLAUDE.md yet — defer (install scaffolding handles seed).
-    # Emit a sidecar marker so librarian surfaces.
-    local sidecar="$vault_root/_claude-md-tree-update-pending.json"
-    mkdir -p "$vault_root" 2>/dev/null || return 6
-    local row
-    row=$(jq -nc --arg target "$target" \
-      '{pending_user_cluster: $target, reason: "vault-root CLAUDE.md missing", ts: now | strftime("%Y-%m-%dT%H:%M:%SZ")}')
-    printf '%s\n' "$row" >> "$sidecar" 2>/dev/null || return 6
+    # No vault-root CLAUDE.md yet — defer the tree-append (install scaffolding
+    # seeds it). Surface the deferral as a plain stderr advisory, NOT a pending
+    # sidecar marker: the retired marker had zero consumers (no capability read
+    # it), so it was a recovery net no code delivered.
+    printf 'folder: vault-root CLAUDE.md tree-append deferred for %s — no vault-root CLAUDE.md at %s (install scaffolding seeds it)\n' "$target" "$claude_md" >&2
     return 0
   fi
 

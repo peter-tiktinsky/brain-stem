@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: The vault/plan/governance librarian — a single skill with a flat, capability-name-keyed set of capabilities under capabilities/. Audits and reconciles governance pillars, plan-tree status, vault indices, and the Vault Writers ecosystem; renders manifest-derived read-replicas (tasks.md, _index.md, _backlog.md, _archive.md, rules-index). Routes to a capability by name; the capability bodies execute, they are not loaded inline.
+description: The vault/plan/governance librarian — a single skill with a flat, capability-name-keyed set of capabilities under capabilities/. Audits and reconciles governance pillars, plan-tree status, vault indices, and the Vault Writers ecosystem; renders manifest-derived read-replicas (tasks.md, _index.md, _backlog.md, rules-index). Routes to a capability by name; the capability bodies execute, they are not loaded inline.
 disable-model-invocation: false
 ---
 
@@ -44,9 +44,15 @@ is the rule CATEGORY axis, not a skill boundary.
 
 ### What `full` runs (the audit-set roster)
 
+`/librarian full` is the MANUAL, ad-hoc audit-set sweep. The **schedulable** subset of that
+roster (every capability declaring a `cron_block` cadence of `daily`/`weekly`/`monday`) ALSO
+runs automatically at each detached **session-close**, gated by `hooks/lib/cadence.sh`'s
+`sweep_due()` rolling-window ledger — there is no standalone background `full` runner; the
+deterministic close-time cadence gate is the automatic trigger.
+
 `full` is the audit-set sweep: it runs every capability whose `capability-registry.json`
 `invocation_modes` includes `librarian-full`. The **registry is the authoritative roster**
-(contract-of-record); the set below is a snapshot of the current release (41
+(contract-of-record); the set below is a snapshot of the current release (40
 capabilities) — consult `invocation_modes` for the live membership:
 
 > `governance-parity-audit`, `index-maintain`, `log-subtype-canonical`, `rules-index`,
@@ -54,34 +60,33 @@ capabilities) — consult `invocation_modes` for the live membership:
 > `plan-parent-resolve`, `drift-sweep`, `trinity-drift-detect`, `frontmatter-enforce`,
 > `placement-validate`, `xref-check`, `stale-detect`, `handoff-disposition-check`,
 > `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `capability-registry-parity`, `librarian-manifest-validate`,
-> `skill-parity`, `waiver-audit`, `log-archive`, `backup`,
+> `skill-parity`, `waiver-audit`, `log-archive`,
 > `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`,
 > `plan-research-index`, `plan-decision-log`, `plan-handoff-index`, `project-context-situating`,
 > `work-map-generate`, `work-index-maintain`, `binder-handoff-append-wrapper`, `chronicle-index`,
 > `pointer-currency-scan`, `plan-terminal-lag-check`, `library-index`, `library-log-rotate`,
 > `coverage-guard`.
 
-`full` is NOT "every capability". Notably it does **not** run `backlog-index` or
-`plan-archive` (see below), nor `tasks-render` / `matrix-render` / `subplan-aggregate`
+`full` is NOT "every capability". Notably it does **not** run `backlog-index`
+(see below), nor `tasks-render` / `matrix-render` / `subplan-aggregate`
 (those run per-plan, on demand).
 
 ### Plan-tree read-replicas materialize LAZILY (not at install)
 
-The three plan-tree aggregates are librarian-EMITTED on first relevant run — the installer
+The two plan-tree aggregates are librarian-EMITTED on first relevant run — the installer
 seeds **none** of them, so a brand-new adopter's `$PLANS_HOME` legitimately has no
-`_index.md` / `_backlog.md` / `_archive.md` until a librarian capability writes them. No
+`_index.md` / `_backlog.md` until a librarian capability writes them. No
 shipped consumer hard-fails on their absence (the one runtime reader degrades gracefully).
 Each has a different first-emit trigger — know which capability owns which file:
 
 | Read-replica | Emitted by | Invocation modes | First materializes on |
 |---|---|---|---|
 | `$PLANS_HOME/_index.md`   | `plan-index`   | `ad-hoc`, `librarian-full`, `session-close-step-2` | first `/librarian full`, first session-close, or `/librarian plan-index` |
-| `$PLANS_HOME/_backlog.md` | `backlog-index`| `ad-hoc`, `cron` | an explicit `/librarian backlog-index` or its weekly Monday librarian-cron run — **not** `full`, **not** session-close |
-| `$PLANS_HOME/_archive.md` | `plan-archive` | `ad-hoc`, `cron` | an explicit `/librarian plan-archive` or its scheduled cron run — **not** `full`, **not** session-close |
+| `$PLANS_HOME/_backlog.md` | `backlog-index`| `ad-hoc`, session-close | first session-close, or an explicit `/librarian backlog-index` — **not** `full` |
 
-So a `full` sweep (or any session-close) materializes `_index.md`, but `_backlog.md` and
-`_archive.md` appear only when their own capability is run (ad-hoc or via the scheduled
-cron). This is by design, not a gap.
+So a `full` sweep (or any session-close) materializes `_index.md`; `_backlog.md` now
+materializes at session-close too (or via an explicit `/librarian backlog-index`) — but
+still **not** via `full` (`backlog-index` is not in the `librarian-full` roster).
 
 ---
 
@@ -151,7 +156,7 @@ Runtime: `capabilities/tasks-render.sh`.
 
 ## Capability: matrix-render
 
-Regenerates a single plan's `.md` from its `manifest.tasks[]`
+Regenerates a single plan's `traceability-matrix.md` from its `manifest.tasks[]`
 — the sibling of `tasks-render` for the matrix mirror (the 8th incident drift
 site; nothing rendered or consumed it before). Sentinel-bounded
 (`<!-- matrix:start -->`/`<!-- matrix:end -->`) one-row-per-task table; the render
@@ -198,18 +203,15 @@ Runtime: `capabilities/plan-index.sh`.
 
 ## Capability: backlog-index
 
-Regenerates `<plans-root>/_backlog.md` from `{researching, planned}` manifests;
-reader cap — master-row-only policy (READS the aggregate) + satellite
--pointer retarget off the `<slug>.md` backlog-progress satellite to the plan dir /
-master `handoff.md`.
+Regenerates `<plans-root>/_backlog.md` — the 7-column active funnel table
+(Project Dir carries the registry-resolved project-home directory; Target carries
+the `promoted_to`/`absorbed_into` plan-dir key) plus the derived settled ledger in
+the `backlog-settled` sentinel region — and the machine-written
+`_inbox/_index.md` (active + settled rosters + remediation highlights). Runs the
+terminal-resolution closure loop over `_inbox/` notes first (write-if-changed
+`resolution:` restamps when a target plan reaches `lifecycle.terminal_status`).
+reader cap for plan rows — master-row-only policy (READS the aggregate).
 Runtime: `capabilities/backlog-index.sh`.
-
-## Capability: plan-archive
-
-Promotes closed plans to archived + appends to `<plans-root>/_archive.md`;
-reader cap — master-subtree archival gate (a master archives only when every
-`sub_plans[]` entry is terminal). Data-driven cooldown; idempotent.
-Runtime: `capabilities/plan-archive.sh`.
 
 ## Capability: capability-registry-parity
 
@@ -271,14 +273,18 @@ Runtime: `capabilities/pointer-currency-scan.sh`.
 ## Capability: frontmatter-enforce
 
 Validates (and optionally `--fix`es) frontmatter on vault files against the
-26-row type table; runs the provides-canonicality, size-monitoring, and
+6-row type table (`foundation-master.json` frontmatter.types); runs the provides-canonicality, size-monitoring, and
 schema-type-coverage drift audits, persisting `drift_findings.*` to the
 librarian-manifest. Ported as-is.
 Runtime: `capabilities/frontmatter-enforce.sh`.
-Deliverables under the `Work/` surface (a symlink to the external work home) are
-not reached by the whole-vault walk (`os.walk` does not recurse into the symlink);
-audit them with a scoped invocation, `frontmatter-enforce.sh --scope <vault>/Work`
-— the same dedicated-scan pattern `library-index` uses for the `_library` root.
+The whole-vault `--full` walk follows symlinks to reach vault-proper clusters behind them
+(with a realpath cycle-guard), but PRUNES the external symlink surfaces —
+`Work`, `Plans`, `Projects`, `Wiki`, `Skills` — at the vault root, since those are governed
+elsewhere. So deliverables under the `Work/` surface (a symlink to the external work home)
+are not reached by `--full`; audit them with a scoped invocation,
+`frontmatter-enforce.sh --scope <vault>/Work` — the same dedicated-scan pattern
+`library-index` uses for the `_library` root. The mtime-gated `--recent` default stays
+symlink-inert.
 
 ## Capability: placement-validate
 
@@ -318,7 +324,7 @@ Runtime: `capabilities/tag-coverage-audit.sh`.
 
 ## Capability: sanctioned-schema-drift-detect
 
-Byte-diffs the 2 sanctioned schemas (plans-schema, plan-manifest-schema)
+Byte-diffs all shipped schemas (every `schemas/*.json` in the foundation-manifest)
 between the foundation-repo source and the live `~/.claude/schemas/` install;
 exit 1 on drift. Self-contained (no lib source). Ported as-is.
 Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
@@ -335,8 +341,8 @@ Close-time surface-and-walk enforcement (DT-3): emits a `plan-terminal-lag`
 finding when a plan's own status is non-terminal under a `parent_plan` master
 whose status IS terminal, and prompts the walk. Writes NO status — never
 auto-closes, never auto-stamps `verified` — and touches no aggregation. TERMINAL
-= {verified, closed, archived, superseded} (byte-identical to plan-archive.sh /
-trinity-drift-detect.sh / subplan-aggregate.sh; `completed` is not terminal).
+= {completed, superseded} (byte-identical to
+trinity-drift-detect.sh / subplan-aggregate.sh; `completed` is the sole terminal done-state).
 Runtime: `capabilities/plan-terminal-lag-check.sh`.
 
 ## Capability: plan-parent-resolve
@@ -413,8 +419,8 @@ Runtime: `capabilities/rename-cascade.sh`.
 
 ## Capability: rename-history-sync
 
-Appends detected renames to the librarian-manifest `rename_history[]` (the
-rename pipeline's history writer). Ported as-is.
+Appends detected renames to `hooks/doc-dependencies.json` `rename_history[]` (the
+rename pipeline's history writer).
 Runtime: `capabilities/rename-history-sync.sh`.
 
 ## Capability: library-scrub

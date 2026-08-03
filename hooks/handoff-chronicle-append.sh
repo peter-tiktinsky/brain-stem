@@ -186,6 +186,19 @@ DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNOR
 SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
 DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
 
+# The harvested next-session line carries its OWN "**Next session…:**" label verbatim,
+# and the renderer then prepends its own "- **Next session:** " label — doubling it. Strip the
+# harvested leading label (all shipped forms: "**Next session:**" / "**Next session does:**" /
+# "**Next session start conditions:**" / "**Next session entry point:**") BEFORE the prepend, so
+# the block carries the label exactly once. Requires the label colon, so a colon-less body line
+# is never over-stripped. DEFINED IDENTICALLY in hooks/handoff-chronicle-append.sh +
+# skills/librarian/capabilities/plan-handoff-index.sh so append<->re-derive stay byte-identical.
+_NEXT_LABEL_RE = re.compile(r"^\**\s*next session\b[^:]*:\s*\**\s*", re.IGNORECASE)
+
+
+def strip_next_label(s):
+    return _NEXT_LABEL_RE.sub("", s or "").strip()
+
 
 def first_nonblank_chars(lines, limit=200):
     body = " ".join(l.strip() for l in lines if l.strip())
@@ -285,7 +298,7 @@ def esc(cell):
 
 
 # render the single block IDENTICALLY to the re-derive's render_row.
-next_line = newest["next_line"] or "—"
+next_line = strip_next_label(newest["next_line"]) or "—"
 summary = newest["summary"] or "—"
 block = "\n".join([
     "### %s — %s" % (esc(plan_slug), esc(newest["session"])),

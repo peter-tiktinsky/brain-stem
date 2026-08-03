@@ -4,7 +4,7 @@
 # C2-owned body (.6: reconciliation is effectively always-on;
 # session-deregister conditionally spawns this in the background, and
 # `/librarian … close` Step 2c also calls it). It is the registry PRODUCER that
-# reaps stale + closed-pending peers so peer-awareness / R-42 / R-36 /
+# reaps stale + closed-pending peers so peer-awareness / R-42 /
 # pre-compact files_modified / post-compaction restore stay live.
 #
 # UNOWNED-SURFACE closure (feedback_f3_ownership_vs_tree_asis_port_gap): named

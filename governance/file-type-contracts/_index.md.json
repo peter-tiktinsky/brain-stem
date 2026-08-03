@@ -14,9 +14,16 @@
     "evolution_protocol": "R-37 atomic lockstep — runtime artifact + frontmatter-rules.json#types.index + mandatory-files-rules.json mandates entry updated in one commit",
     "shape_optimization_for_hooks": "Single-document JSON loadable in one `jq` pass; flat keys for sentinel patterns, regexes, columns ordered by `position` (1-indexed); enums resolved to concrete arrays (no PLACEHOLDER strings). Adopter Layer-3 overlays at $CLAUDE_HOME/governance/file-type-contracts/_index.md.adopter.json shadow this file per R-52 with `_override_reason` discipline."
   },
-
   "frontmatter": {
-    "required": ["type", "tags", "updated", "description", "created", "id", "schema_version"],
+    "required": [
+      "type",
+      "tags",
+      "updated",
+      "description",
+      "created",
+      "id",
+      "schema_version"
+    ],
     "conditional_required": {
       "parent_folder": {
         "condition": "path_depth >= 2",
@@ -24,7 +31,9 @@
         "auto_populate_source": "post-write-verify.sh bootstrap step 2 — derived from $FILE_PATH dirname relative to $VAULT_ROOT"
       }
     },
-    "optional": ["provides"],
+    "optional": [
+      "provides"
+    ],
     "property_constraints": {
       "type": {
         "const": "index"
@@ -71,7 +80,6 @@
       }
     }
   },
-
   "body_structure": {
     "h1": {
       "required": true,
@@ -133,8 +141,17 @@
       "ordering_convention": {
         "enforced_at_tier": "3",
         "enforced_behavior": "advisory_only",
-        "key_role_types_first": ["overview", "context", "updates", "prd", "navigation"],
-        "supporting_role_types_after": ["reference", "people"],
+        "key_role_types_first": [
+          "overview",
+          "context",
+          "updates",
+          "prd",
+          "navigation"
+        ],
+        "supporting_role_types_after": [
+          "reference",
+          "people"
+        ],
         "rationale": "Key-role types listed before supporting types makes load-priority signal explicit; convention not enforced as DENY — Tier 3 --deep audit flags drift for hand-tune review"
       },
       "light_content_fallback": {
@@ -179,32 +196,25 @@
       ]
     }
   },
-
   "exemption_list_pointer": {
     "canonical_source": "governance/mandatory-files-rules.json",
     "canonical_jq_path": ".mandates._index_md.exemption_paths",
     "rationale": "Single source of truth for which folders are exempt from _index.md mandate. The post-write hook + librarian index-maintain consume from there at runtime — when a write hits an exempt folder, the hook does not auto-create _index.md and the librarian does not flag missing-index as drift. Exemption changes require R-37 lockstep updating mandatory-files-rules.json + this file's `last_synced_exemption_count`."
   },
-
   "consumers": [
     {
       "name": "post-write-verify.sh",
       "type": "hook",
-      "status": "existing-hook-extension",
       "role": "Tier 1 live-sync + auto-bootstrap on Edit/Write tool calls",
-      "loop_guard": "if [[ \"$FILE_PATH\" == */_index.md ]]; then exit 0; fi  (one-line check at hook entry)",
-      "implementation_target": "hooks/post-write-verify.sh"
+      "loop_guard": "if [[ \"$FILE_PATH\" == */_index.md ]]; then exit 0; fi  (one-line check at hook entry)"
     },
     {
       "name": "index-maintain.sh",
       "type": "librarian-capability",
-      "status": "new-capability",
       "contract_path": "skills/librarian/capabilities/index-maintain.sh",
-      "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)",
-      "implementation_target": "skills/librarian/capabilities/index-maintain.sh"
+      "role": "Tier 2 audit sweep (auto-fix missing/orphan/drift); Tier 3 --deep semantic validation (description-vs-H1 match, ordering coherence)"
     }
   ],
-
   "validation_tiers": {
     "tier_1_live_sync": {
       "trigger": "PostToolUse hook fires on Edit/Write tool calls",

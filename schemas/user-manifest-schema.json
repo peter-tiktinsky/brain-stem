@@ -138,12 +138,12 @@
             "writers_health_check": {
               "type": ["string", "null"],
               "enum": ["unset", "enabled", "declined", null],
-              "description": "Dormant-until-opt-in activation for the daily writers-health-audit cron dispatch (installer/cron-dispatch.sh). Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = the daily health check is scheduled (default-on for all subsequent writers once accepted); 'declined' = dormant + re-proposable at a later writer registration. The propose-and-confirm at first-writer registration (skills/govern/modes/writer.sh mode_commit) sets it. Read with `jq // \"unset\"`."
+              "description": "Dormant-until-opt-in activation for the daily writers-health-audit cadence dispatch (the sweep_due() cadence-window gate in hooks/lib/cadence.sh). Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = the daily health check fires (default-on for all subsequent writers once accepted); 'declined' = dormant + re-proposable at a later writer registration. The propose-and-confirm at first-writer registration (skills/govern/modes/writer.sh mode_commit) sets it. Read with `jq // \"unset\"`."
             },
             "governance_parity_audit": {
               "type": ["string", "null"],
               "enum": ["unset", "enabled", "declined", null],
-              "description": "Dormant-until-opt-in activation for the weekly governance-parity-audit cron dispatch (installer/cron-dispatch.sh). Its 6 governance-PILLAR inputs are build-dogfood-only, so the weekly dispatch is DORMANT on an adopter install unless this key is 'enabled'. Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = scheduled weekly; 'declined' = dormant + re-proposable. MANUAL opt-in — governance-parity-audit is NOT writer-triggered and has no auto-propose lifecycle event (unlike writers_health_check); the adopter opts in by SETTING THIS KEY BY HAND. Read with `jq // \"unset\"`."
+              "description": "Dormant-until-opt-in activation for the weekly governance-parity-audit cadence dispatch (the sweep_due() cadence-window gate in hooks/lib/cadence.sh). Its 6 governance-PILLAR inputs are build-dogfood-only, so the weekly dispatch is DORMANT on an adopter install unless this key is 'enabled'. Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = fires weekly; 'declined' = dormant + re-proposable. MANUAL opt-in — governance-parity-audit is NOT writer-triggered and has no auto-propose lifecycle event (unlike writers_health_check); the adopter opts in by SETTING THIS KEY BY HAND. Read with `jq // \"unset\"`."
             }
           }
         }

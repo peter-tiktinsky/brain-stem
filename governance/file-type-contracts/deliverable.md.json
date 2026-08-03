@@ -26,7 +26,7 @@
   },
 
   "frontmatter": {
-    "_note": "The real required[] enforcement surface is governance/frontmatter-rules.json#types.deliverable; this block mirrors the universal typed cohort + its value-typing for legibility. Value-typing is enforced write-time by the pre-write-guard.sh property-type format regex (R-64).",
+    "_note": "The real required[] enforcement surface is governance/frontmatter-rules.json#types.deliverable; this block mirrors the universal typed cohort + its value-typing for legibility. Value-typing is checked write-time by the pre-write-guard.sh property-type format regex (R-64) as a Tier-1 advisory — it warns, it does not block.",
     "cohort": ["type", "description", "created", "updated", "tags", "id", "schema_version"],
     "property_types": {
       "created": "date",

@@ -9,8 +9,8 @@
   "matcher_pillar": "governance/mandatory-files-rules.json",
   "matcher_entry": "mandates.doc_amender_prompt",
   "_design_notes": {
-    "consumer": "skills/doc-amender (T-28)",
-    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in (per T-30)",
+    "consumer": "skills/doc-amender",
+    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in",
     "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries"
   },
 

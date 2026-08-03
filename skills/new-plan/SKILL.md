@@ -77,8 +77,8 @@ amendment-pointer-block, per the ideation-brief body-structure contract.)
 3. **Sub-plan numbering in execution order.** `--add-subplan` assigns the next `NN-` ordinal in
    execution order (not creation order); `--master` seeds the first sub-plan at `01-`.
 4. **Status header.** Every rendered file carries a canonical status (manifest `status` field;
-   markdown `**Status:**` / frontmatter `status:`). The 8-state canonical vocabulary is used
-   (`researching | planned | in-progress | paused | completed | verified | closed | archived`;
+   markdown `**Status:**` / frontmatter `status:`). The 6-state canonical vocabulary is used
+   (`researching | planned | in-progress | paused | completed | superseded`; `completed` +
    `superseded` terminal) — never a non-canonical token.
 5. **`parent_plan` on depth-≥3 sub-files.** Sub-plan `spec.md` / `tasks.md` / `manifest.json`
    carry `parent_plan` by construction; `handoff.md` is exempt at any depth.

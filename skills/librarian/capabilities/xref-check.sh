@@ -113,6 +113,20 @@ BROKEN_LINK_SOURCE_EXEMPT_PREFIXES = (
     "Logs/xref-",
 )
 
+# Plans/Projects/Skills/Wiki/Work are top-level symlink SURFACES the walker
+# descends for link RESOLUTION only — their files STAY in target_map, so a
+# vault-proper link pointing at a target that lives on one of these surfaces
+# still resolves and is not falsely reported broken. They are NOT the vault-proper
+# surface this cap governs, so emitting broken-link / orphan findings against a
+# SOURCE that lives ON them is pure over-reach (0 true positives there). Exclude
+# those surfaces from EMISSION only; keep them in the graph. Match the top-level
+# path part (these are top-level mount points) so a genuinely-broken link in a
+# vault-proper file is never wrongly suppressed.
+SYMLINK_SURFACE_EXCLUDE = {"Plans", "Projects", "Skills", "Wiki", "Work"}
+
+def on_symlink_surface(rel_parts):
+    return bool(rel_parts) and rel_parts[0] in SYMLINK_SURFACE_EXCLUDE
+
 # Collect all .md files + filename -> full-path map (first wins).
 target_map = {}  # basename_no_ext -> [paths]
 all_files = []
@@ -192,8 +206,11 @@ for src in scoped_files:
     except Exception:
         continue
     src_rel = str(src.relative_to(vault))
-    # Exempt audit/report sources from broken-link emission (still counts inbound).
-    exempt_src = any(src_rel.startswith(pref) for pref in BROKEN_LINK_SOURCE_EXEMPT_PREFIXES)
+    # Exempt audit/report sources AND the top-level symlink surfaces from
+    # broken-link emission — both still count inbound (cross-surface resolution is
+    # unaffected); only emission against the surface is suppressed.
+    exempt_src = any(src_rel.startswith(pref) for pref in BROKEN_LINK_SOURCE_EXEMPT_PREFIXES) \
+        or on_symlink_surface(src.relative_to(vault).parts)
     for m in WIKILINK_RE.finditer(text):
         target_raw = m.group(1).strip()
         # Table-cell wikilinks use `\|` as escape for the cell divider:
@@ -274,6 +291,10 @@ for p in scoped_files:
         continue
     rel = p.relative_to(vault)
     if any(part in ORPHAN_EXCLUDE_DIRS_DEFAULT for part in rel.parts):
+        continue
+    # Symlink surfaces are kept in the graph above for resolution but are not the
+    # governed surface — skip orphan emission against them.
+    if on_symlink_surface(rel.parts):
         continue
     if inbound.get(p, 0) == 0:
         findings.append({

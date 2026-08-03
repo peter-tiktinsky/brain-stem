@@ -253,7 +253,11 @@ destination_within_allowed_roots() {
   # $1 destination-path
   local dest="$1"
   local vault="${VAULT_ROOT:-}"
-  local claude_home_dir="${HOME}/.claude"
+  # Route the write-allowlist install root through the file's already-resolved
+  # CLAUDE_HOME (mirrors the :155/:157 ${CLAUDE_HOME:-$HOME/.claude} resolution) so a
+  # relocated-CLAUDE_HOME adopter's reconciler gates against the REAL install root, not
+  # a bare ${HOME}/.claude. Default install unchanged (CLAUDE_HOME unset -> $HOME/.claude).
+  local claude_home_dir="${CLAUDE_HOME:-$HOME/.claude}"
   local work_home="${WORK_HOME:-}"
   case "$dest" in
     "$vault"/*)

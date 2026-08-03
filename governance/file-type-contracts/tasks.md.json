@@ -8,7 +8,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "plan_folder_quartet.required",
   "_design_notes": {
-    "consumer": "hooks/tasks-md-autosync.sh + librarian plan-index + manifest auto-sync sentinels (<!-- task-done: NN/T-M -->)",
+    "consumer": "hooks/tasks-md-autosync.sh + librarian tasks-render + manifest auto-sync sentinels (<!-- task-done: NN/T-M -->)",
     "lockstep_pair": "manifest.tasks[] in same plan-tree (R-37 coupled_surfaces)",
     "evolution_protocol": "R-37 atomic lockstep with manifest.json"
   },

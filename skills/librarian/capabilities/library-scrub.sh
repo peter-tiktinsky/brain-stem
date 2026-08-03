@@ -2,6 +2,7 @@
 # library-scrub — Deterministic dual-output promotion scrub: workshop research ->
 # a universal _library/<topic>/<article>.md AND a plan-SoT _research/ record,
 # with bidirectional cross-reference stamps, in one propose/--apply.
+#
 # This capability OWNS the full promotion write-orchestration (R-FLOW-PROMO):
 #   PROMO-1  identify finalized candidates from workshop content + manifest
 #            research_artifacts[] entries with status: finalized.
@@ -24,20 +25,25 @@
 #   PROMO-6  archive: the workshop originals MOVE to workshop/_archive/. The
 #            _library/log.md append half is owned by a separate capability and
 #            is NOT written here.
+#
 # NOVEL BET (advisory-first, R-FLOW-DISC-2): scrub quality is unproven. The
 # propose phase emits NDJSON candidates and writes NOTHING; the propose diff is
 # the human backstop where over-/under-strip is visible (R-FLOW-PROMO-2/-5).
 # --apply is the ONLY writing path. This capability never blocks a prompt and
 # never escalates to a harder posture on its own — escalation needs
 # observed-failure data (R-FLOW-DISC-2).
+#
 # R-FLOW-DISC-5 — block-and-log, never write-and-hope: an empty/malformed scrub
 # output is never written; it emits a `scrub-blocked` finding and is skipped.
+#
 # NOTE (transcription): the binding SoT labels this dual-output scrub `R-WS-1`;
 # that is the same-ID as the distinct frictionless-capture workshop contract in
 # the surface-architecture doc. Same-ID drift, not an error.
+#
 # Flow-maintained artifacts (workshop/_archive/, _library/<topic>/_raw/) carry
 # maintainer=flow(F-CAP|F-PROMO) with enforcement-owner=librarian — this
 # capability is that enforcement owner.
+#
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (ONLY in --apply mode; propose mode writes nothing):
 #     1. $LIBRARY/<topic>/_raw/<source>            — immutable provenance copy
@@ -69,6 +75,7 @@
 #   Failure mode: BLOCK-AND-LOG. A candidate that fails validation emits a
 #     `scrub-blocked` finding and is skipped; no partial write. Never
 #     write-and-hope.
+#
 # NDJSON schema (one line per candidate / event):
 #   propose:  { "finding":"library-scrub", "file":"<workshop-source>",
 #               "category":"promotion-candidate", "topic":"<topic>",
@@ -81,14 +88,17 @@
 #               "category":"promoted", "topic":"<topic>",
 #               "article":"<topic>/<article>.md", "written":"<article path>",
 #               "plan_sot":"<_research path>", "archived":"<archive path>" }
+#
 # Tier: judgment. requires_confirmation: true (propose-then-confirm default;
 # --apply is the confirm gate). Cron block: skip-non-interactive.
+#
 # CLI:
 #   library-scrub.sh                      # propose (NDJSON candidates; NO writes)
 #   library-scrub.sh --apply              # confirm: write + stamp + archive
 #   library-scrub.sh --topic <dir>        # one workshop topic dir (else sweep all)
 #   library-scrub.sh --dry-run            # summary counts only; no findings/writes
 #   library-scrub.sh --help               # usage
+#
 # Env overrides:
 #   WORKSHOP_DIR   workshop home (default: $CLAUDE_STATE_ROOT/workshop via
 #                  paths.sh, R-ARCH-1a — NEVER a hardcoded literal).
@@ -100,6 +110,10 @@
 #                          -> repo governance/frontmatter-rules.json)
 #   FINDINGS_OUTPUT        NDJSON sink (default: stdout)
 #   FOUNDATION_TEST_MODE   Bypass the non-interactive guard (test/CI runners).
+#   CLAUDECODE             Set by an attended Claude Code session; bypasses the
+#                          --apply non-interactive guard (CC is the primary
+#                          library-curation surface). A bare cron sweep still blocks.
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24.
 
 set -euo pipefail
@@ -131,11 +145,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Judgment-tier non-interactive guard (mirrors memory-globalize.sh). The propose
-# phase is read-only and harmless, but --apply writes durable content; the guard
-# keeps an unattended cron sweep from auto-promoting.
+# Judgment-tier non-interactive guard (mirrors memory-globalize.sh /
+# memory-hygiene.sh). The propose phase is read-only and harmless, but --apply
+# writes durable content; the guard keeps an unattended cron sweep from
+# auto-promoting. CLAUDECODE (an attended Claude Code session — the primary
+# library-curation operation surface) bypasses the guard so --apply reaches its
+# write path there; a bare non-TTY cron sweep (CLAUDECODE unset) still blocks.
 if [[ "$APPLY" == "true" ]] && [[ -z "${FOUNDATION_TEST_MODE:-}" ]] \
-   && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+   && [[ -z "${CLAUDECODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
   echo "library-scrub: --apply skipped (non-interactive)" >&2
   exit 0
 fi

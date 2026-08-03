@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brain-stem.example/schemas/plan-manifest/v2.json",
-  "title": "Plan Manifest (orchestrator + plan-tree superset; canonical 8-state status)",
-  "description": "Defines the ONE canonical 8-state `status` (retiring the legacy top_level_status field), the `sub_plans[]` master/sub aggregate, `graduation_timestamp`, `dependencies.{parallel_ok, blocks}`, and `paused_reason`; allows `rejected` in decision_records[].status; and carries the if/then type-binding (plan/master/sub-plan required-field shapes). additionalProperties:true permits forward-compatible field additions.",
+  "title": "Plan Manifest (orchestrator + plan-tree superset; canonical 6-state status)",
+  "description": "Defines the ONE canonical 6-state `status` (retiring the legacy top_level_status field), the `sub_plans[]` master/sub aggregate, `graduation_timestamp`, `dependencies.{parallel_ok, blocks}`, and `paused_reason`; allows `rejected` in decision_records[].status; and carries the if/then type-binding (plan/master/sub-plan required-field shapes). additionalProperties:true permits forward-compatible field additions.",
   "type": "object",
   "required": [
     "schema_version",
@@ -49,12 +49,9 @@
         "in-progress",
         "paused",
         "completed",
-        "verified",
-        "closed",
-        "archived",
         "superseded"
       ],
-      "description": "The ONE canonical 8-state plan status. Vocabulary: researching -> planned -> in-progress <-> paused -> completed -> verified -> closed -> archived, with superseded terminal from any non-archived state. completed = human's claim; verified = MACHINE-stamped, reachable only through an actual validation pass (the verdict gate; written only by the dogfood-harness seam, never by hand). A write-time guard FORBIDS closed unless status==verified (the load-bearing closed-requires-verified guard, enforced in hooks/pre-write-guard.sh). closed -> archived is volume/cooldown-gated, NOT calendar. Required on both type:plan and type:sub-plan manifests per the if/then binding below."
+      "description": "The ONE canonical 6-state plan status. Vocabulary: researching -> planned -> in-progress <-> paused -> completed, with superseded terminal from any state. completed = the sole terminal done-state (the human's claim that work is done); close-out outputs (outcome_summary, shipped_artifacts, closed_at) survive as OPTIONAL fields, never a status gate. Archival is a display-only view filter over completed plans, not a status. Required on both type:plan and type:sub-plan manifests per the if/then binding below."
     },
     "type": {
       "type": "string",
@@ -90,6 +87,11 @@
       "format": "date",
       "description": "Date this manifest was last materially updated. Consumed by the librarian backlog-index read-replica (the Updated column, which falls back to phase_2_scaffolded_at when absent) and by backlog-hygiene staleness math. Seeded at every manifest-creation surface (new-plan scaffolder + promote-from-inbox) and maintained on material edits."
     },
+    "completed_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the plan reached `completed` (date-only, matching the sibling `updated` convention). Stamped by the session-close chain on the in-progress->completed transition — once, when a completed plan is first observed without the field (idempotent; never overwritten). The archival display view-filter (plan-index default-hide) sorts on this date, falling back to `updated` for legacy manifests that predate the field."
+    },
     "disposition": {
       "type": "string",
       "enum": [
@@ -105,7 +107,7 @@
         "string",
         "null"
       ],
-      "description": "Successor plan slug (no path, no extension) when status == superseded; else null/absent. Consumed by plan-archive.sh (the _archive.md renderer). Sourced from the program reconciliation ledger at superseding time."
+      "description": "Successor plan slug (no path, no extension) when status == superseded; else null/absent. A plain provenance field recording the successor, sourced from the program reconciliation ledger at superseding time."
     },
     "tasks": {
       "type": "array",
@@ -382,7 +384,7 @@
         },
         "layer_3": {
           "type": "object",
-          "description": "L3 writer-pause declarations consumed by l3-pause-helper.sh (T-4). Lint at manifest-author time validates against l3-writer-registry.json (T-10).",
+          "description": "L3 writer-pause declarations (per-plan write-pause windows), validated at manifest-author time.",
           "additionalProperties": false,
           "properties": {
             "enabled": {
@@ -496,16 +498,6 @@
               "description": "ALL must hold for retirement eligibility.",
               "additionalProperties": true,
               "properties": {
-                "master_status_in": {
-                  "description": "The canonical status vocabulary a master-plan `status` must be in to be retirement-eligible (the legacy top_level_status field is retired).",
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "enum": [
-                      "closed"
-                    ]
-                  }
-                },
                 "git_tag_published": {
                   "type": "string",
                   "description": "Required tag (e.g., \"v2.0.0\")."
@@ -843,8 +835,12 @@
         }
       }
     },
+    "research_closed": {
+      "type": "boolean",
+      "description": "PLAN-TREE FIELD. Optional anti-scope marker. When true, plan-research-declare STOPS auto-appending newly-discovered artifacts to research_artifacts[] and instead emits a research-declare-closed-scope finding for human adjudication — a plan whose research scope is closed no longer ratifies a misplaced durable artifact by mere presence in a scanned research dir. Setter convention: research_closed is stamped true by the sanctioned close-out flow when a plan reaches terminal status ({completed, superseded}); the operator may hand-set it on active plans; plan-research-declare only reads it; plans being rehomed by the durable-artifact census are never bulk-stamped. Optional — absent/false is the default (the append path is unchanged); additionalProperties:true keeps legacy manifests valid."
+    },
     "_top_level_status_retired": {
-      "_note": "The legacy 5-state top_level_status field [aligned, in_progress, complete, closed, superseded] is RETIRED and replaced by the single canonical `status` field above. Consumers re-point top_level_status -> status (the verdict gate, active-gates-rebuild, and spec-context-inject, which re-keys on status==in-progress). harness_validated[] descriptions referencing top_level_status flips are read as `status` flips post-retirement."
+      "_note": "The legacy 5-state top_level_status field [aligned, in_progress, complete, closed, superseded] is RETIRED and replaced by the single canonical `status` field above. Consumers re-point top_level_status -> status (the verdict gate and spec-context-inject, which re-keys on status==in-progress). harness_validated[] descriptions referencing top_level_status flips are read as `status` flips post-retirement."
     },
     "paused_reason": {
       "type": "string",
@@ -863,7 +859,7 @@
         "null"
       ],
       "format": "date-time",
-      "description": "The timestamp stamped when this (sub-)plan transitions to `closed`; the librarian reconciler READS it into the master sub_plans[] aggregate (sub-publishes-upward, R-62). Written by the status:closed transition; null until then."
+      "description": "The timestamp stamped when this (sub-)plan reaches a terminal status ({completed, superseded}); the librarian reconciler READS it into the master sub_plans[] aggregate (sub-publishes-upward, R-62); null until then."
     },
     "sub_plans": {
       "type": "array",
@@ -893,12 +889,9 @@
               "in-progress",
               "paused",
               "completed",
-              "verified",
-              "closed",
-              "archived",
               "superseded"
             ],
-            "description": "The sub-plan's published canonical 8-state status (by-copy; keyed on coarse buckets active/done/verified/closed by the master display logic). The master NEVER overwrites a sub's status; only the librarian aggregator reads it."
+            "description": "The sub-plan's status — a DERIVED mirror (by-copy) of the sub's OWN canonical 6-state status; the master never overwrites it, the librarian aggregator reads each sub's published status into this read-replica. The vocabulary is the SAME canonical 6-state set as the top-level status field above; the upgrade migration converges any legacy read-replica still carrying a pre-collapse token, so a validated master mirror never carries a retired status. The master display logic coarsens this to the pending/active/done buckets."
           },
           "graduation_timestamp": {
             "type": [

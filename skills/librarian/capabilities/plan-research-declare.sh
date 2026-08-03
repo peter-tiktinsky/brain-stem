@@ -30,6 +30,15 @@
 # living in one of the scanned research dirs. Exhaust / superseded drafts that live elsewhere in the
 # plan (archive-or-in-plan class, DT-4) are NOT scanned and never declared.
 #
+# ANTI-SCOPE GATE (research_closed). When a plan's manifest carries research_closed:true, this writer
+# STOPS ratifying by presence: each NEWLY-discovered undeclared artifact under a scanned research home
+# yields a research-declare-closed-scope finding (warn) for human adjudication INSTEAD of an append,
+# and the manifest is left byte-untouched (existing declared entries preserved). The cap only READS the
+# field; it NEVER stamps it. Setter convention (recorded verbatim):
+#   research_closed is stamped true by the sanctioned close-out flow when a plan reaches terminal
+#   status ({completed, superseded}); the operator may hand-set it on active plans;
+#   plan-research-declare only reads it; plans being rehomed by the durable-artifact census are never bulk-stamped.
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
 #   Files written:
 #     - each contributing <plan>/manifest.json (research_artifacts[] APPEND-only reconcile;
@@ -239,10 +248,21 @@ for plan_dir, mp, man in plans:
     have = declared_paths(existing)
     nid = next_ra_id(existing)
     discovered = discover(plan_dir)
+    # Anti-scope gate: a research_closed:true plan STOPS ratifying by presence.
+    # READ-ONLY — the field is never written here (the anti-scope lock: plans
+    # being rehomed by the durable-artifact census are never stamped).
+    research_closed = (man.get("research_closed") is True)
     new_entries = []
     for rel, title in discovered:
         if rel in have:
             continue                     # already declared — PRESERVE, never clobber
+        if research_closed:
+            # Emit a finding for the misplaced/undeclared artifact instead of
+            # appending it; the manifest stays byte-untouched (parity in dry-run).
+            emit({"finding": "research-declare-closed-scope", "file": mp,
+                  "plan": os.path.basename(plan_dir.rstrip("/")), "spoke": spoke,
+                  "artifact_path": rel, "level": "warn", "detected_at": today})
+            continue
         have.add(rel)
         nid += 1
         new_entries.append({
@@ -252,7 +272,7 @@ for plan_dir, mp, man in plans:
             "path": rel,
         })
     if not new_entries:
-        continue                          # idempotent: nothing new discovered
+        continue                          # idempotent: nothing new discovered (or scope closed)
     plans_touched += 1
     entries_added += len(new_entries)
     if dry_run:

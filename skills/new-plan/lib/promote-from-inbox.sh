@@ -51,8 +51,16 @@
 #
 # Identity field-triad (R-ARCH-PID): the graduated manifest stamps `title:` (human
 # display name, from the inbox note title) and `project:` (the owning-spoke machine
-# identity, resolved from the session cwd through the anchored-spoke registry — NEVER
-# the bare title). --project <spoke-key> overrides the auto-resolved spoke.
+# identity, a registry-resolved spoke key — NEVER the bare title).
+#
+# Attribution is decided at CAPTURE, when a human is attending — not at graduation cwd:
+#   - `--capture` mechanically stamps `project:` into the new note (spoke-resolve auto
+#     from cwd, or the `--project` override), so the owning spoke is recorded up front.
+#   - Graduation resolves `project:` by PRECEDENCE: `--project` flag > the note's own
+#     `project:` frontmatter > cwd auto-resolve fallback. The note-frontmatter tier kills
+#     the drift-cwd `home`-mint class (a graduation from an unanchored session cwd no
+#     longer overrides an already-attributed note).
+# --project <spoke-key> is validated against the registry (no silent fallback, R-ARCH-14).
 #
 # Env overrides:
 #   PLANS_ROOT             Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
@@ -162,22 +170,47 @@ if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
   exit 1
 fi
 
-# Resolve the owning-spoke key (R-ARCH-13/14) for the graduation path. --project
-# overrides the cwd auto-resolution; either way the value must be a registered
-# spoke key. A collision or unrecognized override BLOCKS here, before any write.
-# (capture writes only an _inbox idea note — no manifest — so the spoke key is
-# resolved unconditionally but consumed only on graduation.)
+# Resolve the owning-spoke key (R-ARCH-13/14). Attribution is decided at CAPTURE (a
+# human is attending) and RE-USED at graduation via note-frontmatter precedence:
+#   --project flag  >  the note's own `project:` frontmatter  >  cwd auto-resolve.
+# --capture: spoke key stamped into the new note (--project override else cwd auto).
+# graduate: --project override else the note's stamped project: else cwd auto (the
+#           note tier kills the drift-cwd `home`-mint class). Every path validates
+#           against the registry (no silent fallback, R-ARCH-14); a collision or an
+#           unrecognized key BLOCKS here, before any write.
 SPOKE_KEY=""
-if [[ "$ACTION" == "promote" ]]; then
-  if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
-    echo "promote-from-inbox: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
-    exit 1
+if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
+  echo "promote-from-inbox: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
+  exit 1
+fi
+if [[ -n "$PROJECT_OVERRIDE" ]]; then
+  SPOKE_KEY="$(spoke_validate_override "$PROJECT_OVERRIDE")" || exit 1
+elif [[ "$ACTION" == "promote" ]]; then
+  # Note-frontmatter precedence: read the graduating note's own `project:` (stamped at
+  # capture) and honor it over cwd — a graduation from an unanchored session cwd no
+  # longer silently re-attributes an already-owned note to `home`.
+  NOTE_PROJECT=""
+  _note_file="$PLANS_ROOT/_inbox/$SLUG.md"
+  if [[ -f "$_note_file" ]]; then
+    NOTE_PROJECT="$(awk '
+      NR==1 { if ($0 ~ /^---[[:space:]]*$/) { infm=1; next } else { exit } }
+      infm && /^---[[:space:]]*$/ { exit }
+      infm && /^project:/ {
+        line=$0; sub(/^project:[[:space:]]*/, "", line);
+        sub(/[[:space:]]+$/, "", line);
+        sub(/^"/, "", line); sub(/"$/, "", line);
+        print line; exit
+      }
+    ' "$_note_file" 2>/dev/null)"
   fi
-  if [[ -n "$PROJECT_OVERRIDE" ]]; then
-    SPOKE_KEY="$(spoke_validate_override "$PROJECT_OVERRIDE")" || exit 1
+  if [[ -n "$NOTE_PROJECT" ]]; then
+    SPOKE_KEY="$(spoke_validate_override "$NOTE_PROJECT")" || exit 1
   else
     SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
   fi
+else
+  # capture: cwd auto-resolve (attribution stamped into the note up front).
+  SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
 fi
 
 python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" "$SPOKE_KEY" <<'PY'
@@ -262,12 +295,22 @@ if action == "capture":
         final_slug = "%s-%d" % (slug, n)
         note_path = os.path.join(inbox_dir, final_slug + ".md")
     title = title_override.strip() or final_slug.replace("-", " ").title()
+    # Field-parity with templates/idea-note-template.md (same frontmatter key set):
+    # title/type/status/created/updated/project/disposition/tags. `project:` is stamped
+    # mechanically from the resolved owning-spoke key (attribution decided at capture).
+    # The disposition target keys (promoted_to/absorbed_into) + terminal resolution:
+    # are set later (triage / graduation / the backlog-index closure loop), documented
+    # in the template comment — not authored empty at capture.
     note = (
         "---\n"
         "title: %s\n"
         "type: idea\n"
         "status: new\n"
         "created: %s\n"
+        "updated: %s\n"
+        "project: %s\n"
+        "disposition:\n"
+        "tags: []\n"
         "---\n\n"
         "## Idea\n\n"
         "{One paragraph: what's the idea?}\n\n"
@@ -275,7 +318,7 @@ if action == "capture":
         "{Why does it matter? What problem does it solve?}\n\n"
         "## Notes\n\n"
         "{Free-form. Grows in place across funnel stages until graduation.}\n"
-    ) % (title, today)
+    ) % (title, today, today, spoke_key)
     if dry_run:
         emit({"finding": "idea-captured", "inbox_slug": final_slug, "note_path": note_path,
               "versioned": final_slug != slug, "dry_run": True, "detected_at": today})
