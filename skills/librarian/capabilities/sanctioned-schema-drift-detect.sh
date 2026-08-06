@@ -7,6 +7,7 @@
 # foundation-manifest); the fallback pair is plans-schema + plan-manifest-schema
 # (vault-schema.json dissolved).
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema appears only as a drift-detection TARGET name (SANCTIONED list); no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # Usage: sanctioned-schema-drift-detect.sh [--json]
 #
 # BUILD-DOGFOOD-ONLY. This compares the LIVE schemas against the foundation-repo

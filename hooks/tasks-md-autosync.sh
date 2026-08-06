@@ -3,6 +3,8 @@
 # Hook: tasks-md-autosync — PostToolUse Edit|Write — the WRITE-side consumer of
 # the canonical `<!-- task-done: NN/T-M -->` completion marker, re-pointed to the
 # manifest SoT (T-05).
+#
+# plan-manifest-schema degrade-contract: ADVISORY validator — constructs a Draft202012Validator against plan-manifest-schema; on a schema-invalid manifest it logs/continues (except: continue), never refuse-and-freeze.
 # Re-point (NOT the retired satellite behavior): the legacy hook flipped the
 # generated tasks.md `**Status:**` line directly off backlog-progress satellites.
 # That satellite is retired (0) and editing the generated view is the named
@@ -12,6 +14,7 @@
 #   3. invokes librarian:tasks-render so tasks.md re-renders with strike-through.
 # The marker grammar is preserved: `<!-- task-done: NN/T-M -->` (sub-plan form) or
 # `<!-- task-done: T-M -->` (plan-root form), one marker per completed task.
+#
 # ============================ OUTPUT CONTRACT =================================
 # Files written:
 #   <plan-dir>/manifest.json  — the matching tasks[].status flipped to "done"
@@ -31,6 +34,7 @@
 #   resolved + schema-valid path; tasks.md is touched ONLY by tasks-render.
 # Non-mutating signals: keys on the written file path being a handoff.md carrying
 #   >=1 task-done marker; no-op otherwise.
+#
 # Bash 3.2 clean (R-23). Argv-based Python heredoc (R-24 — data passed via argv,
 # never piped to the heredoc). Honors HOOKS_STATE_OVERRIDE for test isolation.
 set -uo pipefail

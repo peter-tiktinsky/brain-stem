@@ -54,6 +54,20 @@ for _sr in \
   if [[ -f "$_sr" ]]; then source "$_sr"; break; fi
 done
 
+# Resolve the librarian:tasks-render capability (RULING 2 /). tasks-render is the
+# SINGLE writer of the tasks.md sentinel region (R-37/): the scaffolder seeds
+# manifest.tasks[], ships an EMPTY sentinel pair, and DELEGATES the region-fill to this
+# capability at scaffold time — never statically pre-emitting a region the renderer owns.
+# Resolve it SIBLING-FIRST (scaffolder + renderer co-ship in the same skill tree, so they are
+# always version-matched and the resolution is hermetic in-repo AND in a clean install),
+# CLAUDE_HOME as the fallback; never a hardcoded home.
+TASKS_RENDER=""
+for _tr in \
+  "$SCRIPT_DIR/../librarian/capabilities/tasks-render.sh" \
+  "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/tasks-render.sh"; do
+  if [[ -f "$_tr" ]]; then TASKS_RENDER="$_tr"; break; fi
+done
+
 MODE="flat"            # flat | master | add-subplan
 SLUG=""                # plan slug (flat/master) OR master NN-slug (add-subplan)
 SUB_SLUG=""
@@ -125,17 +139,18 @@ else
 fi
 
 python3 - "$MODE" "$SLUG" "$SUB_SLUG" "$TITLE_OVERRIDE" "$SUB_TITLE_OVERRIDE" \
-  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" "$SPOKE_KEY" <<'PY'
+  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" "$SPOKE_KEY" "$TASKS_RENDER" <<'PY'
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import date
 
 (mode, slug, sub_slug, title_override, sub_title_override,
- force_slug, dry_run, plans_root, tmpl_dir, spoke_key) = sys.argv[1:11]
+ force_slug, dry_run, plans_root, tmpl_dir, spoke_key, tasks_render) = sys.argv[1:12]
 force_slug = force_slug == "true"
 dry_run = dry_run == "true"
 today = date.today().isoformat()
@@ -224,6 +239,28 @@ def write_atomic(plan_dir, files):
         abort("scaffold write failed (%s); rolled back" % exc)
 
 
+def delegate_render(target_dir):
+    """RULING 2 (): delegate the tasks.md sentinel-region fill to librarian:tasks-render
+    (the SINGLE writer of the region, R-37/) after manifest.json is on disk, so a fresh
+    scaffold ships one renderer-owned `## Tasks` INSIDE the sentinels rather than a statically
+    pre-emitted duplicate. BEST-EFFORT by design: a render hiccup must NOT roll back an
+    already-valid, atomically-written scaffold — the tasks.md still carries the EMPTY sentinel
+    pair that the next manifest-touch render fills, so the duplicate-`## Tasks` defect stays
+    closed regardless. Surface any failure on stderr; never swallow it, never write-and-hope.
+    stdout is muted so the capability's NDJSON findings never pollute this scaffolder's own
+    JSON result line."""
+    if not tasks_render or not os.path.isfile(tasks_render):
+        print("new-plan: tasks-render capability not resolved (%s); tasks.md ships the empty "
+              "sentinel pair, filled on the next render" % tasks_render, file=sys.stderr)
+        return
+    try:
+        subprocess.run(["bash", tasks_render, target_dir],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    except Exception as exc:
+        print("new-plan: tasks-render delegation failed (%s); tasks.md ships the empty "
+              "sentinel pair, filled on the next render" % exc, file=sys.stderr)
+
+
 # FLAT default emission. Inline bodies (the roster authorizes only the 8
 # master/sub .tmpl + the brief template; the flat quartet is emitted inline here,
 # mirroring the live /new-plan inline-manifest pattern). type:plan, no parent_plan.
@@ -259,6 +296,11 @@ def flat_files(title, plan_dir):
         "| {metric} | {target} | {how} |\n"
     ) % (title, today, today, title)
 
+    # RULING 2: ship frontmatter + preface + an EMPTY tasks:start/tasks:end
+    # sentinel pair ONLY. The outside `## Tasks` + `### T-1` block is GONE — the renderer
+    # (librarian:tasks-render, the single writer,/R-37) fills the region from
+    # manifest.tasks[] via delegate_render() below, so a fresh scaffold never carries a
+    # statically pre-emitted duplicate `## Tasks`.
     tasks = (
         "---\n"
         "title: %s — Tasks\n"
@@ -271,28 +313,13 @@ def flat_files(title, plan_dir):
         "**Last Updated:** %s\n\n"
         "## Status Key\n\n"
         "`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
-        "<!-- ledger-at-top + per-task-at-bottom; tasks:start/end sentinel bounds the "
-        "librarian:tasks-render region. Task-state SoT = manifest.tasks[] (). R-37 lockstep. -->\n\n"
+        "<!-- ledger-at-top + per-task-at-bottom; the tasks:start/end sentinel pair bounds the "
+        "librarian:tasks-render region (the SINGLE writer,/R-37). The scaffolder ships an "
+        "EMPTY pair and delegates the fill to tasks-render at scaffold time (RULING 2 /) "
+        "— NEVER hand-author inside the sentinels; task-state SoT = manifest.tasks[]. -->\n\n"
         "<!-- tasks:start -->\n\n"
-        "## Task ledger\n\n"
-        "| ID | Title | Status | Depends on | Notes |\n"
-        "|----|-------|--------|-----------|-------|\n"
-        "| T-1 | Define spec | not-started | — | flesh out spec.md |\n\n"
-        "<!-- tasks:end -->\n\n"
-        "---\n\n"
-        "## Tasks\n\n"
-        "### T-1: Define spec\n\n"
-        "**Status:** not-started\n"
-        "**Dependencies:** none\n"
-        "**Description:** Flesh out spec.md (Problem / Constraints / Solution Approach) and "
-        "replace all template placeholders. Then break the real work into T-2…T-N.\n\n"
-        "**File References:**\n"
-        "- `%s/spec.md` — fill in problem, constraints, solution\n\n"
-        "**Acceptance Criteria:**\n"
-        "- [ ] Complete all spec.md sections\n"
-        "- [ ] Replace template placeholder rows\n\n"
-        "---\n"
-    ) % (title, today, today, title, plan_dir, today, plan_dir)
+        "<!-- tasks:end -->\n"
+    ) % (title, today, today, title, plan_dir, today)
 
     handoff = (
         "---\n"
@@ -405,6 +432,7 @@ if mode == "flat":
         print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "files": sorted(files)}))
         sys.exit(0)
     write_atomic(plan_dir, files)
+    delegate_render(plan_dir)  # RULING 2: renderer fills the empty sentinel region from manifest.tasks[]
     print("new-plan: created flat plan %s (%d files)" % (plan_slug, len(files)), file=sys.stderr)
     print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "plan_dir": plan_dir}))
 
@@ -449,6 +477,10 @@ elif mode == "master":
                           "first_sub": "%s-%s" % (sub_id, sub_slug), "files": sorted(files)}))
         sys.exit(0)
     write_atomic(master_dir, files)
+    # RULING 2: render the SUB's tasks.md (the sub carries real tasks). The master's tasks.md is
+    # a hand-owned rollup with NO sentinels — tasks-render detect-and-skips a master (184/03), so
+    # the master is intentionally NOT delegated here.
+    delegate_render(sub_plan_dir)
     print("new-plan: created master %s + first sub 01-%s" % (master_slug, sub_slug), file=sys.stderr)
     print(json.dumps({"mode": "master", "master_slug": master_slug,
                       "first_sub": "%s-%s" % (sub_id, sub_slug), "master_dir": master_dir}))
@@ -507,6 +539,7 @@ elif mode == "add-subplan":
 
     # write the sub-plan quartet (rollback-safe within the new sub dir)
     write_atomic(sub_plan_dir, sub_files)
+    delegate_render(sub_plan_dir)  # RULING 2: renderer fills the new sub's empty sentinel region
 
     # register the new sub-plan in the master's sub_plans[] aggregate SKELETON.
     # The librarian reconciler does the pull-based status fill; the

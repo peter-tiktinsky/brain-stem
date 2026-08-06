@@ -17,59 +17,23 @@ updated: {{date}}
 
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/tasks.md.json. Structure = ledger-at-top +
-per-task-at-bottom; the tasks:start/end sentinel pair bounds the
-librarian:tasks-render generated region (NEVER hand-edit inside the sentinels; task-state SoT
-is manifest.tasks[] per). The literal marker lines appear ONLY as the real pair below —
-never inside this comment (non-literal form only; line-anchored parser blocks on a stray marker line).
-SUB-PLAN tasks: a sub-plan CARRIES real tasks (unlike the master, which aggregates status
-only). The ledger below mirrors manifest.tasks[] (tasks-render --check parity). Task IDs use
-T-N (T-1, T-2, T-3.5 …) and are IMMUTABLE once published. R-37 LOCKSTEP: ledger row count ==
-manifest.tasks[] length; status flips sync via the handoff.md `<!-- task-done: NN/T-M -->`
+per-task-at-bottom, and BOTH surfaces are RENDERER-OWNED: the tasks:start/end sentinel pair
+bounds the librarian:tasks-render generated region, and tasks-render is the SINGLE writer of it
+(/R-37). RULING 2 (): this scaffolder ships an EMPTY sentinel pair and DELEGATES
+the region-fill to tasks-render at scaffold time (new-plan.sh render_sub_quartet -> delegate_render),
+so a fresh sub-plan carries exactly ONE renderer-owned `## Tasks` INSIDE the sentinels and no
+statically pre-emitted duplicate. NEVER hand-author a `## Tasks` heading or per-task block outside
+the sentinels, and NEVER hand-edit inside them — task-state SoT is manifest.tasks[]. The literal
+marker lines appear ONLY as the real pair below — never inside this comment (non-literal form only;
+the line-anchored parser blocks on a stray marker line).
+SUB-PLAN tasks: a sub-plan CARRIES real tasks (unlike the master, which aggregates status only and
+is renderer-SKIPPED). The rendered ledger mirrors manifest.tasks[] (tasks-render --check parity).
+Task IDs use T-N (T-1, T-2, T-3.5 …) and are IMMUTABLE once published. R-37 LOCKSTEP: ledger row
+count == manifest.tasks[] length; status flips sync via the handoff.md `<!-- task-done: NN/T-M -->`
 sentinels (). Per-task Description 200-800 tokens; File References are absolute paths.
 parent_plan is REQUIRED in frontmatter at depth >= 3 (R-28).
 -->
 
 <!-- tasks:start -->
 
-## Task ledger
-
-| ID | Title | Status | Depends on | Notes |
-|----|-------|--------|-----------|-------|
-| T-1 | {{verb-first title}} | not-started | — | {{one-line}} |
-| T-2 | {{verb-first title}} | not-started | T-1 | {{one-line}} |
-
 <!-- tasks:end -->
-
----
-
-## Tasks
-
-### T-1: {{Verb-first title}}
-
-**Status:** not-started
-**Dependencies:** none
-**Description:** {{2-4 sentences. What to build, why it matters, how it fits the sub-plan's solution. 200-800 tokens.}}
-
-**File References:**
-- `{{/abs/path/to/file1}}` — {{why}}
-
-**Acceptance Criteria:**
-- [ ] {{Verb-first}}
-- [ ] {{Verb-first}}
-
----
-
-### T-2: {{Verb-first title}}
-
-**Status:** not-started
-**Dependencies:** T-1
-**Description:** {{2-4 sentences.}}
-
-**File References:**
-- `{{/abs/path}}` — {{why}}
-
-**Acceptance Criteria:**
-- [ ] {{Verb-first}}
-- [ ] {{Verb-first}}
-
----

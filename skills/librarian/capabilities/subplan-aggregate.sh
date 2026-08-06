@@ -32,6 +32,7 @@
 #   Pre-write validation: assert the master dir + manifest.json present; the
 #     master must declare type:master (or sub_plans[] already present).
 #   Failure mode: block-and-log; never write-and-hope. Sub manifests read-only.
+#   plan-manifest-schema degrade-contract: REFUSE-AND-FREEZE (loud-skip) — a schema-invalid master is refused (no partial write); the skip is surfaced via a subplan-master-schema-invalid FINDINGS_OUTPUT finding (session-close path) + a "skipped <plan> — manifest invalid: … fails schema" stderr line (direct path); the read-replica is never silently frozen.
 #
 # Finding categories:
 #   subplan-aggregate-updated     (info-event) sub_plans[] regenerated; once per run
@@ -70,7 +71,7 @@ TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_ONLY="true"; shift ;;
-    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,57p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --*) echo "subplan-aggregate: unknown flag '$1'" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
@@ -150,8 +151,25 @@ if schema_path and os.path.isfile(schema_path):
     except ImportError:
         pass
     except Exception as exc:
-        print("subplan-aggregate: master fails schema; refusing to write: %s"
-              % exc, file=sys.stderr)
+        plan = os.path.basename(master_dir.rstrip("/"))
+        reason = (str(exc).splitlines() or ["schema-invalid"])[0]
+        # LOUD-SKIP (session-close path). Emit a structured finding to FINDINGS_OUTPUT so the
+        # refuse-and-freeze skip is OPERATOR-VISIBLE when this runs under session-close's
+        # single-writer chain (run_capability drift-sweep --plans --fix -> drift-sweep -> here):
+        # run_capability exports FINDINGS_OUTPUT to the shared per-run sink, drift-sweep
+        # re-exports it, and this emit() honors it — so the skip survives even though
+        # drift-sweep discards the per-master rc (|| true) and run_capability deletes captured
+        # stderr on rc=0. The finding lands in the sink -> the close-log findings digest.
+        # session-close.sh is NOT touched (its single-writer lock stands).
+        emit({"finding": "subplan-master-schema-invalid", "level": "warning",
+              "file": master_path, "slug": plan,
+              "detail": "master fails schema; refusing to write (loud-skip): %s" % reason,
+              "detected_at": now_iso[:10]})
+        # LOUD-SKIP (direct path). The librarian router surfaces stderr; refuse to write (no
+        # partial corruption), leave the read-replica untouched, but make the skip visible in
+        # the ratified form. Preserves the "fails schema" substring the additionalprops fixture pins.
+        print("subplan-aggregate: skipped %s — manifest invalid: master fails schema; "
+              "refusing to write: %s" % (plan, exc), file=sys.stderr)
         sys.exit(1)
 
 # enumerate sub-plan subdirectories (execution-order NN- prefixed dirs with a

@@ -3,6 +3,7 @@
 # a universal _library/<topic>/<article>.md AND a plan-SoT _research/ record,
 # with bidirectional cross-reference stamps, in one propose/--apply.
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is only a header/env-var path reference (MANIFEST_SCHEMA_PATH); no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # This capability OWNS the full promotion write-orchestration (R-FLOW-PROMO):
 #   PROMO-1  identify finalized candidates from workshop content + manifest
 #            research_artifacts[] entries with status: finalized.
@@ -140,7 +141,7 @@ while [[ $# -gt 0 ]]; do
     --apply) APPLY="true"; shift ;;
     --topic) TOPIC="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,110p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,111p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "library-scrub: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

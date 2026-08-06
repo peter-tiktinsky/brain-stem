@@ -1097,22 +1097,51 @@ upgrade_file_disp_preview=""   # newline-joined "<path>\t<would-disposition>" (s
 # migration-select sub-block (1) normalizes a "(none)" floor to v0.0.0, so legacy
 # runs the full chain. WRITE-FREE: pure reads + self-cleaning $TMPDIR.
 if [ "$UPGRADE_PRESENT" = "1" ] || [ "$LEGACY_ADOPT" = "1" ]; then
-  # --- (1) migration no-op: select (INSTALLED_VERSION, TARGET_VERSION] minus the
-  #     high-water log, READ-ONLY (the runner's selection predicate, without
+  # --- (1) migration no-op: select {id NOT IN high-water log AND applies_at <=
+  #     TARGET_VERSION}, READ-ONLY (the runner's set-difference selection predicate
+  #     — run-migrations.sh header contract; floor is diagnostic-only — without
   #     executing any migration). Self-contained header read so this stays inside
   #     the "install.sh" deliverable (no dependency on sourcing the runner).
-  #     Enumerate the TARGET release's migrations from $SOURCE_REPO/installer/migrations
-  #     — the write-free source-of-truth Step 8.2 copies to $CLAUDE_HOME/migrations at
-  #     apply time. Reading the PRE-copy $CLAUDE_HOME/migrations instead reported
-  #     migrations_to_run:[] for every adopter (the release's new migrations are not on
-  #     disk until AFTER this preview runs), so preview != apply for a corpus-mutating
-  #     release. High-water dedup still consults $PRIOR_MIGRATIONS_APPLIED (below), the
-  #     adopter's already-applied set — that stays home-keyed.
+  #     Enumerate the candidate SET from the SHIPPED TARGET manifest
+  #     (foundation-manifest.json files[], installer/migrations/ prefix) — the SAME
+  #     enumeration source-of-truth the Step 8.2 apply lane copies to
+  #     $CLAUDE_HOME/migrations, so preview and apply share ONE literal source-of-truth.
+  #     The applies_at header is still read from the file on disk; only the SET is
+  #     manifest-driven. A loud WARN (stderr — dry-run stdout stays clean JSON) fires when
+  #     the on-disk NNNN glob holds a file outside the manifest set (hand-modified clone).
+  #     Reading the PRE-copy $CLAUDE_HOME/migrations instead reported migrations_to_run:[]
+  #     for every adopter (the release's new migrations are not on disk until AFTER this
+  #     preview runs), so preview != apply for a corpus-mutating release. High-water dedup
+  #     still consults $PRIOR_MIGRATIONS_APPLIED (below), the already-applied set.
   if [ -n "$TARGET_VERSION" ] && [ -d "$SOURCE_REPO/installer/migrations" ]; then
     _mig_floor="$INSTALLED_VERSION"
     [ "$_mig_floor" = "(none)" ] && _mig_floor="v0.0.0"
+    # The candidate SET is the shipped-manifest installer/migrations members (same SoT as
+    # the Step 8.2 apply lane); headers are still read from the file on disk below.
+    _mig_manifest_set="$(SHIPPED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json" python3 -c '
+import json, os, sys
+try:
+    m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
+except Exception:
+    sys.exit(0)
+for f in m.get("files", []):
+    p = f.get("path", "")
+    if p.startswith("installer/migrations/") and p.endswith(".sh"):
+        b = p.rsplit("/", 1)[-1]
+        if b[:4].isdigit():
+            print(b)
+' 2>/dev/null)"
+    # stray-glob WARN (stderr; dry-run stdout stays clean JSON): an on-disk NNNN-*.sh not
+    # in the manifest set is a hand-modified-clone stray, excluded from the preview.
     for _migf in "$SOURCE_REPO/installer/migrations"/[0-9][0-9][0-9][0-9]-*.sh; do
       [ -e "$_migf" ] || continue
+      _mb="${_migf##*/}"
+      printf '%s\n' "$_mig_manifest_set" | grep -qxF "$_mb" || \
+        warn "G9 preview: on-disk migration $_mb is absent from the shipped manifest set — excluded from the preview (retired surface or hand-added clone drift)"
+    done
+    for _mb in $_mig_manifest_set; do
+      _migf="$SOURCE_REPO/installer/migrations/$_mb"
+      [ -f "$_migf" ] || continue
       # read the leading-comment `# migration:` and `# applies_at:` headers only
       _mig_id=""; _mig_aa=""
       while IFS= read -r _hl; do
@@ -1128,8 +1157,11 @@ if [ "$UPGRADE_PRESENT" = "1" ] || [ "$LEGACY_ADOPT" = "1" ]; then
       done < "$_migf"
       [ -n "$_mig_id" ] || _mig_id="$(basename "$_migf" .sh)"
       [ -n "$_mig_aa" ] || continue   # no applies_at => unplaceable => not selected
-      # half-open (floor, target]: applies_at STRICTLY > floor AND <= target
-      [ "$(vercmp "$_mig_aa" "$_mig_floor")" = "a>b" ] || continue
+      # selection (mirrors the runner set-difference): applies_at <= target AND the id is
+      # NOT already applied (the high-water skip below). The strictly-above-floor clause is
+      # DIAGNOSTIC only, NOT a selection filter — so a bitten adopter (stamp advanced past
+      # applies_at) sees the same heal set the runner will run. ($_mig_floor stays computed
+      # for the legacy (none)->v0.0.0 normalization; it no longer gates selection.)
       [ "$(vercmp "$_mig_aa" "$TARGET_VERSION")" = "a>b" ] && continue
       # high-water skip (already applied => not in the to-run set)
       if [ -n "$PRIOR_MIGRATIONS_APPLIED" ] && printf '%s\n' "$PRIOR_MIGRATIONS_APPLIED" | grep -qxF "$_mig_id"; then
@@ -1598,7 +1630,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     | {"path": $p, "class": .class, "disposition": $d, "reason": .reason} + (if has("added_hooks") then {"added_hooks": .added_hooks} else {} end))) end),
   "guards_passed": ["G1-pre", "G1-main", "G2", "G3", "G4", "G5", "G8"],
   "actions": [
-    {"step": 1, "op": "mkdir", "target": ($claude_home + "/{hooks,hooks/lib,hooks/state,hooks/config,skills,schemas,orchestrator,templates,templates/launchd,templates/settings-fragments,Library/LaunchAgents.staging,installer,logs,governance,governance/file-type-contracts,vault-init}"), "rationale": "create target tree: NO plugins/, NO onboarding/ (dissolved into skills/onboarder/), NO governance/{librarian-capabilities,onboarding-reference}/ (R-20)"},
+    {"step": 1, "op": "mkdir", "target": ($claude_home + "/{hooks,hooks/lib,hooks/config,skills,schemas,orchestrator,templates,templates/launchd,templates/settings-fragments,Library/LaunchAgents.staging,installer,logs,governance,governance/file-type-contracts,vault-init}"), "rationale": "create target tree: NO plugins/, NO onboarding/ (dissolved into skills/onboarder/), NO governance/{librarian-capabilities,onboarding-reference}/ (R-20)"},
     {"step": 1.5, "op": "mkdir", "target": ($vault_writer_state_root + "/{,daily-processing,raw,staging} + " + $claude_state_root + "/{,vault-staging,vault-staging/_archive,.coordination,sessions}"), "rationale": "two-root state-tier scaffold: durable second-brain root + ephemeral Claude-runtime root incl .coordination/ + sessions/. NO ~/.claude/state back-compat symlink (fresh lineage)"},
     {"step": 1.6, "op": "sqlite-bootstrap+touch", "target": ($vault_writer_state_root + "/manifest.sqlite + " + $claude_home + "/governance/governance-action-log.jsonl"), "source": ($source_repo + "/hooks/lib/manifest-record.sh init (graceful-degrade if absent)"), "rationale": "manifest.sqlite re-rooted to the state-tier path. governance-action-log.jsonl bootstrap-CREATED under $CLAUDE_HOME/governance/ (bootstrap-not-copy)"},
     {"step": 1.7, "op": "DROPPED", "rationale": "meeting-processor-state migration struck (hardcoded live author-vault path; fresh-install no-op; brain-stem ships no meeting-processor)"},
@@ -2288,7 +2320,7 @@ upgrade_overlay_master() {
 # DROPPED dirs: plugins/ (claude-mem not bundled),
 # onboarding/ (dissolved into skills/onboarder/),
 # governance/librarian-capabilities/, governance/onboarding-reference/ (R-20).
-target_dirs="hooks hooks/lib hooks/state hooks/config skills schemas orchestrator templates templates/launchd templates/settings-fragments Library/LaunchAgents.staging installer migrations logs governance governance/file-type-contracts vault-init"
+target_dirs="hooks hooks/lib hooks/config skills schemas orchestrator templates templates/launchd templates/settings-fragments Library/LaunchAgents.staging installer migrations logs governance governance/file-type-contracts vault-init"
 for d in $target_dirs; do
   mkdir -p "$CLAUDE_HOME/$d" || { diag "mkdir failed: $CLAUDE_HOME/$d"; exit 11; }
 done
@@ -2514,10 +2546,20 @@ fi
 # the same transaction guarantee, not a recursive cp -R.
 if [ -d "$SOURCE_REPO/installer/migrations" ]; then
   if [ "$UPGRADE_ENVELOPE_ON" = "1" ]; then
-    for mrel in $(BMS="$BASELINE_MANIFEST_SNAPSHOT" python3 -c '
+    # Enumerate the flat copy-set from the SHIPPED TARGET manifest
+    # (foundation-manifest.json files[], installer/migrations/ prefix) — the SAME
+    # source-of-truth as the legacy elif below and the G9 preview. Enumerating from
+    # the frozen PREVIOUS-release baseline snapshot never listed the target release's
+    # NEW migrations, so they were never copied to the flat runtime dir the runner
+    # executes (the delivery gap). NOT the baseline-union walk one screen up (:2153):
+    # for the flat runtime dir the union is wrong — a migration dropped from the
+    # shipped manifest is a retired surface and must not be re-delivered. atomic_apply
+    # (stage->validate->mv + journal) + the chmod +x parity below are retained.
+    _mig_delivered="|"
+    for mrel in $(SHIPPED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json" python3 -c '
 import json, os, sys
 try:
-    m = json.load(open(os.environ["BMS"]))
+    m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
 except Exception:
     sys.exit(0)
 for f in m.get("files", []):
@@ -2529,8 +2571,21 @@ for f in m.get("files", []):
       mdest="$CLAUDE_HOME/migrations/${mrel##*/}"
       [ -f "$msrc" ] || continue
       atomic_apply "$msrc" "$mdest" "migration-flat-ship"
+      _mig_delivered="${_mig_delivered}${mrel##*/}|"
     done
     chmod +x "$CLAUDE_HOME/migrations"/*.sh 2>/dev/null || true
+    # Disk-glob parity WARN (tolerates a hand-modified clone; never dies): an on-disk
+    # NNNN-*.sh under $SOURCE_REPO/installer/migrations that the shipped manifest does
+    # NOT list is a stray (retired or hand-added) and is NOT delivered — surface it
+    # loudly rather than silently dropping it.
+    for _dmf in "$SOURCE_REPO/installer/migrations"/[0-9][0-9][0-9][0-9]-*.sh; do
+      [ -e "$_dmf" ] || continue
+      _dmb="${_dmf##*/}"
+      case "$_mig_delivered" in
+        *"|$_dmb|"*) ;;
+        *) warn "Step 8.2 envelope: on-disk migration $_dmb is absent from the shipped manifest set — NOT delivered (retired surface or hand-added clone drift)" ;;
+      esac
+    done
   elif [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; then
  # legacy lane → per-file files[] walk. Migrations ship
     # FLAT ($CLAUDE_HOME/migrations/<basename>), so this mirrors the ENVELOPE
@@ -3694,8 +3749,9 @@ fi
 # Step 13.6: forward-only idempotent migrations runner
 # Runs AFTER Step 13.5 validated the freshly-copied
 # manifest. Iterates the SHIPPED $CLAUDE_HOME/migrations/NNNN-slug.sh files in
-# numeric prefix order; selects those whose `applies_at` ∈
-# (INSTALLED_VERSION, TARGET_VERSION]; skips any id already in the high-water log
+# numeric prefix order; selects those NOT already in the high-water log whose
+# `applies_at` <= TARGET_VERSION (set-difference selection — the floor is
+# diagnostic-only, so bitten installs self-heal; run-migrations.sh header contract)
 # (PRIOR_MIGRATIONS_APPLIED, read at entrypoint); honors min_from (SKIP-WARN when
 # min_from > a REAL sha-matched floor); runs the rest converge-if-needed; emits
 # each successfully-applied id on stdout.

@@ -252,12 +252,16 @@
       "type": "object",
       "description": "PLAN-TREE FIELD. Per-tag publication record for foundation-repo distribution. Helper reads this object to evaluate R-55 sunset trigger conditions WITHOUT shelling to `git tag --list` (deterministic + fast).",
       "patternProperties": {
+        "^_": {},
         "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.-]+)?$": {
           "type": "object",
           "required": [
             "published_at",
             "sha"
           ],
+          "patternProperties": {
+            "^_": {}
+          },
           "additionalProperties": false,
           "properties": {
             "published_at": {
@@ -313,6 +317,9 @@
         "detection_signals": {
           "type": "object",
           "description": "OR semantics — ANY one tier triggers DETECTED=1.",
+          "patternProperties": {
+            "^_": {}
+          },
           "additionalProperties": false,
           "properties": {
             "cwd_pattern": {
@@ -349,7 +356,10 @@
         },
         "override": {
           "type": "object",
-          "description": "Out-of-band override mechanisms. NO in-band fields permitted (e.g., bypass: true is schema-rejected).",
+          "description": "Out-of-band override mechanisms. NO in-band fields permitted (e.g., bypass: true is schema-rejected). Underscore-prefixed annotation keys (^_) are permitted (inert rationale notes); the closed-world gate still rejects any real unknown field such as bypass.",
+          "patternProperties": {
+            "^_": {}
+          },
           "additionalProperties": false,
           "properties": {
             "nonce_dir": {
@@ -385,6 +395,9 @@
         "layer_3": {
           "type": "object",
           "description": "L3 writer-pause declarations (per-plan write-pause windows), validated at manifest-author time.",
+          "patternProperties": {
+            "^_": {}
+          },
           "additionalProperties": false,
           "properties": {
             "enabled": {
@@ -410,6 +423,9 @@
                   "path",
                   "pause_via"
                 ],
+                "patternProperties": {
+                  "^_": {}
+                },
                 "additionalProperties": false,
                 "properties": {
                   "path": {
@@ -441,6 +457,9 @@
                   "path_pattern",
                   "pause_via"
                 ],
+                "patternProperties": {
+                  "^_": {}
+                },
                 "additionalProperties": false,
                 "properties": {
                   "path_pattern": {
@@ -465,6 +484,9 @@
         },
         "enforcement": {
           "type": "object",
+          "patternProperties": {
+            "^_": {}
+          },
           "additionalProperties": false,
           "properties": {
             "match_action": {
@@ -520,6 +542,9 @@
             },
             "early_retire_override": {
               "type": "object",
+              "patternProperties": {
+                "^_": {}
+              },
               "additionalProperties": false,
               "properties": {
                 "reason": {
@@ -647,6 +672,9 @@
           "harness_freshness",
           "schema_version"
         ],
+        "patternProperties": {
+          "^_": {}
+        },
         "additionalProperties": false,
         "properties": {
           "harness_id": {

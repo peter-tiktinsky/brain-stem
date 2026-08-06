@@ -1,6 +1,7 @@
 #!/bin/bash
 # Hook: SessionStart (#1) — register the session into the coordination registry
-# AND, on source=compact, restore the per-session checkpoint + rotate it.
+# AND, on source=compact, restore the per-session checkpoint + reset the
+# context-pressure gauge (rotation is relocated to the next checkpoint write).
 #
 # C2-owned body (canonical/SessionStart fire-order #1;.4 restore +
 # rotation;.6 lockf-guarded registry at <coord-root>/.coordination). It must
@@ -11,10 +12,14 @@
 #   1. Register / refresh this session's row in session-registry.json
 #      (machine-local ephemeral,; REGISTRY_FILE from lib/registry.sh),
 #      lockf-guarded against registry.lock.
-#   2. On source=compact with a fresh per-session checkpoint.md present:
-#      cat it -> re-inject verbatim as text additionalContext -> mv it to
-#      sessions/<sid>/checkpoint-<ts>.md (rotation/archive, NOT delete).
-#      Rotation is owned HERE, not by the session-checkpoint skill (.4).
+#   2. On source=compact: re-inject the per-session checkpoint.md verbatim as text
+#      additionalContext (the canonical bare checkpoint.md is KEPT in place so both
+#      R-26 mandate readers inherit it fresh), AND reset the context-pressure gauge
+#      + drop a compact-pending marker (Cause-2). Rotation is NO LONGER
+#      owned here: session-register runs at SessionStart only and cannot rotate on
+#      the NEXT checkpoint write, so archival is relocated to pre-compact-checkpoint.sh
+#      (RULING 3). The .pct reset + marker let the R-26 recompute survive
+#      the compaction boundary (prompt-context.sh / stop-checkpoint-check.sh honor it).
 #
 # Graceful no-op when $CLAUDE_SESSION_ID (and stdin .session_id) are absent —
 # the zero-cross-session-pollution invariant. NEVER fail-hard:
@@ -117,6 +122,13 @@ if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
   unset _s
 fi
 
+# Transcript path (Cause-2): needed to record the usage-block count at the
+# compaction boundary in the compact-pending marker. Absent on non-compact fires.
+TRANSCRIPT_PATH=""
+if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
+  TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+fi
+
 # Graceful no-op: no session id -> cannot register or build a per-session path.
 if [ -z "$SESSION_ID" ]; then
   exit 0
@@ -139,12 +151,16 @@ else
   register_row "$SESSION_ID" "$SESSION_PID"
 fi
 
-# --- 2. Post-compaction checkpoint restore + rotation (source=compact) -------
-# Only on source=compact (R-26 /.4). Re-inject the live checkpoint verbatim
-# as text, then archive it to a dated variant (rotation, not delete).
+# --- 2. Post-compaction checkpoint restore + .pct reset (source=compact) -----
+# Only on source=compact (R-26 /.4).
 if [ "$SOURCE" = "compact" ]; then
   SESSION_DIR="$STATE_DIR/sessions/$SESSION_ID"
   CHECKPOINT_FILE="$SESSION_DIR/checkpoint.md"
+  # --- Cause-1 (RULING 3): restore/re-inject the canonical checkpoint
+  #     verbatim. The bare checkpoint.md is KEPT in place (NO rotation here) so the
+  #     fresh session inherits it directly and both R-26 mandate readers see it
+  #     fresh — no false-fire. Rotation is relocated to the NEXT checkpoint write in
+  #     pre-compact-checkpoint.sh (session-register runs at SessionStart only).
   if [ -f "$CHECKPOINT_FILE" ] && [ -s "$CHECKPOINT_FILE" ]; then
     content=$(cat "$CHECKPOINT_FILE" 2>/dev/null || true)
     if [ -n "$content" ]; then
@@ -158,11 +174,31 @@ ${content}"
       else
         printf '%s\n' "$restore_text" >&2
       fi
-      # Rotate: archive the live checkpoint to a dated variant. Owned HERE
-      # (the skill writes only the live checkpoint.md, never dated ones).
-      ts=$(date -u +"%Y%m%d-%H%M%S")
-      mv "$CHECKPOINT_FILE" "$SESSION_DIR/checkpoint-${ts}.md" 2>/dev/null || true
     fi
+  fi
+  # --- Cause-2: compact-boundary .pct reset + pending marker ---------
+  #     Reset context-pressure.json to pct=0 so the first post-compact
+  #     UserPromptSubmit does not read the stale pre-compact value, AND drop a
+  #     .compact-pending marker recording the usage-block count at the compaction
+  #     boundary. prompt-context.sh (writer call site :65-68) and
+  #     stop-checkpoint-check.sh (stop-time refresh :86-89) honor the marker: they
+  #     suppress the write_context_pressure recompute until the transcript advances
+  #     PAST this boundary (a genuine post-compact usage block appears), so the reset
+  #     SURVIVES the recompute (a session-register-only reset is provably inert
+  #     without the writer-side guard). The marker clears once a fresh block exists →
+  #     real post-compact pressure is written and the R-26 mandate fires as designed.
+  mkdir -p "$SESSION_DIR" 2>/dev/null || true
+  boundary_blocks=0
+  if [ -n "$TRANSCRIPT_PATH" ] && [ -r "$TRANSCRIPT_PATH" ] && command -v jq >/dev/null 2>&1; then
+    _bb=$(jq -rs '[ .[]? | objects | ((.message? | objects | .usage?) // .usage?) | objects ] | length' "$TRANSCRIPT_PATH" 2>/dev/null)
+    case "$_bb" in ''|*[!0-9]*) _bb=0 ;; esac
+    boundary_blocks="$_bb"
+    unset _bb
+  fi
+  printf '%s\n' "$boundary_blocks" > "$SESSION_DIR/.compact-pending" 2>/dev/null || true
+  if printf '{"pct":0}\n' > "$SESSION_DIR/context-pressure.json.tmp.$$" 2>/dev/null; then
+    mv "$SESSION_DIR/context-pressure.json.tmp.$$" "$SESSION_DIR/context-pressure.json" 2>/dev/null \
+      || rm -f "$SESSION_DIR/context-pressure.json.tmp.$$" 2>/dev/null
   fi
 fi
 

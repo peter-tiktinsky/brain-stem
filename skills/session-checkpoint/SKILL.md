@@ -142,7 +142,7 @@ The flat scalar lines `plan_id:` / `phase:` / `task_id:` (each `^[a-z_]+: .+$`) 
 
 ## Checkpoint file contract
 
-`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written only by `session-register.sh` when it archives the current checkpoint on SessionStart with `source=compact` — that's legitimate post-compaction rotation and should not be disturbed. The legacy bare path under the install root was retired (cross-session-pollution incident class closure).
+`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written only by `pre-compact-checkpoint.sh`, which archives the prior bare `checkpoint.md` to a dated variant on the next checkpoint write (when it overwrites a stale/missing checkpoint) — that's legitimate rotation history and should not be disturbed. The legacy bare path under the install root was retired (cross-session-pollution incident class closure).
 
 Your scope is strictly the per-session `checkpoint.md`. Overwrite it. Never append. Never write to dated filenames.
 
@@ -168,6 +168,6 @@ The warn/mandate nudge thresholds are manifest-overridable via `user-manifest.js
 ## What this skill does NOT do
 
 - Does not force `/compact` — context compaction stays a user/Claude decision.
-- Does not rotate or archive old checkpoints — `session-register.sh` owns rotation on compact.
+- Does not rotate or archive old checkpoints — `pre-compact-checkpoint.sh` owns rotation on the next checkpoint write.
 - Does not write to memory — that's session-close / librarian scope.
 - Does not touch plan files or handoffs — checkpoint is ephemeral state, not persistent history.

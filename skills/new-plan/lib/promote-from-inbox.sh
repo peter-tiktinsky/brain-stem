@@ -92,6 +92,19 @@ for _sr in \
   if [[ -f "$_sr" ]]; then source "$_sr"; break; fi
 done
 
+# Resolve the librarian:tasks-render capability (RULING 2 /). tasks-render is the
+# SINGLE writer of the tasks.md sentinel region (R-37/): the graduation emitter seeds
+# manifest.tasks[], ships an EMPTY sentinel pair, and DELEGATES the region-fill to this
+# capability at scaffold time — never statically pre-emitting a region the renderer owns.
+# Resolve it SIBLING-FIRST (co-shipped in the same skill tree, so version-matched + hermetic
+# in-repo AND in a clean install), CLAUDE_HOME as the fallback; never a hardcoded home.
+TASKS_RENDER=""
+for _tr in \
+  "$SKILL_DIR/../librarian/capabilities/tasks-render.sh" \
+  "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/tasks-render.sh"; do
+  if [[ -f "$_tr" ]]; then TASKS_RENDER="$_tr"; break; fi
+done
+
 ACTION="promote"      # promote | capture
 DRY_RUN="false"
 TITLE_OVERRIDE=""
@@ -213,11 +226,12 @@ else
   SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
 fi
 
-python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" "$SPOKE_KEY" <<'PY'
+python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" "$SPOKE_KEY" "$TASKS_RENDER" <<'PY'
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import date
@@ -230,6 +244,7 @@ rules_path = sys.argv[5]
 slug = sys.argv[6]
 title_override = sys.argv[7]
 spoke_key = sys.argv[8]
+tasks_render = sys.argv[9]
 
 today = date.today().isoformat()
 
@@ -251,6 +266,26 @@ def abort(reason, **extra):
     emit(rec)
     print("promote-from-inbox: aborted — %s" % reason, file=sys.stderr)
     sys.exit(1)
+
+
+def delegate_render(target_dir):
+    """RULING 2 (): delegate the tasks.md sentinel-region fill to librarian:tasks-render
+    (the SINGLE writer of the region, R-37/) after the graduated manifest.json is on disk,
+    so a graduated plan ships one renderer-owned `## Tasks` INSIDE the sentinels rather than a
+    statically pre-emitted duplicate. BEST-EFFORT: a render hiccup must NOT undo an already-valid,
+    atomically-written graduation — the tasks.md still carries the EMPTY sentinel pair that the
+    next manifest-touch render fills, so the duplicate-`## Tasks` defect stays closed regardless.
+    stdout is muted so the capability's NDJSON findings never mix into this tool's own findings."""
+    if not tasks_render or not os.path.isfile(tasks_render):
+        print("promote-from-inbox: tasks-render capability not resolved (%s); tasks.md ships the "
+              "empty sentinel pair, filled on the next render" % tasks_render, file=sys.stderr)
+        return
+    try:
+        subprocess.run(["bash", tasks_render, target_dir],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    except Exception as exc:
+        print("promote-from-inbox: tasks-render delegation failed (%s); tasks.md ships the empty "
+              "sentinel pair, filled on the next render" % exc, file=sys.stderr)
 
 
 _FM_KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
@@ -442,17 +477,19 @@ spec_content = (
     "## Solution Approach\n\n{3-8 sentences. Post-Session-1 amendment blocks land here.}\n"
 ) % (title, today, today, title)
 
+# RULING 2: ship frontmatter + preface + an EMPTY tasks:start/tasks:end sentinel
+# pair ONLY. The outside `## Tasks` + `### T-1` block is GONE — librarian:tasks-render (the
+# single writer of the region,/R-37) fills it from manifest.tasks[] via delegate_render()
+# after the graduation scaffold lands, so a graduated plan never carries a duplicate `## Tasks`.
 tasks_content = (
     "---\ntitle: %s — Tasks\ntype: tasks\ncreated: %s\nupdated: %s\n---\n\n"
     "# %s — Tasks\n\n**Spec:** `%s/spec.md`\n**Last Updated:** %s\n\n"
     "## Status Key\n\n`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
-    "<!-- tasks:start -->\n\n## Task ledger\n\n"
-    "| ID | Title | Status | Depends on | Notes |\n|----|-------|--------|-----------|-------|\n"
-    "| T-1 | Define spec | not-started | — | flesh out spec.md |\n\n"
-    "<!-- tasks:end -->\n\n---\n\n## Tasks\n\n### T-1: Define spec\n\n"
-    "**Status:** not-started\n**Dependencies:** none\n"
-    "**Description:** Flesh out spec.md from the migrated ideation brief; replace placeholders.\n\n"
-    "**Acceptance Criteria:**\n- [ ] Complete all spec.md sections\n- [ ] Replace placeholder rows\n\n---\n"
+    "<!-- ledger-at-top + per-task-at-bottom; the tasks:start/end sentinel pair bounds the "
+    "librarian:tasks-render region (the SINGLE writer,/R-37). This graduation emitter "
+    "ships an EMPTY pair and delegates the fill to tasks-render at scaffold time (RULING 2 / "
+    ") — NEVER hand-author inside the sentinels; task-state SoT = manifest.tasks[]. -->\n\n"
+    "<!-- tasks:start -->\n\n<!-- tasks:end -->\n"
 ) % (title, today, today, title, plan_dir, today)
 
 handoff_content = (
@@ -530,6 +567,9 @@ except Exception as exc:
     if created and os.path.isdir(plan_dir):
         shutil.rmtree(plan_dir, ignore_errors=True)
     abort("scaffold write failed (%s); rolled back, inbox note untouched" % exc)
+
+# RULING 2: renderer fills the empty sentinel region from manifest.tasks[] (best-effort).
+delegate_render(plan_dir)
 
 # ---- verify the brief carries the migrated body, THEN tombstone ------------
 brief_on_disk = os.path.join(plan_dir, "00-ideation-brief.md")

@@ -60,7 +60,7 @@
 #   templates/settings-fragments/*.json
 #
 # Excluded (runtime state, source-only artifacts, distribution-tooling):
-#   hooks/state/**          (session state; install.sh creates empty dir)
+#   hooks/state/**          (legacy runtime-state dir; retired — no longer created on install)
 #   tests/**                (test harness, not shipped)
 #   tools/**                (release-time tools: build-foundation-master.sh +
 #                            generate-foundation-manifest.sh siblings; not installed)

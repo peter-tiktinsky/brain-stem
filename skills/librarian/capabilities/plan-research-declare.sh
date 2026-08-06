@@ -1,6 +1,7 @@
 #!/bin/bash
 # plan-research-declare — the DT-4 A1-clause-4 session-close DECLARATION writer (140 sub-11 T-2).
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as a header shape reference; no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # THE single declaration surface for research_artifacts[] (DT-4 memo §Amendment-A1 clause 4:
 # "declaration DERIVES at session close … no second declaration surface"). At session close this
 # RECONCILES each active-spoke plan's manifest.research_artifacts[] from that plan's OWN on-disk

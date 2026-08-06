@@ -38,6 +38,7 @@
 #     block-and-log, never write-and-hope.
 #   Failure mode: block-and-log; never write-and-hope. Manifest read-only.
 #     Atomic temp+rename. Idempotent.
+#   plan-manifest-schema degrade-contract: REFUSE-AND-FREEZE (loud-skip) — a schema-invalid manifest is refused (no partial write); the skip is surfaced on stderr ("skipped <plan> — manifest invalid: … fails schema"); the read-replica is never silently frozen.
 #
 # Finding categories (2):
 #   matrix-md-drift       (warning, --check only) on-disk traceability-matrix.md != would-be render
@@ -158,8 +159,12 @@ if schema_path and os.path.isfile(schema_path):
     except ImportError:
         pass
     except Exception as exc:
-        print("matrix-render: manifest fails schema; refusing to render: %s" % exc,
-              file=sys.stderr)
+        # LOUD-SKIP (direct path; the librarian router surfaces stderr). Ratified form
+        # "skipped <plan> — manifest invalid: ...", preserving the "fails schema" substring.
+        # Still refuses to render (no partial write); the read-replica is left untouched but
+        # the skip is visible instead of an easily-missed stderr line.
+        print("matrix-render: skipped %s — manifest invalid: manifest fails schema; "
+              "refusing to render: %s" % (plan_slug, exc), file=sys.stderr)
         sys.exit(1)
 
 for req in ("schema_version", "project", "spec_path"):

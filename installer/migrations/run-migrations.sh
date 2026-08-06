@@ -7,10 +7,15 @@
 # The forward-only, idempotent migration runner. install.sh invokes it AFTER
 # Step 13.5 (the freshly-copied foundation-manifest.json has parse-validated);
 # it iterates the shipped migrations/NNNN-slug.sh files in numeric prefix order
-# (Flyway lexical/numeric ordering), selects those whose `applies_at` header is
-# in the half-open range (INSTALLED_VERSION, TARGET_VERSION], skips any whose id
-# is already in the high-water log, runs the rest, and on each success appends
-# the id to the high-water log.
+# (Flyway lexical/numeric ordering) and selects each migration by the applied-ids
+# SET-DIFFERENCE: a migration runs iff its id is NOT already in the high-water log
+# (APPLIED_IDS) AND its `applies_at` header is <= TARGET_VERSION. The strictly-
+# above-floor clause (applies_at > INSTALLED_VERSION) is a DIAGNOSTIC only, NOT a
+# selection guarantee — a bitten install whose stamp advanced past a migration's
+# applies_at must still heal on its next run, so the applied-ids set-difference (not
+# the version floor) is the idempotence guarantee. It runs the selected set and on
+# each success appends the id to the high-water log. THIS HEADER is the shipped
+# selection contract.
 #
 # It ships to $CLAUDE_HOME/migrations/ as a FOUNDATION-REPLACE surface so the
 # adopter has the runner locally for audit.
@@ -144,12 +149,14 @@ run_migrations() {
       _mig_log "SKIP $id: no applies_at header (cannot place in the version range)"
       continue
     fi
-    v_lo="$(mig_vercmp "$applies_at" "$floor")"   # applies_at vs floor
-    v_hi="$(mig_vercmp "$applies_at" "$target")"  # applies_at vs target
-    # half-open (floor, target]: applies_at must be STRICTLY > floor AND <= target
+    v_lo="$(mig_vercmp "$applies_at" "$floor")"   # applies_at vs floor (diagnostic only)
+    v_hi="$(mig_vercmp "$applies_at" "$target")"  # applies_at vs target (selection ceiling)
+    # selection: id NOT-IN APPLIED_IDS  AND  applies_at <= target. The strictly-above-
+    # floor clause is DEMOTED to a diagnostic (below) — a bitten install whose stamp
+    # already advanced past applies_at MUST still heal, so the applied-ids set-difference
+    # (the high-water skip below), NOT the floor, is the idempotence guarantee.
     if [ "$v_lo" != "a>b" ]; then
-      _mig_log "SKIP $id: applies_at=$applies_at <= floor=$floor (already past this version)"
-      continue
+      _mig_log "NOTE $id: applies_at=$applies_at <= floor=$floor — at/below floor; selection now defers to the applied-ids set-difference (not the floor)"
     fi
     if [ "$v_hi" = "a>b" ]; then
       _mig_log "SKIP $id: applies_at=$applies_at > target=$target (above the upgrade ceiling)"

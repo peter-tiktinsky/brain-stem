@@ -3,6 +3,7 @@
 # plan-terminal-lag class: a plan whose own status is NON-terminal under a
 # parent_plan master whose status IS terminal.
 #
+# plan-manifest-schema degrade-contract: ADVISORY validator — a schema-invalid manifest is skipped (except: continue); the check stays advisory (exit 0), never refuse-and-freeze.
 # Landed: sub 09 (G-LIFECYCLE) T-1 (2026-07-03). Closes WF-A//
 # (wfA-brain-stem-fix-catalog.md:98-100) via the DT-3 SURFACE-AND-WALK model
 # (151-158)./RESOLVED at (manifest decision_records).

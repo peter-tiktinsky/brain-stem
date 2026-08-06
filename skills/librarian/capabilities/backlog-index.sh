@@ -3,6 +3,7 @@
 # manifest-derived read-replica. Librarian reader cap with the master-row
 # policy + satellite-pointer retarget.
 #
+# plan-manifest-schema degrade-contract: ADVISORY validator — a schema-invalid manifest is counted defect_skipped + emits a backlog-manifest-schema-invalid finding; indexing CONTINUES over the other plans (not refuse-and-freeze).
 # Librarian reader cap (1.1 line 126). Ported from the
 # backlog-index.sh with two
 # additions:

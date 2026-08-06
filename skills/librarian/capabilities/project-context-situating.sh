@@ -6,6 +6,7 @@
 # machine-derived, generated entirely from each contributing plan's manifest, with
 # no hand-curated cover surface.
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as the SOURCE-field shape reference; no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # The card is DERIVED entirely from each contributing plan's manifest.json (the
 # fields declared in schemas/plan-manifest-schema.json). Only plans whose manifest
 # `project:` key == the target spoke contribute (per-spoke, the sibling-generator
@@ -112,7 +113,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,90p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,91p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "project-context-situating: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

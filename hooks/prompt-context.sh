@@ -5,8 +5,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh"
+# the memory-review re-firing band reads the review queue. Source
 # the producer/reader API when present (graceful-degrade — advisory band).
 [ -r "$SCRIPT_DIR/lib/review-queue.sh" ] && source "$SCRIPT_DIR/lib/review-queue.sh"
+# the context-pressure writer (the .pct producer the R-26 bands read).
 [ -r "$SCRIPT_DIR/lib/context-pressure.sh" ] && source "$SCRIPT_DIR/lib/context-pressure.sh"
 
 # T-3: internal lockf re-exec target. `prompt-context.sh --do-heartbeat <sid>`
@@ -24,6 +26,8 @@ fi
 # above) sources paths.sh, so SESSION_STATE_ROOT is exported here.
 STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 
+# T-2: per-session checkpoint paths.
+# T-3 (2026-05-11): per-session pressure file paths
 # (`sessions/<sid>/context-pressure.json`). PRESSURE_FILE construction moved
 # AFTER SESSION_ID resolution. Empty SID → PRESSURE_FILE="" → existence checks
 # fall through to default-pct-0 path; R-26 mandate firing preserved.
@@ -58,8 +62,36 @@ if [[ -n "$SESSION_ID" ]]; then
   CHECKPOINT_FILE="$SESSION_DIR/checkpoint.md"
   PRESSURE_FILE="$SESSION_DIR/context-pressure.json"
   mkdir -p "$SESSION_DIR" 2>/dev/null || true
-  if command -v write_context_pressure >/dev/null 2>&1; then
-    write_context_pressure "$TRANSCRIPT_PATH" "$PRESSURE_FILE" 2>/dev/null || true
+  # compute + write the .pct the bands below read (no-op if no transcript).
+  _cp_tp="$TRANSCRIPT_PATH"
+  # --- Cause-2: compact-boundary-aware recompute guard -------------
+  # session-register.sh reset .pct=0 + dropped a .compact-pending marker (the
+  # usage-block count at the compaction boundary). Until the transcript advances
+  # PAST that boundary (a genuine post-compact usage block appears), do NOT
+  # re-derive .pct from the stale pre-compact block — recomputing would re-write
+  # the stale-high value and false-fire the R-26 mandate (the session-register-only
+  # reset is provably inert without this guard). On advance: clear the marker +
+  # resume the normal recompute so real post-compact pressure (incl. a genuinely
+  # high one) is written and the mandate fires. write_context_pressure()
+  # (hooks/lib/context-pressure.sh) stays byte-frozen.
+  _cp_marker="$STATE_DIR/sessions/$SESSION_ID/.compact-pending"
+  _cp_skip=0
+  if [ -f "$_cp_marker" ]; then
+    _cp_boundary=$(cat "$_cp_marker" 2>/dev/null || true)
+    case "$_cp_boundary" in ''|*[!0-9]*) _cp_boundary="" ;; esac
+    _cp_now=""
+    if [ -n "$_cp_tp" ] && [ -r "$_cp_tp" ] && command -v jq >/dev/null 2>&1; then
+      _cp_now=$(jq -rs '[ .[]? | objects | ((.message? | objects | .usage?) // .usage?) | objects ] | length' "$_cp_tp" 2>/dev/null || true)
+    fi
+    case "$_cp_now" in ''|*[!0-9]*) _cp_now="" ;; esac
+    if [ -n "$_cp_boundary" ] && [ -n "$_cp_now" ] && [ "$_cp_now" -gt "$_cp_boundary" ]; then
+      rm -f "$_cp_marker" 2>/dev/null || true
+    else
+      _cp_skip=1
+    fi
+  fi
+  if [ "$_cp_skip" -eq 0 ] && command -v write_context_pressure >/dev/null 2>&1; then
+    write_context_pressure "$_cp_tp" "$PRESSURE_FILE" 2>/dev/null || true
   fi
 else
   # No session ID — checkpoint + pressure operations skipped (per-session path unavailable).
@@ -79,6 +111,7 @@ CLEARING_WINDOW_SEC=600
 # Reads warn_pct/mandate_pct from $CLAUDE_HOME/user-manifest.json (defaults 45/48
 # when absent or null). These are the ONLY context_pressure thresholds any hook
 # consumes: this hook enforces warn+mandate in-band.
+#
 # SEMANTICS: warn_pct/mandate_pct are percentages of the TRUE model context window.
 # The .pct in context-pressure.json is `used / actual-window` (the writer resolves
 # the window per model family — Haiku 200k, the 1M fleet 1,000,000 — not the former
@@ -87,6 +120,7 @@ CLEARING_WINDOW_SEC=600
 # write. The fractions are KEPT as-is: they remain meaningful window-relative
 # triggers, and re-tuning them for the larger window is a band-logic change that is
 # deliberately out of scope here (this plan only corrects the denominator).
+#
 # The stop-gate's 48/80/90 boundaries are FIXED constants in stop-checkpoint-check.sh
 # by design (a safety gate is not weakened by misconfig). `hard_pct` is schema-parity
 # vocabulary only and is intentionally NOT read here or by the stop-gate

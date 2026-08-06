@@ -5,11 +5,14 @@
 # re-derived from each plan manifest on every run. Implements R-BIND-3.
 # Distinct from the shipped handoff-disposition-check.sh (a close-out chronicle
 # checker, NOT a binder generator).
+#
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as a line reference in comments; no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # The plans home resolves robustly the way sibling capabilities resolve it —
 # PLANS_ROOT/PLANS_DIR override, else paths.sh, never a hardcoded user-home
 # literal. The _projects/ scaffold proper is the install unit's scope; this
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
+#
 # Grouping (R-BIND-6): the binder is per-spoke — only plans whose manifest
 # project: key matches the target spoke contribute rows. Within a spoke, rows are
 # grouped by parent_plan: lineage (a top-level plan heads its own lineage group;
@@ -17,10 +20,12 @@
 # decision_records[] entry — this is a PURE projection (declaration is the only
 # gate; no symlink farm, no inline-vs-pointer selectivity — those belong to the
 # research-index surface, not the decision log).
+#
 # R-BIND-6 row schema: ADR id (ADR-NN) / title / status
 # (proposed|accepted|rejected|deprecated|superseded) / path; plus optional
 # superseded_by and created columns when present. ADR BODIES, rationale, and
 # option-tables STAY at the path — the projection never copies them inline.
+#
 # R-BIND-6 append-immutability (TRANSCRIBED from D3:183, verbatim contract clause
 # "Superseded records are forward-linked, never deleted"): the append-immutable
 # semantic the contract mandates is scoped to the SUPERSEDED lifecycle STATUS — a
@@ -35,9 +40,11 @@
 # is never suppressed, ordered/rejected/deprecated/proposed/accepted alike. When a
 # superseded record's superseded_by target ADR is itself present in the same
 # spoke's projection, the forward-link is cross-referenced to that row.
+#
 # Re-derive from manifests every run; missing/empty decision_records[] = EMPTY
 # section, never an error (R-BIND-10a defensive default; legacy manifests carry no
 # field). A malformed manifest emits a finding and is skipped — block-and-log.
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/decision-log.md   (atomic temp+os.replace;
@@ -66,14 +73,17 @@
 #     handoff-chronicle.md, the research/ symlink farm, plan manifests, or any
 #     plan _research/ / decisions/ content. It reads decision_records[] and writes
 #     ONLY decision-log.md.
+#
 # CLI:
 #   plan-decision-log.sh                 # regenerate every spoke's decision log
 #   plan-decision-log.sh --spoke <key>   # regenerate one spoke's log only
 #   plan-decision-log.sh --dry-run       # findings + would-be writes, NO write
 #   plan-decision-log.sh --help
+#
 # Env overrides (testing):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh)
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24. Read-only manifest
 # walk + atomic file write(s).
 

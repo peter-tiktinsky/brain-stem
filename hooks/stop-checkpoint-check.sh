@@ -83,9 +83,38 @@ fi
 # The transcript_path was drained with the session id from the early Stop-payload
 # read above; reuse $STOP_INPUT (empty in tests → the writer no-ops and any existing
 # pressure file is preserved).
-if command -v write_context_pressure >/dev/null 2>&1; then
-  _tp=$(printf '%s' "$STOP_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-  write_context_pressure "$_tp" "$PRESSURE_FILE" 2>/dev/null || true
+_cp_tp=$(printf '%s' "$STOP_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+# --- Cause-2: compact-boundary-aware recompute guard -------------
+# session-register.sh reset .pct=0 + dropped a .compact-pending marker (the
+# usage-block count at the compaction boundary). Until the transcript advances
+# PAST that boundary (a genuine post-compact usage block appears), do NOT
+# re-derive .pct from the stale pre-compact block — recomputing would re-write
+# the stale-high value and false-fire the R-26 mandate (the session-register-only
+# reset is provably inert without this guard). On advance: clear the marker +
+# resume the normal recompute so real post-compact pressure (incl. a genuinely
+# high one) is written and the mandate fires. write_context_pressure()
+# (hooks/lib/context-pressure.sh) stays byte-frozen.
+# This is the SECOND write_context_pressure call site (stop-time refresh);
+# it is guarded IDENTICALLY to prompt-context.sh:65-68 so the Stop-side recompute
+# cannot false-fire the mandate on the first post-compact turn (T-2 (a)).
+_cp_marker="$STATE_DIR/sessions/$SESSION_ID/.compact-pending"
+_cp_skip=0
+if [ -f "$_cp_marker" ]; then
+  _cp_boundary=$(cat "$_cp_marker" 2>/dev/null || true)
+  case "$_cp_boundary" in ''|*[!0-9]*) _cp_boundary="" ;; esac
+  _cp_now=""
+  if [ -n "$_cp_tp" ] && [ -r "$_cp_tp" ] && command -v jq >/dev/null 2>&1; then
+    _cp_now=$(jq -rs '[ .[]? | objects | ((.message? | objects | .usage?) // .usage?) | objects ] | length' "$_cp_tp" 2>/dev/null || true)
+  fi
+  case "$_cp_now" in ''|*[!0-9]*) _cp_now="" ;; esac
+  if [ -n "$_cp_boundary" ] && [ -n "$_cp_now" ] && [ "$_cp_now" -gt "$_cp_boundary" ]; then
+    rm -f "$_cp_marker" 2>/dev/null || true
+  else
+    _cp_skip=1
+  fi
+fi
+if [ "$_cp_skip" -eq 0 ] && command -v write_context_pressure >/dev/null 2>&1; then
+  write_context_pressure "$_cp_tp" "$PRESSURE_FILE" 2>/dev/null || true
 fi
 
 # Read context percentage

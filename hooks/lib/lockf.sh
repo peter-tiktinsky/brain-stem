@@ -23,7 +23,7 @@
 #
 # Lockfile path constraint — $HOOKS_STATE only:
 #   Lockfiles MUST live under $HOOKS_STATE (resolved by lib/paths.sh from
-#   user-manifest.json or install-convention default $CLAUDE_HOME/hooks/state),
+#   user-manifest.json .paths.hooks_state, else $CLAUDE_STATE_ROOT/hooks-state),
 #   never /tmp. /tmp is unreliable for cross-invocation persistence (Apple
 #   periodic cleanup, tmpfs on some configurations, no SELinux context),
 #   and HOOKS_STATE is the single sanctioned hooks-runtime-state directory.

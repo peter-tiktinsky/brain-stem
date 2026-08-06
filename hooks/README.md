@@ -59,7 +59,7 @@ The installer never strips entries from the default `templates/settings.json`; f
 
 ## State and config
 
-- `hooks/state/` — runtime state (`hook-audit.log`, `tripwire.log`, the review queue, etc.). Created lazily; ships empty.
+- `$CLAUDE_STATE_ROOT/hooks-state/` — the runtime-state home (`hook-audit.log`, `tripwire.log`, the review queue, etc.), resolved via `lib/paths.sh` on the XDG ephemeral state tier (NOT `$CLAUDE_HOME`). The legacy `$CLAUDE_HOME/hooks/state/` dir is retired — no longer created on install (migration 0008 removes it if empty), kept only as a read-only migration/back-compat fallback for upgraders whose dir may still hold unmigrated files.
 - `hooks/drift-allowlist.json` — hand-editable `provides:` overlap allowlist (`provides_overlap[]` for deliberate co-canonical pairs); read by the librarian frontmatter-coverage-audit. Created lazily; optional.
 
 Documentation-cascade dependencies are no longer a hand-edited `hooks/config/` file — they live in `governance/doc-dependencies.json`, composed into `foundation-master.json#doc_dependencies` and read from that bundle by `pre-write-guard.sh`.

@@ -55,6 +55,7 @@ The inbox — where ideas are captured before they become plans — previously w
 ## What to do
 
 - **Upgrade normally** (`install.sh --apply`). The three migrations run automatically, in order, and are safe to re-run; a second pass changes nothing.
+- **Confirm the migrations landed.** After `install.sh --apply`, check that `governance/.installed-state.json`'s `migrations_applied` list includes `0005-dimension-prefixes-reconcile`, `0006-plan-status-vocabulary`, and `0007-retired-surface-removal`. If any is missing, just run `install.sh --apply` once more — the runner selects any migration whose id is not yet in that list and heals the install; no manual step is needed.
 - **After upgrading,** if you had scripts matching the retired statuses (`verified`, `closed`, `archived`), point them at `completed` — the migration has already converged your corpus.
 - **If you customized a retired file,** look for `*.foundation-retired` alongside its old path if you want to salvage anything from it; otherwise ignore it or delete it at leisure.
 - **Nothing else requires action.** No file format you author by hand changes in this release.

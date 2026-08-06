@@ -10,6 +10,7 @@
 # cannot undo it; this is defense-in-depth for what the PreToolUse
 # manifest-substance branch ((a)) misses.
 #
+# plan-manifest-schema degrade-contract: ADVISORY validator — constructs a Draft202012Validator against plan-manifest-schema; a schema-invalid manifest yields an additionalContext warning and STILL exits 0 (never blocks the write, never freezes a read-replica).
 # Scope note: this is the (c) verify body.
 #
 # Hook contract (Claude Code PostToolUse):

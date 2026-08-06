@@ -166,6 +166,19 @@ next_steps="${next_steps:-[MISSING]}"
 ac_status="${ac_status:-[MISSING]}"
 current_blocker="${current_blocker:-[MISSING]}"
 
+# --- Cause-1 relocation (RULING 3): archive the prior bare checkpoint.md
+#     to a dated variant BEFORE overwriting it. Rotation was relocated here from
+#     session-register.sh (which runs at SessionStart only and cannot rotate on the
+#     NEXT checkpoint write). Reached only on the stale/missing write path (the
+#     fresh-preserve gate returned earlier at :62-76), and placed AFTER the
+#     accumulated-state read above so the archived copy is the pre-overwrite content.
+#     COPY (not move) then overwrite, so a failed archive never loses the checkpoint;
+#     the checkpoint-YYYYMMDD-HHMMSS.md dated variant is legitimate rotation history.
+if [[ -f "$CHECKPOINT_FILE" ]] && [[ -s "$CHECKPOINT_FILE" ]]; then
+  archive_ts=$(date -u +"%Y%m%d-%H%M%S")
+  cp "$CHECKPOINT_FILE" "$SESSION_DIR/checkpoint-${archive_ts}.md" 2>/dev/null || true
+fi
+
 # --- Write checkpoint (only path reached: stale/missing/empty checkpoint) ---
 if [[ "$has_structured" == "true" ]]; then
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
