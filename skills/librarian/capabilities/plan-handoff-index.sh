@@ -491,7 +491,7 @@ for spoke in target_spokes:
     head_lines = [
         "---",
         "type: index",
-        'tags: ["#projects/%s"]' % tag_spoke,
+        'tags: ["#project/%s"]' % tag_spoke,
         "updated: %s" % today,
         "parent_folder: _projects",
         "---",

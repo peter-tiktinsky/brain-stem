@@ -17,6 +17,23 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 
+# --- Detached-spawn env pin (T-3) -----------------------------------
+# Sanctioned call-site block, verbatim from hooks/lib/detached-spawn-env.sh's header.
+# Re-pins CLAUDE_HOME (the measured escape vector) + MEMORY_DIR to the tree THIS hook was
+# loaded from, so the two detached children below (section 2's reconcile spawn and
+# section 3's auto-close spawn) never
+# re-resolve through paths.sh's ${VAR:-default} fallbacks in whatever ambient they wake
+# up in. In a real install the anchor IS $HOME/.claude, so the pin is a byte no-op.
+# ADDITIVE — nothing below changes; the pin only has to precede the forks.
+# PLACEMENT: the block resolves $SCRIPT_DIR, so it MUST stay BELOW the SCRIPT_DIR
+# assignment. Above it every clause degrades politely and the scrub is INERT while
+# grepping identically to a working one (asserted by the T-2/T-3 line-order guards).
+_DSE="$SCRIPT_DIR/lib/detached-spawn-env.sh"
+# shellcheck source=/dev/null
+if "${BASH:-bash}" -n "$_DSE" 2>/dev/null; then . "$_DSE" 2>/dev/null || true; fi
+if ! command -v pin_detached_spawn_env >/dev/null 2>&1; then pin_detached_spawn_env() { :; }; fi
+pin_detached_spawn_env || true
+
 # --- 1. Mark this session's row closed (read-modify-write) -------------------
 # Only mutate a row that exists; if the session never registered, no-op.
 close_row() {
@@ -100,7 +117,8 @@ if [ -f "$SESSION_CLOSE" ]; then
   if [ -z "$fresh_receipt" ]; then
     # T-4: thread THIS session's id explicitly so the detached close self-IDs
     # its OWN registry row (not a sibling's under a shared ancestor pid) instead of the
-    # demoted pid ancestor-walk. SESSION_ID is resolved at :28-31 above.
+    # demoted pid ancestor-walk. SESSION_ID is resolved near the top of this file
+    # (argv first, env fallback).
     ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
   fi
 fi

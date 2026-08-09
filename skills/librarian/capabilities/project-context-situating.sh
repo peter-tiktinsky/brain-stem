@@ -405,7 +405,7 @@ def render_card(spoke, st):
         "---",
         "type: index",
         "generated: true",
-        'tags: ["#projects/%s"]' % tag_spoke,
+        'tags: ["#project/%s"]' % tag_spoke,
         "updated: %s" % today,
         "parent_folder: _projects",
         "---",

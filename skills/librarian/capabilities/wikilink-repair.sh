@@ -1,9 +1,11 @@
 #!/bin/bash
 # wikilink-repair — Detect broken [[wikilinks]] across the vault and propose
 # repairs from the doc-dependency registry seed (no heuristic fuzzy match).
+#
 # Landed: T-3 (2026-04-20, parallel session with T-5). Uses's
 # lib/path.sh + lib/findings.sh helpers from day one (no inline path parsing,
 # no inline JSON finding writes).
+#
 # Repair-seed policy (per T-3 spec §Acceptance Criteria):
 #   - Only proposes a repair when the broken wikilink's target basename
 #     exactly matches the basename of a `primary` or `mirrors[]` entry in
@@ -13,16 +15,40 @@
 #   - NO heuristic / fuzzy match. If a broken target has no registry seed,
 #     it is logged as `broken-wikilink` for manual triage — not auto-repaired.
 #   - Multiple candidates: logged with `ambiguous` flag; no auto-repair.
+#
 # Default mode is DRY-RUN. Use --apply to rewrite files (explicit opt-in per batch).
+#
 # CLI:
 #   wikilink-repair.sh                        # dry-run; emit findings to stdout / FINDINGS_OUTPUT
 #   wikilink-repair.sh --apply                # rewrite repairable wikilinks (opt-in)
 #   wikilink-repair.sh --scope <path>         # limit to a vault subtree
 #   wikilink-repair.sh --report <path>        # write markdown summary
+#
+# MEMORY-NAMESPACE RESOLUTION (resolution only, never repair). A wikilink whose target
+# lives in the memory corpus — feedback_*/reference_*/project_* under $CLAUDE_HOME/rules,
+# $CLAUDE_HOME/memory and $CLAUDE_HOME/projects/*/memory — resolves for the reader but
+# lives OUTSIDE the vault, so a vault-only walk called it broken. That was a standing
+# ~13% noise floor on the broken-wikilink class, and a noise floor is how a real break
+# stops being read.
+#
+# The namespace is ENUMERATED FROM DISK AT SCAN TIME, never a static prefix list. A
+# `feedback_`/`reference_`/`project_` prefix allowlist encodes ONE corpus's naming
+# convention, is wrong for an adopter who names memories differently, and would suppress
+# a genuinely DEAD memory ref by prefix alone. Enumerating means a link resolves because
+# the file is THERE — and a link to a deleted memory is still reported broken.
+#
+# Consulted ONLY when the vault yields ZERO candidates, so it never turns a
+# unique-basename resolution into an ambiguity and never seeds a repair proposal:
+# memory targets are outside this capability's rewrite scope by construction.
+#
 # Env overrides (testing):
 #   VAULT_ROOT, DOC_DEP_FILE, FINDINGS_OUTPUT
+#   MEMORY_NS_ROOTS — colon-separated memory-namespace roots (default: the three
+#                     $CLAUDE_HOME surfaces above). Empty string = disable.
+#
 # Exits non-zero on: unknown flag. Never fails on missing files or parse errors
 # (defensive — emits a warning finding instead).
+#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -100,6 +126,12 @@ if [ -r "$_VVW_LIB" ]; then
 fi
 export WLR_WALK_LIST
 
+# The resolved CLAUDE_HOME the memory-namespace enumeration keys off, exported so the
+# python block never re-derives it (an unset CLAUDE_HOME would silently empty the
+# namespace and quietly restore the noise floor).
+MEMORY_NS_HOME="$CLAUDE_HOME_RES"
+export MEMORY_NS_HOME
+
 python3 - "$SCOPE_ROOT" "$DOC_DEP_FILE_EFF" "$APPLY" "$REPORT_PATH" <<'PY'
 import json, os, re, sys
 from collections import defaultdict
@@ -141,7 +173,7 @@ except Exception as ex:
 # ---------- Walk vault, find broken [[wikilinks]] ----------
 EXEMPT_DIRS = (
     "/Archive/", "/.git/", "/.claude/projects/",
-    "/Logs/foundations-essays/", "//",
+    "/Logs/foundations-essays/", "/Logs/backlog-progress/",
     "/_test",
 )
 
@@ -185,6 +217,36 @@ if not _used_walker:
                 all_md_by_basename[fn].add(rel)
                 md_files.append(full)
 
+# --- memory namespace: RESOLUTION ONLY, enumerated from disk at scan time ------------
+# Lowercased stems of every .md in the memory corpus. Consulted ONLY for a target with
+# ZERO vault candidates, so it can turn a false break into a resolution but can never
+# mask a real one: a ref to a deleted memory finds no file and stays broken. Nothing
+# here becomes a repair candidate — memory files are outside this cap's rewrite scope.
+def memory_namespace_stems():
+    raw = os.environ.get("MEMORY_NS_ROOTS")
+    if raw is not None:
+        roots = [r for r in raw.split(os.pathsep) if r]
+    else:
+        home = os.environ.get("MEMORY_NS_HOME") or os.path.join(os.path.expanduser("~"), ".claude")
+        roots = [os.path.join(home, "rules"), os.path.join(home, "memory")]
+        try:
+            projects = os.path.join(home, "projects")
+            roots += [os.path.join(projects, d, "memory") for d in os.listdir(projects)]
+        except OSError:
+            pass
+    stems = set()
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [d for d in dns if not d.startswith(".")]
+            for fn in fns:
+                if fn.endswith(".md"):
+                    stems.add(fn[:-3].lower())
+    return stems
+
+MEMORY_NS = memory_namespace_stems()
+
 # Wikilink pattern — captures target and optional alias
 WL = re.compile(r"\[\[([^\]\|\#]+)(?:#[^\]\|]+)?(?:\|[^\]]+)?\]\]")
 
@@ -214,6 +276,7 @@ for path in md_files:
         target = m.group(1).strip()
         # Strip trailing backslash escape artifact — Obsidian renders
         # `[[Target\]]` as `[[Target]]`; the regex captures `Target\` verbatim.
+        # Eliminates the largest false-positive class on this finding.
         target = re.sub(r"\\+$", "", target)
         if not target:
             continue
@@ -279,6 +342,12 @@ for path in md_files:
                   "ambiguous": True,
                   "note": "Ambiguous: %d vault files share this basename; Obsidian cannot resolve deterministically." % len(candidates)})
             unresolved += 1
+        elif target_base_md[:-3].lower() in MEMORY_NS:
+            # Zero VAULT candidates, but the target is a real file in the memory
+            # corpus — it resolves for the reader, so it is not broken and not a
+            # repair candidate. Reached only on the zero-candidate path, so this can
+            # never convert a unique-basename resolution into an ambiguity.
+            continue
         else:
             # Zero candidates -> genuinely broken.
             broken_count += 1

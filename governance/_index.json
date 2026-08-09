@@ -251,6 +251,12 @@
       ],
       "status": "active",
       "rule_text": "When adopter Layer-3 overlay and foundation canonical both declare the same rule ID or extensible entry kind: adopter Layer-3 SHADOWS foundation (adopter wins). Foundation declaration is preserved but does not fire. Adopter MUST carry `_override_reason` (free-text, mandatory) on every shadowing entry. Write-time DENY on shadowing writes without `_override_reason`; per-write `--force-override` bypass; no persistent disable.",
+      "operation_set": {
+        "_description": "The complete set of operations an adopter overlay can perform against foundation state. It has exactly TWO members. There is no NULLIFY: foundation conventions are immutable-by-design for adopters, and an overlay cannot remove a foundation entry from the merged view. Retiring a foundation convention is a maintainer-side source edit; the `frontmatter.retired_types` tombstone is foundation-authored and overlay-extensible in the ADD direction only.",
+        "add": "Declare a key foundation does not declare (a new frontmatter type, a path_routing rule, a declared-union set member). No `_override_reason` is required — nothing is being shadowed. Declared-union leaves concat+dedup foundation-first per hooks/lib/merge-strategy-registry.json.",
+        "supersede": "Declare a FULL replacement value on a key foundation also declares, carrying per-entry `_override_reason`. This rule's DENY is what makes SUPERSEDE deliberate rather than accidental.",
+        "null_is_not_a_delete": "A `null` overlay value does NOT delete the foundation entry. The merge primitive (jq recursive object-merge) has no delete, so a null merges as a KEY WITH NO CONTRACT — still present in `keys[]`, hence still ACCEPTED, while every required[]/tier read under it yields nothing. That is strictly worse than not attempting the override, so hooks/lib/foundation-overlay-load.sh REJECTS null-valued overlay entity entries before the merge (loud finding naming each path; the foundation entry stands) and hooks/pre-write-guard.sh independently filters null-contract types out of the union accepted-type set."
+      },
       "failure_mode": "Silent collisions between adopter customization and foundation canonical produce unpredictable runtime behavior — rules with the same ID compete; overlay edits silently disable foundation rules.",
       "source": "governance/_index.json :: cross_cutting_meta_rules (SoT; personalization-seams audit)"
     },

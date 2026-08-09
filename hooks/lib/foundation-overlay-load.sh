@@ -22,6 +22,16 @@
 # Canonical shape: `_override_reason` is a PER-ENTRY field on the shadowing
 # overlay entry.
 #
+# OVERLAY OPERATION SET — ADD + SUPERSEDE ONLY. There is no NULLIFY. An adopter
+# overlay may ADD a key foundation does not declare, or SUPERSEDE a key it does
+# declare with a FULL replacement value carrying `_override_reason`. It may NOT
+# delete a foundation entry from the merged view: foundation conventions are
+# immutable-by-design for adopters. A `null` overlay value is not a delete (the
+# merge primitive has no delete) — it is REJECTED at the union block below.
+# Retiring a foundation convention is a maintainer-side source edit; the
+# `frontmatter.retired_types` tombstone is foundation-authored and
+# overlay-extensible in the ADD direction only.
+#
 # bash 3.2 compatible (no `declare -A`, no `mapfile`, no `${var,,}`).
 # No file locks (read-only helper; mutate-side library handles locks).
 
@@ -234,6 +244,87 @@ EOF2
       printf '  (b) pass --force-override for single-invocation bypass (per-write; no persistent disable).\n'
     } >&2
     exit 1
+  fi
+fi
+
+# ---- Null-contract rejection: the overlay operation set is ADD + SUPERSEDE --
+# ---- ONLY — a null-valued entry is REJECTED, never a NULLIFY ----------------
+#
+# jq's `. * $o` recursive object-merge CANNOT delete a key. An overlay entry
+# written as `null` therefore does NOT remove the foundation entry — it merges
+# a key whose VALUE is null. Downstream, that key is still ACCEPTED (it is
+# present in `keys`) while every contract read under it (required[], tier,
+# expected_path, …) yields nothing: an accepted entry with no contract, which
+# is strictly worse than the un-attempted override. Foundation conventions are
+# immutable-by-design for adopters, so a null-valued overlay entity entry is
+# REJECTED here — reported LOUD on stderr naming each path, then DROPPED from
+# the overlay before the merge so the foundation entry stands. Well-formed
+# overlay entries are untouched, and the drop is scoped to the SAME entity
+# slots `_entity_slots_for` declares for the R-52 walk.
+#
+# This runs REGARDLESS of --force-override: that flag bypasses the R-52
+# collision DENY (a policy decision), not structural corruption of the merged
+# view. Cost in the clean case is ONE extra jq pass; the report pass runs only
+# when a null entry is actually found.
+NULL_SCAN_MAP='['
+_NSM_FIRST=1
+_NSM_IFS_SAVED="$IFS"
+IFS=','
+# shellcheck disable=SC2086
+set -- $COLLISION_PILLARS
+IFS="$_NSM_IFS_SAVED"
+for PILLAR in "$@"; do
+  [ -z "$PILLAR" ] && continue
+  SLOTS=$(_entity_slots_for "$PILLAR")
+  [ -z "$SLOTS" ] && continue
+  while IFS= read -r SLOT; do
+    [ -z "$SLOT" ] && continue
+    [ "$_NSM_FIRST" = "1" ] || NULL_SCAN_MAP="${NULL_SCAN_MAP},"
+    _NSM_FIRST=0
+    NULL_SCAN_MAP="${NULL_SCAN_MAP}{\"p\":\"${PILLAR}\",\"s\":\"${SLOT}\"}"
+  done <<NSM_EOF
+$SLOTS
+NSM_EOF
+done
+NULL_SCAN_MAP="${NULL_SCAN_MAP}]"
+
+NULL_PATHS_JSON='[]'
+if [ "$NULL_SCAN_MAP" != "[]" ]; then
+  NULL_PATHS_JSON=$(printf '%s' "$OVERLAY_JSON" | jq -c --argjson map "$NULL_SCAN_MAP" '
+    . as $o
+    | [ $map[]
+        | . as $m
+        | (($o[$m.p] // null) | if type == "object" then . else null end) as $pil
+        | (if $m.s == "__top_level_keys__" then $pil
+           elif $pil == null then null
+           else ($pil[$m.s] // null) end) as $node
+        | ($node | if type == "object" then . else {} end)
+        | to_entries[]
+        | select(.value == null)
+        | select(.key | startswith("_") | not)
+        | if $m.s == "__top_level_keys__" then [$m.p, .key] else [$m.p, $m.s, .key] end
+      ]
+  ' 2>/dev/null) || NULL_PATHS_JSON='[]'
+  [ -z "$NULL_PATHS_JSON" ] && NULL_PATHS_JSON='[]'
+fi
+
+if [ "$NULL_PATHS_JSON" != "[]" ]; then
+  NULL_REPORT=$(printf '%s' "$NULL_PATHS_JSON" | jq -r '.[] | "  - " + join(".")' 2>/dev/null)
+  {
+    printf 'foundation-overlay-load.sh: null-valued overlay entries REJECTED (not merged):\n'
+    printf '%s\n' "$NULL_REPORT"
+    printf 'The overlay operation set is ADD + SUPERSEDE only — a null value cannot NULLIFY a\n'
+    printf 'foundation entry (object-merge keeps the key and drops its contract, leaving an\n'
+    printf 'ACCEPTED entry with no contract). The listed entries are dropped for this load and\n'
+    printf 'the foundation entry stands. Remove them from %s; to change a foundation entry,\n' "$OVERLAY_PATH"
+    printf 'SUPERSEDE it with a full replacement entry carrying _override_reason (R-52).\n'
+  } >&2
+  OVERLAY_CLEANED=$(printf '%s' "$OVERLAY_JSON" | jq -c --argjson p "$NULL_PATHS_JSON" 'delpaths($p)' 2>/dev/null)
+  if [ -n "$OVERLAY_CLEANED" ]; then
+    OVERLAY_JSON="$OVERLAY_CLEANED"
+  else
+    printf 'foundation-overlay-load.sh: null-entry strip failed; falling back to the foundation-only view (degraded but safe).\n' >&2
+    OVERLAY_JSON='{}'
   fi
 fi
 

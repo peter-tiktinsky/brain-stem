@@ -39,6 +39,26 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 
+# --- Detached-spawn env pin (T-3) -----------------------------------
+# Sanctioned call-site block, verbatim from hooks/lib/detached-spawn-env.sh's header.
+# Re-pins CLAUDE_HOME (the measured escape vector) + MEMORY_DIR to the tree THIS hook was
+# loaded from, so every detached child below resolves that tree instead of re-minting
+# $HOME/.claude from paths.sh's ${VAR:-default} fallback. In a real install the anchor
+# IS $HOME/.claude, so the pin is a byte no-op.
+# ONE placement covers all FOUR of this hook's spawns — spawn_reconcile() (149/:238),
+# the lock-RELEASED close, and the no-lockf inline degrade close — because it sits above
+# both lockf re-execs and the pinned env is EXPORTED, so each re-exec'd child inherits it
+# and re-pins idempotently. ADDITIVE: the lock-ordering below is untouched; the pin runs
+# long before REGISTRY_LOCK is ever taken and holds no resource of its own.
+# PLACEMENT: the block resolves $SCRIPT_DIR, so it MUST stay BELOW the SCRIPT_DIR
+# assignment. Above it every clause degrades politely and the scrub is INERT while
+# grepping identically to a working one (asserted by the T-2/T-3 line-order guards).
+_DSE="$SCRIPT_DIR/lib/detached-spawn-env.sh"
+# shellcheck source=/dev/null
+if "${BASH:-bash}" -n "$_DSE" 2>/dev/null; then . "$_DSE" 2>/dev/null || true; fi
+if ! command -v pin_detached_spawn_env >/dev/null 2>&1; then pin_detached_spawn_env() { :; }; fi
+pin_detached_spawn_env || true
+
 # Drain stdin (SessionStart JSON payload) so we never block; we don't read it.
 if [ ! -t 0 ]; then
   cat >/dev/null 2>&1 || true

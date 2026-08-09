@@ -390,7 +390,7 @@ def render_enum_region(rows):
 def mint_index(dirpath, spoke, parent_folder, rows):
     folder = os.path.basename(dirpath)
     fm = ["---", "type: index",
-          'tags: ["#projects/%s"]' % tag_spoke(spoke),
+          'tags: ["#project/%s"]' % tag_spoke(spoke),
           "updated: %s" % today,
           "parent_folder: %s" % parent_folder,
           "---", ""]

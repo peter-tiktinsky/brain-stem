@@ -121,6 +121,12 @@ case "$INPUT_MODE" in
     PAYLOAD_LABEL="$INPUT_PATH"
     ;;
   stdin)
+    # Swept for the inherited-never-EOF-fd-0 class and adjudicated NOT-APPLICABLE:
+    # this `cat` drain is unreachable without the explicit `--stdin` flag. The
+    # default INPUT_MODE is `live` and the session-close caller passes no flags, so
+    # there is no fall-through — the caller that reaches here named stdin as the
+    # payload source and contracted to close it. Bounding it would trade a hang for
+    # validating an empty payload, which is a wrong answer rather than a slow one.
     PAYLOAD_FILE="$(mktemp -t librarian-manifest-validate-XXXXXX)"
     TMP_FILES="$TMP_FILES $PAYLOAD_FILE"
     cat > "$PAYLOAD_FILE"

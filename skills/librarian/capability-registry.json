@@ -2,6 +2,11 @@
   "schema_version": 1,
   "_note": "Librarian capability registry. Each entry's output_contract block is the contract-of-record: files-written · schema · validation · failure-mode, plus the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit this file DIRECTLY — no generator regenerates it (the no-hand-edit rule applies to read-replica manifests such as librarian-manifest.json, not to this primary registry). Home: skills/librarian/capability-registry.json. A strict disk↔registry↔SKILL.md bijection over the shipped capability bodies is enforced by capability-registry-parity (classes a/b/e). Read the live registry length rather than any count quoted in prose.",
   "_parity_pending_manifest_writes": [],
+  "_parity_pending_tag_prefixes": [
+    "episode",
+    "library",
+    "scope"
+  ],
   "capabilities": {
     "governance-parity-audit": {
       "tier": "mechanical",
@@ -329,7 +334,7 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #projects/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, deliverable/reference bodies, or anything under the plans root)",
+          "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #project/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, deliverable/reference bodies, or anything under the plans root)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. defensive-skip findings (spoke-dir-absent / target-subfolder-absent / no-contents-enum-markers) + mint/refresh/blocked findings"
         ],
         "schema": null,

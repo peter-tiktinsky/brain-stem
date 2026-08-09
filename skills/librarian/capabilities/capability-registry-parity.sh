@@ -96,6 +96,46 @@
 #       structural. (A git-commit is not a governed-file write, so a body's empty
 #       writes[] does NOT disqualify — the predicate is confirmation + roster only.)
 #       -> registry-parity-git-confirmation-missing
+#   (m) every capability whose scan root derives from $VAULT_ROOT must actually REACH
+#       the governed vault surface. The vault view is symlink-composed, so a walk that
+#       does not descend symlinks reaches a handful of PHYSICAL root files instead of
+#       the thousands behind the view — and every presence/declaration gate stays GREEN
+#       while the capability audits almost nothing. Declaration is not reach.
+#       -> registry-parity-walk-reach-drift
+#       MEASURED, not assumed: the arm walks the probe root TWICE ITSELF (symlink-inert
+#       vs followlinks + realpath cycle-guard, the external surfaces pruned at the
+#       top on BOTH sides so the comparison is like-for-like), then compares each rostered
+#       capability's DECLARED posture against those counts. Postures, read statically from
+#       the comment-stripped body: shared-walker (sources hooks/lib/vault-view-walk.sh),
+#       followlinks-true, followlinks-gated (followlinks=<var> whose assignment names the
+#       lanes it admits), or symlink-inert. A symlink-inert walk that reaches FEWER files
+#       than the followlinks count and does NOT declare the intentional prune set
+#       (Plans/Projects/Wiki/Work/Skills) is drift; declaring that prune is the documented
+#       escape hatch. The capability roster is NEVER EXECUTED (executing would commit to
+#       the vault) — the arm does its own read-only counting walks.
+#       DETERMINISTIC ON A NON-SYMLINKED ADOPTER VAULT: with no symlink view the two counts
+#       are EQUAL, so no posture can reach fewer than the reference and the class cannot
+#       false-positive there. GATED: skipped when no probe root resolves (an adopter with
+#       no vault configured has nothing to measure — no false drift).
+#   (n) every tag PREFIX a shipped generator emits must be REGISTERED in the composed
+#       foundation-master.json tagging.taxonomy.dimension_prefixes. A generator that mints
+#       `#<prefix>/<x>` onto a governed file writes a vocabulary its sibling readers reject:
+#       tag-coverage-audit's allowlist and the write-time R-32/R-47 tag enforcement both
+#       derive their accepted set from that same leaf, so an unregistered prefix means the
+#       system flags files it wrote itself.
+#       -> registry-parity-tag-prefix-unregistered
+#       The PRODUCER ROSTER IS DERIVED AT RUNTIME by sweeping the shipped file set (the
+#       governance/foundation-manifest.json member list, which IS the shipped roster) for the
+#       frontmatter emission shape — never a hardcoded producer list, so a newly added
+#       generator is covered the moment it lands. Hand-corrected rows are what let this drift
+#       in the first place; the point is the assertion, not the row.
+#       GATED: the registry's ._parity_pending_tag_prefixes[] allowlist names prefixes whose
+#       REGISTRATION is a governance-pillar edit (an operator-serialized surface this audit
+#       cannot make for itself). Those are emitted ADVISORY (warn; NOT counted in TOTAL, so
+#       parity stays non-RED) and stay individually named on every run; a NON-allowlisted
+#       unregistered prefix fires HARD (error; counted; turns parity RED). Same bounded,
+#       provably-shrinking pending-inventory contract as classes (f) and (k) — legal target
+#       state EMPTY, never a welded floor. Skipped when no composed master resolves.
 #
 # After T-13 (the 4 engine-auditors absent + parallel-run-audit struck) the
 # disk-orphan class reports zero orphans: registered-with-disk == on-disk. This
@@ -117,6 +157,12 @@
 #   LIBRARIAN_ROOT_OVERRIDE   relocate librarian/ root for fixture tests
 #   FINDINGS_OUTPUT           append findings here instead of stdout
 #   EXPECTED_SCHEMA_VERSION   override expected schema_version (default: 1)
+#   WALK_REACH_ROOT_OVERRIDE  probe root for class (m) (default: $VAULT_ROOT; class
+#                             skips when neither resolves to a readable directory)
+#   TAG_PARITY_ROOT_OVERRIDE  shipped-tree root for class (n) (default: the librarian root's
+#                             own grandparent — which IS $CLAUDE_HOME in a real install;
+#                             class skips when no governance/foundation-master.json resolves
+#                             under it, so a partial scratch tree sweeps nothing)
 #
 # Bash 3.2 clean per R-23.
 
@@ -185,7 +231,11 @@ DRIFT_FLAG_ACCEPT=0
 DRIFT_MODES_CALLSITE=0
 ADVISORY_MODES_CALLSITE=0
 DRIFT_GIT_CONFIRM=0
+DRIFT_WALK_REACH=0
+DRIFT_TAG_PREFIX=0
+ADVISORY_TAG_PREFIX=0
 REPORT_LINES=""
+WALK_REACH_REPORT=""
 
 # Class (c): schema_version drift
 ACTUAL_SCHEMA=$(jq -r '.schema_version // "missing"' "$REGISTRY")
@@ -606,12 +656,277 @@ while IFS=$'\t' read -r name script modes reqconf; do
   REPORT_LINES="${REPORT_LINES}- registry-parity-git-confirmation-missing: $name ($violation)"$'\n'
 done < <(jq -r '.capabilities | to_entries[] | select(.value.implementation_status != "spec-only") | [.key, .value.script, ((.value.invocation_modes // []) | join(" ")), (.value.requires_confirmation | tostring)] | @tsv' "$REGISTRY")
 
-TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER + DRIFT_GOVERN_MODES + DRIFT_FLAG_ACCEPT + DRIFT_MODES_CALLSITE + DRIFT_GIT_CONFIRM))
-printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d govern-modes=%d flag-not-accepted=%d session-close-callsite=%d git-confirmation=%d; advisory manifest-write-fiction=%d session-close-callsite=%d)\n\n" \
-  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$DRIFT_GOVERN_MODES" "$DRIFT_FLAG_ACCEPT" "$DRIFT_MODES_CALLSITE" "$DRIFT_GIT_CONFIRM" "$ADVISORY_MANIFEST_FICTION" "$ADVISORY_MODES_CALLSITE"
+# Class (m): walk-reach. Every capability whose scan root derives from $VAULT_ROOT must
+# actually REACH the governed vault surface behind the symlink-composed vault view. The
+# defect this closes is silent: a followlinks=False walk over a symlink-composed vault
+# reaches the handful of PHYSICAL root files while every presence/declaration gate stays
+# GREEN, so the capability audits ~nothing and reports success. Declaration is not reach.
+#
+# The arm MEASURES: it walks the probe root twice ITSELF (never executing a capability —
+# executing would commit to the vault) and compares each rostered capability's statically
+# read posture against those counts. GATED on a resolvable probe root; DETERMINISTIC on a
+# non-symlinked adopter vault, where the two counts are equal and no drift is expressible.
+WALK_REACH_ROOT="${WALK_REACH_ROOT_OVERRIDE:-${VAULT_ROOT:-}}"
+if [[ -n "$WALK_REACH_ROOT" && -d "$WALK_REACH_ROOT" ]]; then
+  # (1) reference measurement — the same walk, twice, differing ONLY in followlinks. Both
+  #     sides prune the five external symlink surfaces at the top level so the
+  #     comparison isolates "does this descend the vault view" from "does this walk foreign
+  #     trees". Standard realpath cycle-guard on the following side. argv-Python (R-24).
+  WR_COUNTS=$(python3 - "$WALK_REACH_ROOT" <<'PY'
+import os, sys
+root = sys.argv[1]
+EXTERNAL = ("Plans", "Projects", "Wiki", "Work", "Skills")
+
+def count_md(follow):
+    n = 0
+    visited = set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow):
+        if follow:
+            rp = os.path.realpath(dirpath)
+            if rp in visited:
+                dirnames[:] = []
+                continue
+            visited.add(rp)
+            dirnames[:] = [d for d in dirnames
+                           if os.path.realpath(os.path.join(dirpath, d)) not in visited]
+        if os.path.relpath(dirpath, root) == ".":
+            dirnames[:] = [d for d in dirnames if d not in EXTERNAL]
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        n += sum(1 for fn in filenames if fn.endswith(".md"))
+    return n
+
+print("%d %d" % (count_md(False), count_md(True)))
+PY
+)
+  WR_INERT="${WR_COUNTS%% *}"
+  WR_REACH="${WR_COUNTS##* }"
+  [[ "$WR_INERT" =~ ^[0-9]+$ ]] || WR_INERT=""
+  [[ "$WR_REACH" =~ ^[0-9]+$ ]] || WR_REACH=""
+fi
+
+if [[ -n "${WR_INERT:-}" && -n "${WR_REACH:-}" ]]; then
+  # (2) roster + posture — STATIC read of the comment-stripped bodies. The roster is derived
+  #     at RUNTIME (a body that walks and whose scope names $VAULT_ROOT), never a hardcoded
+  #     list, so a newly added vault-walking capability is covered the moment it lands.
+  #     Comment-stripping matters: two non-walking capabilities mention VAULT_ROOT only in
+  #     prose, and every walker carries followlinks=False in a comment describing the defect.
+  WALK_REACH_FILE=$(mktemp -t walk-reach-XXXXXX)
+  python3 - "$REGISTRY" "$LIBRARIAN_ROOT" "$WR_INERT" "$WR_REACH" "$(basename "$0")" > "$WALK_REACH_FILE" <<'PY'
+import json, os, re, sys
+registry, root, inert_s, reach_s, self_script = sys.argv[1:6]
+inert, reach = int(inert_s), int(reach_s)
+EXTERNAL = ("Plans", "Projects", "Wiki", "Work", "Skills")
+try:
+    with open(registry, encoding="utf-8") as fh:
+        reg = json.load(fh)
+except Exception:
+    sys.exit(0)
+
+for name, v in sorted((reg.get("capabilities") or {}).items()):
+    if not isinstance(v, dict) or v.get("implementation_status") == "spec-only":
+        continue
+    script = v.get("script") or ""
+    # The auditor's OWN probe walk is instrumentation, not a governed audit walk — exclude
+    # the running body rather than the name, so the exclusion cannot rot on a rename.
+    if os.path.basename(script) == self_script:
+        continue
+    try:
+        with open(root + "/" + script, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        continue  # missing body already reported by class (b)
+    src = "\n".join(re.sub(r"#.*$", "", ln) for ln in text.splitlines())
+    # ROSTER: it walks, and its scan scope derives from the vault root.
+    if "os.walk(" not in src or "VAULT_ROOT" not in src:
+        continue
+    # POSTURE: every reach MECHANISM present, not just the first — a body can carry the
+    # shared walker on one lane and a followlinks gate on another (that is exactly the
+    # shape of the whole-vault capability), and a report that names only one hides the
+    # lane the other covers.
+    mechanisms = []
+    lanes = "-"
+    follow_vals = set(re.findall(r"followlinks\s*=\s*([A-Za-z_][A-Za-z0-9_]*)", src))
+    gated = sorted(v2 for v2 in follow_vals if v2 not in ("True", "False"))
+    if "vault_view_walk" in src:
+        mechanisms.append("shared-walker")
+    if "True" in follow_vals:
+        mechanisms.append("followlinks-true")
+    if gated:
+        mechanisms.append("followlinks-gated")
+        # The lane set the gate ADMITS, read off the gating variable's own assignment —
+        # this is what makes "does lane X reach behind symlinks" a checkable fact.
+        am = re.search(r"^[ \t]*%s[ \t]*=[ \t]*([^=].*)$" % re.escape(gated[0]), src, re.M)
+        if am:
+            toks = re.findall(r"""["']([a-z][a-z0-9_-]*)["']""", am.group(1))
+            if toks:
+                lanes = ",".join(sorted(set(toks)))
+    posture = "+".join(mechanisms) if mechanisms else "symlink-inert"
+    # The documented escape hatch: an intentional prune naming the external surfaces.
+    declares_prune = all(('"%s"' % s) in src or ("'%s'" % s) in src for s in EXTERNAL)
+    reached = inert if posture == "symlink-inert" else reach
+    verdict = "drift" if (reached < reach and not declares_prune) else "ok"
+    print("%s\t%s\t%s\t%s\t%d\t%d" % (verdict, name, posture, lanes, reached, reach))
+PY
+  while IFS=$'\t' read -r verdict name posture lanes reached expected; do
+    [[ -z "$name" ]] && continue
+    WALK_REACH_REPORT="${WALK_REACH_REPORT}- walk-reach: $name posture=$posture lanes=$lanes reached=$reached expected=$expected verdict=$verdict"$'\n'
+    [[ "$verdict" == "drift" ]] || continue
+    DRIFT_WALK_REACH=$((DRIFT_WALK_REACH + 1))
+    if [[ "$MODE" != "dry-run" ]]; then
+      emit_finding "registry-parity-walk-reach-drift" "$name" \
+        "level" "error" "posture" "$posture" "reached" "$reached" "expected" "$expected" \
+        "detail" "VAULT_ROOT-walking capability is silently symlink-inert: it reaches $reached .md against the followlinks reach of $expected and declares no intentional external-surface prune"
+    fi
+    REPORT_LINES="${REPORT_LINES}- registry-parity-walk-reach-drift: $name ($posture: reached=$reached, followlinks reach=$expected)"$'\n'
+  done < "$WALK_REACH_FILE"
+  rm -f "$WALK_REACH_FILE"
+fi
+
+# Class (n): generator-emitted tag prefix <-> registered taxonomy. A generator that mints
+# `#<prefix>/<x>` into a governed file's frontmatter writes a vocabulary its sibling readers
+# reject — tag-coverage-audit's allowlist and the write-time R-32/R-47 tag enforcement both
+# derive their accepted set from tagging.taxonomy.dimension_prefixes — so the system ends up
+# flagging files it wrote itself. The producer roster is swept at RUNTIME out of the shipped
+# file set, never hardcoded: a hand-maintained producer list is what let this drift.
+# ROOT RESOLUTION IS ANCHORED ON THE LIBRARIAN ROOT'S OWN TREE, never on the ambient
+# $CLAUDE_HOME. In a real install the two are the SAME path (skills/librarian lives under
+# $CLAUDE_HOME), so production behaviour is identical either way — but they diverge for a
+# caller running this body against a RELOCATED librarian root, and an ambient-$CLAUDE_HOME
+# fallback made such a run sweep the operator's LIVE INSTALL instead of the tree under test.
+# Anchoring on the tree the capability is part of is both the hermetic choice and the
+# semantically correct one: this class audits its own shipped tree. A partial tree with no
+# governance/ resolves to nothing and the class SKIPS, which is right — there is no shipped
+# roster there to sweep.
+TAG_PARITY_ROOT=""
+if [[ -n "${TAG_PARITY_ROOT_OVERRIDE:-}" && -f "${TAG_PARITY_ROOT_OVERRIDE}/governance/foundation-master.json" ]]; then
+  TAG_PARITY_ROOT="$TAG_PARITY_ROOT_OVERRIDE"
+else
+  _tp_cand="$(cd "$LIBRARIAN_ROOT/../.." 2>/dev/null && pwd)"
+  [[ -n "$_tp_cand" && -f "$_tp_cand/governance/foundation-master.json" ]] && TAG_PARITY_ROOT="$_tp_cand"
+  unset _tp_cand
+fi
+if [[ -n "$TAG_PARITY_ROOT" ]]; then
+  TAG_PREFIX_ALLOWLIST_FILE=$(mktemp -t tag-prefix-allowlist-XXXXXX)
+  jq -r '._parity_pending_tag_prefixes // [] | .[]' "$REGISTRY" 2>/dev/null | sort -u > "$TAG_PREFIX_ALLOWLIST_FILE"
+  TAG_PREFIX_FILE=$(mktemp -t tag-prefix-XXXXXX)
+  # R-52 READ path: config-consumption routes through the merger
+  # (hooks/lib/foundation-overlay-load.sh), never a raw foundation-master read. This is not
+  # gate bookkeeping — it is what makes the class CORRECT for adopters. An adopter registers a
+  # new tag prefix through skills/govern/modes/tag-extension.sh, which proposes exactly this
+  # leaf (tagging.taxonomy.dimension_prefixes) into their OVERLAY, and
+  # hooks/lib/merge-strategy-registry.json declares that leaf a UNION leaf. Reading foundation
+  # raw would see only the foundation's own prefixes and report a legitimately-registered
+  # adopter prefix as drift — a false positive on precisely the extension path the ecosystem
+  # ships. Resolved from TAG_PARITY_ROOT's OWN tree, never the ambient $CLAUDE_HOME, per the
+  # same anchoring discipline as the root resolution above. Degrades loud-safe to the raw
+  # bundle when the merger is absent (a partial tree) — never broken.
+  TAG_PARITY_MASTER="$TAG_PARITY_ROOT/governance/foundation-master.json"
+  TAG_PARITY_UNION=""
+  _tp_ovl="$TAG_PARITY_ROOT/hooks/lib/foundation-overlay-load.sh"
+  if [[ -f "$_tp_ovl" ]]; then
+    TAG_PARITY_UNION=$(mktemp -t tag-prefix-union-XXXXXX)
+    if bash "$_tp_ovl" --foundation-path "$TAG_PARITY_MASTER" \
+         --overlay-path "$TAG_PARITY_ROOT/governance/overlay-master.json" --force-override \
+         > "$TAG_PARITY_UNION" 2>/dev/null && [[ -s "$TAG_PARITY_UNION" ]]; then
+      TAG_PARITY_MASTER="$TAG_PARITY_UNION"
+    else
+      rm -f "$TAG_PARITY_UNION"; TAG_PARITY_UNION=""
+    fi
+  fi
+  unset _tp_ovl
+  python3 - "$TAG_PARITY_ROOT" "$TAG_PARITY_MASTER" > "$TAG_PREFIX_FILE" <<'PY'
+import json, os, re, sys
+root = sys.argv[1]
+# argv[2] is the MERGED (foundation U overlay) view when the merger resolved; the raw
+# foundation bundle only as the loud-safe degradation.
+master = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else os.path.join(root, "governance", "foundation-master.json")
+try:
+    with open(master, encoding="utf-8") as fh:
+        registered = ((json.load(fh).get("tagging") or {}).get("taxonomy") or {}).get("dimension_prefixes")
+except Exception:
+    sys.exit(0)
+if not isinstance(registered, list):
+    # A wrong-shape leaf degrades to "no opinion" rather than flagging every producer —
+    # the mis-shape itself is frontmatter-enforce's fail-loud surface, not this one's.
+    sys.exit(0)
+registered = set(p for p in registered if isinstance(p, str))
+
+# THE SHIPPED ROSTER IS THE MANIFEST. Fall back to the emitting source dirs only when no
+# manifest is present (a partial tree), so the sweep is never a hand-kept path list.
+members = []
+manifest = os.path.join(root, "governance", "foundation-manifest.json")
+try:
+    with open(manifest, encoding="utf-8") as fh:
+        members = [f.get("path", "") for f in (json.load(fh).get("files") or [])]
+except Exception:
+    members = []
+if not members:
+    for sub in ("skills", "hooks", "templates", "vault-init"):
+        base = os.path.join(root, sub)
+        for dp, dns, fns in os.walk(base):
+            dns[:] = [d for d in dns if not d.startswith(".")]
+            members.extend(os.path.relpath(os.path.join(dp, fn), root) for fn in fns)
+
+# The EMISSION shape: a frontmatter `tags:` array literal, and every `#<prefix>/` inside it.
+# Written so this auditor's own body is not a producer (the pattern text never spells a
+# literal emission), which keeps the sweep from finding itself.
+tags_re = re.compile(r"tags:\s*\[([^\]]*)\]")
+pref_re = re.compile(r"#([A-Za-z0-9][A-Za-z0-9_-]*)/")
+seen = set()
+for rel in sorted(set(m for m in members if m)):
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except Exception:
+        continue
+    for tm in tags_re.finditer(text):
+        for prefix in pref_re.findall(tm.group(1)):
+            if prefix in registered:
+                continue
+            key = (prefix, rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            print("%s\t%s" % (prefix, rel))
+PY
+  while IFS=$'\t' read -r prefix producer; do
+    [[ -z "$prefix" ]] && continue
+    if grep -qxF "$prefix" "$TAG_PREFIX_ALLOWLIST_FILE"; then
+      ADVISORY_TAG_PREFIX=$((ADVISORY_TAG_PREFIX + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-tag-prefix-unregistered" "$producer" \
+          "level" "warn" "advisory" "true" "prefix" "$prefix" \
+          "detail" "shipped generator emits the unregistered tag prefix '#$prefix/' (allowlisted pending — registering it is a governance-pillar edit this audit cannot make for itself; target state EMPTY)"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-tag-prefix-unregistered (ADVISORY, allowlisted): #$prefix/ ← $producer"$'\n'
+    else
+      DRIFT_TAG_PREFIX=$((DRIFT_TAG_PREFIX + 1))
+      if [[ "$MODE" != "dry-run" ]]; then
+        emit_finding "registry-parity-tag-prefix-unregistered" "$producer" \
+          "level" "error" "prefix" "$prefix" \
+          "detail" "shipped generator emits the tag prefix '#$prefix/', which is not in the composed foundation-master.json tagging.taxonomy.dimension_prefixes — the vocabulary its sibling readers (tag-coverage-audit, the write-time R-32/R-47 tag enforcement) reject"
+      fi
+      REPORT_LINES="${REPORT_LINES}- registry-parity-tag-prefix-unregistered: #$prefix/ ← $producer (emitted but not registered)"$'\n'
+    fi
+  done < "$TAG_PREFIX_FILE"
+  rm -f "$TAG_PREFIX_FILE" "$TAG_PREFIX_ALLOWLIST_FILE"
+  [[ -n "$TAG_PARITY_UNION" ]] && rm -f "$TAG_PARITY_UNION"
+fi
+
+TOTAL=$((DRIFT_BIJECTION + DRIFT_SCRIPT + DRIFT_SCHEMA_VERSION + DRIFT_SUBTREE_FIELD + DRIFT_DISK_ORPHAN + DRIFT_MANIFEST_FICTION + DRIFT_CAP_INDEX_MODE + DRIFT_FULL_ROSTER + DRIFT_GOVERN_MODES + DRIFT_FLAG_ACCEPT + DRIFT_MODES_CALLSITE + DRIFT_GIT_CONFIRM + DRIFT_WALK_REACH + DRIFT_TAG_PREFIX))
+printf "## Capability Registry Parity (%d drift: bijection=%d script=%d schema-version=%d subtree-field=%d disk-orphan=%d manifest-write-fiction=%d cap-index-mode=%d full-roster=%d govern-modes=%d flag-not-accepted=%d session-close-callsite=%d git-confirmation=%d walk-reach=%d tag-prefix-unregistered=%d; advisory manifest-write-fiction=%d session-close-callsite=%d tag-prefix-unregistered=%d)\n\n" \
+  "$TOTAL" "$DRIFT_BIJECTION" "$DRIFT_SCRIPT" "$DRIFT_SCHEMA_VERSION" "$DRIFT_SUBTREE_FIELD" "$DRIFT_DISK_ORPHAN" "$DRIFT_MANIFEST_FICTION" "$DRIFT_CAP_INDEX_MODE" "$DRIFT_FULL_ROSTER" "$DRIFT_GOVERN_MODES" "$DRIFT_FLAG_ACCEPT" "$DRIFT_MODES_CALLSITE" "$DRIFT_GIT_CONFIRM" "$DRIFT_WALK_REACH" "$DRIFT_TAG_PREFIX" "$ADVISORY_MANIFEST_FICTION" "$ADVISORY_MODES_CALLSITE" "$ADVISORY_TAG_PREFIX"
 if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else
   echo "- No drift detected."
+fi
+# Class (m) per-capability reach ledger. Printed whenever the class RAN (a probe root
+# resolved), drift or not, so the reach posture of every VAULT_ROOT-walking capability is
+# a readable fact rather than an inference from silence — this is the read-only surface a
+# coordinating verify-task asserts on (e.g. "does the --full lane reach behind symlinks").
+if [[ -n "$WALK_REACH_REPORT" ]]; then
+  printf '\n### Walk reach (probe root: %s)\n\n' "${WALK_REACH_ROOT:-<none>}"
+  printf '%s' "$WALK_REACH_REPORT"
 fi
 exit 0

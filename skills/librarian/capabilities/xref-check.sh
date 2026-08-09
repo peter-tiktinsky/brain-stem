@@ -1,25 +1,53 @@
 #!/bin/bash
 # xref-check — Scan for broken wikilinks, orphaned files, stale cross-references.
-# Landed: Sub-plan 02 T-3 (2026-04-21). Extracted from SKILL.md
+#
+# Extracted from the librarian SKILL.md pseudocode.
+#
 # Usage:
 #   xref-check.sh                        # --recent (last 7 days), default
 #   xref-check.sh --full                 # entire vault
 #   xref-check.sh --scope <path>         # single file or dir
 #   xref-check.sh --include-logs         # include Logs/ in orphan detection
+#
 # Wikilink regex: \[\[([^\]|]+)(\|[^\]]+)?\]\]
 # Resolves by searching for <target>.md anywhere in vault.
+#
 # Finding classes:
 #   xref-broken-link      — wikilink target not found (error)
 #   xref-people-one-way   — A→B in People/ without reciprocal B→A (warn)
 #   xref-orphan           — file has zero inbound links (info, excluded by default
 #                            for Logs/, Archive/, CLAUDE.md, _index.md, File-Index.md)
+#
 # Manifest: xref_graph section updated via manifest_set (entire subtree —
 # resolved-row drop-out pattern per T-2 precedent from).
+#
+# MEMORY-NAMESPACE RESOLUTION (resolution only, never emission). A wikilink whose
+# target lives in the memory corpus — feedback_*/reference_*/project_* under
+# $CLAUDE_HOME/rules, $CLAUDE_HOME/memory and $CLAUDE_HOME/projects/*/memory —
+# resolves for the reader but lives OUTSIDE the vault, so a vault-only walk reported
+# it broken. That was a standing ~13% noise floor on this capability's headline
+# finding class, and a noise floor is how a real break stops being read.
+#
+# The namespace is ENUMERATED FROM DISK AT SCAN TIME, never a static prefix list.
+# That is the load-bearing choice: a `feedback_`/`reference_`/`project_` allowlist
+# encodes ONE corpus's naming convention, would be wrong for an adopter who names
+# memories differently, and — worse — would suppress a genuinely DEAD memory ref by
+# prefix alone. Enumerating means a link resolves because the file is there, and a
+# link to a deleted memory is STILL reported broken.
+#
+# Resolution ONLY: memory files never enter the vault graph. They add no inbound
+# link counts, never become orphan-emission subjects, and never make a vault
+# basename look ambiguous. With no memory corpus present the set is empty and
+# behaviour is byte-identical to a vault-only scan.
+#
 # Env overrides:
 #   VAULT_ROOT_OVERRIDE  — override vault scan root
 #   XREF_SCOPE           — override scope (path) from env
+#   MEMORY_NS_ROOTS      — colon-separated memory-namespace roots (default: the three
+#                          $CLAUDE_HOME surfaces above). Empty string = disable.
 #   MANIFEST_PATH        — standard manifest.sh env
 #   FINDINGS_OUTPUT      — standard findings.sh env
+#
 # Bash 3.2 clean; heavy lifting in Python heredoc.
 
 set -u
@@ -82,6 +110,12 @@ if [ -r "$_VVW_LIB" ]; then
 fi
 export XREF_WALK_LIST
 
+# The resolved CLAUDE_HOME the memory-namespace enumeration keys off, exported so the
+# python block never has to re-derive it (an unset CLAUDE_HOME would silently make the
+# namespace empty and quietly restore the noise floor).
+MEMORY_NS_HOME="$CLAUDE_HOME_RES"
+export MEMORY_NS_HOME
+
 # Build graph + emit findings in one Python pass.
 RESULT=$(python3 - "$VAULT_SCAN_ROOT" "$MODE" "$SCOPE_PATH" "$INCLUDE_LOGS" <<'PY'
 import os, re, sys, json, time
@@ -126,6 +160,36 @@ SYMLINK_SURFACE_EXCLUDE = {"Plans", "Projects", "Skills", "Wiki", "Work"}
 
 def on_symlink_surface(rel_parts):
     return bool(rel_parts) and rel_parts[0] in SYMLINK_SURFACE_EXCLUDE
+
+# --- memory namespace: RESOLUTION ONLY, enumerated from disk at scan time ----------
+# Returns the lowercased stems of every .md in the memory corpus. Used ONLY as a
+# last-chance resolver for a target with ZERO vault candidates, so it can turn a
+# false break into a resolution but can never mask a real one: a ref to a deleted
+# memory finds no file, so it stays broken. Nothing here joins the vault graph.
+def memory_namespace_stems():
+    raw = os.environ.get("MEMORY_NS_ROOTS")
+    if raw is not None:
+        roots = [r for r in raw.split(os.pathsep) if r]
+    else:
+        home = os.environ.get("MEMORY_NS_HOME") or os.path.join(os.path.expanduser("~"), ".claude")
+        roots = [os.path.join(home, "rules"), os.path.join(home, "memory")]
+        try:
+            projects = os.path.join(home, "projects")
+            roots += [os.path.join(projects, d, "memory") for d in os.listdir(projects)]
+        except OSError:
+            pass
+    stems = set()
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [d for d in dns if not d.startswith(".")]
+            for fn in fns:
+                if fn.endswith(".md"):
+                    stems.add(fn[:-3].lower())
+    return stems
+
+MEMORY_NS = memory_namespace_stems()
 
 # Collect all .md files + filename -> full-path map (first wins).
 target_map = {}  # basename_no_ext -> [paths]
@@ -233,6 +297,11 @@ for src in scoped_files:
         if hits:
             for h in hits:
                 inbound[h] = inbound.get(h, 0) + 1
+        elif key in MEMORY_NS:
+            # Resolves in the memory corpus (outside the vault). Not broken, and NOT
+            # graphed: it contributes no inbound count and never becomes an orphan
+            # subject, so teaching the resolver cannot shift any other verdict.
+            continue
         else:
             if exempt_src:
                 continue

@@ -1969,15 +1969,37 @@ print(content, end='')
         # from the already-loaded $UNION_JSON. Fall-back to foundation-only
         # allowlist if UNION_JSON degenerated to BUNDLE_JSON (helper missing).
         R32_UNION_ACCEPTED_TYPES=""
+        R32_NULL_CONTRACT_TYPES=""
         if [[ -n "$UNION_JSON" ]]; then
           # T-6 part-2: alias keys now read from pillar-nested
           # `.frontmatter.r32_type_aliases` (was top-level `.r32_type_aliases`).
+          #
+          # NULL-CONTRACT REJECTION (defense-in-depth behind the union-block
+          # rejection in hooks/lib/foundation-overlay-load.sh). A
+          # `frontmatter.types.<t>: null` overlay entry is a key whose contract
+          # is ABSENT: `keys[]` still yields it, so the bare key-derivation
+          # below accepted it as a LEGAL type while every required[]/tier read
+          # under it silently yielded nothing — accepted-with-no-contract,
+          # strictly worse than the un-attempted override. The overlay
+          # operation set is ADD + SUPERSEDE only (a null value cannot NULLIFY
+          # a foundation entry: object-merge cannot delete a key), so
+          # `to_entries | select(.value != null)` keeps such an entry OUT of
+          # the accepted set and the loud finding below names it. The loader
+          # normally strips it before the union is built; this arm is what
+          # makes the corrupt-accepted state impossible even when the union
+          # arrives from a helper that did not.
           # errexit-crash-guard-ok: FP zero-match unreachable: the foundation bundle always ships >=1 non-_description frontmatter.type key; empty falls through to the [[ -z ]] fallback at :2037
           R32_UNION_ACCEPTED_TYPES=$(jq -r \
-            '(.frontmatter.types // {} | keys[]?), (.frontmatter.r32_type_aliases // {} | keys[]?)' \
+            '((.frontmatter.types // {}) | to_entries[]? | select(.value != null) | .key), ((.frontmatter.r32_type_aliases // {}) | to_entries[]? | select(.value != null) | .key)' \
             <<<"$UNION_JSON" 2>/dev/null \
             | grep -v '^_description$' \
             | LC_ALL=C sort -u)
+          R32_NULL_CONTRACT_TYPES=$(jq -r \
+            '(.frontmatter.types // {}) | to_entries[]? | select(.value == null) | .key' \
+            <<<"$UNION_JSON" 2>/dev/null || true)
+        fi
+        if [[ -n "$R32_NULL_CONTRACT_TYPES" ]]; then
+          printf 'pre-write-guard.sh: R-32 null-contract type entr(ies) REJECTED from the accepted-type set: %s. The governance overlay operation set is ADD + SUPERSEDE only — `frontmatter.types.<t>: null` cannot NULLIFY a foundation type (object-merge keeps the key and drops its contract) and would otherwise be ACCEPTED with no required[]/tier contract. Remove the null entry from the adopter overlay (governance/overlay-master.json); to change a foundation type, SUPERSEDE it with a full replacement entry carrying _override_reason (R-52).\n' "$(echo "$R32_NULL_CONTRACT_TYPES" | tr '\n' ' ')" >&2
         fi
         # Fall-back: union derivation empty → foundation-only allowlist
         # (bug stays present; matches pre-behavior).

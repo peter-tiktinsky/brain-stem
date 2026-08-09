@@ -633,7 +633,7 @@ under each work spoke. This is the universal-foundation counterpart to
 never reaches it. This pass targets `$WORK_HOME` DIRECTLY — it does NOT modify
 `index-maintain`'s VAULT_ROOT scoping, and it is NOT a per-spoke overlay-glob
 registration. The `_index.md` it mints conforms to the SAME C-IDX contract: frontmatter
-`type: index` + `tags` (`#projects/<spoke>`) + `updated` + `parent_folder` (depth≥2) and
+`type: index` + `tags` (`#project/<spoke>`) + `updated` + `parent_folder` (depth≥2) and
 a `<!-- contents-enum:start -->` … `<!-- contents-enum:end -->` block enumerating the
 directory's `.md` files in the `| Name | Lines | Type | Description |` row shape — so a
 file minted here passes `index-maintain`'s index contract + `frontmatter-enforce`'s index

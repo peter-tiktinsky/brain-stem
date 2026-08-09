@@ -33,6 +33,8 @@
 # Env:
 #   RENAME_CASCADE_SCOPES  colon-separated scan roots (default: VAULT+PLANS)
 #   FINDINGS_OUTPUT        redirect finding emission
+#   LIBRARIAN_STDIN_WAIT   whole seconds to wait for the FIRST stdin byte before
+#                          treating the (unconditional) capture as empty
 #
 # Bash 3.2 clean per R-23.
 
@@ -75,9 +77,32 @@ fi
 # Capture stdin to a tmp file so the python heredoc doesn't cannibalize
 # the pipe (see memory: feedback_python_heredoc_argv.md). Empty stdin is
 # a valid no-op.
+#
+# THE CAPTURE IS BOUNDED ON THE FIRST BYTE. This drain is UNCONDITIONAL — every
+# invocation reads fd 0, including a bare run nobody piped anything to — and fd 0
+# is inherited. Under a detached / backgrounded parent it can be a live unix socket
+# (or a fifo whose writer stays open) that never delivers EOF, and a bare `cat`
+# there sleeps forever; the sibling handoff-disposition-check leaf hung a close-out
+# gate for 12h18m on exactly that descriptor. Only the wait for the FIRST byte is
+# bounded: once one byte proves the stream live the drain runs unbounded, so a slow
+# upstream producer (rename-detect walking two repos before it prints) can never be
+# truncated. The observed pathology delivers ZERO bytes, which is precisely what a
+# first-byte bound catches. LIBRARIAN_STDIN_WAIT overrides it (whole seconds); a
+# non-numeric or zero value falls back to the default rather than reaching
+# `read -t 0`, which on bash 3.2 arms no timer and blocks forever.
 STDIN_CAPTURE=$(mktemp -t rename-cascade-stdin.XXXXXX)
 trap 'rm -f "$STDIN_CAPTURE"' EXIT
-cat > "$STDIN_CAPTURE"
+STDIN_WAIT="${LIBRARIAN_STDIN_WAIT:-10}"
+case "$STDIN_WAIT" in ''|0|*[!0-9]*) STDIN_WAIT=10 ;; esac
+: > "$STDIN_CAPTURE"
+RC_STDIN_FIRST=""
+if IFS= read -r -t "$STDIN_WAIT" RC_STDIN_FIRST; then
+  printf '%s\n' "$RC_STDIN_FIRST" > "$STDIN_CAPTURE"
+  cat >> "$STDIN_CAPTURE"
+elif [[ -n "$RC_STDIN_FIRST" ]]; then
+  # EOF reached on an unterminated final line — keep what actually arrived.
+  printf '%s' "$RC_STDIN_FIRST" > "$STDIN_CAPTURE"
+fi
 
 # Source the shared vault-view walker + materialize the
 # combined per-scope file list so the scan DESCENDS the vault Skills/ symlink

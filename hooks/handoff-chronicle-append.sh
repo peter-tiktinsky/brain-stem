@@ -325,7 +325,7 @@ def bootstrap_file():
     return "\n".join([
         "---",
         "type: index",
-        'tags: ["#projects/%s"]' % tag_spoke,
+        'tags: ["#project/%s"]' % tag_spoke,
         "updated: %s" % today,
         "parent_folder: _projects",
         "---",

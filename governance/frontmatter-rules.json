@@ -261,8 +261,71 @@
     },
     "_adopter_extension_path": "overlay-master.frontmatter.path_routing.rules[]"
   },
+  "file_type_contract_dispositions": {
+    "_description": "Closed-world reconciliation between governance/file-type-contracts/<key>.md.json and this pillar's `types` registry. `types` is keyed by the `type:` FRONTMATTER VALUE and drives the R-32 vault-write allowlist + per-type required-field DENY, whose scope is vault-resident markdown. A file-type CONTRACT is keyed by FILE SHAPE and matched by PATH (`applies_to.path_glob`). The two key spaces are not the same set, so a contract key absent from `types` is not automatically a gap — but it must not be SILENTLY absent either. Every contract key that is not a `types` entry carries an explicit disposition here, so the reconciliation is closed-world and machine-checkable: `path-governed` (the governed file is not a vault-resident `type:`-declaring note, so a `types` entry would be inert for the real file AND would newly gate unrelated vault files declaring that value; its `governed_by` names the surface that ACTUALLY handles the file — a pillar/schema that matches it by path, or, where no pillar/schema matcher exists at all, the runtime consumer that reads the contract) or `registered-alias` (the contract governs a type that IS registered in `types` under a different key). `governed_by` must RESOLVE: the named file must ship in the foundation, and when it names a `governance/` or `schemas/` JSON it must carry a `#<dot.path>` anchor that resolves to a real entry in that file — a bare pillar name asserts governance no reader can check, which is how a row can claim a matcher that does not exist. Parity is asserted by internal/tests/ac-191-governance-matrix-parity.sh: a contract key that is neither a `types` entry nor dispositioned here FAILS, and so does a disposition row whose `governed_by` or `registered_type` does not resolve. Adding a contract file requires adding its `types` entry OR its disposition row in the same change.",
+    "_index": {
+      "disposition": "registered-alias",
+      "registered_type": "index",
+      "path_glob": "**/_index.md",
+      "rationale": "Not unregistered — the contract file is named for the FILE (`_index.md`) while the type it governs is `index`, which IS a `types` entry with a required-field set. The contract self-declares the mapping in its own `frontmatter_contract_source`, and governance/mandatory-files-rules.json#mandates._index_md binds the same pair."
+    },
+    "adr": {
+      "disposition": "path-governed",
+      "governed_by": "governance/plans-rules.json#decision_records",
+      "path_glob": "~/.claude-plans/**/decisions/ADR-*.md",
+      "rationale": "Plan-tree decision records live outside the vault-resident note surface and are governed by the plans pillar (filename_pattern + status_enum + required_sections) plus the manifest pointer array in schemas/plan-manifest-schema.json#decision_records[]. The real renderer is skills/librarian/capabilities/plan-decision-log.sh; the contract's own `_design_notes` naming plan-index is a misnomer (plan-index carries no ADR handling)."
+    },
+    "CLAUDE": {
+      "disposition": "path-governed",
+      "governed_by": "hooks/pre-write-guard.sh",
+      "path_glob": "$VAULT_ROOT/CLAUDE.md",
+      "rationale": "The vault-root instruction file is matched by exact path and carries no `type:` frontmatter for a `types` entry to key on. NO pillar or schema matcher governs it: the only runtime handling is the vault-root write class in hooks/pre-write-guard.sh, which knows CLAUDE.md as the sole mandatory vault-root file and exempts it from the propose-and-validate prompt every OTHER new vault-root file gets. Its contract's required_sections + size_limits + prohibited_sections are documentary — none is a frontmatter required-field matter, no write-time guard consumes them, and post-write-verify.sh skips the file; the shape is carried by templates/vault-claude-md-template.md and rendered at onboard time by skills/onboarder."
+    },
+    "doc-amender-prompt": {
+      "disposition": "path-governed",
+      "governed_by": "skills/doc-amender/process.sh",
+      "path_glob": "$VAULT_WRITER_STATE_ROOT/prompts/*.md",
+      "rationale": "Operator-authored prompt assets live OUTSIDE the vault in the writer state root, so the vault-scoped R-32 required-field DENY cannot reach them by construction. NO pillar or schema matcher governs them: the contract is SELF-declaring — it carries its own frontmatter_required/frontmatter_optional/frontmatter_enums — and is read directly by its runtime consumers, skills/doc-amender/process.sh and skills/govern/modes/doc-amender-prompt.sh."
+    },
+    "episodic-chronicle": {
+      "disposition": "path-governed",
+      "governed_by": "schemas/memory-schema.json#_design_notes.body_conventions.episodic_chronicle_row",
+      "path_glob": "**/.claude/projects/*/memory/episodic-chronicle.md",
+      "rationale": "The curated episodic tier lives in the per-project memory directory, outside the vault, and its row shape is declared by the memory schema. The contract's append-only/newest-first fields are convention prose naming no write-time enforcer; its consumers are skills/librarian/capabilities/chronicle-index.sh and the session episode writer."
+    },
+    "handoff": {
+      "disposition": "path-governed",
+      "governed_by": "governance/plans-rules.json#plan_folder_quartet",
+      "path_glob": "~/.claude-plans/**/handoff.md",
+      "rationale": "A plan-tree quartet member governed by the plans pillar. Its BODY shape is the enforced surface — hooks/pre-write-guard.sh reads this contract's section_schema for a write-time DENY on a malformed session heading — not a frontmatter required-field set. The renderer is skills/librarian/capabilities/plan-handoff-index.sh; the contract's own `_design_notes` naming plan-index is a misnomer (plan-index carries no handoff handling). The append-only claim in the same contract names no enforcer."
+    },
+    "library-article": {
+      "disposition": "registered-alias",
+      "registered_type": "reference",
+      "path_glob": "~/.claude-plans/_library/**/*.md",
+      "rationale": "Not unregistered — the contract file is named for the ARTIFACT (a library article) while the type it governs is `reference`, which IS a `types` entry with a required-field set. The contract itself declares `type: reference`. Its size_limits are enforced audit-time by skills/librarian/capabilities/library-index.sh, which the contract states honestly."
+    },
+    "manifest": {
+      "disposition": "path-governed",
+      "governed_by": "governance/plans-rules.json#plan_folder_quartet",
+      "path_glob": "~/.claude-plans/**/manifest.json",
+      "rationale": "The governed file is JSON and carries no YAML frontmatter at all, so a frontmatter `types` entry has nothing to key on. Full validation delegates to schemas/plan-manifest-schema.json (conditional-on-status). The contract's prose_prohibited rule names no enforcer in the runtime."
+    },
+    "spec": {
+      "disposition": "path-governed",
+      "governed_by": "governance/plans-rules.json#plan_folder_quartet",
+      "path_glob": "~/.claude-plans/**/spec.md",
+      "rationale": "A plan-tree quartet member governed by the plans pillar. Its contract's frontmatter_required_hints are prose-annotated HINTS (e.g. `parent_plan (depth >= 3)`), not machine-consumable field tokens, and its head_immutable_sections claim names no enforcer in the runtime. Registering the type here would retro-fire a required-field DENY across an existing plan corpus authored before any such contract."
+    },
+    "tasks": {
+      "disposition": "path-governed",
+      "governed_by": "governance/plans-rules.json#plan_folder_quartet",
+      "path_glob": "~/.claude-plans/**/tasks.md",
+      "rationale": "A plan-tree quartet member governed by the plans pillar. The enforced surface is the ledger-plus-per-task BODY shape rendered by skills/librarian/capabilities/tasks-render.sh in lockstep with manifest.tasks[], not a frontmatter required-field set; the contract's own `_design_notes` naming plan-index is a misnomer (plan-index carries no tasks handling)."
+    }
+  },
   "types": {
-    "_description": "Canonical type registry — the foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`). Plan-tree types (spec, tasks, handoff, ideation-brief) are governed by the plans pillar.",
+    "_description": "Canonical type registry — the foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`) — ADD a new type, or SUPERSEDE a shipped one with a FULL replacement entry carrying `_override_reason` (R-52). A `null` overlay entry is NOT a delete and is rejected at load; there is no adopter-facing NULLIFY. Plan-tree types (spec, tasks, handoff) are governed by the plans pillar, not registered here; every file-type contract whose key is not an entry in this registry carries an explicit disposition in `file_type_contract_dispositions`.",
     "index": {
       "tier": "strict",
       "required": [

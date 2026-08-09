@@ -70,6 +70,12 @@ PY
     ;;
   append)
     shift
+    # Swept for the inherited-never-EOF-fd-0 class and adjudicated NOT-APPLICABLE:
+    # this `cat` drain is unreachable without the `append` sub-command, whose whole
+    # documented contract IS "read rename-detect NDJSON from stdin". There is no
+    # fall-through — a bare run, `migrate`, or `--help` never touches fd 0 — so the
+    # caller that reaches here has contracted to deliver a payload and close it.
+    # Bounding it would trade a hang for a silently-empty append, which is worse.
     STDIN_CAPTURE=$(mktemp -t rhs-stdin.XXXXXX)
     trap 'rm -f "$STDIN_CAPTURE"' EXIT
     cat > "$STDIN_CAPTURE"

@@ -19,6 +19,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/lockf.sh"
 MEMORY_DIR="$(resolve_memory_dir)"
+
+# --- Detached-spawn env pin (T-3) -----------------------------------
+# Sanctioned call-site block, verbatim from hooks/lib/detached-spawn-env.sh's header.
+# Re-pins CLAUDE_HOME (the measured escape vector) + MEMORY_DIR to the tree THIS hook was
+# loaded from, so the nohup'd runner below never re-resolves them itself
+# (memory-consolidation-run.sh:26 calls resolve_memory_dir() independently and :37
+# `mkdir -p`s the result — a WRITE this parent's resolution never reached).
+# WHY HERE and not at the top of the file — two reasons, both load-bearing:
+#   1. BUDGET (<100ms, stated above). MEMORY_DIR is already resolved on the line above,
+#      so the helper REBASES it as pure string work. Pinning before :24 would leave
+#      MEMORY_DIR empty at pin time and cost a SECOND resolve_memory_dir (git rev-parse
+#      + sed + jq subprocesses). The scrub is env assignment, not work.
+#   2. STATE_FILE/LOG_FILE/LOCK_FILE derive from MEMORY_DIR, so the pin must precede
+#      them or the hook's own state paths would disagree with the runner's.
+# ADDITIVE: the decay-contract exports at the spawn (134) are untouched.
+# PLACEMENT: the block resolves $SCRIPT_DIR, so it MUST stay BELOW the SCRIPT_DIR
+# assignment. Above it every clause degrades politely and the scrub is INERT while
+# grepping identically to a working one (asserted by the T-2/T-3 line-order guards).
+_DSE="$SCRIPT_DIR/lib/detached-spawn-env.sh"
+# shellcheck source=/dev/null
+if "${BASH:-bash}" -n "$_DSE" 2>/dev/null; then . "$_DSE" 2>/dev/null || true; fi
+if ! command -v pin_detached_spawn_env >/dev/null 2>&1; then pin_detached_spawn_env() { :; }; fi
+pin_detached_spawn_env || true
+
 STATE_FILE="$MEMORY_DIR/.consolidation-state.json"
 LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state STAYS in MEMORY_DIR
 RUNNER="$(cd "$(dirname "$0")" && pwd)/memory-consolidation-run.sh"

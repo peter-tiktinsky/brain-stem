@@ -1,6 +1,6 @@
 ---
 type: index
-tags: ["#projects/<spoke>"]
+tags: ["#project/<spoke>"]
 updated: <YYYY-MM-DD>
 parent_folder: _projects
 ---
