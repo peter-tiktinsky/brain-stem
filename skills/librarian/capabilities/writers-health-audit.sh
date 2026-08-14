@@ -75,17 +75,20 @@ fi
 
 SKILLS_DIR_RES="${SKILLS_DIR:-$CLAUDE_HOME_RES/skills}"
 
-# Resolve the anchored-spoke registry for the project-association checks. Test
-# override -> shipped bundle dir -> governance dir. A missing/unreadable registry
-# is a GRACEFUL SKIP of the two project checks (NOT an abort) — only a malformed
-# master/contract trips the block-and-log gate above.
-SPOKE_REG="${SPOKE_REGISTRY_PATH:-}"
-if [ -z "$SPOKE_REG" ]; then
-  for cand in \
-    "$CLAUDE_HOME_RES/governance/anchored-spoke-registry.json" \
-    "$GOV_DIR/anchored-spoke-registry.json"; do
-    [ -f "$cand" ] && { SPOKE_REG="$cand"; break; }
-  done
+# Resolve the anchored-spoke registry for the project-association checks through
+# the ONE shared resolver (hooks/lib/anchored-spoke-registry.sh): test override ->
+# the $CLAUDE_HOME install -> this run's governance dir as a fallback. A
+# missing/unreadable registry — including an absent resolver lib — is a GRACEFUL
+# SKIP of the two project checks (NOT an abort); only a malformed master/contract
+# trips the block-and-log gate above. This audit is read-only and writes no plan
+# corpus, so it has no write target for the coherence guard to judge.
+SPOKE_REG=""
+# shellcheck source=/dev/null
+source "$CLAUDE_HOME_RES/hooks/lib/anchored-spoke-registry.sh" 2>/dev/null \
+  || source "$(cd "$(dirname "$0")/../../.." && pwd)/hooks/lib/anchored-spoke-registry.sh" 2>/dev/null \
+  || true
+if command -v spoke_registry_resolve >/dev/null 2>&1; then
+  SPOKE_REG="$(spoke_registry_resolve "$GOV_DIR")"
 fi
 
 python3 - "$VROOT/Vault Writers" "${GOV_DIR:-}" "$SKILLS_DIR_RES" "${WRITER_MANIFEST_PATH:-}" "$MODE" "$BUNDLE" "${SPOKE_REG:-}" <<'PY'

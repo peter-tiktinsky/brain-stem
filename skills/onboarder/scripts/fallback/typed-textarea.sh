@@ -8,7 +8,7 @@
 # Renders the prompt card to STDERR (the caller redirects this script's stdout
 # to /dev/null and reads the transcript file), then captures a free-form answer
 # and writes it to $TRANSCRIPT_DIR/section-b.txt — exactly the path
-# _relocate_transcript reads at section-b-slim.sh:128 (it mv's that file to
+# _relocate_transcript in section-b-slim.sh reads (it mv's that file to
 # $TRANSCRIPT_PATH).
 #
 # Input behavior (honors `[ -t 0 ]`):
@@ -82,7 +82,7 @@ if [ ! -r "$PROMPT_CARD_PATH" ]; then
   exit 2
 fi
 
-# --- output path: the exact src _relocate_transcript reads (section-b-slim.sh:128) ---
+# --- output path: the exact src section-b-slim's _relocate_transcript reads ---
 TRANSCRIPT_PATH="$TRANSCRIPT_DIR/section-${SECTION_ID}.txt"
 mkdir -p "$TRANSCRIPT_DIR" 2>/dev/null || { diag "cannot create $TRANSCRIPT_DIR"; exit 3; }
 

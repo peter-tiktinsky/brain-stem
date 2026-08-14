@@ -359,7 +359,7 @@ PLIST
 # verifier's silent-failure verdict; T-12). Skipped for non-dispatch
 # modes (status / list / hold / unhold / cancel / clear-circuit-breaker —
 # they don't initiate new work). Reads ONLY the sentinel file — no DEFER
-# governance.sh / retry-dispatch.sh linkage (fork-1). The F0
+# governance.sh / retry-dispatch.sh linkage. The F0
 # pre-flight gates plan|job|cron|batch INCLUDING --plan, so the
 # plan-runner dispatch path is governed end-to-end (T-06).
 F0_STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime}"
@@ -386,7 +386,7 @@ esac
 # manifests, --cron uses wrappers, --batch recurses through dispatch.sh —
 # per-job enforcement happens at recursion). Legacy briefs (no T-2
 # fields) skip entirely inside the module (backwards-compatible). The 6-filter
-# scoping SHAPE lives in lib/brief-meta.py (fork-2).
+# scoping SHAPE lives in lib/brief-meta.py.
 SCOPING="$SCRIPT_DIR/lib/pre-dispatch-scoping.sh"
 case "$MODE" in
   job)

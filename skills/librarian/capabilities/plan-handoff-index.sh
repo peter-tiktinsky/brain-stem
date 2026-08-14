@@ -1,11 +1,12 @@
 #!/bin/bash
 # plan-handoff-index — generate the per-spoke binder handoff surface:
-# <plans-root>/_projects/<spoke>/handoff-chronicle.md (R-BIND-4 / R-BIND-7) — the
+# <plans-root>/_projects/<spoke>/handoff-chronicle.md — the
 # session-handoff reconciliation chronicle across every plan launched from the
-# spoke, re-derived from each plan's handoff.md on every run. Implements R-BIND-4.
+# spoke, re-derived from each plan's handoff.md on every run.
 # Distinct from the shipped handoff-disposition-check.sh (a close-out
 # missing-disposition checker, NOT a chronicle generator).
-# This is the PRIMARY (re-derive) half of the R-GOV-1a composite maintainer for
+#
+# This is the PRIMARY (re-derive) half of the composite maintainer for
 # handoff-chronicle.md:
 #   primary       = librarian (THIS — full re-derive from every handoff.md block)
 #   secondary-role = hook (hooks/handoff-chronicle-append.sh — incremental append)
@@ -15,16 +16,19 @@
 # hook appends ONLY inside the sentinel region. A re-derive rebuilds the region
 # from disk (so it absorbs whatever the hook appended since the last run), and an
 # append adds the newest block at the region head without touching the rest.
+#
 # The plans home resolves robustly the way sibling capabilities resolve it —
 # PLANS_ROOT/PLANS_DIR override, else paths.sh, never a hardcoded user-home
 # literal. The _projects/ scaffold proper is the install unit's scope; this
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
-# Grouping/scope (R-BIND-7): the chronicle is per-spoke — only plans whose
+#
+# Grouping/scope: the chronicle is per-spoke — only plans whose
 # manifest project: key matches the target spoke contribute blocks. The plan slug
 # is the dir basename; the handoff source is <plan-dir>/handoff.md (handoff.md at
 # any depth per repo convention — every plan dir that carries one contributes).
-# Block shape (R-BIND-7, TRANSCRIBED from D3:187, verbatim contract clause:
+#
+# Block shape (TRANSCRIBED from the binding contract, verbatim clause:
 # "Append-only, newest-first. One block per session: source handoff.md path +
 # session number/date + the **Next session:** line + a one-line summary harvested
 # from ### Locks captured / ### Decision-Quality Protocol passes. It NEVER
@@ -39,18 +43,21 @@
 #             ### Locks captured / ### Decision-Quality Protocol passes; when both
 #             are absent, the FALLBACK harvests the first ~200 chars of the block
 #             body. Bodies are NEVER concatenated — exactly one harvested line.
-# Ordering (R-BIND-7 "newest-first"): within a handoff.md the session blocks are
+#
+# Ordering ("newest-first"): within a handoff.md the session blocks are
 # emitted newest-first (a block parsed later in the file — a higher session number
 # later date — sorts ABOVE an earlier one), and across the spoke the handoffs
 # are ordered by (descending session-key, plan-slug) so the most recent session
-# across all spoke plans heads the chronicle. Append-only semantics (R-BIND-7):
+# across all spoke plans heads the chronicle. Append-only semantics:
 # the chronicle is never pruned/rewritten destructively — a re-derive rebuilds the
 # full newest-first projection from the current handoff.md set (it adds blocks for
 # new sessions; it does not delete the historical record from the source
 # handoffs, which are themselves append-only session records).
+#
 # Re-derive from each handoff.md every run; a missing/empty/malformed handoff =
-# DEFENSIVE SKIP + a finding, never an error (R-BIND-10a defensive default).
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+# DEFENSIVE SKIP + a finding, never an error (defensive default).
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/handoff-chronicle.md  (atomic temp+os.replace;
 #         full-file re-derive — the librarian role owns the WHOLE file). The
@@ -73,12 +80,12 @@
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder chronicle markdown;
 #     handoff-chronicle.md is a generated human-readable projection — the block
-#     shape is fixed by R-BIND-7, not a shipped schema). Body-structure authority:
-#     the R-BIND-7 handoff-chronicle artifact contract (the ratified
+#     shape is fixed by that contract, not a shipped schema). Body-structure authority:
+#     the handoff-chronicle artifact contract (the ratified
 #     binder-contract decision).
 #   Pre-write validation:
 #     - the plans home must resolve to a directory (absent => block-and-log, no
-#       write, exit 0 — R-BIND-10a defensive class, never crash).
+#       write, exit 0 — defensive class, never crash).
 #     - each handoff.md is read defensively; a missing/unreadable/empty handoff
 #       is SKIPPED with a finding, never an error; a plan with no parseable
 #       session blocks contributes none (and an empty spoke renders a valid empty
@@ -87,22 +94,25 @@
 #       re-derive so the hook always has a region to append into.
 #   Failure mode: BLOCK-AND-LOG. A handoff that cannot be read/parsed emits a
 #     finding and is skipped; no partial/garbage write. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3, R-GOV-1a): handoff-chronicle.md is a COMPOSITE
-#     artifact (R-BIND-4); this capability writes ONLY its declared ROLE surface —
+#   Maintainer-provenance: handoff-chronicle.md is a COMPOSITE
+#     artifact; this capability writes ONLY its declared ROLE surface —
 #     the librarian RE-DERIVE role (full rebuild of the whole file incl. the
 #     sentinel region). It NEVER performs the hook's role (a routine
 #     append-one-block-at-the-head). It NEVER writes research-index.md,
 #     decision-log.md, the research/ symlink farm, plan manifests, or any plan
 #     handoff.md / _research/ content. It reads handoff.md and writes ONLY
 #     handoff-chronicle.md.
+#
 # CLI:
 #   plan-handoff-index.sh                 # regenerate every spoke's chronicle
 #   plan-handoff-index.sh --spoke <key>   # regenerate one spoke's chronicle only
 #   plan-handoff-index.sh --dry-run       # findings + would-be writes, NO write
 #   plan-handoff-index.sh --help
+#
 # Env overrides (testing):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh)
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24. Read-only handoff.md
 # walk + atomic file write(s).
 
@@ -147,7 +157,7 @@ today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
 
 # The sentinel-bounded region the SECONDARY-ROLE hook-append writer touches
-# (R-GOV-2 field-1; the EXACT region named in the C-OUT). MUST match the hook's
+# (field-1; the EXACT region named in the C-OUT). MUST match the hook's
 # markers byte-for-byte (hooks/handoff-chronicle-append.sh).
 SENT_START = "<!-- handoff-chronicle:start -->"
 SENT_END = "<!-- handoff-chronicle:end -->"
@@ -206,7 +216,7 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
-            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
+            # defensive skip + finding — never crash on a bad manifest.
             emit({"finding": "plan-handoff-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
@@ -235,7 +245,7 @@ def field(man, key, default=""):
     return v
 
 
-# --- session-block parsing (R-BIND-7) ---------------------------------------
+# --- session-block parsing ---------------------------------------
 # A handoff.md is an append-only session record. Session blocks are delimited by
 # a session heading: an H2..H4 line whose TEXT BEGINS with a real session-entry
 # shape — "(Alignment )Session <N|SN|:...>", a bare "S<N>" ordinal, or a
@@ -260,7 +270,7 @@ SESSION_HEADING_RE = re.compile(
 # (**Next session:** / **Next session does:** / **Next session start conditions:**
 # **Next session entry point:** ...). The verbatim line is harvested.
 NEXT_RE = re.compile(r"^\s*\**\s*next session\b", re.IGNORECASE)
-# the canonical harvest subsections (R-BIND-7): ### Locks captured /
+# the canonical harvest subsections: ### Locks captured /
 # ### Decision-Quality Protocol passes.
 LOCKS_RE = re.compile(r"^#{2,4}\s+locks captured\b", re.IGNORECASE)
 DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNORECASE)
@@ -287,7 +297,7 @@ def strip_next_label(s):
 
 
 def first_nonblank_chars(lines, limit=200):
-    """FALLBACK (R-BIND-7): harvest the first ~limit chars of the block body
+    """FALLBACK: harvest the first ~limit chars of the block body
     (the lines after the session heading), as ONE collapsed line, when neither
     canonical subsection is present. Never empty if the block has any body."""
     body = " ".join(l.strip() for l in lines if l.strip())
@@ -307,7 +317,7 @@ def first_nonblank_chars(lines, limit=200):
 def harvest_subsection_line(lines, hdr_re):
     """Return a ONE-LINE summary from the named canonical subsection: the first
     non-blank content line under the matching ### header (NEVER the whole body —
-    R-BIND-7 'never concatenates'). Returns '' when the subsection is absent."""
+    'never concatenates'). Returns '' when the subsection is absent."""
     n = len(lines)
     for i, l in enumerate(lines):
         if hdr_re.match(l):
@@ -332,7 +342,7 @@ def parse_blocks(text, src_rel):
     bounds = [i for i, l in enumerate(lines) if SESSION_HEADING_RE.match(l)]
     blocks = []
     if not bounds:
-        # DT-2 chronicle-membership fallback (/HCM). A handoff with NO recognized
+        # Chronicle-membership fallback. A handoff with NO recognized
         # session heading (e.g. a STATUS-REPORT-6-shaped record) still JOINS the
         # chronicle as EXACTLY ONE synthesized block — never dropped, never phantom-
         # split. The summary/date are harvested from the BODY (after any leading YAML
@@ -410,7 +420,7 @@ for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
     if not spoke:
         # missing project: => cannot attribute to a spoke; skip silently
-        # (R-BIND-10a missing-field-empty; this is not an error).
+        # (missing-field-empty; this is not an error).
         continue
     if spoke_filter and spoke != spoke_filter:
         continue
@@ -453,7 +463,7 @@ for plan_dir, man in manifests:
 
 # --- render one chronicle per spoke -----------------------------------------
 def md_link(text, target):
-    # deterministic relative-path link (R-GOV-7 binder roll-up class).
+    # deterministic relative-path link (binder roll-up class).
     return "[%s](%s)" % (text, target)
 
 
@@ -482,10 +492,10 @@ for spoke in target_spokes:
     binder_home = os.path.join(PROJECTS, spoke)
     chronicle = os.path.join(binder_home, "handoff-chronicle.md")
 
-    # newest-first (R-BIND-7): sort by descending session_key, then plan-slug.
+    # newest-first: sort by descending session_key, then plan-slug.
     ordered = sorted(blocks, key=lambda b: (b["session_key"], b["plan_slug"]), reverse=True)
 
-    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
+    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
 
     head_lines = [
@@ -501,7 +511,7 @@ for spoke in target_spokes:
         "_Auto-generated by `librarian plan-handoff-index` (full re-derive) and "
         "`hooks/handoff-chronicle-append.sh` (incremental append). Do not hand-edit._",
         "",
-        "Append-only, newest-first session-handoff reconciliation (R-BIND-7): one "
+        "Append-only, newest-first session-handoff reconciliation: one "
         "block per session across every `%s`-spoke plan's `handoff.md` — source "
         "path + session number/date + the `Next session:` line + a one-line summary "
         "harvested from `### Locks captured` / `### Decision-Quality Protocol "

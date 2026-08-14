@@ -61,7 +61,30 @@ command -v jq >/dev/null 2>&1 || exit 0
 # Read the PostToolUse stdin JSON ONCE — shared by the forward-governance cohort
 # auto-stamp (T-7) AND the _index bootstrap below. Only tool_input.file_path is
 # consumed (PostToolUse also carries tool_response — ignored). Fail-open throughout.
-PWV_INPUT="$(cat)"
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+PWV_INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    PWV_INPUT="${PWV_INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${PWV_INPUT%$'\n'}" != "$PWV_INPUT" ]; do PWV_INPUT="${PWV_INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 PWV_FILE_PATH="$(printf '%s' "$PWV_INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
 [ -n "$PWV_FILE_PATH" ] || exit 0
 
@@ -70,8 +93,9 @@ PWV_FILE_PATH="$(printf '%s' "$PWV_INPUT" | jq -r '.tool_input.file_path // empt
 # cohort at write-time — but ONLY the fields that are ABSENT (created + an immutable
 # readable id slug are stamped once and never regenerated on a re-write; the stored
 # id survives a later move/rename). Location-based scope: the file must be physically
-# under $VAULT_ROOT. EXCLUDED: memory files (memory-auto-stamp.sh owns created=today
-# there — a git-date backfill would collide), CLAUDE.md (navigation/context,
+# under $VAULT_ROOT. EXCLUDED: memory files (memory-auto-stamp.sh owns the created:
+# bootstrap there, under the same derive-a-floor policy this block applies — one writer
+# per cohort, so the two never collide), CLAUDE.md (navigation/context,
 # frontmatter-less), _index.md (the Tier-1/Tier-2 bootstrap stamps its own cohort),
 # and type: log (out-of-folder machine exhaust). Fast pre-gate: no python spawns
 # unless a cohort field is actually missing (steady state = one grep). The symlinked
@@ -100,9 +124,31 @@ if [ "${VAULT_CONFIGURED:-0}" = "1" ] && [ -n "${VAULT_ROOT:-}" ] \
       _cs_desc=""
       printf '%s\n' "$_cs_fm" | grep -qE '^description:' \
         || _cs_desc="$(bash "$SCRIPT_DIR/lib/derive-description.sh" "$PWV_FILE_PATH" 2>/dev/null || true)"
-      python3 - "$PWV_FILE_PATH" "$_cs_today" "$_cs_slug" "$_cs_desc" 2>/dev/null <<'PYCS' || true
+      # created: DERIVE-A-FLOOR, never MINT-TODAY — the same policy, same preference order
+      # and same provenance vocabulary as memory-auto-stamp.sh (keep the two in lockstep).
+      # 1. the other writer's in-band origin claim (`modified:` nested under `metadata:`)
+      # 2. the git-added date, where the surface is tracked
+      # 3. no floor -> today, LABELLED as a bootstrap
+      # mtime is NOT a candidate: this is PostToolUse, so mtime is today by construction and
+      # using it would re-implement mint-today under a derived label. A candidate is accepted
+      # only if STRICTLY EARLIER than today. The git call runs ONLY when `created:` is the
+      # missing key — a run triggered by a missing id/schema_version/description pays nothing.
+      _cs_gitfloor=""
+      if ! printf '%s\n' "$_cs_fm" | grep -qE '^created:'; then
+        if command -v git >/dev/null 2>&1; then
+          _cs_dir="$(dirname "$PWV_FILE_PATH")"
+          if git -C "$_cs_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            _cs_gitfloor="$(git -C "$_cs_dir" log --diff-filter=A --format=%ad --date=short \
+              -- "$PWV_FILE_PATH" 2>/dev/null | tail -1)"
+            [ -n "$_cs_gitfloor" ] || _cs_gitfloor="$(git -C "$_cs_dir" log \
+              --format=%ad --date=short -- "$PWV_FILE_PATH" 2>/dev/null | tail -1)"
+          fi
+        fi
+      fi
+      python3 - "$PWV_FILE_PATH" "$_cs_today" "$_cs_slug" "$_cs_desc" "$_cs_gitfloor" 2>/dev/null <<'PYCS' || true
 import sys, os, re
 path, today, slug, desc = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+git_floor = sys.argv[5] if len(sys.argv) > 5 else ""
 try:
     with open(path, encoding="utf-8") as fh:
         content = fh.read()
@@ -133,7 +179,34 @@ def add_if_absent(k, v):
     if k not in keys and v != "":
         lines.append("%s: %s" % (k, v))
         keys[k] = len(lines) - 1
-add_if_absent("created", today)
+DATE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2})')
+NESTED_RE = re.compile(r'^[ \t]+([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
+def metadata_modified_date():
+    # The other writer's in-band origin claim: `modified:` nested under `metadata:`.
+    if "metadata" not in keys:
+        return ""
+    for ln in lines[keys["metadata"] + 1:]:
+        if not ln.strip():
+            continue
+        m = NESTED_RE.match(ln)
+        if not m:
+            break   # de-indented — end of the metadata block
+        if m.group(1) == "modified":
+            d = DATE_RE.match(m.group(2).strip().strip('"').strip("'"))
+            return d.group(1) if d else ""
+    return ""
+def derive_created_floor():
+    for value, source in ((metadata_modified_date(), "derived-metadata-modified"),
+                          (git_floor.strip(), "derived-git-added")):
+        if value and DATE_RE.match(value) and value[:10] < today:
+            return value[:10], source
+    return today, "bootstrap-write-date"
+# An existing `created:` is never read, never re-stamped, and never gains a
+# `created_provenance:` — the observed-created cohort is byte-untouched.
+if "created" not in keys:
+    _floor, _floor_source = derive_created_floor()
+    add_if_absent("created", _floor)
+    add_if_absent("created_provenance", _floor_source)
 add_if_absent("id", slug)
 add_if_absent("schema_version", "1")
 if desc:

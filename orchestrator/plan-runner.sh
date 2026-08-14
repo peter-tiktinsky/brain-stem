@@ -1,8 +1,8 @@
 #!/bin/bash
 # orchestrator/plan-runner.sh — manifest-driven master/sub DAG-walker.
 #
-# The connector
-# dispatch.sh:206 calls: `exec bash plan-runner.sh <resolved-master-manifest>`.
+# (NET-NEW,; reverses ledger R-12). The connector
+# dispatch.sh calls: `exec bash plan-runner.sh <resolved-master-manifest>`.
 # Completes the --plan route on the pre-existing, fully-functional
 # dispatch.sh / job-runner.sh dispatch engine — it is NOT a new execution
 # engine. It walks a master manifest's sub_plans[] in topological order
@@ -10,11 +10,11 @@
 # sub-plan's tasks[] as worker briefs through the existing
 # `dispatch.sh --job → job-runner.sh` path.
 #
-# Shape: a propose-and-gate orchestrator, the CC-native
+# Shape (§Decision): a propose-and-gate orchestrator, the CC-native
 # shape — NOT an autonomous daemon. No task fires without a human
 # reasoning/approval point (see HITL/HOTL gate below).
 #
-# tasks[].prompt_file resolution (Convention)
+# — tasks[].prompt_file resolution (DEFAULT (A) Convention)
 # Each task's worker brief is resolved by CONVENTION at:
 #
 #     $JOBS_DIR/<task-id>.md
@@ -23,24 +23,25 @@
 # tasks[].prompt_file schema field — the plan-manifest-schema.json
 # tasks[] item carries id/title/description/acceptance_criteria/depends_on/
 # parallel_group/allowed_tools/max_budget_usd (additionalProperties:true), and
-# NO prompt_file. Adding one is explicitly out of scope. YAGNI /
-# anti-speculative-generality: the convention needs no
+# NO prompt_file. Adding one is explicitly out of scope (charter DEFAULTs
+#). YAGNI / anti-speculative-generality: the convention needs no
 # schema change. The resolved brief path is handed to `dispatch.sh --job`,
 # which execs `job-runner.sh --prompt-file <brief>` (the existing contract).
 # This convention is also documented in orchestrator/README.md.
 #
-# HITL/HOTL gate wiring (the v1.0.0 safety floor)
+# — HITL/HOTL gate wiring (the v1.0.0 safety floor; §Consequences)
 # Before dispatching ANY task the runner gates it:
 #   * HITL (human-in-the-loop, approve-before-act): tasks whose owning manifest
 #     declares live_mutation_scope.enabled==true, OR a task marked irreversible.
 #     The runner STOPS and requires an explicit human reasoning/approval point;
-#     it never auto-proceeds. (schema live_mutation_scope.)
+#     it never auto-proceeds. (schema live_mutation_scope,, .)
 #   * HOTL (human-on-the-loop): reversible tasks — the runner proposes the
 #     dispatch and proceeds, with the human supervising the loop.
-# This gate is INDEPENDENT of the dispatch-governance layer — it is the
-# propose-and-gate primitive and the independent v1.0.0 safety floor.
+# This gate is INDEPENDENT of the dispatch-governance layer (deferred to
+# per) — it is the propose-and-gate primitive builds and
+# the independent v1.0.0 safety floor per §Consequences.
 #
-# Sub-peer isolation: cross-sub ordering routes through the master
+# sub-peer isolation: cross-sub ordering routes through the master
 # sub_plans[]/dependencies — the walker never honors a sub→sibling-sub edge
 # directly (R-63 advisory).
 #
@@ -165,7 +166,7 @@ dispatch_sub() {
   return 0
 }
 
-# --- Topological order of sub_plans[] honoring dependencies.blocks ----------
+# --- Topological order of sub_plans[] honoring dependencies.blocks -
 # Reads the master sub_plans[] slugs, then orders by each sub's
 # dependencies.blocks (a sub blocks its dependents until it reaches its gate).
 # Sub-peer isolation: only master-level edges are honored; a sub→sibling-sub

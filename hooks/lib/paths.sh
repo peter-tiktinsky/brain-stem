@@ -61,7 +61,7 @@ export CLAUDE_STATE_ROOT
 # in-vault $VAULT_LOGS/.coordination location.
 export COORD_DIR="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}"
 
-# Workshop home (R-ARCH-1a): the three-surface ephemeral staging root. Resolves
+# Workshop home: the three-surface ephemeral staging root. Resolves
 # off CLAUDE_STATE_ROOT (the XDG ephemeral tier) so it is wipe-safe and never a
 # hardcoded literal. Every consumer (the install-time scaffold + future workshop
 # writers) reads CLAUDE_WORKSHOP_DIR from here so the home is single-sourced.
@@ -88,7 +88,7 @@ export HOOKS_STATE
 # (prompt-context, stop-checkpoint-check, pre-compact-checkpoint, session-register)
 # all resolve sessions/<sid>/ through this single SoT so they never re-drift — the
 # to $HOOKS_STATE while the skill + the binding spec stayed on $CLAUDE_STATE_ROOT.
-# HOOKS_STATE_OVERRIDE wins for test isolation (feedback_test_isolation_for_hooks_state).
+# HOOKS_STATE_OVERRIDE wins for test isolation (tests point state at a throwaway dir).
 export SESSION_STATE_ROOT="${HOOKS_STATE_OVERRIDE:-$CLAUDE_STATE_ROOT}"
 
 # --- plans tree ---
@@ -135,7 +135,7 @@ export VAULT_ROOT
 # vault-scoped consumer (frontmatter-enforce.sh, pre-write-guard.sh) READS it
 # rather than re-deriving `[ -n … ] && [ -d … ]` inline. This prevents the next
 # consumer from re-introducing the empty-VAULT_ROOT `/*`-collapse class
-# (feedback_structural_over_bandaid: guard declared once at the producer beats
+# (structural, not per-consumer: a guard declared once at the producer beats
 # N consumer guards). Additive — existing VAULT_ROOT semantics unchanged.
 if [ -n "${VAULT_ROOT:-}" ] && [ -d "$VAULT_ROOT" ]; then VAULT_CONFIGURED=1; else VAULT_CONFIGURED=0; fi
 export VAULT_CONFIGURED
@@ -183,10 +183,14 @@ export ORCHESTRATION_JSON="${ORCHESTRATION_JSON:-$CLAUDE_HOME/orchestration.json
 export CLAUDE_GIT_REPO="${CLAUDE_GIT_REPO:-$CLAUDE_HOME}"
 export PLANS_GIT_REPO="${PLANS_GIT_REPO:-$PLANS_DIR}"
 
+# --- backups (no install-convention default) ---
+# Same contract as VAULT_ROOT above and as this file's own header at :17-20:
+# BACKUPS_DIR has NO install-convention default, so it stays EMPTY when neither
+# env nor manifest supplies it. Supplying one here would make the SoT contradict
+# the contract it publishes, and would make an unowned $HOME location look owned
+# to anything that reads this file back as the ownership basis.
 if [ -z "${BACKUPS_DIR:-}" ]; then
-  _v="$(_manifest_get .paths.backups_dir)"
-  if [ -n "$_v" ]; then BACKUPS_DIR="$_v"; else BACKUPS_DIR="$HOME/Backups"; fi
-  unset _v
+  BACKUPS_DIR="$(_manifest_get .paths.backups_dir)"
 fi
 export BACKUPS_DIR
 

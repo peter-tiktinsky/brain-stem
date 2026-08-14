@@ -1,14 +1,14 @@
 #!/bin/bash
-# plan-research-declare — the DT-4 A1-clause-4 session-close DECLARATION writer (140 sub-11 T-2).
+# plan-research-declare — the A1-clause-4 session-close DECLARATION writer (140).
 #
 # plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as a header shape reference; no Draft202012Validator is constructed, so there is no schema-gate degrade path.
-# THE single declaration surface for research_artifacts[] (DT-4 memo §Amendment-A1 clause 4:
+# THE single declaration surface for research_artifacts[] (memo §Amendment-A1 clause 4:
 # "declaration DERIVES at session close … no second declaration surface"). At session close this
 # RECONCILES each active-spoke plan's manifest.research_artifacts[] from that plan's OWN on-disk
 # research homes — the sanctioned graduation home <plan>/_research/ (A1 clause 4: the scratchpad is
 # TRANSIT; the sanctioned move is `mv` into <plan>/_research/ at graduation) plus the structured
 # in-plan research dirs decisions/ target-state/ deliverables/. It NEVER writes _library
-# (universal-only, DT-4) and NEVER invokes library-scrub --apply (the manual PROMOTION path,
+# (universal-only) and NEVER invokes library-scrub --apply (the manual PROMOTION path,
 # excluded by design). Routing to the OWNING spoke is DERIVED: this writer writes each plan's OWN
 # manifest, and the renderer (plan-research-index.sh) groups by the manifest `project:` key — the
 # true owner (139 verified), never the over-attributed brain-stem.
@@ -29,7 +29,15 @@
 #
 # The curation gate is the graduation-move into a research home: an artifact earns a declaration by
 # living in one of the scanned research dirs. Exhaust / superseded drafts that live elsewhere in the
-# plan (archive-or-in-plan class, DT-4) are NOT scanned and never declared.
+# plan (archive-or-in-plan class) are NOT scanned and never declared.
+#
+# ARTIFACT FILTER — RULED DELIBERATELY NARROW (.md ONLY), STATED HERE SO IT IS NOT READ AS AN
+# OVERSIGHT. discover() skips every non-.md file (`if not f.endswith(".md"): continue`), so a
+# JSON / CSV / YAML research artifact is STRUCTURALLY UNDECLARABLE by this writer: a declaration
+# carries a human `title` derived from the artifact's first H1, which only prose files have. A plan
+# that needs a non-.md artifact declared (e.g. an in-plan `_research/*.json` cited by that plan's own
+# gate1.validator) declares it BY HAND — the APPEND-only reconcile preserves a hand-authored entry
+# verbatim and never removes it, so the narrow walk costs nothing but an automatic first draft.
 #
 # ANTI-SCOPE GATE (research_closed). When a plan's manifest carries research_closed:true, this writer
 # STOPS ratifying by presence: each NEWLY-discovered undeclared artifact under a scanned research home
@@ -40,7 +48,7 @@
 #   status ({completed, superseded}); the operator may hand-set it on active plans;
 #   plan-research-declare only reads it; plans being rehomed by the durable-artifact census are never bulk-stamped.
 #
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - each contributing <plan>/manifest.json (research_artifacts[] APPEND-only reconcile;
 #         atomic temp+os.replace; never _library, never a vault path).
@@ -51,7 +59,7 @@
 #   Pre-write validation: the plans home must resolve to a directory (absent => block-and-log,
 #     no write, exit 0); each manifest read defensively; a missing field is empty, never an error.
 #   Failure mode: BLOCK-AND-LOG. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): this writer touches ONLY plan manifests' research_artifacts[];
+#   Maintainer-provenance: this writer touches ONLY plan manifests' research_artifacts[];
 #     it NEVER writes _library, research-index.md, the symlink farm (that is plan-research-index's
 #     sole scope), or any vault path.
 #
@@ -109,8 +117,8 @@ today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
 
 # The sanctioned research homes scanned per plan (relative to the plan dir). _research/ is the
-# graduation home (DT-4 A1 clause 4); decisions/ target-state/ deliverables/ are the structured
-# in-plan research dirs (DT-4 class-1). Order is stable for deterministic RA-id assignment.
+# graduation home (A1 clause 4); decisions/ target-state/ deliverables/ are the structured
+# in-plan research dirs (class-1). Order is stable for deterministic RA-id assignment.
 RESEARCH_DIRS = ["_research", "decisions", "target-state", "deliverables"]
 
 
@@ -285,7 +293,7 @@ for plan_dir, mp, man in plans:
     # APPEND-only reconcile: preserve every existing entry verbatim; append the new ones.
     man["research_artifacts"] = existing + new_entries
     try:
-        atomic_write(mp, json.dumps(man, indent=2) + "\n")
+        atomic_write(mp, json.dumps(man, indent=2, ensure_ascii=False) + "\n")
     except Exception as exc:
         emit({"finding": "plan-research-declare-blocked", "file": mp,
               "reason": "write-failed", "error": str(exc), "detected_at": today})

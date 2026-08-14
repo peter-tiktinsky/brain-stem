@@ -1,29 +1,37 @@
 #!/bin/bash
 # tag-coverage-audit — Vault-wide tag coverage + taxonomy compliance audit.
+#
 # Walks non-exempt vault .md files, measures presence of `tags:` frontmatter
 # field, classifies tags against the canonical allowlist from
 # `governance/foundation-master.json#tagging.taxonomy.dimension_prefixes`.
+#
 # Foundation philosophy: bundle is source-of-truth for the taxonomy, manifest
 # is source-of-truth for path-pattern exemptions. When dimension_prefixes is
 # empty, prefix-validation is skipped and only the
 # `missing_tags_field` / `empty_tags_field` findings fire. Foundation ships
 # system-utility dimensions (status, log); user-facing dimensions land via
 # overlay-master union-resolve (T-7+T-8 scope).
+#
 # Structural exemptions (always exempt; not user-configurable):
 #   - Archive/**                       (frozen history)
 #   - _test*                           (sandbox)
 #   - Symlinks resolving to $PLANS_DIR (e.g., `Plans/`)
 #   - is_plan_root_file OR depth >=2 under $PLANS_DIR
+#
 # User-extension exemptions (read from manifest.vault.tag_audit_exemptions[]):
 #   case-pattern globs matched against $REL (vault-relative path).
+#
 # Findings emitted via lib/findings.sh:
 #   - missing_tags_field            (no `tags:` field at all)
 #   - empty_tags_field              (`tags: []`)
 #   - unrecognized_tag_prefix       (tag prefix not in `_tag_prefixes`;
 #                                    skipped when `_tag_prefixes` is empty)
+#
 # Lifecycle events via emit_event: start / batch progress / end summary.
+#
 # Usage:
 #   tag-coverage-audit.sh [--scope SECTION] [--batch-size N] [--output FILE] [--verbose]
+#
 # Bash 3.2 clean per R-23.
 set -euo pipefail
 
@@ -342,10 +350,10 @@ emit_event "{ \"tag_coverage_audit_end\": \"$(date -Iseconds)\", \"files_scanned
 # librarian-manifest — makes the registry's declared
 # writes_manifest_subtree: "drift_findings.tag_coverage" real (removed from
 # _parity_pending_manifest_writes[] in the same commit), mirroring
-# placement-validate.sh:224-226. Additive summary (files_scanned/findings/missing/
+# placement-validate's own walker. Additive summary (files_scanned/findings/missing/
 # empty/unrecognized) from the post-walk counters. Tolerates set -euo pipefail +
 # empty VAULT_LOGS: the manifest + its lock live under the always-creatable
-# $CLAUDE_STATE_ROOT/$COORD_DIR (G2/plan 110), so no non-empty VAULT_LOGS is needed.
+# $CLAUDE_STATE_ROOT/$COORD_DIR (G2), so no non-empty VAULT_LOGS is needed.
 _TC_SUBTREE="$(printf '{"last_scan":"%s","files_scanned":%d,"findings":%d,"missing":%d,"empty":%d,"unrecognized":%d}' \
   "$(date -u +%Y-%m-%dT%H:%M:%S)" "$SCAN_COUNT" "$FINDING_COUNT" "$MISSING_COUNT" "$EMPTY_COUNT" "$UNRECOGNIZED_COUNT")"
 manifest_set '.drift_findings.tag_coverage' "$_TC_SUBTREE"

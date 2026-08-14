@@ -4,19 +4,19 @@
 # $MEM_DIR/episodic-chronicle.md performing three idempotent roles.
 #   1. Pointer-metadata refresh — re-derive the `## Episodic` pointer line's
 #      `last N sessions` count from the live chronicle row count and rewrite it
-#      inside the sentinel block ONLY (MODEL-AFTER index-maintain.sh:209-383
+#      inside the sentinel block ONLY (MODEL-AFTER index-maintain's renderer
 #      sentinel-bounded two-branch re-derive — never clobber hand-curation
 #      outside the sentinels; idempotent).
 #   2. 50KB rotation — when the chronicle exceeds ~50KB, move the OLDEST rows to
 #      $MEM_DIR/episodic-chronicle-archive-<date>.md (split-to-archive; NOT
-#      delete, NOT newest-N truncate). MODEL-AFTER plan-index.sh:314-321:
+#      delete, NOT newest-N truncate). MODEL-AFTER plan-index's rotation:
 #      total_counted==0 abort (exit 4) so a zero-walk never blanks the chronicle/
 #      pointer; group-sum assertion (exit 3); atomic os.replace.
 #   3. one-line-summary backfill — for the just-closed session's row whose
 #      Summary is the LITERAL `— summary on review —`, harvest the now-written
 #      handoff/close-out one-liner (no-LLM, MODEL-AFTER
-#      handoff-disposition-check.sh:80-126 python3 argv line-harvest — per
-#      feedback_python_heredoc_argv, pass paths via argv) and replace the
+#      handoff-disposition-check's python3 argv line-harvest — pass
+#      paths via argv, never a piped stdin) and replace the
 #      placeholder. Rows with NO harvestable close-out KEEP the placeholder
 #      (graceful). Idempotent on re-run.
 # Runs at librarian session-close (no 5s hook timeout) AFTER the handoff/close-out
@@ -81,8 +81,8 @@ MAX_BYTES="${CHRONICLE_MAX_BYTES:-51200}"
 command -v python3 >/dev/null 2>&1 || exit 0
 
 # The one no-LLM python3 pass: backfill -> rotation -> pointer-metadata count.
-# All file paths passed via argv (feedback_python_heredoc_argv). Atomic os.replace
-# for every write. total_counted==0 aborts WITHOUT blanking (plan-index.sh:318).
+# All file paths passed via argv, never a piped stdin. Atomic os.replace
+# for every write. total_counted==0 aborts WITHOUT blanking (the plan-index rule).
 python3 - "$CHRONICLE_FILE" "$ARCHIVE_FILE" "$INDEX_FILE" "$MAX_BYTES" "${CLAUDE_SESSION_ID:-}" <<'PY'
 import os, re, sys, tempfile
 
@@ -129,7 +129,7 @@ for i, p in enumerate(positions):
     rows.append(rows_region[p:end])
 
 total_counted = len(rows)
-# plan-index.sh:318 wipe-prevention: a zero-walk ABORTS without blanking the
+# plan-index's wipe-prevention rule: a zero-walk ABORTS without blanking the
 # chronicle or the pointer. (Unreachable given the ROW_MARK guard above, but the
 # borrowed invariant is the contract.)
 if total_counted == 0:
@@ -145,7 +145,7 @@ if total_counted == 0:
 def harvest_oneliner(row):
     # Resolve this row's handoff slot path (the `- **handoff:** <path>` line) and
     # harvest a one-line close-out summary from it (no-LLM, MODEL-AFTER
-    # handoff-disposition-check.sh:80-126). Prefer an explicit `**Summary:**` /
+    # handoff-disposition-check's harvester). Prefer an explicit `**Summary:**` /
     # `## Summary` close-out line; else the first `**Next session:**` line; else
     # the first non-empty close-out prose line.
     hm = re.search(r"^- \*\*handoff:\*\*\s*(.+?)\s*$", row, re.MULTILINE)
@@ -205,7 +205,7 @@ while len(body.encode("utf-8")) > max_bytes and len(rows) > 1:
     archived.insert(0, rows.pop())          # oldest row -> front of archive batch
     body = assemble(header, rows)
 
-# group-sum assertion (plan-index.sh:314): live rows + archived rows must equal
+# group-sum assertion (the plan-index invariant): live rows + archived rows must equal
 # the pre-rotation count — NO row is ever deleted (split-to-archive only).
 if len(rows) + len(archived) != total_counted:
     sys.stderr.write("chronicle-index: group-count assertion failed (rotation lost a row)\n")

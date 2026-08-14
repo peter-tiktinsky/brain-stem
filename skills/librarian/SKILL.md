@@ -241,10 +241,10 @@ sentinel-bounded refresh of the MEMORY.md `## Episodic` pointer-line metadata
 (the `last N sessions` count); (2) 50KB rotation — split the OLDEST rows to
 `episodic-chronicle-archive-<date>.md` (split-to-archive, never delete/truncate;
 `total_counted==0` aborts without blanking, group-sum assertion, atomic
-`os.replace` — MODEL-AFTER `plan-index.sh:314-321`); (3) one-line-summary
+`os.replace` — MODEL-AFTER `plan-index`'s rotation); (3) one-line-summary
 backfill — replace the just-closed session's `— summary on review —` placeholder
 with the harvested handoff/close-out one-liner (MODEL-AFTER
-`handoff-disposition-check.sh:80-126`). Chained AFTER `handoff-disposition-check`
+`handoff-disposition-check`'s harvester). Chained AFTER `handoff-disposition-check`
 in `session-close.sh::step2_integrity()` so the close-out exists to harvest.
 Runtime: `capabilities/chronicle-index.sh`.
 
@@ -303,7 +303,7 @@ Runtime: `capabilities/xref-check.sh`.
 Detects stale plan-root + vault files past their freshness threshold (walks
 plan roots via `hooks/lib/plan-path.sh`) — 8 staleness rules (the per-rule roster
 is the `stale-detect.sh` header block; rule 6, residual vault `Logs/`, retired with
-the vault `Logs/` folder at G3). Rule #9 (R-FLOW-MAINT-1, binder-freshness):
+the vault `Logs/` folder at G3). Rule #9 (binder-freshness):
 a per-spoke binder surface (`_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md`)
 whose `updated:` regen date lags the newest constituent-plan activity (max
 manifest/handoff mtime across the spoke's plans) by >14d emits a `severity: warn`
@@ -337,7 +337,7 @@ Runtime: `capabilities/handoff-disposition-check.sh`.
 
 ## Capability: plan-terminal-lag-check
 
-Close-time surface-and-walk enforcement (DT-3): emits a `plan-terminal-lag`
+Close-time surface-and-walk enforcement: emits a `plan-terminal-lag`
 finding when a plan's own status is non-terminal under a `parent_plan` master
 whose status IS terminal, and prompts the walk. Writes NO status — never
 auto-closes, never auto-stamps `verified` — and touches no aggregation. TERMINAL
@@ -350,7 +350,7 @@ Runtime: `capabilities/plan-terminal-lag-check.sh`.
 Resolves the R-28 `parent_plan:` frontmatter convention (via
 `hooks/lib/frontmatter.sh`) and surfaces drift findings where a sub-task file's
 parent does not resolve. Also re-validates the auto-stamped `project:` spoke key
-(R-ARCH-PID-DRIFT / R-FLOW-MAINT-7) against the anchored-spoke registry (sourced
+against the anchored-spoke registry (sourced
 via `skills/new-plan/lib/spoke-resolve.sh`) and the plan's lineage; a
 disagreement reuses the `parent-plan-path-drift` finding name with a
 `drift_class` (`project-stamp-unregistered` | `project-stamp-vs-lineage`),
@@ -446,21 +446,21 @@ and the folder-context paragraph outside the sentinels; falls back to a prose
 aggregates member-article `routing:` (1:many) and carries each topic's staleness
 date from `_library/log.md` when present. Audit-time findings (never a write-time
 guard): over-threshold, basename-collision, near-duplicate-title, broken /
-one-sided-edge (the R-FLOW-PROMO-4 crash-window detector), and R-LIB-1 body-shape.
+one-sided-edge (the crash-window detector), and body-shape.
 A read-only `--query <topic>` mode (zero writes) resolves a topic (exact name
 first, then case-insensitive/fuzzy prefix) and prints its `_index.md` to stdout —
 or a short available-topics list when the topic does not resolve — serving the
-three-load selectivity chain and the R-FLOW-PRE-4 at-cap pointer
+three-load selectivity chain and the at-cap pointer
 `pre-research-check.sh` emits.
 Runtime: `capabilities/library-index.sh`.
 
 ## Capability: library-log-rotate
 
 The librarian (rotation/audit) half of the composite maintainer for the library
-global change log `_library/log.md` (R-GOV-1a): the appender hook
+global change log `_library/log.md`: the appender hook
 (`hooks/library-log-append.sh`) is the sole appender of routine entries; this
 capability owns rotation, audit, and any full re-derive and NEVER appends a
-routine entry. When the log exceeds the threshold (R-LIB-8 `size_limits`
+routine entry. When the log exceeds the threshold (`size_limits`
 `{max_lines: 2000}`), the event lines are moved out of the live log into per-year
 `_library/log-archive/<YYYY>.md` archives (each itself a C-FM-LOG `type: log`
 artifact), the C-FM-LOG frontmatter is preserved, and the live log continues
@@ -472,8 +472,8 @@ Runtime: `capabilities/library-log-rotate.sh`.
 ## Capability: plan-research-index
 
 Generates the per-spoke binder research surface
-`_projects/<spoke>/research-index.md` (R-BIND-2/R-BIND-5) plus the
-`research/<plan-slug>/` directory-symlink farm (R-BIND-8), re-derived from every
+`_projects/<spoke>/research-index.md` plus the
+`research/<plan-slug>/` directory-symlink farm, re-derived from every
 plan manifest's `research_artifacts[]` on every run. The binder is per-spoke: only
 plans whose manifest `project:` matches the target spoke contribute rows, and rows
 are grouped by `parent_plan:` lineage. One row per declared
@@ -493,17 +493,17 @@ is present, and that text is not already inferable from the one-liner; every oth
 entry emits a path pointer, never the full body. The `research/` farm is generated
 AND pruned each run — a symlink whose target plan `_research/` no longer exists, or
 whose plan no longer belongs to the spoke, is unlinked (the link only; the target
-is never followed or deleted). Re-derive surfaces one-sided R-FLOW-PROMO-4 edges
+is never followed or deleted). Re-derive surfaces one-sided edges
 (a manifest `library_ref` without the article back-stamp, or vice versa) as
 findings — DETECT + report, never repair-write (library-scrub owns the promotion
-write-orchestration, R-FLOW-PROMO). Missing manifest fields render empty, never error
-(R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
+write-orchestration). Missing manifest fields render empty, never error
+(never an error). `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
 would-be writes/links without writing.
 Runtime: `capabilities/plan-research-index.sh`.
 
 ## Capability: plan-research-declare
 
-The DT-4 A1-clause-4 session-close DECLARATION writer (140 sub-11 T-2) — the SINGLE
+The A1-clause-4 session-close DECLARATION writer (140) — the SINGLE
 surface that populates `research_artifacts[]`. At session close (step 2, BEFORE
 `plan-research-index`) it reconciles each active-spoke plan's
 `manifest.research_artifacts[]` from that plan's OWN research homes: the sanctioned
@@ -514,7 +514,7 @@ true owner, never the over-attributed brain-stem). APPEND-only + defensive:
 a missing field is empty (never an error), an author-curated entry is preserved
 byte-for-byte (path is the idempotency key), only newly-discovered artifacts are
 appended, and re-running is a write-no-op. It NEVER writes `_library` (universal-only,
-DT-4) and NEVER invokes `library-scrub --apply` (the manual PROMOTION path).
+) and NEVER invokes `library-scrub --apply` (the manual PROMOTION path).
 `--spoke <key>` scopes to one spoke; `--dry-run` reports would-be declarations without
 writing. Block-and-log; atomic temp+os.replace; exit 0 always.
 Runtime: `capabilities/plan-research-declare.sh`.
@@ -522,7 +522,7 @@ Runtime: `capabilities/plan-research-declare.sh`.
 ## Capability: plan-decision-log
 
 Generates the per-spoke binder decision surface
-`_projects/<spoke>/decision-log.md` (R-BIND-3 / R-BIND-6) — the
+`_projects/<spoke>/decision-log.md` — the
 `decision_records[]` projection across every plan launched from the spoke,
 re-derived from each plan manifest on every run. Distinct from the shipped
 `handoff-disposition-check` close-out checker (this is a binder generator, not a
@@ -532,20 +532,20 @@ row per declared `decision_records[]` entry — a PURE projection, no symlink fa
 and no inline-vs-pointer selectivity: `| ADR | Title | Status | Path |
 Superseded-by | Created | Plan-origin |`. ADR bodies, rationale, and option-tables
 STAY at the linked path; the projection never copies them inline. Append-immutable
-per R-BIND-6: a record whose status is `superseded` is forward-linked via its
+per the append-immutability contract: a record whose status is `superseded` is forward-linked via its
 `superseded_by` ADR ordinal (cross-referenced to the in-projection row when that
 ADR is present) and is NEVER dropped from the log. A `superseded` record missing
 its forward-link, or a status outside the shipped enum
 (`proposed|accepted|rejected|deprecated|superseded`), is surfaced as a finding (the
 record still renders). Missing/empty `decision_records[]` renders an empty section,
-never an error (R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run`
+never an error. `--spoke <key>` scopes to one spoke; `--dry-run`
 reports findings + would-be writes without writing.
 Runtime: `capabilities/plan-decision-log.sh`.
 
 ## Capability: plan-handoff-index
 
 Generates the per-spoke binder handoff surface
-`_projects/<spoke>/handoff-chronicle.md` (R-BIND-4 / R-BIND-7) — the
+`_projects/<spoke>/handoff-chronicle.md` — the
 session-handoff reconciliation chronicle across every plan launched from the
 spoke, re-derived from each plan's `handoff.md` on every run. Distinct from the
 shipped `handoff-disposition-check` close-out missing-disposition checker (this is
@@ -555,13 +555,13 @@ line + a ONE-LINE summary harvested from `### Locks captured` / `### Decision-Qu
 Protocol passes`; when both canonical subsections are absent it FALLS BACK to the
 first ~200 chars of the block body rather than emitting an empty row. Handoff
 bodies are NEVER concatenated. This is the PRIMARY (re-derive) half of the
-R-GOV-1a composite maintainer: the librarian re-derive owns the WHOLE file
+composite maintainer: the librarian re-derive owns the WHOLE file
 (frontmatter + intro + the sentinel-bounded chronicle region), and the
 SECONDARY-ROLE hook (`hooks/handoff-chronicle-append.sh`) appends ONE block at the
 HEAD of the sentinel region `<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->`
 — DISJOINT surfaces (the hook never re-derives, the librarian never appends a
 routine block). A missing/unreadable/empty/no-session-heading `handoff.md` is a
-defensive skip + finding, never an error (R-BIND-10a). `--spoke <key>` scopes to
+defensive skip + finding, never an error. `--spoke <key>` scopes to
 one spoke; `--dry-run` reports findings + would-be writes without writing.
 Runtime: `capabilities/plan-handoff-index.sh`.
 
@@ -588,9 +588,9 @@ existing `index` file-type (— no new file-type, no governance-type lockstep) p
 `generated: true` sentinel that distinguishes the machine card from a curated index;
 the body carries the `_Auto-generated … Do not hand-edit._` line. The card is
 force-ingested every session, so it is bounded `< 9728B` (the `format_output`
-budget, `hooks/lib/registry.sh:106`) and is defensively trimmed if a degenerate
+budget, `hooks/lib/registry.sh` `format_output_allow`) and is defensively trimmed if a degenerate
 roster would overflow. A malformed manifest is a defensive skip + finding, never a
-crash (R-BIND-10a). `--spoke <key>` scopes to one spoke; `--dry-run` reports
+crash (never an error). `--spoke <key>` scopes to one spoke; `--dry-run` reports
 findings + would-be writes without writing.
 Runtime: `capabilities/project-context-situating.sh`.
 
@@ -661,7 +661,7 @@ Runtime: `capabilities/work-index-maintain.sh`.
 
 The thin session-close ADAPTOR that wires the shipped-but-ORPHANED
 `hooks/handoff-chronicle-append.sh` into the session-close capability chain (R-B).
-The appender hook is the SECONDARY-ROLE (incremental append) half of the R-GOV-1a
+The appender hook is the SECONDARY-ROLE (incremental append) half of the composite
 composite maintainer for the per-spoke binder `handoff-chronicle.md`, but it takes
 POSITIONAL args (`<handoff.md path> <spoke>`), so the generic `run_capability`
 wrapper cannot drive it directly. This adaptor accepts `--spoke <key>` (so
@@ -775,7 +775,7 @@ Runtime: none (judgment rubric — see the rubric below; the registry `review` e
 >   ~180+ days.
 > - **`hygiene` producer = still DEFER-v1.1:** Check 7 temporal-hygiene auto-fixes relative-date
 >   strings in place but never enqueues; orphan / dead-ref / budget checks emit to the audit log
->   only. So the hygiene-review count is always 0 in v1.0.0 (deferred to v1.1). Accepted asymmetry.
+>   only. So the hygiene-review count is always 0 while the producer stays propose-only. Accepted asymmetry.
 
 ### Output Contract (review)
 

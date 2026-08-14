@@ -300,7 +300,7 @@ fi
 # configured vault — with empty VAULT_LOGS the manifest_set lockfile resolves to
 # '/.coordination/manifest.lock' (uncreatable) and the helper raises under set -e,
 # which a no-vault fresh adopter's session-close logs as a spurious capability
-# error — but G2 (plan 110) moved the manifest under $CLAUDE_STATE_ROOT/manifests and
+# error — but G2 moved the manifest under $CLAUDE_STATE_ROOT/manifests and
 # its lock under $COORD_DIR (both always creatable), so the persist no longer needs a
 # non-empty VAULT_LOGS. Gate only on having a finding subtree to write.
 # SCOPE-KEYED subtree: the vault sweep and the plans-root-namespace sweep both persist

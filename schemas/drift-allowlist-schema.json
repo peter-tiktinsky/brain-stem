@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brain-stem.example/schemas/drift-allowlist/v1.json",
   "title": "Librarian provides:overlap drift allowlist",
-  "description": "Validates ${CLAUDE_HOME}/hooks/config/drift-allowlist.json — the source-of-truth for librarian provides:overlap exemptions. Edited directly by adopters; mirrored into librarian-manifest.json at /librarian run time. Hand-editing the manifest is forbidden.",
+  "description": "Validates ${CLAUDE_HOME}/hooks/config/drift-allowlist.json — the source-of-truth for librarian provides:overlap exemptions. Edited directly by adopters; mirrored into librarian-manifest.json at /librarian run time. Hand-editing the manifest is forbidden — it is a generated read-replica; edit this source-of-truth instead.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

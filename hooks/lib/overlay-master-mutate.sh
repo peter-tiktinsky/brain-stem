@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
 # hooks/lib/overlay-master-mutate.sh — atomic-write library for mutating
 # $CLAUDE_HOME/governance/overlay-master.json under R-37 multi-pillar lockstep.
-# Implements the atomic-write contract and the system.timezone slot.
-# This body lives at hooks/lib/overlay-master-mutate.sh, co-located with its
+#
+# Per alignment (atomic-write contract) +
+# (system.timezone slot). Authored under Batch B T-8.
+#
+# amendment: top-level lib/ does NOT exist in brain-stem — this
+# body lives at hooks/lib/overlay-master-mutate.sh, co-located with its
 # consumer skills/govern/process.sh + the 4 modes. The merge-strategy-registry
 # is a sibling under hooks/lib/. Hook-portability: NO $HOME/.claude
 # literal — resolve via $CLAUDE_HOME (install-convention base).
+#
 # Invoked by:
 #   - /govern register skill (skills/govern/process.sh) — semantic-extension flow
 #   - Future overlay-mutating capabilities (Class A/B/C/D hook nudges)
+#
 # R-52 collision tiebreaker: when same key exists in foundation-master AND
 # overlay-master, overlay wins (adopter override semantics). The mutation
 # library does NOT enforce override-reason capture itself — that is the
 # /govern register skill body's responsibility (write-time UX). This library
 # trusts caller-supplied payloads conforming to the schema.
+#
 # R-37 multi-pillar bundling: N>1 pillar mutations in a single invocation
 # all apply atomically or NONE apply. Single tempfile; single atomic rename.
+#
 # bash 3.2 compatible (no `declare -A`, no `mapfile`, no `${var,,}`).
-# Canonical lock pattern: /usr/bin/lockf -k -t 0.
+# Canonical lock pattern: /usr/bin/lockf -k -t 0 (kernel-backed; not flock).
 
 set -u
 
@@ -118,7 +126,7 @@ Env:
   SCHEMA            Default \$CLAUDE_HOME/schemas/overlay-master-schema.json
                     (foundation-repo fallback: ../../schemas/).
   ACTION_LOG        Default \$CLAUDE_HOME/governance/governance-action-log.jsonl
-                    (the action-log is homed under governance/).
+                    (.1:38 — the action-log is homed under governance/).
   MERGE_REGISTRY    Default sibling hooks/lib/merge-strategy-registry.json.
   CLAUDE_SESSION_ID Read for action-log session_id field; falls back to
                     "unknown-session" if unset.
@@ -134,6 +142,7 @@ EOF
 }
 
 # ---- failure-mode helper ----------------------------------------------------
+#
 # Called from pre-commit failure paths to ensure block-and-log discipline:
 # tempfile already deleted by caller; this writes an action-log row with the
 # failure reason so librarian governance-parity-audit surfaces the rejection.
@@ -465,7 +474,7 @@ mkdir -p "$(dirname "$ACTION_LOG")" 2>/dev/null || true
 i=1
 for p in $PILLARS; do
   pf=$(printf '%s\n' $PAYLOAD_FILES | awk -v n="$i" 'NR==n')
-  # Row shape is one row per pillar mutated.
+  # Per +: row shape is one row per pillar mutated.
   # validated_fields gets pillar name as key + the payload's top-level keys
   # as proof of accepted shape (downstream reconciliation reads this).
   PAYLOAD_KEYS=$(jq -c 'keys' "$pf" 2>/dev/null || echo '[]')

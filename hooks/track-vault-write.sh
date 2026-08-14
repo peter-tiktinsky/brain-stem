@@ -49,9 +49,25 @@ if [ "${1:-}" = "--do-track" ]; then
 fi
 
 # Read the tool-use JSON payload once (session_id + tool file path).
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line is accumulated as it arrives, so a stream that keeps
+# delivering is never truncated and an expiry mid-stream keeps what already arrived;
+# the trailing-newline trim reproduces `$(cat)` exactly, and absent input still reads
+# as empty. HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls
+# back rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
 INPUT=""
 if [ ! -t 0 ]; then
-  INPUT=$(cat 2>/dev/null || true)
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 command -v jq >/dev/null 2>&1 || exit 0

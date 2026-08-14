@@ -5,7 +5,7 @@
 #
 # plan-manifest-schema degrade-contract: ADVISORY validator — a schema-invalid manifest is skipped (except: continue); the check stays advisory (exit 0), never refuse-and-freeze.
 # Landed: sub 09 (G-LIFECYCLE) T-1 (2026-07-03). Closes WF-A//
-# (wfA-brain-stem-fix-catalog.md:98-100) via the DT-3 SURFACE-AND-WALK model
+# (wfA-brain-stem-fix-catalog.md:98-100) via the SURFACE-AND-WALK model
 # (151-158)./RESOLVED at (manifest decision_records).
 #
 # SEMANTICS (child-up view — the INVERSE of a master-DOWN subtree archival
@@ -18,8 +18,8 @@
 # never auto-stamps a terminal status (a plan reaches `completed` only by the
 # human's own close-out claim, never a machine stamp), and touches
 # NO aggregation (first-match precedence UNCHANGED). Downward auto-propagation
-# of a master's terminal status DOWN to subs is REJECTED (the +1 rejected option in
-# DT-3/— it risks falsely closing genuine WIP).
+# of a master's terminal status DOWN to subs is REJECTED (a recorded rejected
+# alternative — it risks falsely closing genuine WIP).
 #
 # TERMINAL = {"completed", "superseded"} — the canonical set, BYTE-IDENTICAL to
 # trinity-drift-detect.sh / subplan-aggregate.sh
@@ -145,8 +145,12 @@ def load_manifest(slug):
     return load_manifest_at(os.path.join(plans_root, slug))
 
 # Non-plan-dir exclusion set — the SAME vetted set plan-parent-resolve.sh uses
-# (483 --classify + :523 in_scope), reused rather than a fresh predicate: skip
-# ephemeral diagnostics / synthetic fixtures + Logs, plus dot/underscore dirs.
+# (its --classify walk and its in_scope predicate), reused rather than a fresh
+# one: skip ephemeral diagnostic and test-fixture directories plus the vault
+# Logs mirror, on top of the dot/underscore infra dirs. Every member is a
+# DIRECTORY NAME matched against the corpus on disk — data, not a label — so a
+# corpus whose fixture directories are named differently EXTENDS this set
+# rather than renaming the entries already in it.
 EXCLUDE_DIRS = {"tests", "_orchestrator", "baselines", "corpus",
                 "regression-baseline", "sp08-fixture-inputs",
                 "synthetic-plans", "Logs"}
@@ -178,7 +182,7 @@ for top in listdir_safe(plans_root):
             candidates.append(os.path.join(top, sub))
 
 # Resolve a parent_plan slug to its dir: EXACT-name join first, then the
-# *-<slug> prefix glob (mirror plan-parent-resolve.sh:172-178) so a bare-slug
+# *-<slug> prefix glob (mirror plan-parent-resolve's own parent-dir glob) so a bare-slug
 # parent_plan resolves to its NN-<slug> dir. Ambiguous multi-match is resolved
 # deterministically to the FIRST SORTED match (matching the mirrored precedent).
 def resolve_parent_dir(parent_slug):

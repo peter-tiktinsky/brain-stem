@@ -6,7 +6,7 @@
 # function that emits a text fragment or empty; composer concatenates):
 #   decision_quality_branch()   — advisory + telemetry/
 #                                 annotation grammar + Phase 1/2 env-var-flip.
-#                                 Ported from live pre-write-guard.sh:40-184
+#                                 Ported from the live pre-write-guard prelude
 #                                 per T-2 (port-first discipline).
 #   hard_constraints_branch()   — Hard-Constraints-Override-Spec reminder
 #                                 (branch #5). Fires when substantive
@@ -25,7 +25,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/registry.sh"
 
-INPUT=$(cat)
+# Read the PreToolUse payload (the AskUserQuestion option shape).
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 
 # Matcher-split guard: only act on AskUserQuestion. Other matchers shouldn't
@@ -41,7 +65,7 @@ DQP_FRAGMENT=""
 HC_FRAGMENT=""
 
 # === decision_quality_branch() ============================================
-# PORTED from live ~/.claude/hooks/pre-write-guard.sh:40-184 per T-2
+# PORTED from the live ~/.claude/hooks/pre-write-guard.sh prelude per T-2
 # (port-first discipline). Preserves+:
 #   - Substantive-shape heuristic (option count ≥ 2 + description > 50 chars
 #     OR keyword match in question text)
@@ -66,7 +90,7 @@ decision_quality_branch() {
   # live operators may have it set.
   aq_phase="${PRE_ASQ_GUARD_DQ_PHASE:-${PRE_WRITE_GUARD_DQ_PHASE:-2-blocking}}"
   # session_id: env preferred, stdin `.session_id` fallback (mirrors
-  # pre-compact-checkpoint.sh:46-49), then "unknown". CLAUDE_SESSION_ID is NOT
+  # pre-compact-checkpoint's own chain), then "unknown". CLAUDE_SESSION_ID is NOT
   # exported into PreToolUse hooks, so without the stdin fallback every telemetry
   # row carried session_id='unknown' — the fallback reads the id from the already
   # captured $INPUT payload.
@@ -77,7 +101,7 @@ decision_quality_branch() {
   [[ -z "$aq_session_id" ]] && aq_session_id="unknown"
   # NOTE: pass file-path via argv (NOT stdin). python3 - <<EOF consumes the
   # heredoc as stdin, so a piped JSON would be silently ignored
-  # (feedback_python_heredoc_argv.md). The heredoc IS the script source;
+  # entirely. The heredoc IS the script source;
   # data flows in through argv[1..4].
   aq_decision=$(python3 - "$aq_input_file" "$aq_telemetry_path" "$aq_phase" "$aq_session_id" <<'PYEOF' 2>/dev/null || echo "allow"
 import sys, json, re, datetime, os

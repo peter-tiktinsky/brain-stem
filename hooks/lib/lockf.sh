@@ -1,7 +1,7 @@
 # lib/lockf.sh — macOS-native lockf re-exec sentinel for cron wrappers.
 # Source this file — do not execute it.
 #
-#   source "${CLAUDE_HOME:-$HOME/.claude}/lib/lockf.sh"
+#   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/lockf.sh"
 #   claude_lockf_reexec "$HOOKS_STATE/<job-name>.lock" "$@"
 #   # ... rest of script runs while holding the lock ...
 #
@@ -17,9 +17,10 @@
 #   -t 0 : non-blocking acquisition (exit 75 on contention).
 # The kernel releases the lock automatically on process death, eliminating
 # the stale-lock failure class that affects userspace lock primitives. This
-# is the canonical macOS shell-lock pattern: not flock (not shipped on macOS
+# is the canonical macOS shell-lock pattern (the kernel-backed
+# /usr/bin/lockf -k -t 0 re-exec): not flock (not shipped on macOS
 # /usr/bin), not mkdir-based (rejected during multi-session-coordination
-# design).
+# design 2026-03-30).
 #
 # Lockfile path constraint — $HOOKS_STATE only:
 #   Lockfiles MUST live under $HOOKS_STATE (resolved by lib/paths.sh from
@@ -49,8 +50,9 @@
 # ${var,,}/${var^^} case conversion, no regex capture groups in production
 # paths, no [[ =~ ]] for branching.
 #
-# Coordination: the multi-session-coordination lock-wrapper consumes this
-# helper via its stable public entry point.
+# Coordination: T-2e (multi-session-coordination lock-wrapper) — if
+# T-2e ships first, it consumes this helper; otherwise ships and T-2e
+# adopts. Same public entry point either direction.
 
 # Sentinel env var. Set on the outer invocation BEFORE the lockf re-exec;
 # the inner re-execed process inherits it and short-circuits the helper.

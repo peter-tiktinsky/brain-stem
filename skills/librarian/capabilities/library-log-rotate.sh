@@ -1,11 +1,13 @@
 #!/bin/bash
-# library-log-rotate — the librarian (rotation/audit) half of the R-GOV-1a
+# library-log-rotate — the librarian (rotation/audit) half of the composite
 # composite maintainer for the library global change log _library/log.md.
-# R-GOV-1a disjoint-surface contract: the appender HOOK (hooks/library-log-append.sh)
+#
+# disjoint-surface contract: the appender HOOK (hooks/library-log-append.sh)
 # is the SOLE appender of routine entries; THIS librarian capability owns rotation,
 # audit, and any full re-derive — and NEVER appends a routine entry. The two
 # surfaces are disjoint by construction (append-tail vs. rotate/rebuild).
-# Rotation (R-LIB-8 size_limits {max_lines: 2000, split_strategy: rotate to
+#
+# Rotation (size_limits {max_lines: 2000, split_strategy: rotate to
 # log-archive/<YYYY>.md at threshold} — calibrated to one-liner density, NOT the
 # handoff block-entry cap): when log.md exceeds the threshold, the event lines are
 # MOVED out of the live log into per-year archives _library/log-archive/<YYYY>.md
@@ -13,9 +15,11 @@
 # and the live log continues fresh (frontmatter + a rotation-marker line) so the
 # appender keeps appending to a small live tail. Each per-year archive is itself a
 # C-FM-LOG log artifact (type: log, log-type: library-change) so it stays a
-# governed, R-47/R-05-compliant surface.
+# governed surface, compliant with R-47 and R-05.
+#
 # Audit: emits a rotation finding (how many lines moved, to which archives) and a
 # rotation-not-due finding when invoked under threshold (idempotent no-op).
+#
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (ONLY when over threshold):
 #     - {LIBRARY}/log-archive/<YYYY>.md   the rotated-out event lines for year
@@ -33,18 +37,21 @@
 #     - atomic temp+os.replace on every write.
 #   Failure mode: BLOCK-AND-LOG. A malformed log emits a finding and writes
 #     nothing. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3, R-GOV-1a): this capability writes ONLY the
+#   Maintainer-provenance: this capability writes ONLY the
 #     rotation/archive role surface of the composite. It NEVER appends a routine
 #     event line (the hook owns that); it rotates + audits only.
+#
 # CLI:
 #   library-log-rotate.sh             # rotate when over threshold (default)
 #   library-log-rotate.sh --dry-run   # report would-rotate counts; NO writes
 #   library-log-rotate.sh --help
+#
 # Env overrides (testing):
 #   LIBRARY_DIR    library home (default: $PLANS_DIR/_library -> $PLANS_ROOT/_library).
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh).
-#   LOG_MAX_LINES  rotation threshold (default 2000 per R-LIB-8 size_limits).
+#   LOG_MAX_LINES  rotation threshold (default 2000 per size_limits).
 #   FINDINGS_OUTPUT  NDJSON sink (default: stdout).
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -183,7 +190,7 @@ else:
     _fm_required = ["type", "log-type", "date", "timestamp"]
     _fm_optional = ["tags"]
 
-# event-line shape (R-LIB-8): YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>
+# event-line shape: YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>
 EVENT_RE = re.compile(r"^(\d{4})-\d{2}-\d{2}T[0-9:]+Z?\s+\[[A-Z]+\]\s+\S+")
 
 def emit(d):
@@ -344,7 +351,7 @@ for yr in sorted(by_year):
             cur += "\n"
         new_arc = cur + payload
     else:
-        blurb = ("Rotated library change-log events for %s (R-LIB-8 split_strategy: "
+        blurb = ("Rotated library change-log events for %s (split_strategy: "
                  "rotate to log-archive/<YYYY>.md). Append-only.") % yr
         new_arc = log_frontmatter("Library Change Log — %s" % yr, blurb) + payload
     atomic_write(arc_path, new_arc)

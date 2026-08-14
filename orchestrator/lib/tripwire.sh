@@ -24,7 +24,8 @@
 # is the gate that enforces format consistency.
 #
 # R-41 generalized — tripwires fire on unexpected CONTENTS, not on
-# path existence. Callers decide
+# path existence — a tripwire that fires on existence alone is a
+# path check, not a tripwire. Callers decide
 # WHEN a fire is appropriate (e.g. "denylisted path appeared in plans
 # tree", "stale lockfile contents observed"); this helper writes the
 # line. The caller's gate IS the contents-not-existence check; this

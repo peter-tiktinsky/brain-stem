@@ -1,9 +1,11 @@
 #!/bin/bash
 # library-log-append — the SOLE appender of routine entries to the library global
-# change log _library/log.md (R-LIB-log / R-LIB-5 / R-LIB-8, C-FM-LOG). One
+# change log _library/log.md (the C-FM-LOG log-artifact contract). One
 # ISO-timestamped line per promotion/amend/supersede event (Flows 3/4):
+#
 #     YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>
-# This is the `hook` half of the R-GOV-1a composite maintainer for log.md:
+#
+# This is the `hook` half of the composite maintainer for log.md:
 #   primary = hook (THIS — incremental append-tail; seeds the C-FM-LOG
 #             frontmatter at bootstrap; detects the rotation threshold)
 #   secondary-role = librarian (library-log-rotate — rotation/audit/rebuild)
@@ -13,15 +15,18 @@
 # rotation write to the librarian capability (or, when that capability is
 # unreachable, emits a rotation-due finding and keeps appending). It never owns
 # the rotate write.
-# ACTION enum (R-LIB-8): INGEST | UPDATE | AUDIT | LINT | PROMOTE | SUPERSEDE.
+#
+# ACTION enum: INGEST | UPDATE | AUDIT | LINT | PROMOTE | SUPERSEDE.
 #   The flow seams emit the promotion subset; AUDIT/LINT are reserved for the
 #   librarian audit/lint events that share the log. The enum is ENFORCED here:
 #   a bogus ACTION is block-and-logged (no write).
+#
 # Event -> ACTION mapping (the seam contract):
 #   PROMOTE    a new universal article promoted into the library (PROMO-6 half).
 #   INGEST     a _raw/ immutable provenance original copied at promotion (CAP-3).
 #   UPDATE     an in-place amend (F-RECON-4): updated: bumped, body edited.
 #   SUPERSEDE  a supersede edit (F-RECON-3): old article marked superseded_by.
+#
 # C-FM-LOG frontmatter (seeded ONCE at bootstrap — the file's first append):
 #   type: log               reuses the SHIPPED log type (no new type minted).
 #   log-type: library-change   a REGISTERED log-subtype value
@@ -29,11 +34,13 @@
 #   date / timestamp        ISO file-creation date + instant (strict-tier log
 #                           required fields: [type, log-type, date, timestamp]).
 #   tags: ["#log/library-change"]   non-empty, R-47-compliant, R-05-canonical.
+#
 # R-33 placement advisory: the shipped log type no longer declares an
 # expected_path (vault Logs/ retired at G3), so R-33 does not fire for log-type
-# files. _library/log.md is suppressed from vault-view via R-BIND-EXCL. This
+# files. _library/log.md is suppressed from vault-view via the Obsidian userIgnoreFilters. This
 # appender writes directly (os.replace), never through the Edit/PostToolUse
 # surface that would re-fire the guard.
+#
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written:
 #     - {LIBRARY}/log.md   append-only tail (+ a one-time C-FM-LOG frontmatter
@@ -48,20 +55,23 @@
 #     - the <path> arg must be non-empty (else block-and-log).
 #   Failure mode: BLOCK-AND-LOG. A malformed event emits a finding and writes
 #     nothing. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3, R-GOV-1a): this hook writes ONLY the
+#   Maintainer-provenance: this hook writes ONLY the
 #     append-tail role surface of the composite. It NEVER rotates, audits, or
 #     re-derives the log body (the librarian library-log-rotate capability owns
 #     that role); a routine append never rebuilds.
+#
 # CLI (the flow seam invokes the append form; the others are operational):
 #   library-log-append.sh <ACTION> <path> [<note>]   # append one event line
 #   library-log-append.sh --help
+#
 # Env overrides (testing / wiring):
 #   LIBRARY_DIR    library home (default: $PLANS_DIR/_library -> $PLANS_ROOT/_library).
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh).
-#   LOG_MAX_LINES  rotation threshold (default 2000 per R-LIB-8 size_limits).
+#   LOG_MAX_LINES  rotation threshold (default 2000 per size_limits).
 #   ROTATE_CAP     path to the librarian rotation capability (default resolved
 #                  live-install-first, then the dev repo).
 #   FINDINGS_OUTPUT  NDJSON sink for block-and-log findings (default: stderr-safe stdout).
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -119,7 +129,7 @@ out = os.environ.get("FINDINGS_OUTPUT", "")
 today = date.today().isoformat()
 now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# R-LIB-8 ACTION enum (EXACT). A bogus ACTION block-and-logs (no write).
+# ACTION enum (EXACT). A bogus ACTION block-and-logs (no write).
 ACTION_ENUM = ("INGEST", "UPDATE", "AUDIT", "LINT", "PROMOTE", "SUPERSEDE")
 # library-change is the REGISTERED log-subtype value (defined in
 # governance/log-subtype-registry.json#log_subtypes); C-FM-LOG requires log-type
@@ -181,7 +191,7 @@ note = note_arg.strip()
 note = note.replace("\r", " ").replace("\n", " ").strip()
 line = "%s [%s] %s" % (now_iso, action, path_arg.strip())
 if note:
-    line += " — %s" % note   # em dash separator per R-LIB-8 format
+    line += " — %s" % note   # em dash separator per the event-line format
 line += "\n"
 
 def atomic_write(target, content):
@@ -217,7 +227,7 @@ else:
 atomic_write(log_md, new_content)
 
 # --- rotation THRESHOLD DETECTION (the hook detects; the librarian rotates) --
-# R-GOV-1a disjoint surfaces: the hook NEVER rotates the body. On over-threshold
+# disjoint surfaces: the hook NEVER rotates the body. On over-threshold
 # it signals (exit code 10) so the shell wrapper delegates to the librarian
 # library-log-rotate capability. When that capability is unreachable, the
 # wrapper instead emits a rotation-due finding (the appender keeps appending).
@@ -233,7 +243,7 @@ RC=$?
 
 # --- delegate rotation to the librarian capability on the ROTATE-DUE signal ---
 # The append already happened (exit code 10 means "appended AND over threshold").
-# The hook NEVER rotates the body itself (R-GOV-1a): it hands the rotate write to
+# The hook NEVER rotates the body itself: it hands the rotate write to
 # the librarian capability. If that capability is unreachable, emit a
 # rotation-due finding and keep going — the live log continues to accept appends.
 if [[ "$RC" -eq 10 ]]; then

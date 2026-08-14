@@ -30,6 +30,10 @@
 #   Pre-write validation: resolve <plan-dir>; assert manifest.json present +
 #     required fields; refuse to write if the assembled content lacks the
 #     sentinel pair (block-and-log; tempfile deleted).
+#   Emptiness guard (regression floor): an empty-or-stub manifest.tasks[] over an
+#     on-disk sentinel region that carries content this render would not reproduce
+#     is REFUSED with the same loud-skip shape the schema gate uses, so a 0-row
+#     ledger never lands on top of that region. Predicate + scope at the guard.
 #   Failure mode: block-and-log; never write-and-hope. Manifest read-only.
 #     Atomic temp+rename. Idempotent.
 #   plan-manifest-schema degrade-contract: REFUSE-AND-FREEZE (loud-skip) — a schema-invalid manifest is refused (no partial write); the skip is surfaced on stderr ("skipped <plan> — manifest invalid: … fails schema"); the read-replica is never silently frozen.
@@ -319,6 +323,7 @@ marker_done = scan_handoff_done_markers(plan_dir)
 preface, footer = "", ""
 prior_notes = {}
 sentinel_existed = False
+sentinel_region = ""
 ledger_rows_ondisk = 0
 
 if os.path.isfile(tasks_file):
@@ -347,6 +352,7 @@ if os.path.isfile(tasks_file):
         preface = existing[:s_idx]
         footer = existing[e_idx + len(SENTINEL_END):]
         region = existing[s_idx + len(SENTINEL_START):e_idx]
+        sentinel_region = region
         prior_notes = parse_ledger_notes(region)
         ledger_rows_ondisk = len(prior_notes)
     elif _starts or _ends or SENTINEL_START in existing or SENTINEL_END in existing:
@@ -480,6 +486,99 @@ for t in tasks:
 
 region_inner = "\n".join(lines).rstrip() + "\n"
 generated_block = SENTINEL_START + "\n\n" + region_inner + "\n" + SENTINEL_END
+
+# --- emptiness guard (REGRESSION FLOOR) -------------------------------------------------
+# manifest.tasks[] is the sole task-state SoT, so when it is empty-or-stub the ledger this
+# renderer generates is a 0-row table. If the on-disk tasks.md already carries a sentinel
+# region with content of its own, that 0-row table replaces it. Stated honestly, that is the
+# whole residual: a plan that acquires the sentinel pair AND has an empty tasks[] renders a
+# 0-row ledger over whatever is inside them. No such plan exists today — the sentinel-bearing
+# empty-tasks members of the corpus are all type:master and exit at the master-detect-and-skip
+# above with tasks.md byte-identical — so this guard is a REGRESSION FLOOR that catches the
+# state if it is ever entered, not a rescue of a state anything is in.
+#
+# PREDICATE (a) AND (b), derived from what the two render loops above actually read:
+#   (a) tasks[] EMPTY-OR-STUB — absent/empty, or every entry carries no non-empty
+#       CONTENT field (title, description, acceptance_criteria, file_references,
+#       depends_on, build_item, sot_refs). `id` and `status` are identity + state
+#       scaffolding, not rendered content: a task carrying only those renders a row and a
+#       block with nothing in them. Any ONE populated content field makes it a real task, so
+#       the predicate under-fires on a partially-filled manifest rather than over-firing.
+#   (b) a real sentinel pair existed on disk AND its region carries lines THIS render does not
+#       reproduce (ordered multiset residue of on-disk region minus generated region). The
+#       comparison is against the render's OWN output, which makes the guard idempotent by
+#       construction: a region this renderer wrote for this manifest has zero residue and
+#       never trips, and the EMPTY pair a fresh scaffold ships (skills/new-plan) has zero
+#       residue too, so scaffold-time delegation is untouched.
+#
+# THE PRESERVATION CONTRACT IS NOT WEAKENED. This renderer owns ONLY the region between its
+# sentinels; everything outside stays byte-for-byte. A tasks.md with NO sentinel pair keeps
+# every existing byte and gets the pair APPENDED (measured on the largest such plan: 16,162 ->
+# 16,324 bytes, twelve lines added, zero removed), so the guard deliberately does not fire
+# there — refusing an append would convert a preserving behaviour into a blocking one and
+# protect nothing. The predicate keys on the sentinel region for exactly that reason.
+#
+# SCOPE (reachability, so the guard is not mistaken for a corpus-wide control). Both automatic
+# lanes render ONLY the plan whose manifest was just written — hooks/post-manifest-binder-refresh.sh
+# (PostToolUse Edit|Write on a plan-tree manifest.json) and hooks/tasks-md-autosync.sh (task-done
+# marker -> manifest flip -> render). Neither walks the tree and neither reaches an arbitrary
+# plan; the third lane is direct/model-routed invocation. So this body is the ONE chokepoint
+# every lane flows through and the guard lives HERE, exactly like the master skip above —
+# neither hook carries (or needs) a guard of its own.
+#
+# REJECTED, and not adopted here: restoring a TTY-presence guard on this capability as an
+# interim. It protects nobody (an operator at a terminal reaches the identical render), it is
+# defeatable with one token, and it re-blocks the on-demand requirement that motivated its
+# removal — a band-aid where the structural refusal is the fix.
+_CONTENT_FIELDS = ("title", "description", "acceptance_criteria",
+                   "file_references", "depends_on", "build_item", "sot_refs")
+
+
+def _is_stub_task(t):
+    if not isinstance(t, dict):
+        return True
+    for k in _CONTENT_FIELDS:
+        v = t.get(k)
+        if isinstance(v, (list, tuple, dict)):
+            if len(v) > 0:
+                return False
+        elif v is not None and str(v).strip() != "":
+            return False
+    return True
+
+
+def _region_residue(ondisk, generated):
+    """Ordered list of the on-disk region's non-blank lines the generated region does not
+    reproduce — i.e. exactly what this render would drop. Empty list == nothing to lose."""
+    avail = {}
+    for ln in generated.split("\n"):
+        s = ln.strip()
+        if s:
+            avail[s] = avail.get(s, 0) + 1
+    residue = []
+    for ln in ondisk.split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        if avail.get(s, 0) > 0:
+            avail[s] -= 1
+        else:
+            residue.append(s)
+    return residue
+
+
+if (not tasks) or all(_is_stub_task(_t) for _t in tasks):
+    _residue = _region_residue(sentinel_region, region_inner) if sentinel_existed else []
+    if _residue:
+        # LOUD-SKIP, same shape as the schema gate above ("skipped <plan> — …", stderr, exit 1):
+        # refuse and freeze, never write-and-hope. The read-replica is left untouched and the
+        # refusal is visible rather than a silent 0-row overwrite.
+        print("tasks-render: skipped %s — manifest.tasks[] is empty-or-stub while the on-disk "
+              "tasks.md sentinel region carries %d line(s) this render would not reproduce "
+              "(first: %s); refusing to render: the generated ledger is a 0-row table and would "
+              "replace that region. manifest.tasks[] is the task-state SoT — repair it and re-run."
+              % (plan_slug, len(_residue), _residue[0][:120]), file=sys.stderr)
+        sys.exit(1)
 
 if preface and not preface.endswith("\n"):
     preface += "\n"

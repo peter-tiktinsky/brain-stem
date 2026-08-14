@@ -16,8 +16,18 @@ source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || true
 
 # Drain stdin (statusLine JSON payload: model/cwd/etc.) so we never block; the
 # status here is orchestrator-global, not prompt-derived.
+# BOUNDED drain: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the status line never renders. The bound is
+# PER READ: a stream that keeps delivering is never truncated, only silence is.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
 if [ ! -t 0 ]; then
-  cat >/dev/null 2>&1 || true
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE; do :; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/runtime}"

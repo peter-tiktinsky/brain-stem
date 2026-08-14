@@ -170,7 +170,7 @@ case-arm in the dispatcher.
 | 5. MUTATE + ACTION-LOG | `process.sh commit <kind> <validated.json>` → `modes/<kind>.sh commit()` → `hooks/lib/overlay-master-mutate.sh` (atomic; appends row) |
 | 6. VAULT-ROOT CLAUDE.md SELF-UPDATE | `modes/folder.sh` only — appends user-cluster entry to vault-root `CLAUDE.md` Vault Structure tree (no `[F]` marker per) — invoked AFTER step 5 commit succeeds |
 
-Frictionless skip (per `feedback_soft_mandate_pattern`): any step,
+Frictionless skip (a soft mandate — strong recommendation, never a block): any step,
 operator dismisses → `process.sh skip` records `unregistered: true`;
 librarian governance-parity-audit surfaces as drift finding.
 
@@ -371,8 +371,8 @@ trusts pre-write enforcement and does NOT re-validate downstream).
 **Skip-path file writes (all modes):** one row to
 `$VAULT_WRITER_STATE_ROOT/governance-action-log.jsonl` with `unregistered: true`,
 `proposed_by: skipped`, `target: <T>`. No overlay-master mutation. No vault
-writes. Original triggering write proceeds (frictionless skip per
-`feedback_soft_mandate_pattern`).
+writes. Original triggering write proceeds (frictionless skip — a soft
+mandate is a strong recommendation, never a block).
 
 **Pre-write validation:**
 - `process.sh commit` REQUIRES `--proposal <validated.json>` with the
@@ -398,8 +398,8 @@ writes. Original triggering write proceeds (frictionless skip per
   lacks an inline `_override_reason: "<text>"` field (canonical
   shape; per-entry only since T-5).
 
-**Failure mode:** block-and-log per `feedback_no_skill_code_generation`
-(failure-mode discipline) + `feedback_structural_over_bandaid`:
+**Failure mode:** block-and-log — a skill never generates its own mutation
+code, and a structural layer beats a remembered reminder:
 
 - Library `rc=2` (bad argv) / `rc=3` (pre-flight failure) / `rc=4`
   (schema validation failure) / `rc=5` (lock contention) / `rc=6`
@@ -418,13 +418,13 @@ writes. Original triggering write proceeds (frictionless skip per
 ## Constraints
 
 - All overlay-master mutations flow through `hooks/lib/overlay-master-mutate.sh`
-  per `feedback_no_skill_code_generation` (single mutation library;
+  rather than skill-generated code (single mutation library;
   schema-drift prevention). No mode handler writes `overlay-master.json`
   or `governance-action-log.jsonl` directly. No mode handler hand-composes
   action-log row JSON.
 - Bash 3.2 compatible per existing skill substrate (no `declare -A`, no
   `mapfile`, no `${var,,}`).
-- Foundation-repo-only authoring per `feedback_no_live_edits_during_foundation_repo_build`.
+- Foundation-repo-only authoring — never a live-install hand-edit.
   Live `~/.claude/` install scaffolding ships via.
 - Plans-tree governance is ORTHOGONAL — `/govern register` declines
   `--kind plan` (use `/new-plan` or `/backlog-research`).

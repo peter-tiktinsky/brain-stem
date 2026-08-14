@@ -84,7 +84,7 @@ import json, os, sys
 p, stdin_path = sys.argv[1], sys.argv[2]
 if not os.path.isfile(p):
     # LAZY-CREATE on an absent store (create-on-first-write), then
-    # append proceeds — was: sys.exit(2). NO new shipped member (operator ruling 2026-07-09).
+    # append proceeds — was: sys.exit(2). The store is created on first write, not shipped.
     try:
         os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
         with open(p, "w") as _f:

@@ -2,9 +2,12 @@
 # hooks/lib/staging-emit.sh — shared library for vault writers to emit content
 # packets into the writer-reconciler staging area.
 #
-# hooks/lib/ is the sole lib surface. The staging root resolves via
+# Ported from the lib/staging-emit.sh (TOP-LEVEL lib/);
+# RELOCATED to hooks/lib/ per (brain-stem has no top-level lib/ — hooks/lib/
+# is the sole lib surface).: the staging root resolves via
 # $CLAUDE_STATE_ROOT (the machine-local ephemeral state tier; paths.sh exports
-# it as ~/.local/state/brain-stem), NOT a bare ~/.claude literal.
+# it as ~/.local/state/brain-stem), NOT a bare ~/.claude or literal.
+# T-01 (writer-pipeline substrate).
 #
 # Pipeline posture (per-destination contract-driven hybrid):
 #   - Default = direct write; this library is NOT used in the default path.
@@ -37,14 +40,14 @@
 #     packet is left (tempfile cleaned on any composition failure).
 #
 # bash 3.2 compatible (no `declare -A`, no `mapfile`, no `${var,,}`).
-# Canonical lock pattern: /usr/bin/lockf -k -t 0.
+# Canonical lock pattern: /usr/bin/lockf -k -t 0 (kernel-backed; not flock).
 
 set -u
 
 # ---- defaults ---------------------------------------------------------------
 
-# Resolve STAGING_ROOT (the single canonical ephemeral staging root):
-# env wins; otherwise $CLAUDE_STATE_ROOT/vault-staging
+# Resolve STAGING_ROOT (the single canonical ephemeral staging root,
+# .2:74): env wins; otherwise $CLAUDE_STATE_ROOT/vault-staging
 # (paths.sh exports CLAUDE_STATE_ROOT = ~/.local/state/brain-stem). When paths.sh
 # is not yet sourced, fall back to the same XDG-state default inline.
 if [ -z "${STAGING_ROOT:-}" ]; then

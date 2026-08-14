@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # skills/writer-reconciler/process.sh — runtime reconciler for vault writer
 # staged packets.
-# Per alignment Session 4 + + + +.
-# Renamed + reshaped from inbox-processor under Batch B T-11 (2026-05-18).
+#
+# Renamed and reshaped from the earlier inbox-processor: one runtime that drains
+# staged writer packets per tick, instead of a vault-scanning inbox walker.
+#
 # Per-tick batch: enumerate ~/.claude/state/vault-staging/<writer-id>/*.json
 # packets; per-packet resolve processing rules (folder > file-type-contracts >
 # universal pillar 7 default); apply mechanical-only reconciliation
 # (winner-pick / dedup / append per R-34); atomic-write destination via
 # standard write path; remove processed packet.
+#
 # Idempotent: re-running on an empty staging dir is a no-op. Operator-edit
-# survivorship preserved via two-signal detection (per Session 4).
+# survivorship preserved via two-signal detection.
+#
 # bash 3.2 compatible. jq REQUIRED. shasum REQUIRED.
 
 set -u
@@ -211,7 +215,7 @@ audit_emit() {
 }
 
 # Write a sidecar `_reconciler-error.json` next to a packet describing the
-# rejection reason. Packet is retained per Session 4.
+# rejection reason. The packet is RETAINED, never discarded on rejection.
 sidecar_error() {
   # $1 packet-path  $2 reason
   local packet="$1" reason="$2"
@@ -304,7 +308,7 @@ compose_effective_rules() {
     '{dedup:$dedup,survivorship:$survivorship,merge:$merge}'
 }
 
-# Detect operator edit at destination per Session 4 (two-signal):
+# Detect operator edit at destination per (two-signal):
 # - last_user_edit frontmatter > writer's emitted_at, OR
 # - content-hash diff against writer's last-known content_sha256.
 # Returns 0 if operator edit detected; 1 otherwise.
@@ -333,7 +337,9 @@ operator_edit_detected() {
 
 # Step 8.5 + 8.6 helper (per SKILL.md../ spec.md / writer-
 # pipeline-layering.md..+../).
+#
 # Inputs: destination, writer_id, content_sha, output_type, packet_kind, source_id.
+#
 # Behavior:
 #   - Step 8.5: append one row to
 #     $VAULT_WRITER_STATE_ROOT/daily-processing/$(utc-today)/<dest-slug>.jsonl.
@@ -349,10 +355,12 @@ operator_edit_detected() {
 #     transaction. Best-effort: when manifest not yet bootstrapped (no
 #     `init` called; typical in dev/fixture for step-8.5-isolated tests),
 #     skip silently — install scaffolding bootstraps in production.
+#
 # write_bucket derivation per SKILL.md-129:
 #   - 0 prior rows at destination          → "create"
 #   - >0 prior rows + packet_kind=amender-replacement → "modify-amend"
 #   - else                                 → "modify-append"
+#
 # Returns 0 on success or skip-manifest-best-effort; 1 on JSONL write failure
 # (hard requirement; step 8.5 row IS the audit signal that the reconciler
 # touched the destination).
@@ -368,7 +376,7 @@ emit_daily_processing_and_manifest_row() {
   # Manifest history query (for write_bucket derivation + supersession id).
   # the manifest lib lives at hooks/lib/ (brain-stem has no top-level lib/);
   # this resolves the divergent process.sh path to the shipped hooks/lib/
-  # substrate (T-01 /), reconciling against install.sh:700 hooks/lib/.
+  # substrate (T-01 /), reconciling against install.sh's hooks/lib/ ship set.
   local manifest_record manifest_path
   manifest_record="$REPO_ROOT/hooks/lib/manifest-record.sh"
   manifest_path="${WRITER_MANIFEST_PATH:-$vault_writer_state_root/manifest.sqlite}"

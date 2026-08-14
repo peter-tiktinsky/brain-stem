@@ -5,6 +5,7 @@
 # the situating card owns (project-context-situating). The two never overlap: the
 # card is the cross-plan binder orientation, the work-map is the on-disk directory
 # map of the spoke itself (disjoint roles — the work surface vs the binder surface).
+#
 # The work CLAUDE.md is scaffolded by skills/govern/lib/project-workspace/scaffold.sh
 # with a FROZEN cross-tool block contract: a `## What lives where` directory map
 # bounded by `<!-- work-map:start generated:true -->` … `<!-- work-map:end -->`,
@@ -12,6 +13,7 @@
 # hand-edit this block._` line. Everything OUTSIDE those markers (the identity line,
 # the README/updates pointer, the binder pointer) is OWNED by scaffold.sh — this
 # generator PRESERVES it byte-for-byte and replaces ONLY the inside-markers content.
+#
 # The map is DERIVED from the top level of $WORK_HOME/<spoke>/ ONLY (not recursive).
 # Layout detection mirrors scaffold.sh's two shapes:
 #   MASTER  — the spoke has sub-project dirs (top-level dirs that are NOT
@@ -21,13 +23,15 @@
 #             (raw notes) + README.md + updates.md with their roles.
 # The block body is DETERMINISTIC on the same disk state (idempotent: a re-run
 # without a disk change is byte-identical).
+#
 # Survivorship / leave-orphan: this generator NEVER injects markers into a
 # CLAUDE.md that does not already carry them. If the spoke's CLAUDE.md is ABSENT, or
 # carries NO work-map:start/work-map:end markers (a legacy / hand-authored CLAUDE.md),
 # it DEFENSIVELY SKIPS with a finding — it does not impose the new shape on an
 # orphan. An absent spoke dir is the same defensive skip. Block-and-log, exit 0,
 # never crash.
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - $WORK_HOME/<spoke>/CLAUDE.md  (atomic temp+os.replace; the work-map MARKER
 #         BLOCK ONLY — the text strictly between work-map:start and work-map:end is
@@ -48,16 +52,18 @@
 #   Failure mode: BLOCK-AND-LOG. An absent dir / absent-or-marker-less CLAUDE.md /
 #     unreadable CLAUDE.md emits a finding and is SKIPPED; no partial/garbage write;
 #     exit 0 always. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): the work-map block in $WORK_HOME/<spoke>/CLAUDE.md
+#   Maintainer-provenance: the work-map block in $WORK_HOME/<spoke>/CLAUDE.md
 #     is a librarian-maintained GENERATED region; this capability is its sole
 #     originating writer. It writes ONLY that marker block. It NEVER writes README.md,
 #     updates.md, anything under deliverables/ or reference/, the work CLAUDE.md
 #     content OUTSIDE the markers, or anything under PLANS_ROOT.
+#
 # CLI:
 #   work-map-generate.sh                  # regenerate every spoke's work-map block
 #   work-map-generate.sh --spoke <key>    # regenerate one spoke's block only
 #   work-map-generate.sh --dry-run        # findings + would-be writes, NO write
 #   work-map-generate.sh --help
+#
 # Env overrides (testing):
 #   WORK_HOME / BRAIN_STEM_WORK_HOME   work spokes root (test isolation; resolved the
 #                                      way scaffold.sh resolves it — WORK_HOME wins,
@@ -66,8 +72,9 @@
 #                                      work-map writes to $WORK_HOME, NOT PLANS_ROOT,
 #                                      but paths.sh is sourced for sibling parity)
 #   FINDINGS_OUTPUT                    NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv, never
-# piped stdin — feedback_python_heredoc_argv). Read-only spoke walk + atomic block
+# piped stdin the heredoc would consume). Read-only spoke walk + atomic block
 # write inside the work CLAUDE.md.
 
 set -uo pipefail

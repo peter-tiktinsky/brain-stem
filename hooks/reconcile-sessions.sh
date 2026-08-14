@@ -7,13 +7,13 @@
 # reaps stale + closed-pending peers so peer-awareness / R-42 /
 # pre-compact files_modified / post-compaction restore stay live.
 #
-# UNOWNED-SURFACE closure (feedback_f3_ownership_vs_tree_asis_port_gap): named
+# UNOWNED-SURFACE closure (a roster-vs-as-is-port ownership gap): named
 # in + but absent from the1.1 hooks roster — T-04
 # authors the body AND adds the2 "Owns" +.1 roster line (T-12).
 #
 # Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
 # deadlock-free). OUTER = reconcile.lock process-dedup (/3 lock roster;
-# feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec) — a second concurrent
+# the canonical `/usr/bin/lockf -k -t 0` re-exec) — a second concurrent
 # run hits contention (exit 75) and skips cleanly (reconciliation is idempotent).
 # INNER = the SHARED registry.lock (REGISTRY_LOCK, `-t 2`) held across the entire
 # read_registry..write_registry RMW span, so the reaper's sweep is mutually exclusive
@@ -96,11 +96,11 @@ for sid in $sids; do
       # integrity-backstop all score a row identically. fresh_hb -> KEEP; stale_hb ->
       # DROP (INCLUDING the live-pid + stale-hb phantom quadrant — DROP, which renders
       # the non-unique shared pid inert, the fix). Absent/unparseable hb floors
-      # staleness off `started` (always written at session-register.sh:47) so a no-hb
+      # staleness off `started` (always written by session-register) so a no-hb
       # row still ages; pid is a keep-signal ONLY when hb AND started are both absent
       # (backward-compat shim for a pre-heartbeat registry).
       #
-      # BEHAVIOR DELTA vs the pre-128 inline block: the fresh/stale-hb and dead-pid+no-hb
+      # BEHAVIOR DELTA vs the earlier inline block this replaced: the fresh/stale-hb and dead-pid+no-hb
       # quadrants are byte-preserved (matrix + tz + fixtures stay GREEN). The one
       # changed quadrant is live-pid + absent-hb + STALE `started`: previously KEPT (pid
       # live, no hb to flip it), now DROPPED via the started-floor — the intended "no-hb

@@ -2,19 +2,30 @@
 # Hook: PreCompact — Mechanically extract session state if no fresh checkpoint exists.
 # Zero-LLM-cost: all bash/grep/sed/jq. Must complete in <3 seconds.
 # Output matches Session Continuity Block schema from CLAUDE.md.
-# 2026-05-10 fix (Session 2-rework, authorized):
+# 2026-05-10 fix (-rework, authorized):
 #   (1) Removed invalid hookSpecificOutput emission.
 #       "PreCompact" is NOT in Claude Code's hookEventName enum
 #       (PreToolUse|UserPromptSubmit|PostToolUse|PostToolBatch only).
 #       Old emit was rejected by validator; additionalContext never reached
 #       post-compact intake. Hook now exits 0 silently. SessionStart
 #       source=compact reads checkpoint.md per R-26 contract.
-#   (2) Added freshness + structure precedence guard.
+#   (2) Added a structure precedence guard.
 #       /session-checkpoint output (rich) wins over PreCompact mechanical extraction.
-#       If checkpoint.md is < 10 minutes old AND has structured content
-#       (Session Continuity Block header + ≥3 populated fields), exit 0
-#       without overwriting. Mechanical extraction only runs when checkpoint
-#       is stale OR missing OR is a previous panic-fallback.
+#       If checkpoint.md has structured content (Session Continuity Block header
+#       + ≥3 populated fields), exit 0 without overwriting. Mechanical extraction
+#       only runs when the checkpoint is missing, empty, unstructured, or is a
+#       previous panic-fallback.
+#       Predicate RE-ADJUDICATED (T-2): the guard was `age < 600s AND
+#       structured`, which released a rich checkpoint at any age past ten minutes
+#       — exactly when a long session had made it irreplaceable. Rich now wins at
+#       ANY AGE, and the accepted consequence is deliberate: a mechanically
+#       extracted block is itself structured, so a second compaction preserves the
+#       first one's snapshot instead of refreshing it. Refresh belongs to the
+#       higher-provenance writer (/session-checkpoint, which is also what the R-26
+#       bands mandate); silently destroying a handoff record to keep a mechanical
+#       one current is the trade this hook used to make, and it is the wrong one.
+#       The predicate itself lives in hooks/lib/checkpoint-guard.sh and is shared
+#       with the other writer of this file (prompt-context.sh).
 #   (3) [MISSING] tokens replace empty fields per R-26 contract verbatim
 #       ("never silently skipped").
 set -uo pipefail
@@ -24,6 +35,10 @@ set -uo pipefail
 # no-op journal_emission fallback so the hook never hard-fails before it lands.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
+# The single owner of "may I overwrite this checkpoint?", shared with the other
+# writer of this file (prompt-context.sh). Sourced UNCONDITIONALLY — a
+# graceful-degrade guard here would silently restore the unguarded overwrite.
+source "$SCRIPT_DIR/lib/checkpoint-guard.sh"
 [ -r "$SCRIPT_DIR/lib/hook-journal.sh" ] && source "$SCRIPT_DIR/lib/hook-journal.sh"
 if ! command -v journal_emission >/dev/null 2>&1; then
   journal_emission() { :; }
@@ -35,7 +50,31 @@ STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${
 # ($COORD_DIR emitted by paths.sh), not the legacy $VAULT_LOGS path.
 SESSION_REGISTRY="${COORD_DIR:-$CLAUDE_STATE_ROOT/.coordination}/session-registry.json"
 
-INPUT=$(cat)
+# Read the PreCompact payload (the transcript path).
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
@@ -51,23 +90,16 @@ CHECKPOINT_FILE="$SESSION_DIR/checkpoint.md"
 
 mkdir -p "$SESSION_DIR"
 
-# --- Freshness + structure precedence guard (2026-05-10 fix) ---
-# If checkpoint.md exists, is < 10 minutes old, AND has structured content,
-# preserve it. /session-checkpoint output wins over mechanical extraction.
-if [[ -f "$CHECKPOINT_FILE" ]]; then
-  cp_mtime=$(stat -f %m "$CHECKPOINT_FILE" 2>/dev/null || stat -c %Y "$CHECKPOINT_FILE" 2>/dev/null || echo 0)
-  age_seconds=$(( $(date +%s) - cp_mtime ))
-  if [[ "$age_seconds" -lt 600 ]]; then
-    if grep -q "^# Session Continuity Block" "$CHECKPOINT_FILE" 2>/dev/null; then
-      populated_lines=$(grep -cE "^[a-z_]+: .+$" "$CHECKPOINT_FILE" 2>/dev/null || echo 0)
-      # Strip whitespace just in case
-      populated_lines="${populated_lines//[^0-9]/}"
-      if [[ "${populated_lines:-0}" -ge 3 ]]; then
-        # Fresh + structured. Preserve verbatim. Exit silently.
-        exit 0
-      fi
-    fi
-  fi
+# --- Structure precedence guard (2026-05-10; predicate re-adjudicated per the
+#     header note above) ---
+# A rich checkpoint is preserved verbatim at ANY age: /session-checkpoint output
+# wins over mechanical extraction. checkpoint_guarded_write below applies the same
+# predicate, so this early exit is a work-avoidance shortcut — it skips the
+# extraction that would be discarded anyway — and NOT a second derivation of the
+# rule. Mechanical extraction proceeds for a missing, empty, unstructured or
+# panic-fallback checkpoint.
+if checkpoint_is_rich "$CHECKPOINT_FILE"; then
+  exit 0
 fi
 
 # --- Mechanical State Extraction ---
@@ -134,7 +166,7 @@ fi
 
 # 2. Read session registry for touched files — T-4 (2026-05-11):
 # scope to current $SESSION_ID deterministically (was MRU-heartbeat-active,
-# stochastic per feedback_guard_signal_determinism + cross-session pollution).
+# stochastic — a guard signal must be deterministic — plus cross-session pollution).
 if [[ -f "$SESSION_REGISTRY" ]]; then
   registry_files=$(jq -r --arg sid "$SESSION_ID" '.sessions | to_entries | map(select(.key == $sid)) | .[0] // empty | .value.touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null | head -20 | tr '\n' '; ')
   if [[ -n "$registry_files" ]]; then
@@ -166,24 +198,16 @@ next_steps="${next_steps:-[MISSING]}"
 ac_status="${ac_status:-[MISSING]}"
 current_blocker="${current_blocker:-[MISSING]}"
 
-# --- Cause-1 relocation (RULING 3): archive the prior bare checkpoint.md
-#     to a dated variant BEFORE overwriting it. Rotation was relocated here from
-#     session-register.sh (which runs at SessionStart only and cannot rotate on the
-#     NEXT checkpoint write). Reached only on the stale/missing write path (the
-#     fresh-preserve gate returned earlier at :62-76), and placed AFTER the
-#     accumulated-state read above so the archived copy is the pre-overwrite content.
-#     COPY (not move) then overwrite, so a failed archive never loses the checkpoint;
-#     the checkpoint-YYYYMMDD-HHMMSS.md dated variant is legitimate rotation history.
-if [[ -f "$CHECKPOINT_FILE" ]] && [[ -s "$CHECKPOINT_FILE" ]]; then
-  archive_ts=$(date -u +"%Y%m%d-%H%M%S")
-  cp "$CHECKPOINT_FILE" "$SESSION_DIR/checkpoint-${archive_ts}.md" 2>/dev/null || true
-fi
-
-# --- Write checkpoint (only path reached: stale/missing/empty checkpoint) ---
+# --- Write checkpoint (only path reached: unstructured/missing/empty checkpoint) ---
+# The dated-variant rotation that used to sit inline here (Cause-1 relocation, Plan
+# 190 / RULING 3 — moved out of session-register.sh, which runs at SessionStart only
+# and cannot rotate on the NEXT checkpoint write) now belongs to
+# checkpoint_guarded_write, so both writers of this file rotate identically. Ordering
+# is unchanged: the archive still happens at write time, i.e. AFTER the
+# accumulated-state read above, so the archived copy is the pre-overwrite content.
 if [[ "$has_structured" == "true" ]]; then
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  tmp="${CHECKPOINT_FILE}.tmp.$$"
-  cat > "$tmp" <<EOF
+  checkpoint_guarded_write "$CHECKPOINT_FILE" <<EOF
 # Session Continuity Block
 **Generated:** $ts
 **Source:** PreCompact hook — mechanical extraction (no fresh /session-checkpoint output)
@@ -201,10 +225,10 @@ current_blocker: $current_blocker
 ## Action Required
 - Resume from this checkpoint after compaction
 - Re-read any files listed in files_modified if actively editing
-- Note: this is mechanically-extracted. If /session-checkpoint had been run within 10 minutes, that content was preserved by the freshness gate.
+- Note: this is mechanically-extracted. Any /session-checkpoint output present here would have been preserved verbatim by the structure gate, at any age.
 EOF
-  mv "$tmp" "$CHECKPOINT_FILE"
-  journal_emission "PreCompact" "state-write:checkpoint:structured-extraction" 0
+  cp_rc=$?
+  journal_emission "PreCompact" "state-write:checkpoint:structured-extraction" "$cp_rc"
 else
   # --- Transcript fallback (no structured sources) ---
   panic_context="No structured state sources found."
@@ -216,8 +240,7 @@ else
   fi
 
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  tmp="${CHECKPOINT_FILE}.tmp.$$"
-  cat > "$tmp" <<EOF
+  checkpoint_guarded_write "$CHECKPOINT_FILE" <<EOF
 # Panic Checkpoint (auto-generated at compaction)
 **Generated:** $ts
 **Source:** PreCompact hook — no structured sources, transcript fallback
@@ -230,8 +253,8 @@ $panic_context
 - Check task list for current progress
 - Re-read any files you were actively editing
 EOF
-  mv "$tmp" "$CHECKPOINT_FILE"
-  journal_emission "PreCompact" "state-write:checkpoint:panic-fallback" 0
+  cp_rc=$?
+  journal_emission "PreCompact" "state-write:checkpoint:panic-fallback" "$cp_rc"
 fi
 
 # 2026-05-10 fix: invalid hookSpecificOutput emission removed.

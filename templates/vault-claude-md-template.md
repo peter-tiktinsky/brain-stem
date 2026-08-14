@@ -1,4 +1,4 @@
-# CLAUDE.md — {{IDENTITY_NAME}}'s Obsidian Vault
+# CLAUDE.md — {{IDENTITY_NAME}}'s vault
 
 <!-- This file gives Claude an at-a-glance view of the vault's folder
      structure. brain-stem seeded it at install (substituting identity fields

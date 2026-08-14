@@ -184,8 +184,6 @@ mode_commit() {
 # H2 section and appends within it.
 _folder_claude_md_tree_append() {
   local target="$1"
-  local vault_root="${VAULT_ROOT:-$HOME/Documents/Obsidian Vault}"
-  local claude_md="$vault_root/CLAUDE.md"
 
   # Defensive Work/* carve-out (belt-and-suspenders with the mode_commit case
   # guard): a Work-spoke target never lands in the vault-root tree — its
@@ -194,6 +192,26 @@ _folder_claude_md_tree_append() {
   case "$target" in
     Work|Work/*) return 0 ;;
   esac
+
+  # No vault root -> no vault-root CLAUDE.md to update. The sentinel consulted is
+  # the ROOT VALUE ITSELF: the empty root is the dangerous state, because composing
+  # a tree path from it collapses to a bare `/CLAUDE.md` at the filesystem root.
+  # VAULT_CONFIGURED is the DERIVED flag the paths SoT materializes from this same
+  # root — a convenience for consumers, not an independent authority — so it is
+  # deliberately NOT required here: a caller that exports VAULT_ROOT directly (the
+  # seam the advisory below names, and the one the unit tests drive) has supplied a
+  # vault, and demanding the derived flag on top would skip a legitimate append.
+  # No-op with an advisory rather than invent a root — an invented one would
+  # rewrite a CLAUDE.md somewhere the adopter never nominated. Same
+  # graceful-degrade shape as the missing-CLAUDE.md branch below; the overlay
+  # commit is canonical and has already landed.
+  local vault_root="${VAULT_ROOT:-}"
+  if [ -z "$vault_root" ]; then
+    printf 'folder: vault-root CLAUDE.md tree-append skipped for %s — no vault is configured (set .paths.vault_root in the user manifest, or export VAULT_ROOT); nothing was written\n' "$target" >&2
+    return 0
+  fi
+
+  local claude_md="$vault_root/CLAUDE.md"
 
   if [ ! -f "$claude_md" ]; then
     # No vault-root CLAUDE.md yet — defer the tree-append (install scaffolding

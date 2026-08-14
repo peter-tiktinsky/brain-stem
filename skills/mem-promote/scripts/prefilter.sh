@@ -1,7 +1,7 @@
 #!/bin/bash
 # mem-promote/scripts/prefilter.sh — standalone gather + dedup prefilter.
 #
-# Phase 1+2 of the mem-promote pipeline: read claude-mem
+# Phase 1+2 of the mem-promote pipeline (.8): read claude-mem
 # observations for the named session(s), cluster by Jaccard token overlap, and
 # de-conflict each cluster against the curated memory/*.md file set. Emits
 # ranked candidates with up to ≤8 neighbors (capture floor Jaccard ≥0.20).
@@ -13,13 +13,13 @@
 # --enqueue it buffers proposal items into the review queue (still propose-only);
 # default is NDJSON to stdout for the LLM reshape step.
 #
-# Graceful degradation: claude-mem DB absent → 0 candidates → clean exit
-# status "n/a" (exit 0, no error). The prefilter is strictly additive.
+# graceful degradation: claude-mem DB absent → 0 candidates → clean exit
+# status "n/a" (exit 0, no error). System B is strictly additive.
 #
-# Standalone: NO librarian-lib dependency. Resolves the memory
+# Standalone (FORK-A): NO librarian-lib dependency. Resolves the memory
 # dir via hooks/lib/paths.sh when present, else a sane default.
 #
-# Bash 3.2 clean (R-23). Argv-based Python heredoc (no stdin pipe to the heredoc).
+# Bash 3.2 clean (R-23). Argv-based Python heredoc (data via argv, never stdin).
 
 set -euo pipefail
 
@@ -74,11 +74,11 @@ CLAUDE_MEM_DB="${CLAUDE_MEM_DB:-$HOME/.claude-mem/claude-mem.db}"
 CLUSTER_THRESHOLD="${MEM_PROMOTE_CLUSTER_THRESHOLD:-0.20}"
 NEIGHBOR_CAP="${MEM_PROMOTE_NEIGHBOR_CAP:-8}"
 
-# No-claude-mem-DB graceful degradation. DB absent → status n/a, 0
-# candidates, clean exit. This is the dead-but-harmless contract — never
-# an error, never a non-zero exit.
+# no-claude-mem-DB graceful degradation. DB absent → status n/a, 0
+# candidates, clean exit. This is the dead-but-harmless Gate-1 contract — never
+# an error, never a non-zero exit (.9).
 if [ ! -f "$CLAUDE_MEM_DB" ]; then
-  echo "mem-promote: claude-mem DB absent at $CLAUDE_MEM_DB — status=n/a candidates=0 (claude-mem integration is optional; foundation floor complete without it)" >&2
+  echo "mem-promote: claude-mem DB absent at $CLAUDE_MEM_DB — status=n/a candidates=0 (System B is optional; foundation floor complete without it)" >&2
   if [ "$DRY_RUN" = "true" ]; then
     echo "mem-promote: status=n/a sessions=0 scanned_obs=0 candidates=0"
   fi

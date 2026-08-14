@@ -362,7 +362,7 @@ def detect_type(rel, fm):
 # The hand-mirror previously drifted from the composed bundle — notably the
 # `reference` type was missing entirely, silently skipping its required-field
 # enforcement. This read mirrors the drift-sweep.sh precedent
-# (drift-sweep.sh:152-181): same composed-bundle source (FM_FOUNDATION_MASTER,
+# (the drift-sweep reader): same composed-bundle source (FM_FOUNDATION_MASTER,
 # already union-redirected through the overlay merger), same .frontmatter.types
 # path, same `_`-prefixed-key skip so the `_description` sentinel is never
 # enumerated as a real type. Adopter extensions resolve via overlay-master at
@@ -569,6 +569,13 @@ def build_scope():
             visited.add(rp)
             dirnames[:] = [d for d in dirnames
                            if os.path.realpath(os.path.join(dirpath, d)) not in visited]
+        # THE --full ROOT PRUNE. These five vault-root names are NOT WALKED on the --full
+        # lane. A fixture or caller that writes a probe under any of them and then runs
+        # --full gets silence, and that silence is indistinguishable from "the rule did not
+        # fire": ac-frontmatter-enforce-seed-taxonomy-exempt.sh arm (E) read as a product
+        # defect for many trains on exactly that confusion. If this list changes, the
+        # coupled fixture arm must move with it (that arm now carries a positive control
+        # that REDs loudly when its subject stops being scanned).
         if walk == "full" and os.path.relpath(dirpath, root) == ".":
             dirnames[:] = [d for d in dirnames
                            if d not in ("Plans", "Projects", "Wiki", "Work", "Skills")]

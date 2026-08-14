@@ -21,13 +21,16 @@
       "status": "active",
       "source": "governance/naming-rules.json :: _rules (SoT)",
       "failure_mode": "File written to an undocumented vault-root drifts structure; navigation guides go stale. Advisory: write proceeds; operator told to move the file or register the directory via /govern register.",
-      "rule_text": "Files written to a vault-root directory must reside in a documented root. Known roots are a hardcoded allowlist in pre-write-guard.sh covering foundation-shipped system folders only; user-created top-level folders register via overlay-master path_routing extensions. A small set of top-level files is exempt from the root-must-be-a-directory rule. Adding a new foundation-shipped root requires R-10's checklist + R-37 lockstep.",
+      "rule_text": "Files written to a vault-root directory must reside in a documented root. The allowlist is this rule's `known_roots` list, read at write time from the composed foundation bundle by pre-write-guard.sh; the hardcoded list in that hook is a bundle-less fallback mirror of this one and moves with it. It covers foundation-shipped system folders only; user-created top-level folders register via overlay-master path_routing extensions. A small set of top-level files is exempt from the root-must-be-a-directory rule. Adding a new foundation-shipped root requires R-10's checklist + R-37 lockstep.",
+      "known_roots_rationale": "A directory belongs on this list only when a shipped surface establishes it as a foundation root: the vault-init tree, an `[F]` row in the vault CLAUDE.md structure template, the guard's own foundation-system-folder register, or a governance pillar naming it foundation-shipped. Adopter-created top-level folders register via overlay-master path_routing instead. Work qualifies on that test: the guard's own folder register and the CLAUDE.md template's [F] rows both list it.",
+      "known_roots_exclusion_rationale": "Appearing in a walker exemption, orphan-exclusion or loose-schema list does not qualify a directory — those lists tolerate optional content wherever it exists and carry folders that are not roots. `Inbox/` is the worked case: it appears in several such lists, no shipped surface establishes it as a root, and it is therefore deliberately absent from known_roots.",
       "known_roots": [
         "Archive",
         "Daily",
         "Plans",
         "Skills",
-        "Vault Writers"
+        "Vault Writers",
+        "Work"
       ],
       "vault_root_file_exemptions": [
         "CLAUDE.md"
@@ -51,7 +54,7 @@
         "Declare purpose — what archetype/content the directory holds",
         "Declare consumer — which skill, hook, capability, or query parses this path",
         "Add governance/frontmatter-rules.json#types entry + governance/file-type-contracts/<file>.json body-structure contract (the latter only if the new root carries a foundation-shipped mandatory file)",
-        "Extend pre-write-guard.sh known-root list (R-04 allowlist update)",
+        "Add the root to governance/naming-rules.json :: _rules[R-04].known_roots (the SoT the guard reads from the composed bundle at write time) + rebuild the composed master; the hook's hardcoded list is only the bundle-less fallback mirror and moves with the pillar",
         "Add librarian-capability entry (placement-validation / plan-index / walker)",
         "Commit R-37 documentary lockstep — all surfaces move in one commit"
       ]

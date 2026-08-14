@@ -1,10 +1,11 @@
 #!/bin/bash
 # handoff-chronicle-append — the SECONDARY-ROLE (incremental append) half of the
-# R-GOV-1a composite maintainer for the per-spoke binder handoff chronicle
-# _projects/<spoke>/handoff-chronicle.md (R-BIND-4 / R-BIND-7). It appends ONE
+# composite maintainer for the per-spoke binder handoff chronicle
+# _projects/<spoke>/handoff-chronicle.md. It appends ONE
 # block for the NEWEST session of a just-written handoff.md, newest-first, at the
 # HEAD of the sentinel-bounded chronicle region — and touches nothing else.
-# Composite split (R-GOV-1a):
+#
+# Composite split:
 #   primary       = librarian (skills/librarian/capabilities/plan-handoff-index.sh —
 #                   FULL re-derive of the whole file from every handoff.md block)
 #   secondary-role = hook (THIS — incremental append of the newest block only)
@@ -13,15 +14,17 @@
 # block at the region head INSIDE the markers and never rewrites prior blocks,
 # never touches the frontmatter/intro, never rotates or re-derives. A routine
 # append never rebuilds; a re-derive never appends-one-block.
-# THE SENTINEL REGION (R-GOV-2 field-1 — the EXACT region this writer touches):
+#
+# THE SENTINEL REGION (field-1 — the EXACT region this writer touches):
 #     <!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->
 # The append inserts the new block immediately AFTER the start marker (so the
 # newest session is first) and leaves the start/end markers, the frontmatter, and
 # the intro prose untouched. The markers MUST match the librarian capability's
 # byte-for-byte.
-# THE TRIGGER SEAM (recorded build pick). D3 (R-BIND-7) and D4 specify the block
-# CONTENT and the append/re-derive role split, but neither D3 nor D4 names a
-# Claude Code hook EVENT that appends to handoff-chronicle.md — the five D4 flows
+#
+# THE TRIGGER SEAM (recorded build pick). The artifact-contract and flow views specify the block
+# CONTENT and the append/re-derive role split, but neither design view names a
+# Claude Code hook EVENT that appends to handoff-chronicle.md — the five flows
 # (F-CAP/PRE/PROMO/RECON/MAINT) own library promotion, not session-handoff
 # capture, so the trigger SURFACE is open per the SoT. Following the
 # library-log-append.sh precedent (a SCRIPT-form hook the flow seam
@@ -32,7 +35,8 @@
 # UserPromptSubmit/PostToolUse registration is required (the seam is a librarian/
 # close-out invocation, exactly like library-log-append). The full re-derive is
 # the backstop for any session the seam misses (idempotent; absorbs the block).
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/handoff-chronicle.md — append ONE block at
 #       the HEAD of the sentinel region
@@ -43,7 +47,8 @@
 #       safe to fire before the first librarian re-derive.
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) on block-and-log.
 #   Schema: null (no JSON Schema governs the generated chronicle markdown; the
-#     block shape is fixed by R-BIND-7). Body-structure authority: the R-BIND-7
+#     block shape is fixed by the chronicle block contract). Body-structure
+#     authority: that same contract,
 #     handoff-chronicle artifact contract.
 #   Pre-write validation:
 #     - the handoff.md arg must be a readable non-empty file (else block-and-log,
@@ -54,7 +59,11 @@
 #     - atomic temp-file + os.replace; the insert lands ONLY inside the sentinels.
 #   Failure mode: BLOCK-AND-LOG. A malformed/empty handoff emits a finding and
 #     writes nothing. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3, R-GOV-1a): this hook writes ONLY the
+#   Duplicate-block no-op (self-dedupe): when the RENDERED block already exists
+#     BYTE-IDENTICALLY inside the sentinel region, the hook writes NOTHING and emits a
+#     `handoff-chronicle-append-skipped` finding (reason `duplicate-block`), exit 0 — a
+#     duplicate is a no-op, not a failure. The render is unchanged by the check.
+#   Maintainer-provenance: this hook writes ONLY the
 #     append-one-block role surface of the composite, ONLY inside the sentinel
 #     region. It NEVER re-derives the whole file, never rewrites prior blocks,
 #     never touches the frontmatter/intro outside the markers, and never rotates
@@ -70,12 +79,15 @@
 #     byte-for-byte (this hook mirrors the re-derive's block render exactly), so an
 #     appended-then-re-derived block produces NO duplication. THIS hook + the
 #     re-derive are the PERMITTED CONCURRENT WRITERS to the sentinel region.
+#
 # CLI (the close-out / session-handoff seam invokes the append form):
 #   handoff-chronicle-append.sh <handoff.md path> <spoke> [<plan-slug>]
 #   handoff-chronicle-append.sh --help
+#
 # Env overrides (testing / wiring):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh).
 #   FINDINGS_OUTPUT         NDJSON sink for block-and-log findings (default: stdout).
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -94,7 +106,7 @@ fi
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
 
 case "${1:-}" in
-  -h|--help) sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,84p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 HANDOFF_ARG="${1:-}"
@@ -162,7 +174,7 @@ if not plan_slug.strip():
     plan_slug = os.path.basename(os.path.dirname(os.path.abspath(handoff_arg)))
 
 
-# --- session-block parsing (R-BIND-7) — newest block ONLY -------------------
+# --- session-block parsing — newest block ONLY -------------------
 # Mirrors plan-handoff-index.sh's parser exactly so the append and the re-derive
 # render IDENTICAL block text (idempotent absorption). The appender extracts only
 # the NEWEST session block (the highest session ordinal / latest date / last in
@@ -232,7 +244,7 @@ def harvest_subsection_line(lines, hdr_re):
 lines = text.splitlines()
 bounds = [i for i, l in enumerate(lines) if SESSION_HEADING_RE.match(l)]
 if not bounds:
-    # DT-2 chronicle-membership fallback (/HCM). A handoff with NO recognized
+    # chronicle-membership fallback (/HCM). A handoff with NO recognized
     # session heading still JOINS the chronicle as EXACTLY ONE synthesized block —
     # never blocked/dropped, never phantom-split. The summary/date are harvested from
     # the BODY (after any leading YAML frontmatter) so a frontmatter-only handoff does
@@ -335,7 +347,7 @@ def bootstrap_file():
         "_Auto-generated by `librarian plan-handoff-index` (full re-derive) and "
         "`hooks/handoff-chronicle-append.sh` (incremental append). Do not hand-edit._",
         "",
-        "Append-only, newest-first session-handoff reconciliation (R-BIND-7). "
+        "Append-only, newest-first session-handoff reconciliation. "
         "Bootstrapped by the append hook; the librarian re-derive rebuilds the "
         "full projection.",
         "",
@@ -384,6 +396,29 @@ if os.path.isfile(chronicle):
     base = existing
 else:
     base = bootstrap_file()
+
+# --- self-dedupe guard: this exact block is already chronicled ---------------
+# The append and the full re-derive render the block BYTE-IDENTICALLY (the parity the
+# recognizer region above exists to hold), so "is this block already in the region?" is a
+# byte question with a byte answer. Without the check the appender re-inserts a block the
+# region already carries, and the duplicate lives on disk until the re-derive further down
+# the same chain rebuilds the file — a real intermediate state, not a torn read (every
+# writer here is atomic temp+os.replace). The guard is scoped to the SENTINEL REGION, the
+# exact surface this writer owns: a match anywhere else in the file is not this writer's
+# concern and never suppresses an append. On a hit: NO write, one
+# `handoff-chronicle-append-skipped` finding with reason `duplicate-block`, exit 0 (a
+# duplicate is a no-op, not a failure). The RENDER above is untouched by this check —
+# altering it would break the append<->re-derive byte-parity that makes the check sound.
+_region_start = base.index(SENT_START) + len(SENT_START)
+_region_end = base.find(SENT_END, _region_start)
+region = base[_region_start:] if _region_end < 0 else base[_region_start:_region_end]
+if block in region:
+    emit({"finding": "handoff-chronicle-append-skipped", "file": chronicle,
+          "reason": "duplicate-block", "spoke": spoke, "plan_slug": plan_slug,
+          "session": newest["session"], "detected_at": today})
+    print("handoff-chronicle-append: block already present in the sentinel region "
+          "(%s / %s); no write" % (plan_slug, newest["session"]), file=sys.stderr)
+    sys.exit(0)
 
 # insert the block immediately AFTER the start marker (newest-first), touching
 # ONLY the sentinel region. Split on the FIRST occurrence of the start marker.

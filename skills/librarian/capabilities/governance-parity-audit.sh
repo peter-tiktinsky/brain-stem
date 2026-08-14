@@ -70,7 +70,7 @@ fi
 # adopter install ONLY the composed master (+ overlay) ships — the loose pillar JSONs are
 # repo-only, so PILLARS resolves them all "absent" and the R-37 audit backstop is a TOTAL
 # no-op. Resolve the master in the governance dir being audited + merge the overlay via
-# foundation-overlay-load.sh (mirroring library-index.sh:261-274 / index-maintain): the
+# foundation-overlay-load.sh (mirroring library-index / index-maintain): the
 # merged union carries every pillar's composed slot. The python body reads pillar rules from
 # the master's slots when the master is available, and FALLS BACK to the loose pillar JSONs
 # when it is not (dev-repo / no bundle — loud-safe, never broken).

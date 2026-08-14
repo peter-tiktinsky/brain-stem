@@ -12,13 +12,13 @@
 # symlink surfaces — Plans/ Projects/ Wiki/ Work/ Skills/ — plus the
 # Vault Writers/ subtree (which a followlinks=False walk misses).
 #
-# The ~/Documents/brain view is a symlink view: Plans/ Projects/ Wiki/ Work/ Skills/
+# The vault view is a symlink view: Plans/ Projects/ Wiki/ Work/ Skills/
 # are symlinks onto external roots. A followlinks=False walk (Python os.walk default,
 # BSD/GNU `find` without -L) NEVER descends them, so a consumer scanning the vault
 # root reaches only the handful of real top-level files and misses every file behind
 # a surface symlink. This walker FOLLOWS symlinks (os.walk(followlinks=True) parity)
 # with a realpath visited-set cycle-guard mirroring
-# skills/librarian/capabilities/index-maintain.sh:283-290 (the established
+# skills/librarian/capabilities/index-maintain.sh's own walker (the established
 # bash-3.2-safe pattern) so a circular symlink terminates instead of hanging.
 #
 # API (FROZEN — consumers source this read-only; do not churn):
@@ -78,7 +78,7 @@ _vvw_walk() {
   local _dir="$1" _root="$2" _rp _rel _entry _bn
   # realpath resolves symlinks -> the physical dir; this is the cycle-guard key
   # (a self-referential/circular symlink resolves to an already-visited physical
-  # dir and is pruned). Mirrors index-maintain.sh:284 os.path.realpath(dirpath).
+  # dir and is pruned). Mirrors index-maintain.sh's os.path.realpath(dirpath).
   _rp="$(cd "$_dir" 2>/dev/null && pwd -P)" || return 0
   _vvw_seen "$_rp" && return 0
   _VVW_VISITED[${#_VVW_VISITED[@]}]="$_rp"

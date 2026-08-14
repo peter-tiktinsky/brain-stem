@@ -7,11 +7,13 @@
 # vault walk never reaches it. This pass targets $WORK_HOME DIRECTLY (a NEW pass — it
 # does NOT modify index-maintain's VAULT_ROOT scoping, and it is NOT a per-spoke
 # overlay-glob registration).
+#
 # The `_index.md` it mints conforms to the SAME C-IDX contract index-maintain enforces:
 # frontmatter `type: index` + `tags` + `updated` + `parent_folder` (depth>=2) and a
 # `<!-- contents-enum:start -->` … `<!-- contents-enum:end -->` block enumerating the
 # directory's contents in the `| Name | Lines | Type | Description |` row shape. A file
 # minted here passes index-maintain's index contract + frontmatter-enforce's index type.
+#
 # Scope (per spoke — all spokes by default, or `--spoke <key>`):
 #   FLAT spoke   — $WORK_HOME/<spoke>/deliverables/ + .../reference/ are the TOP level.
 #   MASTER spoke — the master holds NO top-level deliverables/+reference/; each
@@ -24,7 +26,8 @@
 #                  (work-map-generate, the work CLAUDE.md directory map) — NOT this pass.
 # For every such directory: mint a full `_index.md` if absent, else refresh ONLY the
 # contents-enum block (everything outside the markers preserved byte-for-byte).
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - $WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic
 #       temp+os.replace). MINT the full C-IDX-conformant `_index.md` when absent;
@@ -47,16 +50,18 @@
 #   Failure mode: BLOCK-AND-LOG. An absent work home / absent spoke / absent-or-unreadable
 #     target subfolder / unreadable _index.md / marker-less _index.md emits a finding and
 #     is SKIPPED; no partial/garbage write; exit 0 always. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): the `_index.md` files under
+#   Maintainer-provenance: the `_index.md` files under
 #     $WORK_HOME/<spoke>/.../{deliverables,reference}/ are librarian-maintained; this
 #     capability is their sole originating writer. It writes ONLY `_index.md` files in
 #     those directories. It NEVER writes README.md, updates.md, CLAUDE.md,
 #     deliverable/reference bodies, or anything under the plans root (PLANS_ROOT).
+#
 # CLI:
 #   work-index-maintain.sh                  # mint/refresh every spoke's index files
 #   work-index-maintain.sh --spoke <key>    # one spoke only
 #   work-index-maintain.sh --dry-run        # findings + would-be writes, NO write
 #   work-index-maintain.sh --help
+#
 # Env overrides (testing):
 #   WORK_HOME / BRAIN_STEM_WORK_HOME   work spokes root (test isolation; resolved the
 #                                      way scaffold.sh / work-map-generate resolve it —
@@ -66,8 +71,9 @@
 #                                      writes to $WORK_HOME, NOT PLANS_ROOT, but paths.sh
 #                                      is sourced for sibling parity)
 #   FINDINGS_OUTPUT                    NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv, never
-# piped stdin — feedback_python_heredoc_argv). Read-only spoke walk + atomic _index.md
+# piped stdin the heredoc would consume). Read-only spoke walk + atomic _index.md
 # write under the work home.
 
 set -uo pipefail
@@ -333,7 +339,7 @@ def line_count(path):
 
 
 def tag_spoke(spoke):
-    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$ (R-GOV-4) — mirror the
+    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$ — mirror the
     # situating card's sanitization so the index tag passes the same grammar.
     t = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-")
     return t or "spoke"

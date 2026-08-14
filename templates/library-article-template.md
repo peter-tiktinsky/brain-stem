@@ -30,7 +30,7 @@ routing / sources / originating_plan / description / created / id / schema_versi
 length is governed by C-FTC-LIB-ART and enforced by the librarian library-index scan
 (over-threshold finding at the 400-line soft budget / 800 hard), never at write time.
 
-Body shape (C-FM-ART / R-LIB-1):
+Body shape (C-FM-ART):
   - H1 = the concept name (one concept per file). The single top-level heading.
   - A leading in-document section index is FORBIDDEN.
   - An in-doc table of contents is permitted ONLY above the ~400-line soft budget

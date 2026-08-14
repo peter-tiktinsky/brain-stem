@@ -21,7 +21,7 @@ set -u
 
 CLAUDE_HOME="${CLAUDE_HOME:-}"
 # One env seam for test isolation (matches 0002:18 / 0003:19). Disk-true manifest
-# home is $CLAUDE_HOME/user-manifest.json (paths.sh:35, session-start.sh:38,
+# home is $CLAUDE_HOME/user-manifest.json (paths.sh:35, session-start.sh,
 # user-manifest-read.sh:38) — NOT under governance/.
 MANIFEST="${MIGRATION_USER_MANIFEST:-$CLAUDE_HOME/user-manifest.json}"
 

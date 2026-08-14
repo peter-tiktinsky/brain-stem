@@ -54,7 +54,7 @@
 #                                          + baselines/README.md ONLY; the 7 pillar *-rules.json
 #                                          + doc-dependencies.json + _index.json stay repo-only)
 #   vault-init/**                         (recursive; install.sh Step 8.7;
-#                                          renamed from v2 vault-scaffolding/ per Session 7)
+#                                          renamed from v2 vault-scaffolding/ per)
 #   templates/* (top-level glob)          (install.sh Step 10)
 #   templates/launchd/*.tmpl
 #   templates/settings-fragments/*.json
@@ -75,11 +75,16 @@
 #     T-3 relocated from repo root)
 #
 # Usage:
-#   generate-foundation-manifest.sh [-o <output_path>] [--version <ver>]
+#   generate-foundation-manifest.sh [-o [<output_path>]] [--version <ver>]
 #
-# Default output: stdout
+# Default output: stdout (NO -o at all). This is a CONTRACT, not a convenience:
+#   tools/ship-transform.sh and the --emit-pairs consumers read the generator on
+#   stdout, so a no-arg invocation never writes a file.
+# -o takes an OPTIONAL operand: `-o <path>` writes <path>; a BARE `-o` writes the
+#   CANONICAL manifest in place at $SOURCE_REPO/governance/foundation-manifest.json.
 # Default version: derived from the committed governance/foundation-manifest.json
 #   ::version when --version is absent (v0.0.0 on true bootstrap); T-18.
+#   --version's operand is REQUIRED — a bare --version is a usage error (exit 2).
 # Default SOURCE_REPO: directory containing this script
 
 set -u
@@ -89,34 +94,77 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SOURCE_REPO="${SOURCE_REPO:-$SCRIPT_DIR}"
 # VERSION default DERIVES from the committed manifest when --version is ABSENT (T-18:
 # version-derive-from-SoT). The pre-existing literal default (v1.0.0) under-counted the v1.0.2
-# release, reddening vp-1 + vp-5 on every no-arg regen. We resolve the default LATER (after argv
+# release, reddening two release gates on every no-arg regen. We resolve the default LATER (after argv
 # parsing) so an explicit --version still wins (the release-ceremony bump path is unchanged). The
 # empty sentinel here distinguishes "caller passed --version" from "use the committed manifest".
 VERSION=""
 OUTPUT=""
 EMIT_PAIRS=0   # --emit-pairs: print raw src_rel<TAB>installed_rel pairs + exit (T-1 parity test)
+# The canonical in-place output for a BARE -o. Resolved against SOURCE_REPO (which defaults to
+# THIS SCRIPT'S OWN DIRECTORY), never the caller's cwd, so `cd /tmp && /path/to/generate-
+# foundation-manifest.sh -o` still writes the manifest of the tree being walked. It is the same
+# path COMMITTED_MANIFEST derives the default version from, so bare -o regenerates exactly the
+# file it reads its version floor out of.
+CANONICAL_OUTPUT="$SOURCE_REPO/governance/foundation-manifest.json"
 
 usage() {
   cat <<EOF
 generate-foundation-manifest.sh — T-5
 
-Usage: $0 [-o <output_path>] [--version <ver>]
+Usage: $0 [-o [<output_path>]] [--version <ver>]
 
 Environment:
   SOURCE_REPO   foundation-repo top (default: dir containing this script)
 
 Options:
-  -o <path>     write JSON to <path> (default: stdout)
-  --version <ver>  pin top-level version field
+  -o [<path>]   write JSON to <path>. The operand is OPTIONAL: a BARE -o writes the
+                canonical manifest IN PLACE at
+                  <SOURCE_REPO>/governance/foundation-manifest.json
+                resolved against SOURCE_REPO (default: the directory containing this
+                script), NOT the caller's cwd. With no -o at all the JSON goes to
+                stdout — that default is a contract the ship pipeline depends on.
+                AMBIGUITY, RESOLVED DELIBERATELY: an operand that begins with '-' is
+                treated as the NEXT FLAG, not as a path, so
+                  $0 -o --version v1.2.0
+                parses as canonical-output + version v1.2.0. To write to a path that
+                begins with '-', prefix it (e.g. -o ./-weird.json).
+  --version <ver>  pin top-level version field. The operand is REQUIRED — a bare
+                   --version is a usage error (exit 2), never a crash.
                    (default: derived from committed governance/foundation-manifest.json)
   -h | --help   this help
 EOF
 }
 
+# Argument parsing. Both operand-taking flags were `OPT="$2"; shift 2` with NO arity guard, so
+# under `set -u` a bare `-o` or a bare `--version` died on `$2: unbound variable` having written
+# nothing — a crash that looks identical to "manifest already current" to any caller that checks
+# the FILE rather than the return code (that is how a parity check once cmp'd a file against its
+# own unchanged self and published PARITY OK). Both are now guarded, differently and deliberately:
+#
+#   -o        OPTIONAL operand. Bare -o (or an -o whose next word is flag-shaped) means the
+#             canonical in-place regen to $CANONICAL_OUTPUT — the form the corpus and the
+#             runbook already cite, so those cites are correct as written. Variable arity is a
+#             POSIX-idiom violation accepted on the ruling; the flag-shaped-operand test is what
+#             keeps it unambiguous.
+#   --version REQUIRED operand, arity-guarded: a bare --version is a diagnostic + exit 2.
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -o) OUTPUT="$2"; shift 2 ;;
-    --version) VERSION="$2"; shift 2 ;;
+    -o)
+      # Consume the next word as the output path ONLY if there is one and it is not flag-shaped.
+      # `[ "$#" -ge 2 ]` short-circuits before "$2" is expanded, so `set -u` cannot fire here.
+      if [ "$#" -ge 2 ] && [ "${2#-}" = "$2" ]; then
+        OUTPUT="$2"; shift 2
+      else
+        OUTPUT="$CANONICAL_OUTPUT"; shift
+      fi
+      ;;
+    --version)
+      if [ "$#" -lt 2 ]; then
+        printf 'generate-foundation-manifest FAIL: --version requires a value (e.g. --version v1.2.0)\n' >&2
+        usage >&2
+        exit 2
+      fi
+      VERSION="$2"; shift 2 ;;
     --emit-pairs) EMIT_PAIRS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown arg: %s\n' "$1" >&2; usage >&2; exit 2 ;;

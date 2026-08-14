@@ -1,9 +1,11 @@
 #!/bin/bash
 # scaffold.sh — project-workspace, Seam-1 folder scaffolding for a work/ spoke.
 # The executable half of recipe.md.
+#
 # Writes ONLY under $WORK_HOME/<spoke>/ (the adopter's work spoke) and NEVER modifies a
 # foundation file. That is the load-bearing "zero foundation edits" property the recipe
 # proves.
+#
 # OUTPUT CONTRACT:
 #   files written : --layout flat (default) → $WORK_HOME/<spoke>/{CLAUDE.md, README.md,
 #                   updates.md} + deliverables/ + reference/ (dirs) — the MVP shape
@@ -24,6 +26,7 @@
 #                   requires the spoke dir to already exist + a slash-free <name>.
 #   failure mode  : block-and-log — validate all inputs first, diagnostic to stderr, non-zero
 #                   exit; never partial-write over an existing spoke.
+#
 # Usage: scaffold.sh --spoke <name> [--work-home <path>]
 #                    [--layout flat|master] [--subdir <name>]
 #                    [--templates-dir <path>]
@@ -36,11 +39,13 @@ set -u
 # register path (scaffold.sh below) and the adopt path (project.sh's
 # _proj_adopt_mint_identity, which SOURCES this file) MUST emit a byte-identical
 # work CLAUDE.md. Edit the shape HERE only.
+#
 # The work CLAUDE.md carries project identity, a README/updates pointer, a binder
 # pointer (cross-plan state), and an AUTO-MAINTAINED directory map bounded by the
 # work-map:start / work-map:end sentinels. The map block is generated:true —
 # re-derived by the work directory-map generator, never hand-edited. NO @import,
 # NO plan roster (the project binder owns that — disjoint roles).
+#
 # Usage: _pw_emit_flat_claude_md <spoke> > <out>   (or to a path via redirection)
 #        _pw_emit_master_claude_md <spoke> > <out>
 _pw_emit_flat_claude_md() {
@@ -136,8 +141,12 @@ case "$LAYOUT" in flat|master) ;; *) die "invalid --layout '$LAYOUT' (expected f
 
 SPOKE_DIR="$WORK_HOME/$SPOKE"
 TODAY="$(date +%F)"
-# T-9 (sub-06): slug for the frontmatter cohort (id + #project/ tag) the
-# durable scaffolded files carry. CLAUDE.md stays EXEMPT (navigation/context file).
+# Offset-bearing ISO-8601 instant for the `log` type's required `timestamp:` field.
+# %z yields +/-HHMM on both BSD and GNU date (%:z is GNU-only), so the colon is
+# inserted afterwards — portable, and the shape the log contract expects.
+ISO_NOW="$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')"
+# Slug for the frontmatter cohort (id + #project/ tag) the durable scaffolded files
+# carry. CLAUDE.md stays EXEMPT (it is a context file, not a typed vault note).
 SPOKE_SLUG="$(printf '%s' "$SPOKE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
 [ -n "$SPOKE_SLUG" ] || SPOKE_SLUG="spoke"
 
@@ -157,15 +166,23 @@ if [ -n "$SUBDIR" ]; then
   # sub README — carries the one-line launch advisory + the T-9 cohort; NO CLAUDE.md.
   SUBDIR_SLUG="$(printf '%s' "$SUBDIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
   [ -n "$SUBDIR_SLUG" ] || SUBDIR_SLUG="sub"
+  # The scaffolder writes bash-side, so its OWN writes never cross the write-time
+  # frontmatter guard — but the adopter's NEXT action does, and that is the very
+  # action registration invites (filling in Scope / Outcome / Definition-of-done).
+  # So every stamped `type:` MUST be a REGISTERED type carrying its full required-key
+  # set: `index` (the folder's navigation surface), whose conditional_required
+  # `parent_folder` fires at path_depth >= 2 — which every Work/<spoke>/… path is.
+  # `parent_folder` names the spoke: the lineage anchor above a sub-project.
   cat > "$SUB_DIR/README.md" <<EOF
 ---
-type: navigation
+type: index
 description: Scope, outcome, and definition-of-done for the $SPOKE/$SUBDIR sub-project.
 created: $TODAY
 updated: $TODAY
 tags: ["#project/$SPOKE_SLUG"]
 id: work-$SPOKE_SLUG-$SUBDIR_SLUG-readme
 schema_version: 1
+parent_folder: $SPOKE
 ---
 # $SPOKE / $SUBDIR
 
@@ -212,15 +229,20 @@ fi
 
 # README + updates — minimal shape stubs (the foundation scaffolds the shape only; the
 # flat MVP ships NO starter templates per — the adopter owns the body content).
+# Both stubs stamp REGISTERED types with their full required-key set, so the
+# adopter's FIRST edit of a freshly-scaffolded file is not blocked write-time:
+# README is `index` (+ the conditional_required `parent_folder`, which fires at
+# path_depth >= 2), updates.md is `log` (+ its required log-type/date/timestamp).
 cat > "$SPOKE_DIR/README.md" <<EOF
 ---
-type: navigation
+type: index
 description: Scope, outcome, and definition-of-done for the $SPOKE work spoke.
 created: $TODAY
 updated: $TODAY
 tags: ["#project/$SPOKE_SLUG"]
 id: work-$SPOKE_SLUG-readme
 schema_version: 1
+parent_folder: $SPOKE
 ---
 # $SPOKE
 
@@ -238,7 +260,10 @@ schema_version: 1
 EOF
 cat > "$SPOKE_DIR/updates.md" <<EOF
 ---
-type: updates
+type: log
+log-type: updates
+date: $TODAY
+timestamp: $ISO_NOW
 description: Append-only status, risk, and decision log for the $SPOKE work spoke.
 created: $TODAY
 updated: $TODAY

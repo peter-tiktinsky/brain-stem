@@ -10,11 +10,11 @@
 #       1. <memory-dir>/episodic-chronicle.md — append-only, newest-first; one
 #          harvested row PREPENDED per session (created-with-header on first
 #          write). Atomic temp+rename. type: episodic frontmatter so the
-#          staleness scan skips it (memory-consolidation-run.sh:174).
+#          staleness scan skips it (the memory-consolidation-run scan).
 #       2. <memory-dir>/MEMORY.md — a sentinel-bounded single POINTER LINE in the
 #          `## Episodic` section (above the 200-line/25KB fold), refreshed
 #          idempotently each session. Embeds the literal `episodic-chronicle.md`
-#          so the orphan-adder (memory-consolidation-run.sh:209 substring grep)
+#          so the orphan-adder (memory-consolidation-run's substring grep)
 #          treats the chronicle as already-indexed and self-skips it.
 #   - Row fields (ALL no-LLM, harvested at SessionEnd):
 #       Anchor   = cwd->git-slug + ISO date + plan/phase (checkpoint -> plan-path
@@ -48,10 +48,30 @@ source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || exit 0
 [ -r "$SCRIPT_DIR/lib/registry.sh" ] && source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null
 [ -r "$SCRIPT_DIR/lib/plan-path.sh" ] && source "$SCRIPT_DIR/lib/plan-path.sh" 2>/dev/null
 
-# Drain stdin (SessionEnd JSON payload) so we never block.
+# Read the SessionEnd JSON payload (session_id fallback).
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
 INPUT=""
 if [ ! -t 0 ]; then
-  INPUT=$(cat 2>/dev/null || true)
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
@@ -77,7 +97,7 @@ DATE_STAMP=$(date +"%Y-%m-%d")
 SID_SHORT="$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9' | cut -c1-8)"
 [ -z "$SID_SHORT" ] && SID_SHORT="session"
 
-# --- Anchor: git-root-else-physical-cwd slug (mirrors paths.sh:180-187) -------
+# --- Anchor: git-root-else-physical-cwd slug (mirrors paths.sh's resolver) ----
 PHYS="$(pwd -P 2>/dev/null)" || PHYS="$(pwd)"
 GIT_ROOT="$(git -C "$PHYS" rev-parse --show-toplevel 2>/dev/null)" || GIT_ROOT=""
 [ -n "$GIT_ROOT" ] || GIT_ROOT="$PHYS"
@@ -126,7 +146,7 @@ if [ "$PLAN_PHASE" = "— none —" ] && command -v classify_plan_path >/dev/nul
 fi
 
 # --- Next-session line: verbatim `**Next session:**` from close-out/handoff ----
-# No-LLM python3 argv line-harvest (per feedback_python_heredoc_argv: pass via
+# No-LLM python3 argv line-harvest (pass data via
 # argv, NEVER pipe to a heredoc). Resolve the handoff path first (also the slot).
 HANDOFF_FILE=""
 if [ -n "${PLANS_DIR:-}" ] && [ -n "$cp_plan" ] && [ -r "$PLANS_DIR/$cp_plan/handoff.md" ]; then

@@ -1,7 +1,11 @@
 #!/bin/bash
 # new-plan.sh — The ONE collapsed plan scaffolder (research-skip mode entrypoint).
+#
+# .6: ONE canonical scaffolder, multiple modes. /new-plan is the
 # research-skip mode; /backlog-research is the research-backed mode (peer skill).
+# flat depth-2 quartet is the DEFAULT emission; --master is OPT-IN (never
 # auto-emitted); --add-subplan adds a sub-plan to an existing master.
+#
 # Modes:
 #   (default)        Emit the flat depth-2 quartet at ~/.claude-plans/NN-<slug>/:
 #                    spec.md + tasks.md + handoff.md + manifest.json + the
@@ -13,28 +17,34 @@
 #                    an existing master and register it in the master's
 #                    sub_plans[] aggregate skeleton. The librarian reconciler does
 #                    the pull-based status fill, NOT this scaffolder.
+#
 # NOT built (charter — NOT minted):
 #   - flat->master graduation (DESIGNED-BUT-DEFERRED; see SKILL.md).
 #   - --promote-master (— no such flag exists; --add-subplan is the only
 #     sub-emit path).
+#
 # Failure mode is BLOCK-AND-LOG (never write-and-hope): all validation runs before
 # any write; a mid-scaffold failure rolls back the created directory.
+#
 # CLI:
 #   new-plan.sh <slug> [--section <backlog-section>] [--title <title>] [--project <spoke-key>] [--force-slug]
 #   new-plan.sh --master <slug> --sub <sub-slug> [--sub-title <title>] [--title <title>] [--project <spoke-key>] [--force-slug]
 #   new-plan.sh --add-subplan <master-NN-slug> --sub <sub-slug> [--sub-title <title>]
 #   new-plan.sh --dry-run ...        # compute + emit; no write
 #   new-plan.sh --help
-# Identity field-triad (R-ARCH-PID): the scaffolded manifest stamps `title:` (human
+#
+# Identity field-triad: the scaffolded manifest stamps `title:` (human
 # display name), `project:` (the owning-spoke machine identity, resolved from the
 # session cwd through the anchored-spoke registry — NEVER the bare title), and
 # `parent_plan:` (lineage, on sub-plans). --project <spoke-key> overrides the
-# auto-resolved spoke (must be a registered key; collision-safe per R-ARCH-13/14).
+# auto-resolved spoke (must be a registered key; collision-safe by construction).
+#
 # Env overrides:
 #   PLANS_ROOT     Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
 #                  else $HOME/.claude-plans.
 #   TEMPLATES_DIR  Quartet template source (default: this skill's templates/).
-# Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 / feedback_python_heredoc_argv.
+#
+# Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv).
 
 set -euo pipefail
 
@@ -45,7 +55,7 @@ if [[ -z "${PLANS_DIR:-}" ]]; then
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null || true
 fi
 
-# Spoke-key resolver (R-ARCH-13/14): prefer the live install, fall back to this
+# Spoke-key resolver: prefer the live install, fall back to this
 # skill's lib/ copy (dev-repo / test isolation).
 for _sr in \
   "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh" \
@@ -124,12 +134,12 @@ if [[ ! -d "$TMPL_DIR" ]]; then
   exit 1
 fi
 
-# Resolve the owning-spoke key (R-ARCH-13/14). --project overrides the cwd
+# Resolve the owning-spoke key. --project overrides the cwd
 # auto-resolution; either way the value must be a registered spoke key. A
 # collision (two anchors → one key) or an unrecognized override BLOCKS here,
 # before any write (block-and-log).
 if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
-  echo "new-plan: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
+  echo "new-plan: spoke-resolve.sh not found — cannot resolve owning-spoke key" >&2
   exit 1
 fi
 if [[ -n "$PROJECT_OVERRIDE" ]]; then
@@ -354,15 +364,15 @@ def flat_files(title, plan_dir):
         "status": "planned",
         "phase_2_scaffolded_at": today,
         # T-3: seed `updated` at creation so the backlog-index Updated cell is
-        # populated from birth (breaking the D3 circularity — backlog-hygiene's staleness
+        # populated from birth (breaking the circularity — backlog-hygiene's staleness
         # math requires `updated`, which nothing maintained). Mechanical seeding at every
         # manifest-creation surface (flat / master / sub / promote-from-inbox).
         "updated": today,
-        # F11 writer-1 (140 sub-11 T-1): scaffold the EMPTY research_artifacts[] seed the
+        # Scaffold the EMPTY research_artifacts[] seed the
         # per-spoke research-index renderer (plan-research-index.sh) already reads. Missing
         # field == empty (never an error), but declaring the empty seed makes the affordance
         # explicit on every fresh plan; session-close's plan-research-declare writer (T-2)
-        # populates it from the plan's OWN _research/ at close (DT-4 owning-spoke). Scoped to
+        # populates it from the plan's OWN _research/ at close (owning-spoke). Scoped to
         # this JSON manifest dict — DISJOINT from the .md artifact-frontmatter status: stamps
         # (the DERIVE-strip surface; coordination_contract).
         "research_artifacts": [],
@@ -390,7 +400,7 @@ def flat_files(title, plan_dir):
         "spec.md": spec,
         "tasks.md": tasks,
         "handoff.md": handoff,
-        "manifest.json": json.dumps(manifest, indent=2) + "\n",
+        "manifest.json": json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         "00-ideation-brief.md": brief,
     }
 
@@ -549,7 +559,7 @@ elif mode == "add-subplan":
     master["sub_plans"].append(skeleton)
     tmp = master_manifest_path + ".tmp.%d" % os.getpid()
     with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(master, indent=2) + "\n")
+        fh.write(json.dumps(master, indent=2, ensure_ascii=False) + "\n")
     os.replace(tmp, master_manifest_path)
 
     print("new-plan: added sub-plan %s-%s to master %s (registered in sub_plans[])"

@@ -33,6 +33,13 @@
 # (-e aborts mid-script on any transient failure, violating the contract).
 set -uo pipefail
 
+# No bytecode cache beside a SHIPPED module. orchestrator/ is a ship-surface mirror dir and a
+# __pycache__/ dropped in it is gitignored junk that REDs the release walk-hygiene gate. This
+# wrapper's own python use is an inline `python3 -c` (no source file, so nothing to cache
+# today) — the export is the PROPHYLACTIC half of the sibling guarantee: it holds if this
+# wrapper ever grows a real module import or a `.py` shell-out.
+export PYTHONDONTWRITEBYTECODE=1
+
 BRIEF="${1:-}"
 if [[ -z "$BRIEF" ]]; then
   echo "Usage: brief-lint.sh <brief-path>" >&2

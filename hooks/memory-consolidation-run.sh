@@ -4,6 +4,8 @@
 # Only does auto-fix checks: staleness (read-only flag), orphans, dead refs,
 # temporal hygiene, index-dedup, budget. Manual checks (overlap, status
 # verification, conflicts, supersession adjudication) stay in /librarian.
+#
+# two code defects fixed atomically with the schema 2.0.0 bump —
 #   (1) orphan section-map now reads the schema ENUM retrieval-type sections
 #       (## Semantic / ## Procedural / ## Episodic), mapping the `type:`
 #       frontmatter value to its section, instead of the old top-level
@@ -11,11 +13,17 @@
 #       post-reorg (.6).
 #   (2) cap-count computes raw wc -l AND byte count AND char-line count, with a
 #       comment-stripped raw count, and gates on the LARGER (
+#       .5/.6/) instead of raw wc -l only.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/lib/paths.sh"
-source "$SCRIPT_DIR/lib/lockf.sh"
+# Errexit-safe pre-test source form (the memory-consolidation-check.sh:37-38 idiom): a bare
+# `source` under `set -e` hard-aborts the SessionEnd chain when lib/ is absent, and the
+# shorter `source X || exit 0` is INERT under errexit (the || clause is unreachable). Failure
+# mode is silent no-op, never hard-abort.
+{ [ -r "$SCRIPT_DIR/lib/paths.sh" ] && source "$SCRIPT_DIR/lib/paths.sh"; } || exit 0
+{ [ -r "$SCRIPT_DIR/lib/lockf.sh" ] && source "$SCRIPT_DIR/lib/lockf.sh"; } || exit 0
+# (T-09): the revalidation-enqueue producer feeds the review-queue
 # drain (primitives confirm_item/reject_item/defer_item/suppress_item).
 # Source review-queue.sh for enqueue_item; degrade gracefully if absent.
 [ -r "$SCRIPT_DIR/lib/review-queue.sh" ] && source "$SCRIPT_DIR/lib/review-queue.sh"
@@ -25,6 +33,7 @@ LOCK_FILE="$MEMORY_DIR/.consolidation.lock"
 LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state+lock STAY in MEMORY_DIR
 INDEX_FILE="$MEMORY_DIR/MEMORY.md"
 
+# single-instance guard via lockf (.6) — replaces the
 # hand-rolled PID-lock TOCTOU window. The outer call re-execs this script under
 # /usr/bin/lockf -k -t 0; on contention (another consolidation running) it skips
 # cleanly. The kernel releases the advisory lock on process death — no stale
@@ -63,6 +72,7 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# toggle: short-circuit when user opted out via /onboard.
 # Default-enabled; opt-out is explicit `false`. Audit log entry written to
 # $LOG_FILE before exit so absence-of-runs is observable.
 hook_enabled="$(_manifest_get .behavioral.hook_preferences.memory_consolidation_enabled 2>/dev/null || true)"
@@ -101,6 +111,7 @@ type_to_section() {
   esac
 }
 
+# (T-09): revalidation-enqueue producer. For each STALE (≥180d) or
 # EXPIRED (≥360d) non-episodic memory file, enqueue a review-queue item of
 # class='revalidation' so review_queue_revalidation_count > 0 and the single
 # aggregated banner line ("N memories due for revalidation") surfaces. STALE =
@@ -148,6 +159,7 @@ enqueue_revalidation() {
 }
 
 # --- Check 1: Staleness scan (read-only flag; propose-only states) ---
+# decay model (.4): last_validated is the SOLE decay input
 # (required per schema 2.0.0). A SINGLE 180-day interval applies to all
 # non-episodic memory; episodic NEVER decays. States:
 #   FRESH (<180d) → no action
@@ -316,7 +328,7 @@ done
 # --- Check 8: Budget monitor (defect 2: byte-first, both-raw-and-stripped) ---
 # Compute RAW line count, BYTE count, char-line count, and a comment-stripped
 # raw line count; gate on the LARGER ratio. The byte cap is the governing
-# trigger (.5/#3).
+# trigger (.5/).
 LINE_COUNT=0
 STRIPPED_LINE_COUNT=0
 BYTE_COUNT=0

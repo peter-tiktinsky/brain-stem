@@ -203,7 +203,7 @@ Run `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run
 **NOVEL** — "Build a skill that auto-generates project handoff documents when status changes to COMPLETED."
 - No existing idea/plan handles project wind-down doc generation.
 - Touches plan structure but distinct from existing cleanup automation.
-- Result: NOVEL → captured at `_inbox/plan-handoff-generator.md` (via the helper), then `status: triaged`.
+- Result: NOVEL → captured as an `_inbox/<slug>.md` idea note (via the helper), then `status: triaged`.
 
 **DUPLICATE** — "Build a tool to deep-research a triaged backlog item's feasibility before planning."
 - `backlog-research` already does exactly this.

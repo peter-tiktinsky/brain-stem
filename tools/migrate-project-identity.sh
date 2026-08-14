@@ -1,15 +1,18 @@
 #!/bin/bash
 # migrate-project-identity.sh — legacy display-name (title) rescue for plan manifests.
+#
 # One narrow, lossless job: when a plan-tree manifest.json carries a human display
 # name in the `project:` field (a legacy shape) and has NO `title:` field, copy
 # that display name into a new `title:` field. It NEVER writes `project:` — a
 # genuinely unattributable legacy `project:` value is left untouched for a later,
 # human-adjudicated ownership pass to reclassify; a value that is already a
 # registered spoke key is left untouched by construction.
+#
 # It is the same operation on both paths: a fresh install never needs it (the
 # writers stamp correct semantics); existing adopters run it once as an upgrade
 # step. IDEMPOTENT — once the display name is rescued into `title:`, a second run
 # finds nothing to move.
+#
 # SAFETY (never-clobber-a-registered-key invariant):
 #   - The tool reads the registered spoke-key SET from the anchored-spoke registry
 #     and only rescues a `project:` value that is NOT a registered key (a legacy
@@ -23,13 +26,16 @@
 #     invariant — every `project:` value is byte-identical to its pre-pass value
 #     (the tool must never mutate `project:`). A wrong-spoke re-stamp would change
 #     a `project:` value and so FAIL the assertion (exit 1; the caller reverts).
+#
 # USAGE:
 #   migrate-project-identity.sh [--plans-root <dir>] [--dry-run]
+#
 # Env overrides:
 #   PLANS_ROOT           plan-tree root (else paths.sh PLANS_DIR, else ~/.claude-plans)
 #   SPOKE_REGISTRY_PATH  anchored-spoke registry (test isolation)
 #   FOUNDATION_REPO      repo root, used ONLY to locate spoke-resolve.sh in dev/test
 #                        (a library-location hint — NOT a cwd spoke anchor)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -euo pipefail
@@ -71,7 +77,7 @@ for _sr in \
   if [[ -f "$_sr" ]]; then SPOKE_LIB="$_sr"; break; fi
 done
 if [[ -z "$SPOKE_LIB" ]]; then
-  echo "migrate-project-identity: spoke-resolve.sh not found (R-ARCH-13)" >&2
+  echo "migrate-project-identity: spoke-resolve.sh not found" >&2
   exit 2
 fi
 # shellcheck source=/dev/null

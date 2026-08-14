@@ -31,8 +31,21 @@ unset _peer _peer_path
 # is never suppressed: validate_hook_output passes (the jq -n payloads are well-formed
 # by construction; Claude Code re-validates hook JSON at the harness boundary), and
 # journal_emission is a no-op. `declare -F` ensures real peers (if sourced) win.
+# The fallback's drain is BOUNDED. This is shared plumbing: it is normally fed by
+# `printf … | validate_hook_output`, which EOFs, but it is a function in a sourced lib
+# and nothing stops a caller invoking it with the hook's own inherited fd 0. An
+# inherited socket/fifo is not a tty and never delivers EOF, so an unbounded `cat`
+# here would sleep forever INSIDE the deny path — a write-time deny that never emits.
+# The bound is PER READ, so a caller that keeps delivering is never truncated; only
+# silence is. HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value
+# falls back rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
 if ! declare -F validate_hook_output >/dev/null 2>&1; then
-  validate_hook_output() { cat >/dev/null 2>&1; return 0; }
+  validate_hook_output() {
+    local _stdin_wait="${HOOKS_STDIN_WAIT:-5}" _stdin_line=""
+    case "$_stdin_wait" in ''|0|*[!0-9]*) _stdin_wait=5 ;; esac
+    while IFS= read -r -t "$_stdin_wait" _stdin_line; do :; done
+    return 0
+  }
 fi
 if ! declare -F journal_emission >/dev/null 2>&1; then
   journal_emission() { :; }
@@ -222,7 +235,7 @@ iso8601_to_epoch() {
 #                                            heartbeat fresh.)
 #   absent/unparseable hb, but
 #     `started` present            -> floor staleness off `started` (always written at
-#                                     session-register.sh:47) so a no-heartbeat row still
+#                                     session-register writes it) so a no-heartbeat row still
 #                                     AGES instead of surviving forever (reconciles with
 #                                     ac-session-registry-liveness AC-E's no-hb rows)
 #   hb AND started both absent/     -> pid_is_live shim ONLY — a backward-compat path for a

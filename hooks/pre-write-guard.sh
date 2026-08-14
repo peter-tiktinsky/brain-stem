@@ -7,7 +7,10 @@
 #
 # ENFORCEMENT-MAP rules implemented here (see ~/.claude-plans/ENFORCEMENT-MAP.md):
 #   R-01  dead plans path DENY                        — line 26+
-#   R-03  System Governance.md size guard             — line 39+ (SG_MAX_LINES hardcoded 400; dev-vault hub only)
+#   R-03  RETIRED — the hub size guard keyed its trigger path off a hardcoded
+#         vault root that the path SoT no longer resolves to, and the file it
+#         guarded exists in no vault. The block was removed rather than
+#         re-pointed: nothing consumes SG_MAX_LINES.
 #   R-04  vault-root allowlist                        — line ~532
 #   R-54  doc-dependency cascade                      — line ~495
 #   R-09  RETIRED (G3) — vault Logs/ no longer ships; the Logs/ autogovern tier
@@ -40,7 +43,32 @@ source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/registry.sh"
 # set -u if ever sourced against an older paths.sh that lacks the export.
 VAULT_CONFIGURED="${VAULT_CONFIGURED:-0}"
 
-INPUT=$(cat)
+# Read the PreToolUse payload ONCE. Every guard decision below derives from these
+# bytes, so a bound that loses any of them silently changes a deny into an allow.
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 
@@ -413,7 +441,7 @@ if [[ "$FILE_PATH" == "$PR_PLANS_DIR/"* ]]; then
       PR_MSG="[plans-root closed namespace] '${PR_TOP}' is not an allowed plans-root entry (plans-rules.json :: root_namespace). A durable artifact with no owning plan is captured then graduated through the funnel — the sole mint path — never written to a hand-invented ~/.claude-plans/ root surface:
   capture:   promote-from-inbox.sh --capture <slug>
   graduate:  promote-from-inbox.sh <slug>
-then the artifact lands in <plan>/_research/ (DT-4 Amendment A1). Escape hatch: export PLANS_ROOT_OK=1 (logged)."
+then the artifact lands in <plan>/_research/ (Amendment A1). Escape hatch: export PLANS_ROOT_OK=1 (logged)."
       if [[ "${PLANS_ROOT_OK:-0}" == "1" ]]; then
         { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | PLANS_ROOT_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
       elif [[ "$PR_ROLLOUT" == "deny" ]]; then
@@ -429,7 +457,7 @@ fi
 # === end plans-root closed-namespace allowlist arm ==========================
 
 # === Plan naming + status enforcement (R-27) ===========================
-# Promotes feedback_plan_naming_conventions.md from memory-only to procedural
+# Promotes the plan-naming convention from memory-only to procedural
 # enforcement. Scoped NARROWLY to plan-root files — sub-tasks, handoffs, test
 # artifacts, and orchestrator exhaust are explicitly NOT enforced (they inherit
 # status from the parent plan via the stale-detect scope fix in the same session).
@@ -475,7 +503,7 @@ if [[ "$PS_IS_PLAN" == "1" ]]; then
     if [[ "${PLAN_STATUS_OK:-0}" == "1" ]]; then
       { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | PLAN_STATUS_OK override (prefix) | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
     else
-      PS_PREFIX_REASON="Plan naming convention (R-27, feedback_plan_naming_conventions.md): this plan-root path is missing the required NN- numeric prefix. Top segment: '${PS_TOP_SEGMENT}'. New plan files and directories at ~/.claude-plans/ must start with a numeric prefix matching the next-available integer (run 'ls ~/.claude-plans/ | grep -oE \"^[0-9]+\" | sort -n | tail -1' and add 1). Use descriptive slug, not auto-generated. Escape hatch: export PLAN_STATUS_OK=1 (logged to hook-audit.log)."
+      PS_PREFIX_REASON="Plan naming convention (R-27): this plan-root path is missing the required NN- numeric prefix. Top segment: '${PS_TOP_SEGMENT}'. New plan files and directories at ~/.claude-plans/ must start with a numeric prefix matching the next-available integer (run 'ls ~/.claude-plans/ | grep -oE \"^[0-9]+\" | sort -n | tail -1' and add 1). Use descriptive slug, not auto-generated. Escape hatch: export PLAN_STATUS_OK=1 (logged to hook-audit.log)."
       format_output_deny "PreToolUse" "$PS_PREFIX_REASON"
       exit 0
     fi
@@ -557,7 +585,7 @@ except Exception:
       if [[ "${PLAN_STATUS_OK:-0}" == "1" ]]; then
         { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | PLAN_STATUS_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
       else
-        PS_REASON="Plan naming convention (R-27, feedback_plan_naming_conventions.md): this plan has no authoritative status. Accepted: (a) **Status:** header bullet with value (e.g., **Status:** briefed), (b) YAML frontmatter status: field, (c) manifest.json top-level status field, OR — for spec.md / 00-ideation-brief.md — a sibling manifest.json carrying a top-level status: field (these artifacts are manifest-derived; the manifest is the single status SoT). Scope: flat root plans + spec.md + 00-ideation-brief.md + README.md + manifest.json. Flat-root plans + README.md still require an inline (a)/(b) marker. Sub-task files, handoff.md, and orchestrator artifacts are explicitly NOT required to carry status (they inherit from the parent plan). Escape hatch: export PLAN_STATUS_OK=1 (logged to hook-audit.log)."
+        PS_REASON="Plan naming convention (R-27): this plan has no authoritative status. Accepted: (a) **Status:** header bullet with value (e.g., **Status:** briefed), (b) YAML frontmatter status: field, (c) manifest.json top-level status field, OR — for spec.md / 00-ideation-brief.md — a sibling manifest.json carrying a top-level status: field (these artifacts are manifest-derived; the manifest is the single status SoT). Scope: flat root plans + spec.md + 00-ideation-brief.md + README.md + manifest.json. Flat-root plans + README.md still require an inline (a)/(b) marker. Sub-task files, handoff.md, and orchestrator artifacts are explicitly NOT required to carry status (they inherit from the parent plan). Escape hatch: export PLAN_STATUS_OK=1 (logged to hook-audit.log)."
         format_output_deny "PreToolUse" "$PS_REASON"
         exit 0
       fi
@@ -721,73 +749,13 @@ print(verdict())
 fi
 # === end one-block-per-page frontmatter assert ==========================
 
-# === System Governance.md size guard (SG_MAX_LINES) ====================
-# Block any Write/Edit on System Governance.md whose result exceeds the
-# navigational-index threshold. Force extraction-first discipline.
-# SG_MAX_LINES is hardcoded to 400 — the foundation no longer ships a
-# System Governance.md.json contract to derive the cap from. This guard is
-# retained for the dev-vault hub only.
-VA_PATH="$HOME/Documents/Obsidian Vault/System Governance.md"
-SG_MAX_LINES=400
-
-if [[ "$FILE_PATH" == "$VA_PATH" ]]; then
-  va_new_lines=0
-  case "$TOOL_NAME" in
-    Write)
-      VA_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
-      va_new_lines=$(printf '%s' "$VA_CONTENT" | wc -l | tr -d ' ')
-      # wc -l counts newlines; add 1 if content doesn't end in newline
-      if [[ -n "$VA_CONTENT" ]] && [[ "${VA_CONTENT: -1}" != $'\n' ]]; then
-        va_new_lines=$((va_new_lines + 1))
-      fi
-      ;;
-    Edit)
-      if [[ -f "$VA_PATH" ]]; then
-        VA_OLD=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty')
-        VA_NEW=$(echo "$INPUT" | jq -r '.tool_input.new_string // empty')
-        VA_REPLACE_ALL=$(echo "$INPUT" | jq -r '.tool_input.replace_all // false')
-        va_tmp=$(mktemp)
-        # Python literal substitution (no regex pitfalls)
-        VA_OLD_B64=$(printf '%s' "$VA_OLD" | base64)
-        VA_NEW_B64=$(printf '%s' "$VA_NEW" | base64)
-        python3 -c "
-import sys, base64
-path = sys.argv[1]
-old = base64.b64decode(sys.argv[2]).decode('utf-8')
-new = base64.b64decode(sys.argv[3]).decode('utf-8')
-replace_all = sys.argv[4] == 'true'
-with open(path, 'r') as f:
-    content = f.read()
-if replace_all:
-    content = content.replace(old, new)
-else:
-    content = content.replace(old, new, 1)
-with open(sys.argv[5], 'w') as f:
-    f.write(content)
-" "$VA_PATH" "$VA_OLD_B64" "$VA_NEW_B64" "$VA_REPLACE_ALL" "$va_tmp" 2>/dev/null || true
-        if [[ -s "$va_tmp" ]]; then
-          va_new_lines=$(wc -l < "$va_tmp" | tr -d ' ')
-        fi
-        rm -f "$va_tmp"
-      fi
-      ;;
-  esac
-
-  if [[ "$va_new_lines" -gt "$SG_MAX_LINES" ]]; then
-    REASON="System Governance.md would become ${va_new_lines} lines, exceeding the navigational-index threshold (${SG_MAX_LINES}). It is a navigational hub; long content belongs in separate topic notes. To proceed: (1) identify a self-contained section to extract, (2) move it to its own note, (3) replace the section in the hub with a stub redirect, (4) retry the write."
-    format_output_deny "PreToolUse" "$REASON"
-    exit 0
-  fi
-fi
-# === end VA.md size guard ===============================================
-
 # --- BLOCK: Direct edits to librarian-manifest.json ---
 if [[ "$FILE_PATH" == *"librarian-manifest.json"* ]]; then
   format_output_deny "PreToolUse" "Direct edits to librarian-manifest.json are prohibited. The manifest must be regenerated through /librarian to maintain holistic consistency (backend_sync.in_sync flags go stale on manual edits). Use /librarian with the appropriate capability instead."
   exit 0
 fi
 
-# === HCM-3 handoff.md section_schema write-time DENY (sub 04 / T-3) ==
+# === handoff.md section_schema write-time DENY (sub 04 / T-3) ==
 # Stops the per-spoke handoff-chronicle degrading to an all-fallback projection: a
 # NEW session ENTRY appended to a plan-tree handoff.md must use a heading shape the
 # chronicle recognizer actually parses (skills/librarian/capabilities/
@@ -845,7 +813,7 @@ if [[ "$FILE_PATH" == *"/.claude-plans/"*"/handoff.md" ]]; then
     fi
   fi
 fi
-# === end HCM-3 handoff.md section_schema DENY =============================
+# === end handoff.md section_schema DENY =============================
 
 # === Plan-artifact frontmatter advisory (R-40) ============================
 # R-40 plan-frontmatter type advisory
@@ -919,8 +887,8 @@ PYEOF
       # --- T-3: spec.md status-line single-enum advisory ----------
       # The **Status:** marker on a spec should resolve to ONE token from
       # lifecycle.status_enum — not a prose paragraph ('s spec encoded
-      # ~8 decisions in its status line). Advisory-FIRST per
-      # feedback_no_calendar_gates: NEVER deny (a block would retro-fire on the
+      # ~8 decisions in its status line). Advisory-FIRST per the
+      # data-driven promotion rule: NEVER deny (a block would retro-fire on the
       # ~80 legacy plans); emit a nudge + an audit-trail line so the
       # advisory->block promotion gate has a false-positive-rate baseline.
       if [[ "$PL_EXPECTED_TYPE" == "spec" ]]; then
@@ -955,8 +923,8 @@ PYEOF
               R40_ADVISORY="$SE_ADVISORY"
             fi
             # Audit trail for the advisory->block promotion gate (FPR baseline).
-            # HOOKS_STATE_OVERRIDE honored for test isolation (mirrors G1; per
-            # feedback_test_isolation_for_hooks_state).
+            # HOOKS_STATE_OVERRIDE honored for test isolation (mirrors G1; a test
+            # points state at a throwaway dir, never the live tree).
             SE_STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-}}"
             if [[ -n "$SE_STATE_DIR" ]]; then
               SE_AUDIT_FILE="$SE_STATE_DIR/plan-status-enum-advisory-history.jsonl"
@@ -984,7 +952,7 @@ PYEOF
   # ) live UNDER the plans root but OUTSIDE $VAULT_ROOT, so the 3-tier vault
   # gate + Branch #1 never fire on them, and R-40's basename case-table (above) has
   # no arm for a library-article / type:index / binder basename — they reached this
-  # hook UNVALIDATED. ADVISORY-FIRST (R-35 / feedback_no_calendar_gates: NEVER a DENY
+  # hook UNVALIDATED. ADVISORY-FIRST (R-35, a data-driven promotion gate: NEVER a DENY
   # on a hand-authored library corpus or a librarian-generated binder; the block
   # stays exit-0-allow like the R-40 emit). NO new file-type contract (that would
   # force a master rebuild): the _library/_index.md check reuses the SHIPPED
@@ -1110,19 +1078,65 @@ if [[ "$FILE_PATH" == "${CLAUDE_HOME:-$HOME/.claude}/skills/"*"/SKILL.md" ]] || 
     # Locate ## Output Contract H2 section; capture body until next H2 or EOF.
     CLASS_D_OUTPUT_CONTRACT=$(printf '%s\n' "$CLASS_D_CONTENT" | awk '/^## Output Contract[[:space:]]*$/{found=1; next} /^## /{if(found){exit}} found{print}')
     if [[ -n "$CLASS_D_OUTPUT_CONTRACT" ]]; then
-      # Detect vault-scoped write declarations: paths containing $VAULT_ROOT,
-      # ~/Documents/Obsidian Vault, or "Obsidian Vault/" prefix in any write
+      # Detect vault-scoped write declarations: paths containing $VAULT_ROOT, or
+      # the RESOLVED vault's own directory name as a path prefix, in any write
       # context (write paths, examples, etc.).
-      if printf '%s\n' "$CLASS_D_OUTPUT_CONTRACT" | grep -qE '\$VAULT_ROOT/|~/Documents/Obsidian Vault/|Obsidian Vault/'; then
+      #
+      # THE NAME IS DERIVED, NEVER LITERAL. This predicate used to carry two
+      # hardcoded vault-name alternatives, so the prose half of the signal only
+      # ever matched on the one machine those names came from — every other
+      # adopter got recall from the `$VAULT_ROOT/` alternative alone. A DERIVED
+      # name is not a SPECIFIC name: the basename of the configured root keeps
+      # the Class-D signal alive on each adopter's own vault.
+      #
+      # EMPTY-GUARDED IN THE FAIL-SAFE DIRECTION. With no configured vault the
+      # derived alternative is NOT appended at all. That is load-bearing: an
+      # empty alternative in an ERE (`a/|`) matches EVERY line, which would turn
+      # a suggest-only guard into one that fires on every SKILL.md an
+      # unconfigured adopter writes. Absent root ⇒ absent alternative ⇒ the
+      # guard degrades to exactly its pre-existing `$VAULT_ROOT/` recall.
+      # (Distinct from the already-ruled-inert empty-root COMPOSITION question
+      # documented at the Vault Writers sweep below — that one is about a path,
+      # this one is about a pattern.)
+      CLASS_D_VAULT_RE='\$VAULT_ROOT/'
+      if [[ -n "${VAULT_ROOT:-}" ]]; then
+        CLASS_D_VAULT_BASE="$(basename "$VAULT_ROOT" 2>/dev/null || printf '')"
+        case "$CLASS_D_VAULT_BASE" in
+          ""|"."|"/") ;;   # unusable basename -> no alternative, no widening
+          *)
+            # ERE-escape the derived name: an adopter's vault directory may
+            # legitimately contain regex metacharacters.
+            CLASS_D_VAULT_RE="$CLASS_D_VAULT_RE|$(printf '%s' "$CLASS_D_VAULT_BASE" \
+              | sed 's/[][\\.^$*+?(){}|]/\\&/g')/"
+            ;;
+        esac
+      fi
+      if printf '%s\n' "$CLASS_D_OUTPUT_CONTRACT" | grep -qE "$CLASS_D_VAULT_RE"; then
         # Extract skill slug from `name:` frontmatter.
         CLASS_D_SLUG=$(printf '%s\n' "$CLASS_D_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' | grep -E '^name:' | head -1 | sed -E 's/^name:[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//' || true)
         if [[ -n "$CLASS_D_SLUG" ]]; then
           # Sweep Vault Writers/*.md frontmatter for writer_skill: <slug> matches.
+          #
+          # The sentinel consulted is the ROOT VALUE ITSELF: with no vault root
+          # the sweep directory would compose to a bare `/Vault Writers` at the
+          # filesystem root. That composition is already inert — the path does
+          # not exist, so the `[[ -d ]]` below is false and the sweep no-ops —
+          # but the guard states the intent instead of leaving it to be
+          # re-derived from the absence of a root-level directory.
+          # VAULT_CONFIGURED is the DERIVED flag the paths SoT materializes from
+          # this same root — a convenience for consumers, not an independent
+          # authority — so it is deliberately NOT required here: a caller that
+          # exports VAULT_ROOT directly has supplied a vault.
+          # Behaviour is unchanged in every state: an unconfigured vault leaves
+          # CLASS_D_REGISTERED at 0 and the soft-mandate advisory fires, exactly
+          # as it did when the empty root composed a dead path.
           CLASS_D_REGISTERED=0
-          CLASS_D_VW_DIR="$VAULT_ROOT/Vault Writers"
-          if [[ -d "$CLASS_D_VW_DIR" ]]; then
-            if grep -qsE "^writer_skill:[[:space:]]*[\"']?${CLASS_D_SLUG}[\"']?[[:space:]]*$" "$CLASS_D_VW_DIR"/*.md 2>/dev/null; then
-              CLASS_D_REGISTERED=1
+          if [[ -n "${VAULT_ROOT:-}" ]]; then
+            CLASS_D_VW_DIR="$VAULT_ROOT/Vault Writers"
+            if [[ -d "$CLASS_D_VW_DIR" ]]; then
+              if grep -qsE "^writer_skill:[[:space:]]*[\"']?${CLASS_D_SLUG}[\"']?[[:space:]]*$" "$CLASS_D_VW_DIR"/*.md 2>/dev/null; then
+                CLASS_D_REGISTERED=1
+              fi
             fi
           fi
           if [[ "$CLASS_D_REGISTERED" -eq 0 ]]; then
@@ -1144,7 +1158,7 @@ fi
 # frontmatter, per ~/.claude/rules/README.md) or ${CLAUDE_HOME}/schemas/*.json (JSON
 # well-formedness) at write time, so rules-corpus + schema drift was unguarded. NEW
 # branch (no governance/*.json pillar edit). ADVISORY-FIRST: rules + schemas are
-# hand-authored foundation surfaces — NEVER a DENY (feedback_no_calendar_gates).
+# hand-authored foundation surfaces — NEVER a DENY (promotion is data-driven).
 # Terminal per-surface branch (emit + exit 0), mirroring the SKILL.md block above;
 # DISJOINT from Branch #4 (plans-tree librarian block) + the R-40 plan-artifact block.
 case "$FILE_PATH" in
@@ -1199,7 +1213,7 @@ esac
 # Enforces the Anthropic-documented load contract for MEMORY.md: first 200
 # lines OR first 25KB loaded at session start; entries past the cap silently
 # drop. Per-line >200 chars = drift signal. Advisory only at MVP per
-# -default ADVISORY ([[feedback_no_calendar_gates]] volume-driven
+# default ADVISORY (a volume-driven, never calendar-gated
 # gate; promotion to BLOCK gated on 30d adoption data).
 # Schema source: governance/mandatory-files-rules.json#mandates._memory_md_cap.
 if [[ "$FILE_PATH" == *"/.claude/projects/"*"/memory/MEMORY.md" ]] && \
@@ -1290,7 +1304,7 @@ PYEOF
       MEM_BREACHES="${MEM_BREACHES}\n- a vault-pointer entry starts at line ${MEM_G1_LINE}, past the 200-line/${MEM_BYTE_CAP}-byte fold [POINTER PLACEMENT ADVISORY — G1/R-59]: it loads invisibly — move it above the fold (the TOP of its section)"
     fi
     if [[ -n "$MEM_BREACHES" ]]; then
-      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25KB (whichever first) of MEMORY.md at session start (documented at code.claude.com/docs/en/memory). Entries past the cap silently drop from context — the bottom of your index never reaches the model. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. Per [[feedback_manifests_as_read_replicas]] MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
+      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25KB (whichever first) of MEMORY.md at session start (documented at code.claude.com/docs/en/memory). Entries past the cap silently drop from context — the bottom of your index never reaches the model. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
       exit 0
     fi
   fi
@@ -1587,7 +1601,7 @@ fi
 #   Class B — new vault-root file
 #   Class C — new file-type in existing folder (also catches subfolder
 #             semantic divergence per lazy-detection)
-# Soft-mandate per [[feedback_soft_mandate_pattern]]; frictionless skip via
+# Soft-mandate (strong recommendation, never a block); frictionless skip via
 # user dismissal. Class D handled at SKILL CHANGE PROTOCOL block above
 # (skill-file glob scope).
 B1_OVERLAY="${OVERLAY_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/overlay-master.json}"
@@ -1689,7 +1703,7 @@ fi
 #   - pillar 6: file-type-contracts/<type>.md.json :: historical_data_warning_pattern
 #   - pillar 7: vault-writers-rules.json :: historical_data_warning_default
 # TZ-aware today: overlay-master.system.timezone (default America/New_York
-# per + [[feedback_timezone_edt]]). Future-dated files pass silently
+# per). Future-dated files pass silently
 # per.
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B2_BASENAME=$(basename "$FILE_PATH" .md)
@@ -1698,7 +1712,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # read at-). Foundation pillar 7 is composed into the bundle at
   # `.vault_writers`; overlay can extend via `.vault_writers.*` per per-leaf
   # merge strategy (T-7). TZ default chain: union .system.timezone → empty
-  # → hardcoded "America/New_York" per [[feedback_timezone_edt]] +.
+  # → hardcoded "America/New_York" per.
   B2_TZ="America/New_York"
   if [[ -n "${UNION_JSON:-}" ]]; then
     B2_TZ_UNION=$(jq -r '.system.timezone // empty' <<<"$UNION_JSON" 2>/dev/null || true)
@@ -1869,7 +1883,9 @@ fi
 # === end Branch #3 ================================================
 
 # 3-TIER VAULT SCHEMA ENFORCEMENT
-# Only triggers for files under ~/Documents/Obsidian Vault/
+# Only triggers for .md files under the CONFIGURED vault root — the gate below is
+# `VAULT_CONFIGURED == 1` AND `$FILE_PATH == $VAULT_ROOT/*`. (This line used to name
+# one specific vault, which was never the trigger scope the code implemented.)
 # Tier 1: Auto-fix guidance (additionalContext)
 # Tier 2: Block with explanation (DENY)
 # Tier 3: Allow with mandatory follow-up warning
@@ -2202,7 +2218,7 @@ print(content, end='')
         # --- R-47: Tag-presence advisory (Tier 1, never blocks) ---
         # Complement to R-32 tag-prefix DENY: soft-warn when non-exempt vault
         # write has missing or empty tags. Graph-view diagnostic per
-        # feedback_tags_as_validity_diagnostic — orphan files surface as
+        # tags read as a validity diagnostic — orphan files surface as
         # enforcement alerts. Observation gate 2026-05-19.
         #
         # POSITIVE-LIST SEMANTICS (T-3, 2026-04-22):
@@ -2235,7 +2251,7 @@ print(content, end='')
         fi
 
         # --- R-48: Wikilink write-time advisory (Tier 1, never blocks) ---
-        # Sub-plan 05 T-2 (2026-04-21). Vault-scoped (already gated by
+        # T-2 (2026-04-21). Vault-scoped (already gated by
         # outer REL_PATH checks). Scans CONTENT for [[target]] and [[target|alias]]
         # patterns; emits advisory when target doesn't resolve to a file in the
         # vault. Complements T-6 wikilink-repair.sh (post-hoc capability)
@@ -2497,14 +2513,18 @@ PYEOF
         # Check if creating a file in a new vault-root directory
         ROOT_DIR=$(echo "$REL_PATH" | cut -d'/' -f1)
         IS_KNOWN=false
-        # Read known_roots from bundle (naming.R-04); fall back to hardcoded foundation-8.
-        _KNOWN_ROOTS=$(jq -r '.naming.rules[]? | select(.id == "R-04") | .known_roots[]?' <<<"$BUNDLE_JSON" 2>/dev/null || true)
+        # Read known_roots from the bundle's naming pillar — R-04 under `_rules[]`, the
+        # per-pillar rule SoT key the composed foundation-master publishes. The list below
+        # is a bundle-less FALLBACK MIRROR of that same pillar list, not an independent
+        # allowlist: the two move together (R-37 lockstep) whenever known_roots changes.
+        _KNOWN_ROOTS=$(jq -r '.naming._rules[]? | select(.id == "R-04") | .known_roots[]?' <<<"$BUNDLE_JSON" 2>/dev/null || true)
         if [[ -z "$_KNOWN_ROOTS" ]]; then
           _KNOWN_ROOTS="Archive
 Daily
-Inbox
 Plans
-Skills"
+Skills
+Vault Writers
+Work"
         fi
         while IFS= read -r _d; do
           [[ -z "$_d" ]] && continue

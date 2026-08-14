@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""brief-meta.py — brief frontmatter parser.
+"""brief-meta.py — T-4/T-5 +/brief frontmatter parser.
 
 Parses YAML frontmatter from dispatched briefs and emits machine-readable
 output for dispatch.sh pre-flight, job-runner.sh dynamic watched-repos
@@ -17,18 +17,20 @@ Subcommands:
                            — Emit one dirname per artifact path (de-duped, one
                               per line). Used by job-runner.sh to extend
                               WATCHED_REPOS before pre-snapshot.
-  acceptance <brief>       — Emit JSON for the acceptance block.
+  acceptance <brief>       — Emit JSON for T-5 acceptance block.
                               [] when not present.
-  decision-points <brief>  — Emit JSON for the decision_points field.
+  decision-points <brief>  — Emit JSON for decision_points field.
                               [] when not present. Each entry:
                                 {id, question, options, chosen?, rationale?}
+                              T-3 (2026-05-09).
   session-close <brief>    — Emit JSON for session-continuity
                               fields:
                                 {produces_session_close: bool,
                                  predecessor_session: str|null}
                               Defaults: produces_session_close=false,
-                              predecessor_session=null.
-  scoping <brief>          — Emit JSON for the pre-dispatch
+                              predecessor_session=null. T-3
+                              (2026-05-10).
+  scoping <brief>          — Emit JSON for T-2 pre-dispatch
                               scoping protocol fields:
                                 {scope_summary: str|null,
                                  team_topology: dict|null,
@@ -41,9 +43,16 @@ Subcommands:
                               is "fail". Always exit 0; shape validation lives
                               in `check`.
 
-Path validation:
-  ALLOWLIST anchors: ~/.claude/, ~/.claude-plans/, ~/Documents/Obsidian Vault/, ~/Code/
+Path validation (LOCKED design contract):
+  ALLOWLIST anchors are DERIVED from the roots the paths source-of-truth
+    (hooks/lib/paths.sh) exports — CLAUDE_HOME, PLANS_DIR, VAULT_ROOT — plus the
+    build-repo seam FOUNDATION_REPO. Values are read from the environment at call
+    time; this module carries no path literal.
+  VALIDATES: an unset/empty anchor is UNCONFIGURED and contributes nothing, and an
+    empty anchor SET is a PASS-THROUGH. An unconfigured vault can never turn this
+    validator into a rejector.
   DENYLIST: /, /tmp/**, /var/**, /etc/**, /usr/**, /private/**, paths containing ..
+    Unconditional — it applies even under the pass-through above.
   Per-artifact 'optional: true' allowed for advisory paths.
 """
 import os
@@ -58,18 +67,51 @@ except ImportError:
           file=sys.stderr)
     sys.exit(2)
 
-ALLOWLIST = [
-    os.path.expanduser("~/.claude/"),
-    os.path.expanduser("~/.claude-plans/"),
-    os.path.expanduser("~/Documents/Obsidian Vault/"),
-    os.path.expanduser("~/Code/"),
-]
+# ALLOWLIST anchors are DERIVED, never written down here.
+#
+# Each anchor names the VARIABLE the paths source-of-truth (hooks/lib/paths.sh)
+# exports for that role; the VALUE is read from the environment at call time. No
+# path literal appears in this module, so an adopter whose vault, plans tree or
+# install lives somewhere else is validated against THEIR roots — and a root that
+# is renamed at the SoT follows here with no edit and no second surface to keep in
+# sync. A literal would hardcode one machine's layout into every install, which is
+# the exact class this derivation exists to remove.
+#
+# VALIDATES is the adjudication class this arm implements, distinct from
+# allow/deny: an anchor whose variable is unset or empty is UNCONFIGURED, so it
+# contributes nothing, and an empty anchor SET is a PASS-THROUGH — the allowlist
+# arm simply does not apply. An unconfigured vault must never be able to turn this
+# validator into a rejector. The DENYLIST below is unconditional and always
+# applies, so pass-through is "no opinion on membership", never "anything goes".
+ALLOWLIST_ANCHOR_VARS = ("CLAUDE_HOME", "PLANS_DIR", "VAULT_ROOT", "FOUNDATION_REPO")
 DENYLIST_PREFIXES = ["/tmp/", "/var/", "/etc/", "/usr/", "/private/"]
 DENYLIST_EXACT = {"/"}
 
 
 def expand(p):
     return os.path.expanduser(p)
+
+
+def allowlist_anchors():
+    """Return the CONFIGURED anchor roots as directory prefixes (may be empty).
+
+    Read at call time rather than at import, so a caller that sources the paths
+    SoT before invoking this module gets that resolution. Order follows
+    ALLOWLIST_ANCHOR_VARS; duplicates collapse (CLAUDE_GIT_REPO-style aliases
+    resolve to the same root).
+    """
+    anchors = []
+    for var in ALLOWLIST_ANCHOR_VARS:
+        root = os.environ.get(var, "").strip()
+        if not root:
+            continue                      # unconfigured -> contributes no anchor
+        root = expand(root).rstrip("/")
+        if not root:
+            continue                      # "/" is never an anchor
+        anchor = root + "/"
+        if anchor not in anchors:
+            anchors.append(anchor)
+    return anchors
 
 
 def validate_path(p):
@@ -85,9 +127,17 @@ def validate_path(p):
     for prefix in DENYLIST_PREFIXES:
         if expanded.startswith(prefix):
             return f"path under denylist prefix '{prefix}': {p}"
-    if not any(expanded.startswith(allowed) for allowed in ALLOWLIST):
-        anchors = ", ".join(ALLOWLIST)
-        return f"path not under any allowlist anchor ({anchors}): {p}"
+    anchors = allowlist_anchors()
+    if not anchors:
+        # VALIDATES pass-through: nothing is configured to anchor against, so
+        # membership has no answer here. Returning a deny would reject every
+        # artifact path an unconfigured install could name.
+        return None
+    if not any(expanded.startswith(allowed) for allowed in anchors):
+        return (
+            f"path not under any configured allowlist anchor "
+            f"({', '.join(anchors)}): {p}"
+        )
     return None
 
 
@@ -201,7 +251,7 @@ def normalize_session_close(fm):
 
     Defaults preserve backward compatibility — existing briefs without these
     fields continue to dispatch unchanged. predecessor_session being optional
-    mitigates the parallel-wave bottleneck.
+    avoids a parallel-wave bottleneck.
 
     Raises ValueError on shape errors. Returns dict with both keys.
     """
@@ -222,7 +272,7 @@ def normalize_session_close(fm):
     }
 
 
-# Canonical refusal-filter keys (in order).
+# T-2 canonical refusal-filter keys (in order; per spec-122).
 SP04_FILTER_KEYS = (
     "sequential_edges",
     "shared_global_context",
@@ -237,7 +287,7 @@ SP04_DECISIONS = ("dispatch-multi", "dispatch-single", "abort-and-rescope")
 
 
 def normalize_scope_summary(raw):
-    """Validate scope_summary string. Returns str or None."""
+    """T-2: validate scope_summary string. Returns str or None."""
     if raw is None:
         return None
     if not isinstance(raw, str) or not raw.strip():
@@ -248,7 +298,7 @@ def normalize_scope_summary(raw):
 
 
 def normalize_team_topology(raw):
-    """Validate team_topology dict. Returns dict or None.
+    """T-2: validate team_topology dict. Returns dict or None.
 
     Required: pattern (one of single|flat|staged).
     If pattern != single:
@@ -327,7 +377,7 @@ def normalize_team_topology(raw):
 
 
 def normalize_dispatch_decision(raw):
-    """Validate dispatch_decision dict. Returns dict or None.
+    """T-2: validate dispatch_decision dict. Returns dict or None.
 
     Required:
         decision: one of dispatch-multi | dispatch-single | abort-and-rescope
@@ -402,7 +452,7 @@ def normalize_dispatch_decision(raw):
 
 
 def compute_filter_check(decision_dict):
-    """Cross-validation: decision=dispatch-multi + any filter=fail
+    """T-2 cross-validation: decision=dispatch-multi + any filter=fail
     → filter_check_failed=True. Returns (bool, list-of-reasons).
     """
     if decision_dict is None:
@@ -418,7 +468,7 @@ def compute_filter_check(decision_dict):
 
 
 SCHEMA_HINT = """\
-Required frontmatter shape (mandatory):
+Required frontmatter shape (T-4 mandatory):
 
   ---
   expected_artifacts:
@@ -427,14 +477,18 @@ Required frontmatter shape (mandatory):
       optional: true                          # advisory; missing OK
   ---
 
-Empty list for research-only briefs (escape hatch):
+Empty list for research-only briefs (escape hatch —):
 
   ---
   expected_artifacts: []
   ---
 
-Allowlist anchors: ~/.claude/, ~/.claude-plans/, ~/Documents/Obsidian Vault/, ~/Code/
-Denylist: /, /tmp/**, /var/**, /etc/**, /usr/**, /private/**, paths containing ..
+Allowlist anchors are derived at call time from the roots the paths source-of-truth
+exports (CLAUDE_HOME, PLANS_DIR, VAULT_ROOT) plus FOUNDATION_REPO; an anchor that is
+unconfigured contributes nothing, and an entirely unconfigured set validates as
+pass-through.
+Denylist (unconditional): /, /tmp/**, /var/**, /etc/**, /usr/**, /private/**, paths
+containing ..
 """
 
 
@@ -442,7 +496,7 @@ def cmd_check(brief):
     fm = parse_frontmatter(brief)
     if fm is None:
         sys.stderr.write(
-            f"ERROR: brief has no YAML frontmatter\n"
+            f"ERROR [T-4]: brief has no YAML frontmatter\n"
             f"  brief: {brief}\n"
             f"  Frontmatter must begin with '---' fence at line 1.\n\n"
             f"{SCHEMA_HINT}"
@@ -450,7 +504,7 @@ def cmd_check(brief):
         return 3
     if "expected_artifacts" not in fm:
         sys.stderr.write(
-            f"ERROR: brief frontmatter missing required 'expected_artifacts:' field\n"
+            f"ERROR [T-4]: brief frontmatter missing required 'expected_artifacts:' field\n"
             f"  brief: {brief}\n\n"
             f"{SCHEMA_HINT}"
         )
@@ -459,7 +513,7 @@ def cmd_check(brief):
         artifacts = normalize_artifacts(fm["expected_artifacts"])
     except ValueError as e:
         sys.stderr.write(
-            f"ERROR: invalid expected_artifacts shape: {e}\n"
+            f"ERROR [T-4]: invalid expected_artifacts shape: {e}\n"
             f"  brief: {brief}\n\n"
             f"{SCHEMA_HINT}"
         )
@@ -468,7 +522,7 @@ def cmd_check(brief):
     errors = [e for e in errors if e]
     if errors:
         sys.stderr.write(
-            f"ERROR: expected_artifacts path validation failed (allowlist+denylist):\n"
+            f"ERROR [T-4]: expected_artifacts path validation failed (allowlist+denylist):\n"
         )
         for e in errors:
             sys.stderr.write(f"  - {e}\n")
@@ -479,7 +533,7 @@ def cmd_check(brief):
             normalize_acceptance(fm["acceptance"])
         except ValueError as e:
             sys.stderr.write(
-                f"ERROR: invalid acceptance shape: {e}\n"
+                f"ERROR [T-5]: invalid acceptance shape: {e}\n"
                 f"  brief: {brief}\n"
             )
             return 9
@@ -488,7 +542,7 @@ def cmd_check(brief):
             normalize_decision_points(fm["decision_points"])
         except ValueError as e:
             sys.stderr.write(
-                f"ERROR: invalid decision_points shape: {e}\n"
+                f"ERROR [T-3]: invalid decision_points shape: {e}\n"
                 f"  brief: {brief}\n"
             )
             return 10
@@ -497,7 +551,7 @@ def cmd_check(brief):
             normalize_session_close(fm)
         except ValueError as e:
             sys.stderr.write(
-                f"ERROR: invalid session-close shape: {e}\n"
+                f"ERROR [T-3]: invalid session-close shape: {e}\n"
                 f"  brief: {brief}\n"
             )
             return 11
@@ -511,7 +565,7 @@ def cmd_check(brief):
             normalize_dispatch_decision(fm.get("dispatch_decision"))
         except ValueError as e:
             sys.stderr.write(
-                f"ERROR: invalid scoping shape: {e}\n"
+                f"ERROR [T-2]: invalid scoping shape: {e}\n"
                 f"  brief: {brief}\n"
             )
             return 12
@@ -578,10 +632,10 @@ def cmd_session_close(brief):
 
 
 def cmd_scoping(brief):
-    """Emit scoping JSON for dispatch.sh consumption.
+    """T-2: emit scoping JSON for dispatch.sh consumption.
 
     Always exits 0 (shape validation is in `check`). Emits empty {} when no
-    scoping fields declared (legacy brief, backwards-compatible).
+    T-2 fields declared (legacy brief, backwards-compatible).
     """
     fm = parse_frontmatter(brief) or {}
     sp04_present = any(

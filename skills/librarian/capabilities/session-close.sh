@@ -1,10 +1,12 @@
 #!/bin/bash
 # session-close — Deterministic orchestrator that chains extracted librarian
 # capabilities to perform end-of-session reconciliation.
-# Landed: Sub-plan 04 T-1 (2026-04-21). Replaces the model-interpreted
+#
+# Landed: T-1 (2026-04-21). Replaces the model-interpreted
 # pseudocode in SKILL.md §Invocation Mode: session-close with a shell chain
 # that invokes existing capability shells. Does NOT reimplement capabilities —
 # only glue. Respects R-42 peer-session scope contract.
+#
 # Scope modes:
 #   --scope solo        default (no peers) — standard touched-file scope
 #   --scope scoped      peers still active — own touched files only, defer
@@ -12,6 +14,7 @@
 #   --scope reconciler  last active peer — merge all peers' touched files,
 #                       run full manifest regen, clear pending flags
 #   (default: auto-detect via session registry + UserPromptSubmit signals)
+#
 # Capability chain (per SKILL.md session-close):
 #   Step 2  : scoped integrity (frontmatter-enforce, xref-check,
 #             placement-validate, stale-detect, handoff-disposition-check,
@@ -35,8 +38,9 @@
 #             findings via its `backlog-row-missing-disposition` category).
 #   Step 5  : (removed) backup — T-1 made the close structurally
 #             commit-free; /librarian backup stays the standalone by-hand cap
-#             (SECURITY.md:11). The MANUAL close offers it (D3); auto never does.
+#             (SECURITY.md:11). The MANUAL close offers it; auto never does.
 #   Step 6  : write aggregated session-close log.
+#
 # Design constraints:
 #   - Bash 3.2 clean per R-23. No declare -A, readarray, step brace expansion,
 #     ${var,,}, &>>. No bashisms introduced here.
@@ -52,14 +56,19 @@
 #     plans on a virgin vault, so it writes nothing there either.
 #   - Single aggregated write per run at <state>/logs/session-close-YYYYMMDD-HHMMSS.md.
 #     Individual capabilities may write their own sub-logs per their contracts.
+#
 # CLI:
 #   session-close.sh
 #   session-close.sh --scope solo|scoped|reconciler
 #   session-close.sh --dry-run       # skip actual execution; report plan
 #   session-close.sh --touched-files <comma-sep-paths>
+#   session-close.sh --cwd <dir>     # the CLOSING session's own cwd (the SessionEnd
+#                                    # payload .cwd). Preferred over ambient $PWD for
+#                                    # active-spoke resolution; $PWD is the fallback.
 #   session-close.sh --test-mode     # test harness override; stubs out
 #                                    # capability invocations, writes to
 #                                    # $SESSION_CLOSE_LOG_DIR (if set)
+#
 # Exits:
 #   0 — always. Session-close is advisory.
 
@@ -136,6 +145,13 @@ TOUCHED_FILES_CSV=""
 # self-ID never guesses. Env fallback CLAUDE_SESSION_ID (rarely exported into Bash
 # subshells). Empty here -> auto_detect_scope's demoted last-resort ancestor-walk.
 SELF_SESSION_ID="${CLAUDE_SESSION_ID:-}"
+# The closing session's OWN cwd, threaded EXPLICITLY (--cwd). The SessionEnd spawn
+# (session-deregister.sh) reads it from the harness payload `.cwd` — the session's LAUNCH
+# directory — and the SessionStart integrity backstop threads the crashed row's stored cwd
+# (or $HOME) at its recovery spawn. Empty here -> the ambient-$PWD fallback in
+# step2_integrity, which is the working directory the DETACHED chain woke up in and is NOT
+# the launch dir in general.
+SELF_CWD=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -145,6 +161,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --session-id)
       SELF_SESSION_ID="$2"
+      shift 2
+      ;;
+    --cwd)
+      SELF_CWD="$2"
       shift 2
       ;;
     --dry-run)
@@ -309,6 +329,28 @@ case "$SCOPE" in
     ;;
 esac
 
+# Idempotency, evaluated at chain START (and again at write time — see Step 6):
+# the chain's own runtime exceeds the 60s window, so an at-write-only check could
+# never dedupe a back-to-back re-invocation — it would re-run the whole chain and
+# then write a second receipt anyway. A re-invocation arriving within 60s of the
+# last receipt exits 0 here, before any capability work. Dry runs never short-
+# circuit: they write nothing, so they always report the full would-do walk.
+idempotent_guard() {
+  local recent
+  recent=$(ls -1t "$LOG_DIR"/session-close-*.md 2>/dev/null | head -1)
+  [[ -z "$recent" ]] && return 1
+  local age
+  age=$(( $(date +%s) - $(stat -f %m "$recent" 2>/dev/null || echo 0) ))
+  if [[ "$age" -lt 60 ]]; then
+    return 0
+  fi
+  return 1
+}
+if [[ "$DRY_RUN" != "true" ]] && idempotent_guard; then
+  echo "[idempotent] recent session-close log found (<60s) — skipping session-close (receipt already written)"
+  exit 0
+fi
+
 # ---- orchestration state ----------------------------------------------------
 
 TS=$(date +%Y%m%d-%H%M%S)
@@ -357,6 +399,7 @@ record_capability() {
 
 # Stub-aware runner. In test mode, emit a deterministic token and skip the
 # real invocation. In normal mode, invoke the capability and record status.
+#
 # Output handling: the capability's combined output is captured
 # to a temp file instead of /dev/null so a non-zero exit can fold a one-line
 # digest of the real fail/skip lines into record_capability's detail (instead of
@@ -401,6 +444,7 @@ run_capability() {
   # (ERRORS_COUNT) is unchanged. out_file carries THIS cap's combined
   # stdout+stderr (not the accumulated sink) so the fail/skip digest
   # still resolves to this capability's own lines on a non-zero exit.
+  #
   # The stdout copy is FILTERED to NDJSON finding lines (those beginning with
   # `{` — the emit_finding/emit_event shape from hooks/lib/findings.sh). Findings
   # caps that honor FINDINGS_OUTPUT write findings to the sink directly and print
@@ -485,13 +529,26 @@ step2_integrity() {
   # ONCE for the binder-maintenance block below. The binder generators (the 3
   # plan-* re-derivers + the situating card + the handoff-chronicle append) are
   # scoped to the ACTIVE SPOKE ONLY — whole-tree re-derive is reserved for the
-  # `librarian-full` invocation, never the per-session close. We resolve the spoke
-  # from the session cwd ($PWD) via the shared spoke_resolve_from_cwd resolver
-  # (skills/new-plan/lib/spoke-resolve.sh) against the anchored-spoke registry —
-  # this is the most-correct source on disk: session-close records no launch cwd in
-  # HOOKS_STATE (verified — session-register.sh stores session_id+source only), so
-  # $PWD (the cwd the close runs in) is the session's working directory and the
-  # same anchor the SessionStart card hook (T-07) keys on.
+  # `librarian-full` invocation, never the per-session close. The spoke is resolved through
+  # the shared spoke_resolve_from_cwd resolver (skills/new-plan/lib/spoke-resolve.sh)
+  # against the anchored-spoke registry, from ONE of two sources, in this order:
+  #
+  #   1. $SELF_CWD — the cwd threaded EXPLICITLY via --cwd. Its source is the SessionEnd
+  #      harness payload's `.cwd`, which hooks/session-deregister.sh reads and passes to
+  #      this detached spawn (the SessionStart integrity backstop threads its recovery
+  #      spawn the same way). That payload field is the session's LAUNCH directory, and it
+  #      is the same field hooks/session-start-project-context.sh reads to key the
+  #      situating card — so the close and the card resolve from the same input.
+  #
+  #   2. ambient $PWD — FALLBACK ONLY, for a caller that threads no --cwd. It is the
+  #      working directory this DETACHED chain happens to wake up in, which is NOT the
+  #      session's launch dir in general: a headless lane whose working directory is $HOME
+  #      resolves `home` and rewrites the HOME binder for a session that belonged to
+  #      another spoke. (The pre-threading comment here asserted that $PWD was "the same
+  #      anchor the SessionStart card hook keys on" — it was not. That hook keys on the
+  #      payload `.cwd`; the two are different values and were observed resolving to
+  #      different spokes within one second.)
+  #
   # FALLBACK (documented, deliberate): if the resolver errors (registry unreadable,
   # python3 absent, collision) OR yields an empty key, default active_spoke="home"
   # — the registry catch-all. We MUST NOT silently fall back to a whole-tree
@@ -507,7 +564,7 @@ step2_integrity() {
   if [[ -r "$_spoke_resolver" ]]; then
     # shellcheck source=/dev/null
     source "$_spoke_resolver"
-    active_spoke="$(spoke_resolve_from_cwd "$PWD" 2>/dev/null)"
+    active_spoke="$(spoke_resolve_from_cwd "${SELF_CWD:-$PWD}" 2>/dev/null)"
   fi
   if [[ -z "$active_spoke" ]]; then
     active_spoke="home"
@@ -517,12 +574,12 @@ step2_integrity() {
   # bodies behind the Work/ symlink are validated at close. Pre-130 this ran a bare
   # `--check` (the recent/full whole-vault lane, symlink-inert per FIX #7), so the
   # scoped lane FIX #7 built had no caller and Work bodies were never validated. `--scope`
-  # and the `--check`/`--fix` MODE are ORTHOGONAL flags (frontmatter-enforce.sh:78-89 — no
+  # and the `--check`/`--fix` MODE are ORTHOGONAL flags (frontmatter-enforce's arg parse — no
   # `--enforce` flag exists): --scope sets WALK=scope (build_scope sources the shared walker,
   # symlink-following), --check keeps validation read-only. VAULT_ROOT-empty degrades
   # cleanly (frontmatter-enforce's own VAULT_CONFIGURED guard exits 0). This is the R2
-  # serialization-cluster edit (128 -> here -> 140/11); it does NOT touch the post-128
-  # SELF_SESSION_ID/--session-id flow.
+  # serialization-cluster edit; it does NOT touch the SELF_SESSION_ID/--session-id
+  # flow this lane resolves separately.
   run_capability frontmatter-enforce --scope "${VAULT_ROOT:-}/Work" --check
   # Plans-lane frontmatter contract check. The Work lane above validates the Work
   # deliverable surface behind the Work/ symlink; the plans tree carries its own
@@ -613,17 +670,39 @@ step2_integrity() {
   # advisory-surface a just-completed plan carrying no harness_validated[] verdict-pass
   # (the receipt lives in that field, not a status). Block-and-log, atomic os.replace,
   # findings to the per-run sink; session-close stays advisory.
+  #
+  # THE CLOSE-TIME ORDERING GATE rides the SAME block, ahead of both stamps:
+  # a terminal `manifest.status` over a task ledger that still carries NON-ADVANCED rows is
+  # REFUSED — loudly (stderr + a `refused` line in the capability chain + a finding in the
+  # per-run sink) — and the stamp does NOT proceed. The gate is minted here because the close
+  # path is where a plan's terminal status is first OBSERVED against its own ledger, and
+  # because this block is already the single writer of that manifest at close: the drift class
+  # is a plan stamped `completed` whose tasks[] still says `pending`, after which every derived
+  # surface (tasks.md re-render below, _backlog.md, the master sub_plans[] read-replica) faithfully
+  # renders the contradiction. The candidate owner was checked, not assumed:
+  # `184/14-session-close-orchestration-capstone` is `completed` with 17 tasks and none of them is
+  # this gate (its T-1 REORDERS the close chain; it never refuses a terminal stamp), so the gate
+  # was unowned rather than already-shipped. It is deliberately NOT a blocking exit — session-close
+  # is advisory-exit-0 by contract (the ONLY carve-out is a present-but-non-exec required cap), so
+  # loud-and-recorded plus a withheld write is the strongest refusal this chain's contract supports;
+  # the operator advances (or cuts) the open rows and re-closes.
   if [[ "$TEST_MODE" == "true" ]]; then
     record_capability "completed-at-stamp" "stub" "test-mode"
   elif [[ "$DRY_RUN" == "true" ]]; then
     record_capability "completed-at-stamp" "dry-run" "would stamp completed_at on the armed plan if it reached completed"
   else
     _ca_plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
-    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" 2>/dev/null <<'PY'
+    # Refusal channel for the ordering gate. The block's stdout is the stamped-count capture
+    # and its stderr is suppressed (python tracebacks stay out of the close), so each refusal
+    # is written here as exactly ONE line and replayed below to stderr + the capability chain.
+    _ca_refusals="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.refusals"
+    : > "$_ca_refusals"
+    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" "$_ca_refusals" 2>/dev/null <<'PY'
 import json, os, sys, tempfile
 from datetime import date
 
 plans_root = sys.argv[1]
+refusal_path = sys.argv[2] if len(sys.argv) > 2 else ""
 today = os.environ.get("SESSION_CLOSE_TODAY") or date.today().isoformat()
 sink = os.environ.get("FINDINGS_OUTPUT", "")
 
@@ -632,6 +711,51 @@ def emit(d):
         return
     with open(sink, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(d, ensure_ascii=False) + "\n")
+
+def refuse(line):
+    """One refusal, one line (the capability-chain + stderr shapes are line-based)."""
+    if not refusal_path:
+        return
+    with open(refusal_path, "a", encoding="utf-8") as fh:
+        fh.write(" ".join(str(line).split()) + "\n")
+
+# The terminal set is governance/plans-rules.json :: lifecycle.terminal_status
+# {completed, superseded} — the same pair the research_closed stamp below already keys on.
+TERMINAL_STATUS = ("completed", "superseded")
+
+# The NON-ADVANCED task-status set. Derived from the ACTUAL task-status vocabulary of the corpus
+# (2,560 rows over the live plan manifests), NOT invented: the open-state tokens are
+# not-started / planned / pending / in-progress / proposed / blocked / needs-revision, plus an
+# ABSENT-or-empty status (the single largest class — a row that never claimed a state).
+# It is a CLOSED open-state list, and everything else is read as advanced, deliberately:
+# the corpus also carries settled-but-free-form dispositions (done, cut, verified, complete,
+# deferred, retired-supersession, absorbed-*, satisfied-by-construction, "completed (with a
+# free-form note)"), and an ADVANCED-side allowlist would refuse every one of them. Free-form suffixes are
+# normalized off the front token ("in-progress (T-7a slice closed)" -> in-progress), so a
+# narrated open row is still caught while a narrated settled row is not.
+NON_ADVANCED = frozenset((
+    "", "null", "none",
+    "not-started", "planned", "pending", "in-progress", "proposed",
+    "blocked", "needs-revision",
+))
+
+def task_state(t):
+    v = t.get("status")
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        v = str(v)
+    return v.split("(")[0].strip().lower().replace("_", "-")
+
+def open_rows(m):
+    rows = []
+    for t in (m.get("tasks") or []):
+        if not isinstance(t, dict):
+            continue
+        st = task_state(t)
+        if st in NON_ADVANCED:
+            rows.append((str(t.get("id") or "?"), st or "null"))
+    return rows
 
 def read_pointer(path):
     try:
@@ -667,6 +791,30 @@ for mpath in targets:
     if not isinstance(m, dict):
         continue
     status = m.get("status")
+    slug = os.path.basename(os.path.dirname(mpath))
+    # ---- the close-time ordering gate: no terminal stamp over an open ledger -------
+    # Fires on OBSERVATION, ahead of either stamp: a terminal status over a ledger still
+    # carrying open rows is refused whether or not this close is the one that would write
+    # the fields, because the contradiction is the finding. `continue` is the refusal — the
+    # manifest is not opened for write on this path at all (refuse-and-freeze, never
+    # stamp-and-hope), matching the discipline tasks-render already applies below.
+    if status in TERMINAL_STATUS:
+        rows = open_rows(m)
+        if rows:
+            shown = ", ".join("%s:%s" % (i, s) for i, s in rows[:5])
+            if len(rows) > 5:
+                shown += ", +%d more" % (len(rows) - 5)
+            refuse(
+                "%s — manifest.status=%s over %d non-advanced task row(s) [%s]; "
+                "REFUSING the completed_at/research_closed stamp (advance or cut the rows, then re-close)"
+                % (slug, status, len(rows), shown)
+            )
+            emit({"finding": "terminal-stamp-over-open-ledger", "file": mpath, "plan_slug": slug,
+                  "status": status, "open_task_count": len(rows),
+                  "open_tasks": [{"id": i, "status": s} for i, s in rows],
+                  "note": "terminal plan status over a non-advanced task ledger — close-time stamp REFUSED",
+                  "detected_at": today})
+            continue
     did_completed_at = False
     did_research_closed = False
     # completed_at: date-only, only on a `completed` armed target lacking the field.
@@ -697,7 +845,7 @@ for mpath in targets:
             except Exception:
                 pass
         continue
-    slug = os.path.basename(os.path.dirname(mpath))
+    # `slug` is already resolved above (the gate emits with it); no second derivation.
     if did_completed_at:
         stamped += 1
         emit({"finding": "completed-at-stamped", "file": mpath, "plan_slug": slug,
@@ -714,7 +862,121 @@ for mpath in targets:
 print(stamped)
 PY
 )"
+    # Replay the ordering gate's refusals LOUDLY: one stderr line + one `refused` line in the
+    # capability chain per refused target. `refused` is a NON-error status by design — the
+    # withheld stamp is a CORRECT outcome (the same disposition tasks-render's loud-skip gets
+    # below), so it must not bump ERRORS_COUNT and must not turn the advisory close into a
+    # failure. The finding already rode into the per-run sink, so it also lands in
+    # findings-total and the close log's findings digest. The `ok` line still records the
+    # stamped count afterwards, so a run that refused one target and stamped another reports both.
+    if [[ -s "$_ca_refusals" ]]; then
+      while IFS= read -r _ca_refusal; do
+        [[ -n "$_ca_refusal" ]] || continue
+        echo "session-close: REFUSED terminal stamp — $_ca_refusal" >&2
+        record_capability "completed-at-stamp" "refused" "$_ca_refusal"
+      done < "$_ca_refusals"
+    fi
+    rm -f "$_ca_refusals"
     record_capability "completed-at-stamp" "ok" "${_ca_stamped:-0} plan(s) stamped completed_at (armed target)"
+  fi
+  # Re-derive the tasks.md read-replica on the SAME armed target chain the stamps above
+  # resolve. tasks.md is a manifest-derived replica whose sole sanctioned writer is
+  # tasks-render (/R-37), and its only direct callers were the two SCAFFOLDERS
+  # (new-plan.sh, promote-from-inbox.sh) — so between scaffold and close the manifest is
+  # mutated many times and nothing re-derives the replica, and a plan could close with its
+  # human-facing file still saying `planned` while manifest.tasks[] (the task-state SoT)
+  # said `done`. This is the missing CLOSE-TIME transition and nothing more.
+  #
+  # SCOPE — TRANSITION-SCOPED to the armed target ONLY ($PLANS_DIR/.active-plan ->
+  # <plan>/.active-sp, the identical chain read above), never a whole-tree walk and never a
+  # `--check` sweep. Both rejected explicitly: a read-only --check over 320 plan dirs
+  # reports 115 completed plans drift=true, 51 of them whitespace-only and the substantive
+  # remainder dominated by RENDERER-FORMAT EVOLUTION (on a sampled completed plan
+  # the diff is the renderer ADDING strikethrough and the entire per-task detail section the
+  # on-disk file predates). Sweeping-and-re-rendering would rewrite 115 closed plans for
+  # reasons unrelated to this defect, and a close-time --check sweep would emit ~104
+  # format-evolution findings out of 115 — a finding stream that trains the reader to ignore
+  # it. The residual-`planned` backfill is a SEPARATE live-corpus pass over 11 measured
+  # plans (post-sentinel scaffold residue), owned elsewhere; this block never backfills.
+  #
+  # NO SECOND TRIGGER. The PostToolUse render trigger on a plan manifest.json write ALREADY
+  # EXISTS (hooks/post-manifest-binder-refresh.sh), as does the task-done-marker lane
+  # (hooks/tasks-md-autosync.sh); BOTH scope to dirname(the manifest just written). This
+  # adds no trigger surface — it is the close-time transition those two lanes cannot cover,
+  # and it inherits tasks-render's single-writer + atomic temp+rename discipline unchanged.
+  #
+  # REFUSAL TOLERANCE. tasks-render's emptiness guard and schema gate are LOUD-SKIPS
+  # ("tasks-render: skipped <plan> — …", stderr, exit 1) that deliberately FREEZE the
+  # replica rather than write-and-hope. That is a correct outcome, not a close failure, so
+  # it is recorded as `skip` with the diagnostic folded in — never `error`. A genuine
+  # failure still records `error` (advisory; the close's exit contract is unchanged).
+  #
+  # FINDINGS ROUTING. tasks-render emits `tasks-md-regenerated` on EVERY successful write,
+  # including a byte-identical one. Folding that into $RUN_FINDINGS_NDJSON would put a
+  # permanent >=1 floor under the findings-total 0-baseline this orchestrator maintains
+  # (see the FINDINGS_DIGEST block below), so this call's findings go to a throwaway sink —
+  # the same disposition the automatic hook lane already gives them.
+  if [[ "$TEST_MODE" == "true" ]]; then
+    record_capability "tasks-render" "stub" "test-mode"
+  elif [[ "$DRY_RUN" == "true" ]]; then
+    record_capability "tasks-render" "dry-run" "would re-render tasks.md on the armed plan target chain"
+  else
+    _tr_cap="$CAPS_DIR/tasks-render.sh"
+    _tr_plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+    _tr_armed=""
+    if [[ -r "$_tr_plans_root/.active-plan" ]]; then
+      _tr_armed="$(tr -d '[:space:]' < "$_tr_plans_root/.active-plan" 2>/dev/null)"
+    fi
+    _tr_targets=""
+    if [[ -n "$_tr_armed" && -d "$_tr_plans_root/$_tr_armed" ]]; then
+      _tr_targets="$_tr_plans_root/$_tr_armed"
+      _tr_sp=""
+      if [[ -r "$_tr_plans_root/$_tr_armed/.active-sp" ]]; then
+        _tr_sp="$(tr -d '[:space:]' < "$_tr_plans_root/$_tr_armed/.active-sp" 2>/dev/null)"
+      fi
+      if [[ -n "$_tr_sp" && "$_tr_sp" != "." && -d "$_tr_plans_root/$_tr_armed/$_tr_sp" ]]; then
+        _tr_targets="$_tr_targets
+$_tr_plans_root/$_tr_armed/$_tr_sp"
+      fi
+    fi
+    if [[ ! -x "$_tr_cap" ]]; then
+      # Same delivery-mode discipline run_capability applies: present-but-non-exec is a
+      # shipped-wrong defect the gate must observe; genuinely absent is a plain skip.
+      if [[ -e "$_tr_cap" ]]; then
+        NONEXEC_REQUIRED_COUNT=$((NONEXEC_REQUIRED_COUNT + 1))
+        record_capability "tasks-render" "error" "present-but-non-exec — capability body shipped NON-EXEC ($_tr_cap); cannot run (the dead-R-40/100644-delivery class)"
+      else
+        record_capability "tasks-render" "skip" "not-installed"
+      fi
+    elif [[ -z "$_tr_targets" ]]; then
+      record_capability "tasks-render" "skip" "no armed plan target (.active-plan absent or unresolvable) — transition-scoped, nothing to re-derive"
+    else
+      _tr_sink="${TMPDIR:-/tmp}/session-close-tasks-render-$$.ndjson"
+      _tr_err="${TMPDIR:-/tmp}/session-close-tasks-render-$$.err"
+      while IFS= read -r _tr_dir; do
+        [[ -n "$_tr_dir" ]] || continue
+        _tr_slug="$(basename "$_tr_dir")"
+        # Mirror the automatic lane's precondition: re-derive an EXISTING replica; never
+        # mint a tasks.md for a plan that has none (that is the scaffolder's job).
+        if [[ ! -f "$_tr_dir/tasks.md" ]]; then
+          record_capability "tasks-render" "skip" "$_tr_slug — no tasks.md replica to re-derive"
+          continue
+        fi
+        : > "$_tr_err"
+        if FINDINGS_OUTPUT="$_tr_sink" "$_tr_cap" "$_tr_dir" >/dev/null 2>"$_tr_err"; then
+          record_capability "tasks-render" "ok" "$_tr_slug — tasks.md re-derived from manifest.tasks[] (armed target)"
+        else
+          _tr_digest="$(head -1 "$_tr_err" 2>/dev/null | sed 's/^[[:space:]]*//')"
+          case "$_tr_digest" in
+            *"skipped"*|*"refusing to render"*|*"refusing to write"*)
+              record_capability "tasks-render" "skip" "$_tr_slug — refused, replica frozen: $_tr_digest" ;;
+            *)
+              record_capability "tasks-render" "error" "$_tr_slug — ${_tr_digest:-exit non-zero}" ;;
+          esac
+        fi
+      done < <(printf '%s\n' "$_tr_targets")
+      rm -f "$_tr_sink" "$_tr_err"
+    fi
   fi
   # Reconcile the master<->sub aggregation axis BEFORE rendering the master _index.md
   # rollup. drift-sweep --plans --fix runs ONLY the master<->sub aggregation axis and
@@ -737,7 +999,7 @@ PY
   # exit 0, idempotent, atomic os.replace). plan-handoff-index's full re-derive
   # absorbs the append above idempotently.
   #
-  # sub-11 T-2 (F11 writer-2; DT-4 memo §Amendment-A1 clause 4): the SINGLE research
+  # The SINGLE research
   # declaration surface. plan-research-declare DERIVES research_artifacts[] into each active-spoke
   # plan's OWN manifest from that plan's OWN _research/ (+ decisions/target-state/deliverables/),
   # routed to the OWNING spoke via the manifest project: key (true owner). It runs
@@ -938,23 +1200,16 @@ step2e_cadence_roster() {
 # The close chain no longer runs backup, so the orchestrator is structurally
 # commit-free (no git add/commit/push reachable). backup remains the standalone
 # /librarian backup capability (SECURITY.md:11 "never automatic"); the MANUAL
-# /librarian session-close OFFERS it (D3), the detached auto path never does.
+# /librarian session-close OFFERS it, the detached auto path never does.
 
 # ---- Step 6: write aggregated log ------------------------------------------
 
-# Idempotency: if a session-close log was written within the last 60s AND
-# the orchestrator is being re-invoked without --dry-run, skip the write.
-idempotent_guard() {
-  local recent
-  recent=$(ls -1t "$LOG_DIR"/session-close-*.md 2>/dev/null | head -1)
-  [[ -z "$recent" ]] && return 1
-  local age
-  age=$(( $(date +%s) - $(stat -f %m "$recent" 2>/dev/null || echo 0) ))
-  if [[ "$age" -lt 60 ]]; then
-    return 0
-  fi
-  return 1
-}
+# Idempotency: idempotent_guard is defined (and FIRST evaluated) at chain start —
+# see the early-exit above "orchestration state". write_log re-checks it here as
+# the belt: the start-time check is what dedupes a back-to-back re-invocation (the
+# chain's own runtime exceeds the 60s window, so an at-write-only check evaluated
+# minutes after the first receipt could never fire); the write-time check keeps a
+# slow overlapping pair from double-writing.
 
 write_log() {
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -984,7 +1239,7 @@ write_log() {
     echo "# Session Close — $ISO_NOW"
     echo ""
     echo "**Scope:** $SCOPE"
-    echo "**Orchestrator:** capabilities/session-close.sh (Sub-plan 04)"
+    echo "**Orchestrator:** capabilities/session-close.sh"
     echo ""
     echo "## Capability Chain"
     echo "$CAPABILITY_LOG"

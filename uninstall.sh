@@ -686,7 +686,7 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       # floor). Same class as governance-action-log.jsonl: foundation-generated,
       # not user content. Without this carve-out they survive uninstall (the
       # `find -type f` walk reaches dotfiles) -> governance/ never prunes empty ->
-      # vp-3 RESIDUE:governance. rm without baseline check.
+      # a governance uninstall-residue. rm without baseline check.
  #
  # The release ceremony mints
       # governance/baselines/foundation-manifest-v<version>.json, and
@@ -696,7 +696,7 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       # so the current-version archive lands in the home as a NON-files[]
       # foundation-owned file. Same class as the .installed-* sidecars: a
       # foundation-shipped runtime floor, not user content. Without this carve-out
-      # the find-walk preserves it -> governance/ never prunes empty -> vp-3
+      # the find-walk preserves it -> governance/ never prunes empty -> an uninstall
       # RESIDUE:governance. governance/baselines/ is wholly foundation-owned; rm any
       # frozen archive by glob (the files[]-listed prior archives are also swept here
       # idempotently; the README is a files[] member removed by the normal path).
@@ -708,7 +708,7 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       # seed-if-absent at install, USER-PRESERVE-by-omission on --apply (NOT in files[], so
       # an upgrade never resets it). Not being a files[] member, the per-file walk cannot
       # classify it — remove it here on a full uninstall (same foundation-seeded, non-files[]
-      # class as the sidecars above) or governance/ never prunes empty (vp-3 RESIDUE:governance).
+      # class as the sidecars above) or governance/ never prunes empty (a governance uninstall-residue).
       if [ "$rel" = "governance/foundation-manifest.json" ] || \
          [ "$rel" = "governance/governance-action-log.jsonl" ] || \
          [ "$rel" = "governance/.installed-state.json" ] || \

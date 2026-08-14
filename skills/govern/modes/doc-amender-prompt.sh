@@ -2,17 +2,18 @@
 # modes/doc-amender-prompt.sh — Layer-3 prompt-authoring mode for the
 # doc-amender (the 5th /govern register registration class).
 #
-# Layer-3 prompt-authoring companion. The doc-amender RUNTIME
+# T-04 (B2 Layer-3 — NET-NEW). The doc-amender RUNTIME
 # (skills/doc-amender/process.sh) is disable-model-invocation:true; this mode is
 # its MODEL-INVOCABLE create-time companion. The two are connected ONLY by the
 # contract file (governance/file-type-contracts/doc-amender-prompt.md.json).
 #
-# The guided flow (5 steps; system-proposes → operator-reviews-and-accepts):
+# The guided flow (5 steps; the system proposes, the operator reviews and
+# accepts — propose-and-confirm, never auto-apply):
 #   (i)   take a target destination + the set of upstream writers;
 #   (ii)  interview the operator on per-destination merge intent — the
 #         merge-intent taxonomy maps to amendment_strategy
 #         {append-section, template-fill, prompt-guided-amend} + persistence_mode
-#         {deterministic, llm-mediated, hybrid} (from the prompt contract);
+#         {deterministic, llm-mediated, hybrid} (from the T-05 contract);
 #   (iii) render a contract-compliant prompt asset (frontmatter per
 #         doc-amender-prompt.md.json + a body);
 #   (iv)  validate against doc-amender-prompt.md.json BEFORE write
@@ -62,7 +63,7 @@ _dap_prompts_root() {
 }
 
 # Map a merge-intent value to (amendment_strategy, persistence_mode) per the
-# contract pattern_menu. Echoes "<strategy>\t<persistence_mode>".
+# T-05 contract pattern_menu. Echoes "<strategy>\t<persistence_mode>".
 _dap_intent_to_strategy() {
   case "$1" in
     table-upsert|action-items|template-fill)
@@ -154,7 +155,8 @@ mode_propose() {
 
   # Body: a contract body_section_allowlist-aligned skeleton. The operator (or
   # the invoking model) refines the Prompt section; LLM-use to draft the prompt
-  # body is in-bounds (a prompt asset is config/content, not a SKILL body).
+  # body is in-bounds (a prompt asset is config/content, not a SKILL body —
+  # the no-skill-code-generation rule does not bar it).
   local body
   if [ -z "$body_goal" ]; then
     body_goal="Reconcile the upstream writer packet into the destination per the merge intent."

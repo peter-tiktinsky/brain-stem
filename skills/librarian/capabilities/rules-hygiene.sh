@@ -30,11 +30,13 @@
 #                     rules wearing one filename (the size_ceiling rationale). Claude
 #                     adjudicates whether to split.
 #
-# Test isolation per [[feedback_test_isolation_for_hooks_state]].
+# Test isolation: state points at a throwaway dir, never the live tree.
 #
 # Tier: judgment. Output Contract: propose-only (writes NOTHING) + block-and-log on
-# its own schema-read. Cron block: weekly. Exits 0 with a "skipped
-# (non-interactive)" log line when invoked outside a TTY and FOUNDATION_TEST_MODE unset.
+# its own schema-read. Cron block: weekly. The non-interactive gate is SPLIT, not a
+# whole-capability skip: the deterministic classes always run, and only the one-concern
+# judgment class is suppressed — and only when the invocation is genuinely headless
+# (no controlling tty, and neither FOUNDATION_TEST_MODE nor CLAUDECODE set).
 #
 # CLI:
 #   rules-hygiene.sh                     # scan global (+ cwd project) rules dirs
@@ -50,9 +52,11 @@
 #   RULES_MAX_LINES        Body line ceiling (default: 500).
 #   FINDINGS_OUTPUT        (default: stdout)
 #   FOUNDATION_TEST_MODE   Bypass non-interactive guard (test/CI runners).
+#   CLAUDECODE             Set by a Claude Code tool-context session. Marks the run
+#                          ATTENDED, so the judgment class is NOT suppressed.
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
-# ([[feedback_python_heredoc_argv]]).
+# (data via argv, never a piped stdin).
 
 set -euo pipefail
 
@@ -85,8 +89,16 @@ done
 # corpus — while only the JUDGMENT class (one-concern) stays interactive-gated. Was: the WHOLE
 # cap self-exited 0 on a no-TTY cron, so the rules corpus was NEVER audited unattended. HEADLESS
 # is passed to the python body, which suppresses ONLY the judgment NDJSON candidates.
+#
+# CLAUDECODE=1 is an ATTENDED context, not a headless one (the condition the sibling
+# judgment-tier capabilities already carry — promote-from-inbox.sh, library-scrub.sh,
+# memory-globalize.sh, memory-hygiene.sh). A Claude Code tool call has no controlling tty
+# but IS an operator-attended session, so classifying it headless suppressed the one-concern
+# candidates with the operator sitting there asking for them. Only a genuine
+# non-Claude-Code no-tty invocation (a cron sweep) is headless.
 HEADLESS="false"
-if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${CLAUDECODE:-}" ]] \
+   && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
   HEADLESS="true"
 fi
 

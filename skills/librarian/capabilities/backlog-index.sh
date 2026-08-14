@@ -54,7 +54,9 @@
 #   BACKLOG_FILE             output file (default: $PLANS_ROOT/_backlog.md)
 #   PLANS_RULES_PATH         plans-rules.json (default: foundation -> live)
 #   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
-#   SPOKE_REGISTRY_PATH      anchored-spoke-registry.json (default: foundation -> live)
+#   SPOKE_REGISTRY_PATH      anchored-spoke-registry.json (default: the
+#                            $CLAUDE_HOME install first, the repo governance/
+#                            copy only as a fallback — hooks/lib/anchored-spoke-registry.sh)
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
@@ -71,6 +73,9 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/anchored-spoke-registry.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/anchored-spoke-registry.sh"; } \
+  || { [ -r "$_REPO_LIB/anchored-spoke-registry.sh" ] && source "$_REPO_LIB/anchored-spoke-registry.sh"; } || true
 
 DRY_RUN="false"
 while [[ $# -gt 0 ]]; do
@@ -132,18 +137,23 @@ if [[ -z "$SCHEMA_PATH" ]]; then
 fi
 
 # Anchored-spoke registry (Project Dir cell): resolves each row's project:
-# spoke key to its project-home directory (cwd_anchors[0]). Test override -> foundation
-# governance/ -> live. A missing/unreadable registry renders every Project Dir cell as
-# the graceful empty (never a crash).
-SPOKE_REG="${SPOKE_REGISTRY_PATH:-}"
-if [[ -z "$SPOKE_REG" ]]; then
-  _REPO_GOV="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
-  for candidate in \
-    "$CLAUDE_HOME_RES/governance/anchored-spoke-registry.json" \
-    "$_REPO_GOV/anchored-spoke-registry.json"; do
-    if [[ -f "$candidate" ]]; then SPOKE_REG="$candidate"; break; fi
-  done
+# spoke key to its project-home directory (cwd_anchors[0]). The ONE shared resolver
+# (hooks/lib/anchored-spoke-registry.sh) owns the order — test override -> the
+# $CLAUDE_HOME install -> the repo governance/ copy as a fallback. A missing/unreadable
+# registry renders every Project Dir cell as the graceful empty (never a crash).
+if ! command -v spoke_registry_resolve >/dev/null 2>&1; then
+  echo "backlog-index: hooks/lib/anchored-spoke-registry.sh not found (looked under $CLAUDE_HOME_RES/hooks/lib and $_REPO_LIB)" >&2
+  exit 1
 fi
+_REPO_GOV="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
+SPOKE_REG="$(spoke_registry_resolve "$_REPO_GOV")"
+
+# WRITE-TARGET COHERENCE. This capability resolves its write target from $HOME and
+# its registry from $CLAUDE_HOME; a run that pairs the live plan corpus with another
+# tree's registry would render a table whose every unknown row is silently blank.
+# Refuse it here, before the render, in this capability's block-and-log posture (the
+# --dry-run path refuses too: the incoherent input, not the write, is what is wrong).
+spoke_registry_assert_coherent "$SPOKE_REG" "$BACKLOG_FILE" "backlog-index" || exit 1
 
 python3 - "$PLANS_ROOT" "$DRY_RUN" "$RULES_PATH" "$SCHEMA_PATH" "$BACKLOG_FILE" "$SPOKE_REG" <<'PY'
 import json, os, re, sys, tempfile
@@ -448,7 +458,7 @@ for entry in sorted(os.listdir(plans_root)):
         print("backlog-index: skipped unparseable manifest: %s" % manifest_path, file=sys.stderr)
         continue
     if not manifest_valid(manifest):
-        # D4 visibility: a schema-invalid funnel manifest is invisible today (silent
+        # visibility: a schema-invalid funnel manifest is invisible today (silent
         # counted skip). Emit an NDJSON finding so the dirty corpus surfaces for repair
         # instead of disappearing from the read-replica.
         emit({"finding": "backlog-manifest-schema-invalid", "file": entry, "plan_slug": entry,
@@ -489,7 +499,7 @@ for entry in sorted(os.listdir(plans_root)):
               "detected_at": today, "first_seen": today})
 
     title = manifest.get("title") or manifest.get("project") or entry
-    # D3 render-time fallback: when `updated` is absent, fall back to the scaffold date so
+    # render-time fallback: when `updated` is absent, fall back to the scaffold date so
     # the Updated cell is never empty for a manifest that carries phase_2_scaffolded_at.
     updated = manifest.get("updated") or manifest.get("phase_2_scaffolded_at") or ""
     disposition = str(manifest.get("disposition", "")).strip()

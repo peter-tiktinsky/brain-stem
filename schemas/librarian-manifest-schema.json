@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Librarian Manifest",
-  "description": "Librarian runtime state: inventory, cross-reference graph, tag inventory, scan state, drift findings, architect recommendations, rename history. Runtime writes owned by the librarian capabilities. drift_findings.required[] is trimmed to the subtrees a librarian capability actually writes (frontmatter-enforce) — see drift_findings.description.",
+  "description": "Librarian runtime state: inventory, cross-reference graph, tag inventory, scan state, drift findings, architect recommendations, rename history. Runtime writes owned by the librarian capabilities. drift_findings declares NO required children: it is a per-scope sub-leaf namespace whose keys are owned by the capabilities that declare writes_manifest_subtree — see drift_findings.description.",
   "type": "object",
   "required": [
     "schema_version",
@@ -33,12 +33,12 @@
     },
     "xref_graph": {
       "type": "object",
-      "description": "Cross-reference graph (wikilinks, canonical-file links, explicit references). Inner shape owned by the runtime writer.",
+      "description": "Cross-reference graph (wikilinks, canonical-file links, explicit references). Inner shape owned by runtime writer.",
       "additionalProperties": true
     },
     "tags": {
       "type": "object",
-      "description": "Tag inventory (tag -> occurrences). Inner shape owned by the runtime writer.",
+      "description": "Tag inventory (tag -> occurrences). Inner shape owned by runtime writer.",
       "additionalProperties": true
     },
     "scan_state": {
@@ -58,17 +58,7 @@
     },
     "drift_findings": {
       "type": "object",
-      "description": "Per-capability drift-finding subtrees written by the librarian capabilities via writes_manifest_subtree. The three frontmatter-enforce subtrees are required (frontmatter-enforce always writes them). additionalProperties:true admits the other capability subtrees (placement, stale, tag_coverage, sweep, trinity, governance_parity, index_maintain, writers_*, log_subtype_canonical, rename_detected).",
-      "required": [
-        "provides_canonicality",
-        "size_monitoring",
-        "schema_type_coverage"
-      ],
-      "properties": {
-        "provides_canonicality": { "type": "object", "additionalProperties": true },
-        "size_monitoring":       { "type": "object", "additionalProperties": true },
-        "schema_type_coverage":  { "type": "object", "additionalProperties": true }
-      },
+      "description": "Per-SCOPE drift-finding sub-leaves. Every librarian capability that declares a writes_manifest_subtree owns exactly ONE leaf here, keyed by its own scope: drift_findings.frontmatter (frontmatter-enforce), .placement (placement-validate, itself scope-keyed as .placement.vault / .placement.plans_root), .stale (stale-detect), and the same one-leaf-per-owner shape for tag_coverage, index_maintain, coverage_guard, rename_detected and any later scope. The discipline is structural, not stylistic: manifest_set REPLACES its target leaf wholesale, so a capability that persisted this PARENT object would obliterate every sibling scope's leaf on every run. NO scope key is required and none is enumerated here — a manifest that has never run a given capability simply carries no leaf for it, and additionalProperties:true admits every scope key without the schema tracking the capability roster. A leaf's INNER shape is owned by its writer and lists are legal at any depth: frontmatter carries provides_canonicality / size_monitoring / schema_type_coverage as finding LISTS alongside schema_version + last_scan; placement and stale carry summary objects; rename_detected is a flat list. A long-lived manifest may also carry parent-level residue from before the sub-leaf discipline; it is admitted rather than migrated.",
       "additionalProperties": true
     },
     "architect_recommendations": {
@@ -98,7 +88,7 @@
               "id": {
                 "type": "string",
                 "pattern": "^AR-[0-9]{3}$",
-                "description": "Architect recommendation ID. Pattern AR-NNN avoids collision with R-NNN governance rules."
+                "description": "Architect recommendation ID. Pattern AR-NNN avoids collision with ENFORCEMENT-MAP R-NNN rules (per spec §R-C)."
               },
               "title": { "type": "string" },
               "category": { "type": "string" },

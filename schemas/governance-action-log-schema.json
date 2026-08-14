@@ -15,7 +15,7 @@
     "kind": {
       "type": "string",
       "enum": ["folder", "file-type", "tag-extension", "writer"],
-      "description": "Governance pillar slot being registered. Bare nouns. Frictionless-skip outcome captured separately by `unregistered: true` boolean field; do NOT collapse the two axes."
+      "description": "Governance pillar slot being registered. Bare nouns only. Frictionless-skip outcome captured separately by `unregistered: true` boolean field; do NOT collapse the two axes."
     },
     "proposed_by": {
       "type": "string",

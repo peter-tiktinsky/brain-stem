@@ -1,10 +1,12 @@
 #!/bin/bash
 # build-foundation-master.sh — composes foundation governance pillars into
 # governance/foundation-master.json at foundation-repo RELEASE time.
+#
 # brain-stem (ABSORB-govern). Release-time tool — NOT in the adopter
 # ship-list (.1:296 'release-time NOT installed'). Adopters never build;
-# install.sh ships the composed artifact as immutable shipped state per
-# feedback_ship_bundle_dont_build_on_consumer.
+# install.sh ships the composed artifact as immutable shipped state; the
+# bundle is built here, never on the consumer.
+#
 # CLEAN-ROOM v2 pillar shape (in-transit modifications vs the
 # @— flagged as a closure-discovery):
 #   - Rename (-> brain-stem) throughout.
@@ -18,6 +20,7 @@
 #     hooks/pre-write-guard.sh :1046/:1048/:1568) are unchanged.
 #   - gate-config.json is absent in the clean-room (dropped); the r32/r47
 #     gate-config absorption guards already default gracefully ({}, [], 25).
+#
 # Inputs (read-only):
 #   governance/frontmatter-rules.json       (carries types + tier_compliance)
 #   governance/tagging-rules.json           (canonical taxonomy; R-47 in _rules)
@@ -29,8 +32,10 @@
 #   governance/vault-writers-rules.json     (pillar 7)
 #   governance/plans-rules.json             (pillar 8)
 #   schemas/gate-config.json                (optional; absent in the clean-room)
+#
 # Output (single artifact):
 #   governance/foundation-master.json
+#
 # Deterministic discipline:
 #   - All composition uses `jq -S` (sorted keys; canonical JSON serialization).
 #   - bundle_version = sha256(canonical-serialized bundle WITHOUT _meta). Same
@@ -38,10 +43,12 @@
 #     does NOT participate in the version hash.
 #   - r47_exempt_paths_composed: deduped + sorted (sort -u) union.
 #   - File ordering: jq -S enforces deterministic top-level key order.
+#
 # Validation:
 #   - jq syntax check on every input
 #   - jsonschema check on output against schemas/foundation-master-schema.json
 #     (skipped with warning if python3 + jsonschema unavailable)
+#
 # Exit codes:
 #   0  success
 #   1  generic error
@@ -91,6 +98,7 @@ for f in "$FRONTMATTER" "$TAGGING" "$NAMING" "$MANDATORY" "$DOC_DEPS" "$INDEX" "
 done
 
 # --- 3. Reproducible timestamps (SOURCE_DATE_EPOCH / git commit time) ---------
+# The SHIPPED master must be byte-reproducible.
 # Wall-clock `date -u` (built_at) and filesystem mtimes (source_file_mtimes) are
 # both non-reproducible, so they are REPLACED by content-deterministic git commit
 # times: two builds of identical pillars now produce an identical master sha AND a
@@ -134,6 +142,7 @@ fi
 R47_COMPOSED_JSON=$(printf '%s\n%s\n' "$TAGGING_R47" "$GATE_R47" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
 
 # --- 4a. Compose seed_taxonomy_exempt_paths_composed (deduped sorted) -------
+# T-3 (fix): DEDICATED tag-TAXONOMY exempt-list, SEPARATE from
 # r47_exempt_paths (the tag-PRESENCE list). Composed from the clean-room
 # register tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths so the
 # 9 day-one shipped-seed tag-not-in-taxonomy violations are exempted without

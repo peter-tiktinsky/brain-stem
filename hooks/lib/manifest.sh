@@ -1,14 +1,15 @@
 # manifest.sh — Canonical read/write API for librarian-manifest.json.
-# Landed: Sub-plan 01 T-1 (2026-04-20), co-shipped with the
+# Landed: T-1 (2026-04-20), co-shipped with the
 # `plan-index` capability extraction. Centralizes the JSON manifest
 # manipulation pattern that was previously re-implemented inline across
 # every capability that emits findings or reads prior state.
 # Usage:
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/manifest.sh"
 #   val=$(manifest_get '.generated' '')
+#   manifest_ensure_skeleton                 # (implicit in every write below)
 #   manifest_set '.generated' "$(manifest_iso_now)"
-#   manifest_append_finding drift_canonicality \
-#       '{ "id":"DC-001", "file":"foo.md", "reason":"..." }'
+#   manifest_append_finding placement \
+#       '{ "id":"placement-001", "file":"foo.md", "reason":"..." }'
 #   now=$(manifest_iso_now)
 # Consumers (at ship time):
 #   - capabilities/plan-index.sh            (shipped 2026-04-20, T-1)
@@ -33,11 +34,11 @@ if [[ -z "${CLAUDE_STATE_ROOT:-}" || -z "${COORD_DIR:-}" ]]; then
     || { [ -r "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh" ] && source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"; }
 fi
 
-# G2 (plan 110): the librarian read-replica manifest leaves the vault for the XDG
+# G2: the librarian read-replica manifest leaves the vault for the XDG
 # state tier. Default → state/manifests/; lock co-moves to $COORD_DIR below.
 MANIFEST_PATH="${MANIFEST_PATH:-$CLAUDE_STATE_ROOT/manifests/librarian-manifest.json}"
 
-# G2/D3 (plan 110 T-62): transitional new-first/old-fallback READ resolver —
+# G2/(T-62): transitional new-first/old-fallback READ resolver —
 # exactly ONE release (v1.3.0). The manifest moved vault Logs/ → state/manifests/.
 # A reader firing mid-upgrade (after the default flipped but before the
 # operator-gated relocate-state.sh moved the file) must still find it at the OLD
@@ -97,6 +98,91 @@ else:
 PY
 }
 
+# manifest_ensure_skeleton
+# Idempotent convergence to the eight roots schemas/librarian-manifest-schema.json
+# declares required — schema_version, inventory, xref_graph, tags, scan_state,
+# drift_findings, architect_recommendations, rename_history — plus the required
+# sub-keys of the three roots that have them (inventory, scan_state,
+# architect_recommendations; drift_findings declares none). Called before the first write in
+# manifest_set and manifest_append_finding, so a manifest is structurally valid
+# from its very first write rather than accreting only the subtrees that happen
+# to get written.
+#
+# FIX — why this exists. The writers below start a missing manifest as `{}` and
+# create only the intermediate objects on the written path, and no other code
+# path seeds the required roots. The result was a manifest that could never
+# satisfy its own schema, re-validated at every session close by the
+# librarian-manifest-validate step. The convergence is in-place and happens on
+# the next write, so an already-accreted partial manifest repairs ITSELF — no
+# out-of-band data repair of an existing manifest is required or scheduled.
+# The shipped canonical shape of the same document is
+# templates/librarian-manifest-skeleton.json.
+#
+# Idempotent and strictly additive: it adds ABSENT keys only and never replaces
+# a value the document already carries — including a present-but-wrong-type
+# value, which is left intact for the validator to report rather than destroyed
+# here. A converged manifest is not rewritten at all (no write, no mtime churn).
+manifest_ensure_skeleton() {
+  local tmp="${MANIFEST_PATH}.ensure.$$"
+  local lockfile="$COORD_DIR/manifest.lock"
+  mkdir -p "$(dirname "$lockfile")" "$(dirname "$MANIFEST_PATH")" 2>/dev/null || true
+  python3 - "$MANIFEST_PATH" "$tmp" "$lockfile" <<'PY'
+import copy, json, sys, os, fcntl
+manifest_path = sys.argv[1]
+tmp = sys.argv[2]
+lockfile = sys.argv[3]
+
+# The eight required roots in empty-but-valid shapes. Mirrors
+# templates/librarian-manifest-skeleton.json byte-for-byte in content.
+SKELETON = {
+    "schema_version": "1.0.0",
+    "inventory": {"by_type": {}, "by_path": {}},
+    "xref_graph": {},
+    "tags": {},
+    "scan_state": {"last_scanned_at": None, "findings_by_capability": {}},
+    # drift_findings seeds the PARENT ONLY. It is a per-SCOPE sub-leaf namespace
+    # (schemas/librarian-manifest-schema.json :: drift_findings.description): each
+    # capability that declares writes_manifest_subtree owns one leaf keyed by its own
+    # scope, the schema declares NO required child, and a manifest that has never run a
+    # given capability correctly carries no leaf for it. Seeding named children here
+    # would re-invent placeholders for scopes that may never run.
+    "drift_findings": {},
+    "architect_recommendations": {"last_scanned_log": None, "items": []},
+    "rename_history": [],
+}
+
+
+def fill(doc, skel):
+    """Add absent keys only; recurse where both sides are objects. Returns True
+    if anything was added. Never overwrites an existing value."""
+    changed = False
+    for key, val in skel.items():
+        if key not in doc:
+            doc[key] = copy.deepcopy(val)
+            changed = True
+        elif isinstance(val, dict) and isinstance(doc[key], dict):
+            changed = fill(doc[key], val) or changed
+    return changed
+
+
+with open(lockfile, 'a') as lf:
+    fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+    try:
+        with open(manifest_path) as f:
+            doc = json.load(f)
+    except Exception:
+        doc = {}
+    if not isinstance(doc, dict):
+        # A non-object root cannot be converged without discarding the bytes on
+        # disk. Leave it exactly as found; the validator reports it.
+        raise SystemExit(0)
+    if fill(doc, SKELETON):
+        with open(tmp, 'w') as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, manifest_path)
+PY
+}
+
 # manifest_set <jq-path> <value>
 # Atomic write. Creates intermediate objects. <value> is treated as a JSON
 # scalar: bare strings are quoted; numbers/bools/null/objects/arrays pass
@@ -104,6 +190,7 @@ PY
 manifest_set() {
   local path="$1"
   local value="$2"
+  manifest_ensure_skeleton   # converge the required roots BEFORE the first write
   local tmp="${MANIFEST_PATH}.tmp.$$"
   local lockfile="$COORD_DIR/manifest.lock"
   mkdir -p "$(dirname "$lockfile")" "$(dirname "$MANIFEST_PATH")" 2>/dev/null || true
@@ -142,13 +229,30 @@ PY
 }
 
 # manifest_append_finding <section> <finding-json>
-# Appends <finding-json> to the drift_findings.<section> array, creating the
-# array if missing. Does NOT auto-generate IDs — callers pass fully-formed
-# finding objects, matching the existing emitter contract in drift-sweep /
-# people-audit. ID auto-increment is a v2 feature.
+# Appends <finding-json> under drift_findings.<section>, creating what is missing.
+# Does NOT auto-generate IDs — callers pass fully-formed finding objects, matching
+# the existing emitter contract in drift-sweep / people-audit. ID auto-increment is
+# a v2 feature.
+#
+# SHAPE — drift_findings is a per-SCOPE sub-leaf namespace, and <section> is a SCOPE.
+# Each capability that declares writes_manifest_subtree owns exactly one leaf keyed by
+# its own scope, and manifest_set replaces its target leaf wholesale, so a writer that
+# touched the PARENT would obliterate every sibling scope. The owners split by write
+# path, not by schema class:
+#   - the manifest_set writers own the rich leaves — frontmatter-enforce persists
+#     drift_findings.frontmatter (its provides_canonicality / size_monitoring /
+#     schema_type_coverage finding LISTS live INSIDE that leaf, one level below this
+#     namespace), placement-validate drift_findings.placement.<scope>, stale-detect
+#     drift_findings.stale;
+#   - THIS function owns the append-shaped scopes: the finding lands directly in
+#     drift_findings.<section>[], which is the flat-list shape rename-detect.sh
+#     (section rename_detected) — the sole production call site — writes.
+# The schema declares no required child of drift_findings and enumerates no scope key,
+# so neither shape needs a schema class. See the adjudication comment at the write.
 manifest_append_finding() {
   local section="$1"
   local finding="$2"
+  manifest_ensure_skeleton   # converge the required roots BEFORE the first write
   local tmp="${MANIFEST_PATH}.tmp.$$"
   local lockfile="$COORD_DIR/manifest.lock"
   mkdir -p "$(dirname "$lockfile")" "$(dirname "$MANIFEST_PATH")" 2>/dev/null || true
@@ -171,12 +275,49 @@ with open(lockfile, 'a') as lf:
     except Exception:
         # Permit bare strings; wrap under { "message": ... }.
         finding = {"message": finding_raw}
+    # HISTORICAL SHAPE SET, retained deliberately — behaviour, not contract.
+    # This branch used to make EVERY section a list, including three the schema then
+    # declared "type":"object" and listed in drift_findings.required[], so a write
+    # against one of them produced a document librarian-manifest-validate (run at every
+    # session close) rejected. The writer was moved to conform.
+    # The schema has since dropped that required[] entirely — the three names were
+    # vestigial at this depth (frontmatter-enforce persists them one level DEEPER,
+    # inside drift_findings.frontmatter), so drift_findings now declares no required
+    # child and either shape validates here. The set below is therefore no longer a
+    # mirror of anything: it is kept because these three names are the ones a manifest
+    # may already carry in the object shape this branch produced, and re-typing an
+    # existing leaf is a data change this file does not make. A NEW append-shaped scope
+    # is NOT added here — it gets the flat-list shape, like the sole production call
+    # site (rename-detect.sh, section rename_detected).
+    DF_OBJECT_SECTIONS = ("provides_canonicality", "size_monitoring",
+                          "schema_type_coverage")
     df = doc.setdefault("drift_findings", {})
-    lst = df.setdefault(section, [])
-    if not isinstance(lst, list):
-        # Defensive: replace with fresh list rather than crash.
-        lst = []
-        df[section] = lst
+    if section in DF_OBJECT_SECTIONS:
+        prior = df.get(section)
+        if isinstance(prior, dict):
+            sub = prior
+        elif isinstance(prior, list):
+            # A document the pre-adjudication writer already coerced to a list:
+            # ADOPT those findings into the object rather than discard them.
+            sub = {"findings": prior}
+            df[section] = sub
+        else:
+            # Absent is now the ORDINARY case: ensure_skeleton seeds the
+            # drift_findings parent only, so no scope leaf pre-exists. A value of
+            # any other type cannot hold findings either; start a fresh object
+            # rather than crash (mirrors the flat-list branch below).
+            sub = {}
+            df[section] = sub
+        lst = sub.get("findings")
+        if not isinstance(lst, list):
+            lst = []
+            sub["findings"] = lst
+    else:
+        lst = df.setdefault(section, [])
+        if not isinstance(lst, list):
+            # Defensive: replace with fresh list rather than crash.
+            lst = []
+            df[section] = lst
     lst.append(finding)
     with open(tmp, 'w') as f:
         json.dump(doc, f, indent=2, ensure_ascii=False)

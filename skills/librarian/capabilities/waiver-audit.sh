@@ -1,12 +1,15 @@
 #!/bin/bash
 # waiver-audit — Audit bypass surfaces for abuse, ad-hoc use, and cluster-to-rule candidates.
+#
 # Two audits share this capability because both are observational passes over
 # bypass logs, emit findings via the same schema, and run at librarian session-close:
 # (a) cascade-waivers.json abuse surface; (b) override-fire entries in hook-audit.log.
+#
 # Sources (paths resolve via $HOOKS_STATE / $CLAUDE_HOME / env overrides):
 #   - $HOOKS_STATE/cascade-waivers.json              (R-07 waiver log, 4-shape tolerant)
 #   - $CLAUDE_HOME/hooks/doc-dependencies.json       (entry_id registry for ad-hoc check)
 #   - $HOOK_AUDIT_LOG (defaults to $CLAUDE_STATE_ROOT/audit/hook-audit.log)  (override-fire append-only log)
+#
 # CLI:
 #   waiver-audit.sh                         # emit findings to $FINDINGS_OUTPUT or stdout
 #   waiver-audit.sh --scope waivers         # only cascade-waivers.json
@@ -14,14 +17,19 @@
 #   waiver-audit.sh --scope all             # both (default)
 #   waiver-audit.sh --report <path>         # write markdown report + summary to <path>
 #   waiver-audit.sh --dry-run               # count-only summary to stdout, no emission
+#
 # Env overrides (testing):
 #   CASCADE_WAIVER_PATH, HOOK_AUDIT_LOG, DOC_DEP_FILE, FINDINGS_OUTPUT
+#
 # Exits non-zero on:
 #   - unknown flag
-#   - --report path matches the baseline pattern `cascade-waiver-audit-*.md`
-#     (baseline preservation contract — the Sub-plan 05 promotion gate needs the
+#   - --report path matches the immutable baseline pattern `cascade-waiver-audit-*.md`
+#     (baseline preservation contract — the promotion gate needs the original
+#     baseline report unchanged)
+#
 # Read-only against cascade-waivers.json — audit normalizes shapes on parse,
 # does not rewrite. The canonical writer is ~/.claude/hooks/cascade-waiver.sh.
+#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -30,7 +38,7 @@ CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 _REPO_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib"
 
 # Idempotent paths.sh source guard (CLAUDE_STATE_ROOT needed for the reconciled
-# hook-audit.log home — split-brain fix, plan 110 T-22).
+# hook-audit.log home — split-brain fix, T-22).
 if [[ -z "${HOOKS_STATE:-}" || -z "${CLAUDE_STATE_ROOT:-}" ]]; then
   # shellcheck source=/dev/null
   { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
@@ -42,7 +50,7 @@ fi
 
 CASCADE_WAIVER_PATH_EFF="${CASCADE_WAIVER_PATH:-$HOOKS_STATE/cascade-waivers.json}"
 HOOK_AUDIT_LOG_EFF="${HOOK_AUDIT_LOG:-$CLAUDE_STATE_ROOT/audit/hook-audit.log}"
-# G5/D3 (plan 110 T-63): transitional old-fallback READ — ONE release (v1.3.0).
+# G5/(T-63): transitional old-fallback READ — ONE release (v1.3.0).
 # The reader was reconciled onto $CLAUDE_STATE_ROOT/audit (split-brain fix T-22);
 # during the upgrade window a stray pre-relocation log may still sit at the OLD
 # $CLAUDE_HOME/hooks/state home. Read new-first, fall back to old if present (and
@@ -75,13 +83,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Baseline-preservation hard guard — refuse to overwrite audit report.
+# Baseline-preservation hard guard — refuse to overwrite the baseline audit report.
 if [[ -n "$REPORT_PATH" ]]; then
   RB=$(basename "$REPORT_PATH")
   case "$RB" in
     cascade-waiver-audit-*.md)
       echo "waiver-audit: refusing to write to baseline-pattern path: $REPORT_PATH" >&2
-      echo "  (T-1 baseline at Logs/cascade-waiver--04-20.md is immutable evidence for Sub-plan 05.)" >&2
+      echo "  (T-1 baseline at Logs/cascade-waiver--04-20.md is immutable evidence for.)" >&2
       exit 3
       ;;
   esac

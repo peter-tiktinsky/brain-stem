@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # skills/onboarder/scripts/build-brain-vault.sh — Tier-2 inline brain-vault build.
+#
 # Builds a FRESH "brain" vault inline from's slim user-manifest.json: seeds the
 # vault-init/ tree, wires the runtime Plans/Skills symlinks, authors <vault>/CLAUDE.md
 # from the slim vault template, and emits an Obsidian-open handoff + install closing
@@ -7,29 +8,33 @@
 # (which read the dropped vault.is_fresh, defaulted top_folder to Engagements, and
 # scaffolded the wrong tree — Inbox/ + .coordination/ + root System Backlog.md). No
 # /adopt call anywhere in the Tier-2 GA path.
+#
 # OUTPUT CONTRACT (R-43):
 #   Files written (under the resolved vault root):
 #     - <vault>/  + the vault-init/ tree (Vault Writers/ + _index.md)
 #     - <vault>/Plans    -> symlink to plans_root (// ~/.claude-plans)
 #     - <vault>/Skills   -> symlink to $CLAUDE_HOME/skills/
-#     - <vault>/Wiki     -> symlink to plans_root/_library/   (R-ARCH-SYMLINK)
-#     - <vault>/Projects -> symlink to plans_root/_projects/  (R-ARCH-SYMLINK)
-#     - <vault>/Work     -> symlink to $WORK_HOME (// ~/work)  (R-ARCH-SYMLINK;
+#     - <vault>/Wiki     -> symlink to plans_root/_library/   (link_vault_root)
+#     - <vault>/Projects -> symlink to plans_root/_projects/  (link_vault_root)
+#     - <vault>/Work     -> symlink to $WORK_HOME (// ~/work)  (link_vault_root;
 #       — the 4th context surface, deliverable home. $WORK_HOME is an
 #       external unscaffolded root, mkdir -p'd here first so the link resolves [])
 #     - <vault>/.obsidian/app.json  userIgnoreFilters += Plans/_library,
-#       Plans/_projects, /Work\/<spoke>\/reference\// (R-BIND-EXCL; visibility
+#       Plans/_projects, /Work\/<spoke>\/reference\// (visibility
 #       suppression only, no-clobber)
 #     - plans_root/_library/ + plans_root/_projects/  surface homes (scaffolded)
 #     - $WORK_HOME/  external deliverable home (mkdir -p'd)
 #     - $CLAUDE_WORKSHOP_DIR/ (= $CLAUDE_STATE_ROOT/workshop, via paths.sh;
-#       R-ARCH-1a — ephemeral workshop home, never a hardcoded literal)
+#       the ephemeral workshop home, never a hardcoded literal)
 #     - <vault>/CLAUDE.md  (authored from templates/vault-claude-md-template.md;
 #       atomic tmp+rename)
 #   NO <vault>/System Backlog.md (deferred to ~/.claude-plans/_backlog.md).
 #   Pre-write validation: manifest + template + vault-init readable; rendered
 #     CLAUDE.md carries zero {{[A-Z_]+}} residue.
-#   Failure mode: BLOCK AND LOG. Refuses to scaffold into a non-empty FOREIGN
+#   Failure mode: BLOCK AND LOG. Refuses (exit 2) when NO vault root is configured
+#     — the arg -> .paths.vault_root -> .vault.root chain exhausting is a refusal,
+#     never an invented location; the diagnostic names the manifest key to set.
+#     Refuses to scaffold into a non-empty FOREIGN
 #     directory (not a brain vault we built) without --force. REFUSES every
 #     vault-root symlink (Plans/Skills/Wiki/Projects) whose target name already
 #     exists as a PRE-EXISTING REAL DIRECTORY (not a symlink) — diagnostic names
@@ -37,19 +42,24 @@
 #     CLAUDE.md is not clobbered without --force (preserve user edits). Idempotent
 #     re-run on a brain vault we built preserves existing files (cp -n, ln -sfn
 #     over an existing correct symlink, CLAUDE.md no-clobber, app.json no-clobber).
+#
 # {{VAULT_TOP_LEVEL_FOLDER}} resolution: clusters were CUT from the interview
 #   in favor of a runtime propose-and-validate folder flow. No user cluster
 #   is created at build. Substituted to <USER_CLUSTER_1> (a hand-edit stub,
 #   consistent with the template's <USER_CLUSTER_2>/<USER_CLUSTER_N> lines).
+#
 # CONSTRAINTS (R-23): bash 3.2; jq required.
+#
 # USAGE:
 #   build-brain-vault.sh [--user-manifest PATH] [--template PATH] [--vault-init DIR]
 #                        [--vault-root PATH] [--plans-home PATH] [--skills-dir PATH]
 #                        [--force] [--dry-run]
+#
 # Exit codes:
 #   0   success | dry-run
 #   2   bad invocation / missing dependency / non-empty foreign vault without --force
 #   1   build / render / residue / IO failure (block-and-log)
+#
 # Author: Claude Opus 4.7 (1M context) —
 set -u
 
@@ -99,7 +109,16 @@ NAME="$(mf_get '.identity.name')"; [ -z "$NAME" ] && NAME="(unknown)"
 VAULT_ROOT="$VAULT_ROOT_ARG"
 [ -z "$VAULT_ROOT" ] && VAULT_ROOT="$(mf_get '.paths.vault_root')"
 [ -z "$VAULT_ROOT" ] && VAULT_ROOT="$(mf_get '.vault.root')"
-[ -z "$VAULT_ROOT" ] && VAULT_ROOT="$HOME/Documents/brain"
+# The vault root has NO install-convention default (the paths SoT publishes that
+# contract and holds the variable empty). So an exhausted chain is a REFUSAL, not a
+# fallback: inventing a location here would scaffold a whole vault, and every
+# symlink in it, somewhere the adopter never nominated — silently, and only
+# discoverable after the fact. Fail loudly and name the key to set.
+if [ -z "$VAULT_ROOT" ]; then
+  diag "no vault root configured — --vault-root was not given and .paths.vault_root is empty (mirror .vault.root also empty) in: $USER_MANIFEST"
+  diag "set .paths.vault_root in that user-manifest, or pass --vault-root PATH. There is no default vault location to fall back to."
+  exit 2
+fi
 VAULT_ROOT="$(expand_tilde "$VAULT_ROOT")"
 
 PLANS_HOME="$PLANS_HOME_ARG"
@@ -151,7 +170,7 @@ build-brain-vault: dry-run summary
                 $VAULT_ROOT/Wiki -> $PLANS_HOME/_library ; $VAULT_ROOT/Projects -> $PLANS_HOME/_projects
                 $VAULT_ROOT/Work -> $WORK_HOME ()
                 (real-dir guard: refuse-with-diagnostic if any name pre-exists as a real dir)
-  would_ignore: .obsidian/app.json userIgnoreFilters += Plans/_library, Plans/_projects, /Work\/<spoke>\/reference\// (R-BIND-EXCL; no-clobber)
+  would_ignore: .obsidian/app.json userIgnoreFilters += Plans/_library, Plans/_projects, /Work\/<spoke>\/reference\// (visibility suppression; no-clobber)
   would_author: $CLAUDE_MD  ({{VAULT_TOP_LEVEL_FOLDER}} -> <USER_CLUSTER_1>)
 EOF
   echo "DRY-RUN: complete — zero filesystem mutations" >&2
@@ -181,7 +200,7 @@ done || { diag "vault-init directory seed failed"; exit 1; }
 done || { diag "vault-init file seed failed"; exit 1; }
 
 # --- 2. runtime symlinks (ln -sfn: idempotent) ---
-# REAL-DIR GUARD (R-ARCH-SYMLINK): a bare `ln -sfn TARGET <vault>/NAME` silently
+# REAL-DIR GUARD: a bare `ln -sfn TARGET <vault>/NAME` silently
 # NESTS the link INSIDE a pre-existing real directory at <vault>/NAME (ln -sfn
 # only force-replaces an EXISTING SYMLINK; against a real dir it creates
 # <vault>/NAME/<basename-of-TARGET>). Every vault-root symlink (Plans, Skills,
@@ -203,12 +222,12 @@ link_vault_root() {
 }
 
 mkdir -p "$PLANS_HOME" 2>/dev/null || { diag "mkdir plans_home failed: $PLANS_HOME"; exit 1; }
-# Surface homes the Wiki/Projects views point at (R-ARCH-3a / R-ARCH-4a:
+# Surface homes the Wiki/Projects views point at (
 # underscore-system-folders at the plans root). Scaffold idempotently so the
 # symlinks resolve immediately on a fresh install.
 mkdir -p "$PLANS_HOME/_library" "$PLANS_HOME/_projects" 2>/dev/null \
   || { diag "mkdir _library/_projects failed under $PLANS_HOME"; exit 1; }
-# Workshop home (R-ARCH-1a): resolve the XDG ephemeral root via paths.sh — never a
+# Workshop home: resolve the XDG ephemeral root via paths.sh — never a
 # hardcoded literal. CLAUDE_WORKSHOP_DIR is exported by hooks/lib/paths.sh
 # ($CLAUDE_STATE_ROOT/workshop); fall back to the same XDG convention if paths.sh
 # was not sourced into this environment.
@@ -217,8 +236,8 @@ mkdir -p "$WORKSHOP_DIR" 2>/dev/null || { diag "mkdir workshop home failed: $WOR
 
 link_vault_root "$PLANS_HOME"           "Plans"    || exit 1
 link_vault_root "$SKILLS_DIR"           "Skills"   || exit 1
-link_vault_root "$PLANS_HOME/_library"  "Wiki"     || exit 1   # R-ARCH-SYMLINK
-link_vault_root "$PLANS_HOME/_projects" "Projects" || exit 1   # R-ARCH-SYMLINK
+link_vault_root "$PLANS_HOME/_library"  "Wiki"     || exit 1   # real-dir-guarded
+link_vault_root "$PLANS_HOME/_projects" "Projects" || exit 1   # real-dir-guarded
 
 # Work deliverable surface: ~/work/ is an EXTERNAL, unscaffolded root.
 # Unlike _library/_projects (scaffolded under $PLANS_HOME above), no prior step
@@ -226,15 +245,15 @@ link_vault_root "$PLANS_HOME/_projects" "Projects" || exit 1   # R-ARCH-SYMLINK
 # install [audit]. The link_vault_root real-dir guard still refuses to clobber
 # a pre-existing real <vault>/Work.
 mkdir -p "$WORK_HOME" 2>/dev/null || { diag "mkdir work home failed: $WORK_HOME"; exit 1; }
-link_vault_root "$WORK_HOME"            "Work"     || exit 1   # R-ARCH-SYMLINK
+link_vault_root "$WORK_HOME"            "Work"     || exit 1   # real-dir-guarded
 
-# --- 2b. Obsidian userIgnoreFilters (R-BIND-EXCL) ---
+# --- 2b. Obsidian userIgnoreFilters ---
 # Suppress the duplicate Plans/_library + Plans/_projects view-paths from search /
 # quick-switcher / graph so only the Wiki/ + Projects/ symlink paths surface, PLUS
 # the raw Work/<spoke>/reference/ subpaths (reference/ holds raw notes /
 # specimens, the polished deliverables/ payload stays visible). The Work entry is a
 # regex (spoke names are dynamic) — Obsidian treats /.../-wrapped filters as regex.
-# VISIBILITY suppression only — does NOT govern link resolution (R-BIND-EXCL).
+# VISIBILITY suppression only — does NOT govern link resolution.
 # No-clobber: merge the entries into any existing app.json, preserving every
 # adopter-added filter; idempotent (entries added only when absent, via unique).
 OBSIDIAN_DIR="$VAULT_ROOT/.obsidian"

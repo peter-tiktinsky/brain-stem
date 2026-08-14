@@ -2,8 +2,9 @@
 # binder-handoff-append-wrapper — the thin session-close ADAPTOR that wires the
 # shipped-but-ORPHANED hooks/handoff-chronicle-append.sh into the session-close
 # capability chain.
+#
 # THE PROBLEM IT SOLVES: hooks/handoff-chronicle-append.sh is the SECONDARY-ROLE
-# (incremental append) half of the R-GOV-1a composite maintainer for the per-spoke
+# (incremental append) half of the composite maintainer for the per-spoke
 # binder handoff-chronicle.md. It was designed for the session-close seam but takes
 # POSITIONAL args (`<handoff.md path> <spoke> [<plan-slug>]`), so the generic
 # session-close `run_capability` wrapper — which shifts the capability name and
@@ -11,6 +12,7 @@
 # adaptor accepts `--spoke <key>` (so `run_capability binder-handoff-append-wrapper
 # --spoke "$active_spoke"` works), resolves the just-finalized handoff.md path for
 # that spoke's active (in-progress) plan, and invokes the positional-arg appender.
+#
 # RESOLUTION (the just-finalized handoff.md for the active spoke): the active spoke
 # is passed in (--spoke), resolved upstream by session-close from the session cwd.
 # We walk PLANS_ROOT for the spoke's plans (a manifest.json whose `project:` key ==
@@ -18,12 +20,14 @@
 # written handoff.md (mtime) — that is the just-finalized handoff for this close.
 # If no in-progress plan is found, fall back to the most-recently-written handoff.md
 # across ALL of the spoke's plans (the close that just ran most likely touched it).
+#
 # ORDERING (append-before-re-derive): session-close fires this adaptor BEFORE plan-handoff-index's full
 # re-derive, so the appended block is absorbed idempotently by the re-derive (which
 # owns the whole file and rebuilds the sentinel region from disk). The append +
-# the re-derive are DISJOINT roles (R-GOV-1a) and render IDENTICAL block text, so
+# the re-derive are DISJOINT roles and render IDENTICAL block text, so
 # running both produces NO duplication.
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - NONE directly. This adaptor performs NO file write of its own; it resolves
 #       the active spoke's just-finalized handoff.md and delegates the single
@@ -34,7 +38,7 @@
 #       surface + the full-re-derive idempotency relationship.
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) on block-and-log.
 #   Schema: null (no JSON Schema governs this adaptor; the chronicle block shape is
-#     fixed by R-BIND-7 in the delegated appender).
+#     fixed by in the delegated appender).
 #   Pre-write validation:
 #     - the spoke arg must be non-empty (else block-and-log, defensive skip, exit 0).
 #     - a handoff.md must resolve for the spoke (else block-and-log defensive skip
@@ -43,18 +47,21 @@
 #       session block) and is itself block-and-log.
 #   Failure mode: BLOCK-AND-LOG. Unresolvable spoke / no handoff.md / a delegated
 #     appender failure all emit a finding and exit 0 (never crash the close).
-#   Maintainer-provenance (R-GOV-1a): this adaptor writes nothing itself; it is the
+#   Maintainer-provenance: this adaptor writes nothing itself; it is the
 #     session-close DRIVER for the append-one-block secondary-role surface. It never
 #     re-derives, never rewrites prior blocks, never touches the frontmatter/intro.
+#
 # CLI:
 #   binder-handoff-append-wrapper.sh --spoke <key>
 #   binder-handoff-append-wrapper.sh --spoke <key> --handoff <path>   # explicit override
 #   binder-handoff-append-wrapper.sh --help
+#
 # Env overrides (testing / wiring):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh).
 #   FINDINGS_OUTPUT         NDJSON sink for block-and-log findings (default: stdout).
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv, never
-# piped stdin — feedback_python_heredoc_argv).
+# piped stdin the heredoc would consume).
 
 set -uo pipefail
 

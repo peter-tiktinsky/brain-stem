@@ -2,13 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://brain-stem.local/schemas/rules-schema.json",
   "schema_version": "1.0.0",
-  "title": "Rule file frontmatter contract (~/.claude/rules/*.md + <project>/.claude/rules/*.md)",
-  "description": "YAML frontmatter contract every Markdown file under a `.claude/rules/` directory MUST carry. `.claude/rules/` is the documented scale-beyond / global surface for instructions that load every session regardless of cwd (~/.claude/rules/) or every session within one project (<project>/.claude/rules/). The harness reads `description` (scan hook) and `paths` (glob activation) directly; the STEM governance fields (`provenance`, `source_memory`, `promoted_at`, `tags`) are additive and ignored by the harness but consumed by the memory→RULES promotion (memory-globalize) + rules-hygiene. Schema validates the frontmatter block parsed as an object; additionalProperties is true so rule files may carry the harness-native shape unchanged. Sibling contract to schemas/memory-schema.json.",
+  "title": "Rule file frontmatter contract (user-scope and project-scope `.claude/rules/*.md`)",
+  "description": "YAML frontmatter contract every Markdown file under a `.claude/rules/` directory MUST carry. `.claude/rules/` is the documented scale-beyond / global surface for instructions that load every session regardless of cwd (the USER-SCOPE `.claude/rules/`, at the install root) or every session within one project (a PROJECT-SCOPE `.claude/rules/`, at the project root). The harness reads `description` (scan hook) and `paths` (glob activation) directly; the STEM governance fields (`provenance`, `source_memory`, `promoted_at`, `tags`) are additive and ignored by the harness but consumed by the memory→RULES promotion (memory-globalize) + rules-hygiene. Schema validates the frontmatter block parsed as an object; additionalProperties is true so rule files may carry the harness-native shape unchanged. Sibling contract to schemas/memory-schema.json.",
 
   "_design_notes": {
-    "purpose": "Codify the global/project rule surface: the `scope:` router on a memory points global facts at `~/.claude/rules/`, where a promotion step (memory-globalize) elevates them as unscoped or glob-scoped rules. This schema is the validation contract that promotion (block-and-log, never write-and-hope) and rules-hygiene check against. REPO-ONLY at GA — never shipped to the adopter schemas; the two consumers degrade to a structural fallback that mirrors this contract when the file is absent (the intended adopter degradation). Adopter live rules cutover is OUT OF SCOPE (release-ceremony-gated).",
+    "purpose": "Codify the global/project rule surface: the `scope:` router on a memory points global facts at the user-scope `.claude/rules/`, where a promotion step (memory-globalize) elevates them as unscoped or glob-scoped rules. This schema is the validation contract that promotion (block-and-log, never write-and-hope) and rules-hygiene check against. REPO-ONLY at GA (KEEP / / governance R-04) — never shipped to the 10 adopter schemas; the two consumers degrade to a structural fallback that mirrors this contract when the file is absent (the intended adopter degradation). Adopter live rules cutover is OUT OF SCOPE (release-ceremony-gated).",
 
-    "ship_tier": "repo-only (authoring-side). Not one of the adopter-shipped schemas. Lets the jsonschema block-and-log validation path run repo-side instead of always degrading to the structural fallback.",
+    "ship_tier": "repo-only (authoring-side). install.sh's schema ship-tier case enumerates 'rules-schema' among the repo-only schemas; this file is NOT one of the 10 adopter schemas. Executes (rules-schema KEEP, ships >= repo-only) and lets the Gate-2 (A->RULES) jsonschema block-and-log path run repo-side instead of always degrading to the structural fallback.",
 
     "two_activation_modes": {
       "_description": "The harness loads .claude/rules/*.md by one of two modes, keyed on presence of the `paths:` frontmatter key (confirmed against the shipped binary).",
@@ -18,7 +18,7 @@
 
     "global_vs_project_surface": {
       "_description": "Location, not frontmatter, determines a rule's scope. There is NO `scope:` field on rules — the directory is the scope declaration. This is the structural counterpart to the memory `scope:` router (memory-schema.json :: scope).",
-      "user_scope": "~/.claude/rules/*.md — applies to every project session (the global surface; the destination of `scope: global` memory promotion).",
+      "user_scope": "`rules/*.md` under the install root — applies to every project session (the global surface; the destination of `scope: global` memory promotion).",
       "project_scope": "<project>/.claude/rules/*.md — applies only when that project is the working tree. Project scope wins on conflict (same precedence as CLAUDE.md)."
     },
 
@@ -36,12 +36,12 @@
       "rationale": "One concern per file; split when a file outgrows a single domain. Rules that grow past ~500 lines are usually two rules wearing one filename."
     },
 
-    "no_auto_writes_to_claude_md": "Promotion targets ~/.claude/rules/ ONLY — never global ~/.claude/CLAUDE.md. CLAUDE.md stays hand-curated (one-time no-clobber install seed).",
+    "no_auto_writes_to_claude_md": "Promotion targets the user-scope `rules/` directory ONLY — never the global `CLAUDE.md` beside it. CLAUDE.md stays hand-curated (one-time no-clobber install seed); nothing in this pipeline ever auto-writes it.",
 
     "relationship_to_memory_schema": "Sibling contract to schemas/memory-schema.json. Memory = project layer (auto-fed, 200-line/25KB capped, isolated per git-root). Rules = global/scale-beyond layer (uncapped by the harness, loaded every session). The memory `scope:` field is the router between them; promotion is the transport.",
 
     "consumers": [
-      "skills/librarian/capabilities/memory-globalize.sh (memory->RULES promotion — validates a candidate `scope: global` memory against THIS schema before writing to ~/.claude/rules/; block-and-log. Resolves the schema foundation-repo -> live install at lines 149-157; degrades to the structural fallback at lines 205-210 when absent)",
+      "skills/librarian/capabilities/memory-globalize.sh (memory->RULES promotion — validates a candidate `scope: global` memory against THIS schema before writing to the user-scope `rules/` directory; block-and-log. Resolves the schema foundation-repo -> live install at lines 149-157; degrades to the structural fallback at lines 205-210 when absent)",
       "skills/librarian/capabilities/rules-hygiene.sh (frontmatter validity + size ceiling + dead-glob audit; propose-only NDJSON. Resolves the schema at lines 106-114; structural fallback when absent)",
       "templates/claude-home-rules-readme-template.md (adopter-facing authoring guidance; its worked examples validate against this schema)",
       "internal/tests (regression — validates the README worked examples + a synthetic promoted rule)"
@@ -121,7 +121,7 @@
     {
       "description": "Never use named individuals on client proposals; generic role titles only.",
       "provenance": "promoted-from-memory",
-      "source_memory": "feedback_client_proposal_no_names",
+      "source_memory": "feedback_no_named_individuals_on_proposals",
       "promoted_at": "2026-05-25"
     }
   ]

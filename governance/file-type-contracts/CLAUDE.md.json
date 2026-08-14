@@ -6,8 +6,9 @@
   "version": "1.0.0",
   "status": "runtime",
   "design_source": "the vault-root CLAUDE.md template + its locked shape record",
-  "matcher_pillar": "governance/mandatory-files-rules.json",
-  "matcher_entry": "mandates.claude_md_vault_root",
+  "matcher_pillar": "hooks/pre-write-guard.sh",
+  "matcher_entry": null,
+  "matcher_rationale": "No pillar or schema entry matches this file: governance/mandatory-files-rules.json declares mandates for the vault _index.md, the MEMORY.md cap and the vault-writer reference only, and the vault-root CLAUDE.md carries no `type:` frontmatter for the frontmatter registry to key on. The real matcher is the vault-root write class in hooks/pre-write-guard.sh, which knows CLAUDE.md as the sole mandatory vault-root file; matcher_entry is null because a non-JSON matcher has no entry to anchor into.",
   "_design_notes": {
     "consumer": "skills/onboarder (author-claude-home.sh renders the {{...}} placeholders at onboard time); documentary otherwise — no write-time guard consumes size_limits or required_sections (the size target + required sections mirror the shipped template + its locked shape record), and post-write-verify.sh explicitly skips CLAUDE.md",
     "lockstep_pair": "templates/vault-claude-md-template.md (shipped) + its locked shape record",

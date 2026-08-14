@@ -42,7 +42,7 @@
 # the body would be trimmed defensively before the write as a can-never-fire last
 # resort (the card never ships over budget).
 #
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/_situating.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a GENERATED roll-up surface, no
@@ -60,10 +60,10 @@
 #     project / title / status / tasks[].{id,status} / parent_plan / the plan slug.)
 #   Pre-write validation:
 #     - the plans home must resolve to a directory (absent => block-and-log, no
-#       write, exit 0 — R-BIND-10a defensive class, never crash).
+#       write, exit 0 — defensive class, never crash).
 #     - each manifest is read defensively; a malformed/missing field is treated as
 #       empty, never an error; a manifest that cannot be parsed emits a finding and
-#       is SKIPPED (defensive skip, never crash — R-BIND-10a). A plan with no usable
+#       is SKIPPED (defensive skip, never crash). A plan with no usable
 #       fields contributes a roster row with empty cells, never a crash.
 #     - the rendered card is bounded < 9728B; a degenerate over-budget roster is
 #       defensively trimmed before the atomic write.
@@ -71,7 +71,7 @@
 #   Failure mode: BLOCK-AND-LOG. A manifest that cannot be parsed emits a finding
 #     and is skipped; the plans home absent blocks the whole run with a finding and
 #     exit 0; no partial/garbage write. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): _situating.md is a librarian-maintained
+#   Maintainer-provenance: _situating.md is a librarian-maintained
 #     GENERATED artifact; this capability is its sole originating writer. It NEVER
 #     writes research-index.md, decision-log.md, handoff-chronicle.md, the
 #     research/ symlink farm, plan manifests, any plan handoff.md / _research/ /
@@ -89,7 +89,7 @@
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24 (data via argv, never
-# piped stdin — feedback_python_heredoc_argv). Read-only manifest walk + atomic
+# piped stdin the heredoc would consume). Read-only manifest walk + atomic
 # file write(s).
 
 set -uo pipefail
@@ -202,7 +202,7 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
-            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
+            # defensive skip + finding — never crash on a bad manifest.
             emit({"finding": "project-context-situating-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
@@ -356,7 +356,7 @@ for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
     if not spoke:
         # missing project: => cannot attribute to a spoke; skip silently
-        # (R-BIND-10a missing-field-empty; this is not an error).
+        # (missing-field-empty; this is not an error).
         continue
     if spoke_filter and spoke != spoke_filter:
         continue
@@ -393,7 +393,7 @@ def render_card(spoke, st):
     handoffs = newest_handoff_headline(st["plan_dirs"])  # {slug: newest headline}
     binder_home = os.path.join(PROJECTS, spoke)
 
-    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
+    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
 
     # ORIENTATION BLOCK — rendered FIRST and NEVER trimmed. On an eager force-
@@ -441,7 +441,7 @@ def render_card(spoke, st):
     # PER-PLAN, not a single global line: each in-progress plan (the Active-focus
     # bullets above) renders its OWN newest-handoff pointer, aligned to that bullet;
     # a plan with no handoff.md contributes no row. These rows live in the
-    # never-trimmed orientation zone, so they stay compact (DT-1 <9728B; 140 sub-07).
+    # never-trimmed orientation zone, so they stay compact (<9728B).
     lines.append("## Latest handoff")
     lines.append("")
     handoff_rows = []

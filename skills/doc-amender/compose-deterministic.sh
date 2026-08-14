@@ -157,8 +157,8 @@ esac
 
 # ---- composition via python3 (line-oriented; deterministic; no claude -p) ---
 # Python is used for the table-upsert / section-merge string surgery (bash
-# line-surgery on markdown tables is error-prone). Inputs passed via argv per
-# feedback_python_heredoc_argv (no stdin pipe to the heredoc). The composer
+# line-surgery on markdown tables is error-prone). Inputs passed via argv,
+# never a stdin pipe the heredoc would consume. The composer
 # emits the MERGED body to a tempfile; the section_key multi-match collision
 # is signalled via exit code 4.
 

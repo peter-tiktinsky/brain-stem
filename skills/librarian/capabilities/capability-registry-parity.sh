@@ -28,7 +28,7 @@
 #       capability with a NON-NULL writes_manifest_subtree must have a body that
 #       actually calls manifest_set — converts "the registry can't claim a
 #       manifest write the code doesn't do" from fiction-passes-parity into a
-#       caught defect (feedback_structural_over_bandaid).
+#       caught defect (a structural check, not a remembered reminder).
 #       -> registry-parity-manifest-write-fiction
 #       GATED: the registry's ._parity_pending_manifest_writes[] allowlist names
 #       the known-pending fictions; those are emitted ADVISORY (warn) and do NOT

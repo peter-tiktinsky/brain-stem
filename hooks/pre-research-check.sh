@@ -1,19 +1,22 @@
 #!/bin/bash
 # Hook: pre-research-check — UserPromptSubmit pre-research library coverage signal.
+#
 # ADVISORY-ONLY (inject, never block). This hook detects research intent in the
 # user's prompt and, when the three-surface library has coverage, INJECTS a
 # COMPRESSED coverage signal as additionalContext so research is not duplicated.
 # It NEVER blocks, refuses, gates, or escalates: there is no deny path, no Stop
 # path, no PreToolUse path in this body. Advisory-default is the contract — this
-# is NOT a structural enforcement mechanism. (R-FLOW-PRE-5 / R-FLOW-DISC-2;
+# is NOT a structural enforcement mechanism. (Advisory-only by contract;
 # gate G-G RATIFIED advisory-first.)
+#
 # This is the highest-risk novel bet in the three-surface set: zero attested
-# production instances exist anywhere. Per R-FLOW-DISC-2 it ships advisory-only
+# production instances exist anywhere. It therefore ships advisory-only
 # and escalates to any harder posture ONLY on observed forgotten-research /
 # dead-pointer data — never on schedule. To make that data observable, every
 # injection appends one lightweight JSONL counter line under the hook state dir
 # (see MEASUREMENT below); escalation needs DATA, not opinion.
-# Behavior (R-FLOW-PRE-1 .. R-FLOW-PRE-5, D4 Flow 2):
+#
+# Behavior (the five numbered steps below):
 #   PRE-1  Detect research intent (keyword/heuristic over the prompt) and read
 #          the library root _index.md from disk within the hook timeout. Library
 #          absent / index absent / non-research prompt -> SILENT no-op allow
@@ -27,24 +30,28 @@
 #            signal to the top matching topics — fires INDEPENDENT of and BEFORE
 #            the byte cap (a large library never dumps every topic).
 #          #2 AT-CAP fallback: if the assembled signal exceeds the 9,728-byte
-#            additionalContext cap (hooks/lib/registry.sh:106 format_output_allow
+#            additionalContext cap (hooks/lib/registry.sh format_output_allow
 #            MAX), replace it with a single-line `librarian library-index --query
 #            <topic>` pointer so the inline signal survives below the cap.
 #   PRE-5  Advisory-only: inject, never block; no Stop escalation.
+#
 # Degraded portable layer: a generic global-rules library-check entry (the
-# rules/ fallback, R-ARCH-RULES — NOT authored here) backs this hook so coverage
+# rules/ fallback seeded by install.sh — NOT authored here) backs this hook so coverage
 # is preserved even when the hook is absent. This hook only needs to degrade
 # gracefully (silent allow) when the library is absent.
+#
 # Seam note: the at-cap pointer text `librarian library-index --query <topic>`
-# (the SoT-worded contract, R-FLOW-PRE-4) resolves to library-index.sh's
+# (the SoT-worded contract) resolves to library-index.sh's
 # read-only --query mode (the index-query keystone, which accepts
 # --topic / --dry-run / --query / --help). The pointer is emitted verbatim as a
 # human-facing string; this hook does not invoke or modify library-index.sh.
-# MEASUREMENT (R-FLOW-DISC-2): on injection, append one JSONL line to
+#
+# MEASUREMENT: on injection, append one JSONL line to
 #   $SESSION_STATE_ROOT/pre-research-check/observations.jsonl
 # recording {ts, topics_total, topics_matched, stale_matched, winnowed,
 # at_cap_fallback}. Best-effort, never fatal — the signal is what makes a future
 # escalation decision data-backed instead of speculative.
+#
 # Fail-open throughout: any error -> silent exit 0, never blocks. Bash 3.2 clean
 # (R-23). $SCRIPT_DIR/lib sourcing (no literal $HOME/.claude path in the body).
 
@@ -57,17 +64,40 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -r "$SCRIPT_DIR/lib/registry.sh" ] && source "$SCRIPT_DIR/lib/registry.sh"
 
 # Read the prompt up front. No prompt -> nothing to detect.
-INPUT="$(cat 2>/dev/null || true)"
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 PROMPT=""
 if command -v jq >/dev/null 2>&1; then
   PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null || true)"
 fi
 [ -n "$PROMPT" ] || exit 0
 
-# --- intent detection (R-FLOW-PRE-1) ----------------------------------------
+# --- intent detection ----------------------------------------
 # Keyword/heuristic: lowercase the prompt and match research-intent markers. A
 # missed detection is non-fatal — the F-RECON reconciliation at promotion still
-# catches duplication (R-FLOW-PRE-1 failure mode: no silent loss).
+# catches duplication (failure mode: no silent loss).
 PROMPT_LC="$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')"
 RESEARCH_RE='research|investigat|look(ing)? into|dig(ging)? into|deep[ -]dive|explore|figure out|find out|look up|best practice|compare|evaluate|prior art|what.?s the best|how (do|does|should|can|would)|state of the art|survey|background on'
 if ! printf '%s' "$PROMPT_LC" | grep -Eq "$RESEARCH_RE"; then
@@ -89,14 +119,14 @@ ROOT_INDEX="$LIBRARY/_index.md"
 # no library topics (and if no source yields coverage, the emit stays silent).
 [ -d "$PLANS_ROOT" ] || exit 0
 
-# --- measurement sink (R-FLOW-DISC-2) ---------------------------------------
+# --- measurement sink ---------------------------------------
 OBS_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}/pre-research-check"
 OBS_FILE="$OBS_DIR/observations.jsonl"
 
-# --- build the compressed coverage signal (PRE-2/3/4) -----------------------
+# --- build the compressed coverage signal (winnow + age + cap) --------------
 # All of: covered-topic enumeration, per-article age + stale flag (PRE-2/3),
 # pre-cap winnowing to top-matching topics (PRE-4 #1), and the at-cap one-line
-# pointer fallback (PRE-4 #2) are computed in one argv-based python3 pass
+# pointer fallback are computed in one argv-based python3 pass
 # (R-24). The hook stays advisory: it only PRINTS the assembled signal; the
 # emission path below is allow-only.
 SIGNAL="$(python3 - "$LIBRARY" "$ROOT_INDEX" "$PROMPT_LC" "$OBS_FILE" "$PLANS_ROOT" <<'PY'
@@ -105,8 +135,9 @@ from datetime import date, datetime, timezone
 
 library, root_index, prompt_lc, obs_file, plans_root = sys.argv[1:6]
 today = date.today()
-DEFAULT_INTERVAL = 90            # R-FLOW-PRE-3 fallback when undeclared
-# PRE-4 #2 cap = the shipped 9,728B format_output_allow MAX (registry.sh:106).
+DEFAULT_INTERVAL = 90            # fallback when undeclared
+# The at-cap fallback uses the shipped 9,728B format_output_allow MAX
+# (hooks/lib/registry.sh).
 # PRE_RESEARCH_CAP_OVERRIDE is a TEST-ONLY hook to drive the at-cap boundary
 # deterministically without pathological fixtures; production never sets it, so
 # the cap is the shipped 9,728B value by default.
@@ -198,7 +229,7 @@ for t in entries:
 # --- also enumerate binder + per-plan _research/ coverage ---
 # The library is not the only research home. A binder research-index
 # (_projects/<spoke>/research-index.md) and per-plan <plan>/_research/*.md dirs
-# (the 140/11 research_artifacts[] + 152/T-6 DT-4 canonical home) carry research
+# (the 140/11 research_artifacts[] + 152/T-6 canonical home) carry research
 # coverage too; enumerate them so a research-intent prompt covered ONLY by binder
 # or plan research still gets a dedup signal. Advisory-only: these join the topics
 # list and flow through the SAME allow-only emit path. Fail-open (any error skips
@@ -253,7 +284,7 @@ if not topics:
 
 topics_total = len(topics)
 
-# --- PRE-4 #1: pre-cap ACTIVE winnowing to top-matching topics --------------
+# --- pre-cap ACTIVE winnowing to top-matching topics ------------------------
 # Order by relevance score (desc), then freshest, then name. WINNOW to the top
 # matching subset whenever coverage exceeds the WINNOW_TOP ceiling — independent
 # of and BEFORE the byte cap.
@@ -271,7 +302,7 @@ def age_str(d):
         return "1 day ago"
     return "%d days ago" % d
 
-# --- assemble the compressed signal (PRE-2/3) -------------------------------
+# --- assemble the compressed signal -----------------------------------------
 lines = []
 lines.append("LIBRARY COVERAGE — existing research may cover this prompt "
              "(advisory; not a directive).")
@@ -298,7 +329,7 @@ if winnowed:
 
 signal = "\n".join(lines)
 
-# --- PRE-4 #2: at-cap fallback ----------------------------------------------
+# --- at-cap fallback --------------------------------------------------------
 # If the assembled signal exceeds the cap, replace it with a single-line query
 # pointer so the inline signal survives below the cap (never overflow-to-file).
 at_cap = False
@@ -309,7 +340,7 @@ if len(signal.encode("utf-8")) > CAP:
               "`librarian library-index --query %s` for the inline roster."
               % top_topic)
 
-# --- MEASUREMENT (R-FLOW-DISC-2): best-effort observation line --------------
+# --- MEASUREMENT: best-effort observation line --------------
 try:
     os.makedirs(os.path.dirname(obs_file), exist_ok=True)
     rec = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -328,7 +359,7 @@ PY
 # Nothing assembled (no covered topics, or any error) -> silent no-op allow.
 [ -n "$SIGNAL" ] || exit 0
 
-# --- emit (PRE-2/PRE-5) ------------------------------------------------------
+# --- emit (advisory-only) ----------------------------------------------------
 # ALLOW-only injection through the shipped format_output_allow (enforces the
 # 9,728B cap the at-cap fallback above already respects). There is NO deny path
 # in this hook — it can only inject or stay silent.

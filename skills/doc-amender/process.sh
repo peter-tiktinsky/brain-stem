@@ -2,10 +2,12 @@
 # skills/doc-amender/process.sh — event-driven LLM-amendment runner for
 # prompt-guided edits to fan-in destinations (the writer-pipeline LLM lane,
 # .2).
+#
 # Ported from the skills/doc-amender/process.sh;
 # (lib defaults repointed to the shipped hooks/lib/ per; staging root resolved
 # via $CLAUDE_STATE_ROOT — no bare ~/.claude or literal).
 # T-03 (Layer-1 consumer runtime port).
+#
 # Reads amender-eligible packets from staging, joins them against
 # governance/doc-dependencies.json writer-fan-in entries; for an eligible
 # packet it runs the operator-authored prompt asset through `claude -p`
@@ -13,12 +15,15 @@
 # (persistence.mode=deterministic, T-06), then emits a REPLACEMENT packet via
 # hooks/lib/staging-emit.sh --packet-kind amender-replacement. NEVER writes the
 # destination directly (R-34 boundary preserved via the staging round-trip).
+#
 # Triggered by launchd WatchPaths on $STAGING_ROOT (NOT cron). Self-exclusion is
 # critical: doc-amender's own emissions land in the same staging root and would
 # re-fire WatchPaths. Filter by packet_kind ∈ {writer-emit, null}; explicitly
 # drop packet_kind ∈ {amender-replacement, amender-conflict}.
+#
 # Debounce + single-instance: global lockf on $STAGING_ROOT/.doc-amender.lock
-# (re-exec sentinel pattern per feedback_shell_lock_pattern).
+# (the canonical /usr/bin/lockf -k -t 0 re-exec sentinel pattern).
+#
 # bash 3.2 compatible. jq REQUIRED. shasum REQUIRED. claude REQUIRED for the
 # llm-mediated lane (dry-run + deterministic lane skip it).
 
@@ -187,6 +192,7 @@ if [ "$DRY_RUN" = "0" ]; then
 fi
 
 # ---- lock acquisition (re-exec under global lockf for single-instance) ------
+#
 # Sentinel pattern: outer call (no sentinel set) re-execs $0 under lockf;
 # inner call (sentinel set) proceeds with the real work. The kernel releases
 # the lock on inner-process death automatically. Concurrent WatchPaths fires
@@ -278,6 +284,7 @@ glob_match() {
 }
 
 # ---- writer-fan-in eligible entries -----------------------------------------
+#
 # Build a tab-separated list of (consumer-glob | upstream_writers_csv) tuples
 # for writer-fan-in entries with amendment_strategy=prompt-guided-amend.
 

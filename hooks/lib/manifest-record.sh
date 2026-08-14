@@ -4,9 +4,12 @@
 # SQLite substrate at $WRITER_MANIFEST_PATH (default
 # $VAULT_WRITER_STATE_ROOT/manifest.sqlite).
 #
-# The VAULT_WRITER_STATE_ROOT default resolves under ~/.local/share/brain-stem
-# per install convention. The DDL companion manifest-migrate.sql resolves via
-# this lib's own SCRIPT_DIR (hooks/lib/).
+# Ported from the lib/manifest-record.sh (TOP-LEVEL lib/);
+# RELOCATED to hooks/lib/ per (brain-stem has no top-level lib/).:
+# the VAULT_WRITER_STATE_ROOT default resolves under ~/.local/share/brain-stem
+# (NOT the's ~/.local/share/). The DDL companion
+# manifest-migrate.sql resolves via this lib's own SCRIPT_DIR (now hooks/lib/).
+# T-01 (writer-pipeline substrate).
 #
 # OUTPUT CONTRACT:
 #   Files written: manifest.sqlite (init applies the manifest-migrate.sql DDL —
@@ -38,7 +41,7 @@
 #   query-row                   Emit single JSON row by id (rc=6 if not found).
 #
 # bash 3.2 compatible (no `declare -A`, no `mapfile`, no `${var,,}`).
-# Canonical lock pattern: /usr/bin/lockf -k -t 0.
+# Canonical lock pattern: /usr/bin/lockf -k -t 0 (kernel-backed; not flock).
 
 set -u
 
@@ -47,7 +50,7 @@ set -u
 # Resolve VAULT_WRITER_STATE_ROOT: env wins; otherwise the durable State-tier
 # root under ~/.local/share/brain-stem (XDG_DATA_HOME tier). This is the DURABLE
 # root (manifest.sqlite/daily-processing/raw), distinct from the EPHEMERAL
-# vault-staging root (State-tier two-root).
+# vault-staging root (canonical/State-tier two-root).
 if [ -z "${VAULT_WRITER_STATE_ROOT:-}" ]; then
   VAULT_WRITER_STATE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/brain-stem/vault-writers"
 fi

@@ -14,8 +14,9 @@
 #     test; required when destructive op pending (settings.json pre-
 #     exists in $CLAUDE_HOME); validated whenever supplied.
 #   - G4 vault-symlink distance check — refuse unconditionally if
-#     $CLAUDE_HOME walks contain symlinks resolving under
-#     ~/Documents/Obsidian Vault/. Vault-clobber protection; NO override.
+#     $CLAUDE_HOME walks contain symlinks resolving under the adopter's
+#     CONFIGURED vault root (resolved from $CLAUDE_HOME/user-manifest.json
+#     per the installer lane's convention). Vault-clobber protection; NO override.
 #   - G5 plans-dir guard — refuse if $PLANS_HOME contains existing
 #     NN-*/ plans without --retrofit-existing (waiver stub; retrofit
 #     logic deferred).
@@ -114,17 +115,19 @@
 # R-23 bash 3.2 compat. R-37 single-deliverable. R-55 zero $HOME/.claude
 # resolution paths in script body (literal $HOME/.claude appears only in
 # the G1-pre user-facing error text and the G1-main
-# string-equality comparison). G4 resolves $HOME/Documents/
-# Obsidian Vault/ as a DETECTION target only — never a write target.
+# string-equality comparison). G4 resolves the adopter's
+# CONFIGURED vault root as a DETECTION target only — never a write target,
+# and never a named location: the root is read from the user manifest, so
+# this file names no specific vault.
 
 set -u
 
 # --- diagnostics ---
 # info() routes to stderr in dry-run mode (APPLY_MODE=0) so the G9 action-plan
 # JSON on stdout stays valid for jq parsing. In --apply mode, info() goes to
-# stdout per the existing test contract (install-g1 T3.2 stdout grep
-# "sentinel verified"; install-g2 T3.2 "G2 sentinel verified"; install-g3-g10
-# T1.2 "G3: backup proof-of-life passed").
+# stdout per the existing test contract (the dev-tree install-gate tests grep
+# stdout for "sentinel verified", "G2 sentinel verified" and
+# "G3: backup proof-of-life passed").
 diag() { printf 'install FAIL: %s\n' "$1" >&2; }
 info() {
   if [ "${APPLY_MODE:-0}" = "0" ]; then
@@ -270,6 +273,38 @@ note_blocking_finding() { # note_blocking_finding <finding-string>
     blocking_findings="$1"
   else
     blocking_findings="$blocking_findings
+$1"
+  fi
+}
+
+# guards_passed[] / guards_skipped[] accumulators. guards_passed[] used to be a jq
+# LITERAL at the dry-run emit, which made it an assertion about the CODE rather than
+# about the RUN: a dry-run that genuinely FIRED G4 emitted one document that listed
+# G4 in guards_passed[] and reported a G4 vault-clobber blocker in the same breath.
+# It is now composed from what actually evaluated. G4 is the one member whose
+# evaluation is CONDITIONAL (it needs a resolvable vault root, and a vault root has
+# NO install-convention default), so it registers itself at its own block below; the
+# other six have unconditional pre-emit fire-sites (asserted by the dev-tree
+# dry-run JSON-integrity check) and are seeded here. Membership,
+# not order, is the consumer contract. A guard that did NOT evaluate is reported in
+# guards_skipped[] WITH ITS REASON — "checked and clean" and "never checked" stop
+# being the same silence. Same bash-3.2 newline accumulator as the two above.
+guards_passed="G1-pre
+G1-main
+G2
+G3
+G5
+G8"
+guards_skipped=""
+note_guard_passed() { # note_guard_passed <guard-label>
+  guards_passed="$guards_passed
+$1"
+}
+note_guard_skipped() { # note_guard_skipped <guard-label: reason>
+  if [ -z "$guards_skipped" ]; then
+    guards_skipped="$1"
+  else
+    guards_skipped="$guards_skipped
 $1"
   fi
 }
@@ -440,14 +475,72 @@ if [ "$CLAUDE_HOME" = "$HOME/.claude" ] && [ -d "$CLAUDE_HOME" ]; then
 fi
 
 # --- G4: vault-symlink distance check ---
-# If ~/Documents/Obsidian Vault/ is reachable via symlink under $CLAUDE_HOME,
+# If the adopter's CONFIGURED vault root is reachable via symlink under $CLAUDE_HOME,
 # refuse unconditionally. Vault-clobber protection: if the vault is symlinked
 # into .claude (e.g. Plans/ → vault/Plans), a bootstrap could clobber the vault.
 # NO override. Detection-only path resolution; never a write target.
+#
+# THE ROOT IS RESOLVED, NEVER NAMED. This predicate used to be a hardcoded vault
+# literal, so the `[ -d ]` test was FALSE on every adopter machine, the resolution
+# loop below never ran, g4_violation_count stayed 0, and the gate "passed" in
+# silence for everyone — a non-waivable safety gate that could not fire.
+# Resolution follows the INSTALLER LANE's own recorded convention
+# (installer/relocate-state.sh:28-31 header rule + its mget() reader at :112-122):
+# read $CLAUDE_HOME/user-manifest.json with jq, `.paths.vault_root` then
+# `.vault.root` — and NEVER `source hooks/lib/paths.sh`, which mid-install returns
+# the unscaffolded/post-relocation tree and would import that SoT's whole export
+# surface into a script that deliberately resolves CLAUDE_HOME itself above.
+#
+# THREE OUTCOMES, each distinguishable in the install output AND in the G9 preview
+# JSON (the first two used to be the same silence):
+#   checked-clean — a vault root resolved, $CLAUDE_HOME was walked, nothing reaches it
+#                   → G4 registered in guards_passed[]
+#   skipped       — no vault root is resolvable; the REASON is stated, and G4 is NOT
+#                   claimed: it lands in guards_skipped[] with that reason
+#   fired         — ≥1 symlink under $CLAUDE_HOME resolves into the configured vault
+#                   → blocking_findings[] on the dry-run lane, exit 54 on --apply
+g4_status="skipped"
+g4_skip_reason=""
+g4_vault_root=""
 g4_vault_canonical=""
-if [ -d "$HOME/Documents/Obsidian Vault" ]; then
-  g4_vault_canonical="$(cd "$HOME/Documents/Obsidian Vault" 2>/dev/null && pwd -P)"
+g4_user_manifest="$CLAUDE_HOME/user-manifest.json"
+
+# Null-safe manifest read — the shape lifted from installer/relocate-state.sh:112-119.
+# Returns the empty string on: unreadable manifest, absent key, JSON null, jq failure.
+g4_mget() { # g4_mget <dotted.path>
+  [ -r "$g4_user_manifest" ] || { printf ''; return 0; }
+  jq -r --arg p "$1" '
+    ($p | split(".") | map(select(length>0))) as $ks
+    | reduce $ks[] as $k (.; if . == null then null else .[$k]? end)
+    | if . == null or . == "" then "" else . end
+  ' "$g4_user_manifest" 2>/dev/null || printf ''
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  # DEFENSIVE — not reachable in a normal run: the prereq binary loop above already
+  # hard-exits 10 when jq is absent (it tests `command -v "$bin"` over a list that
+  # includes jq, which is why a `command -v jq` grep does not find it). Kept so this
+  # block states the dependency it actually uses instead of inheriting one silently
+  # from ~120 lines up, and so a future reorder degrades to a stated SKIP, not a
+  # silent pass.
+  g4_skip_reason="jq is unavailable, so the configured vault root cannot be read from $g4_user_manifest"
+elif [ ! -r "$g4_user_manifest" ]; then
+  g4_skip_reason="no readable user manifest at $g4_user_manifest, so this home declares no vault root to check against"
+else
+  g4_vault_root="$(g4_mget paths.vault_root)"
+  [ -n "$g4_vault_root" ] || g4_vault_root="$(g4_mget vault.root)"
+  if [ -z "$g4_vault_root" ]; then
+    g4_skip_reason="$g4_user_manifest declares no vault root (.paths.vault_root and .vault.root are absent or empty); the vault root has NO install-convention default, so there is nothing to check against"
+  elif [ ! -d "$g4_vault_root" ]; then
+    g4_skip_reason="the configured vault root is not a directory on disk: $g4_vault_root"
+  else
+    g4_vault_canonical="$(cd "$g4_vault_root" 2>/dev/null && pwd -P)"
+    if [ -z "$g4_vault_canonical" ]; then
+      g4_skip_reason="the configured vault root could not be canonicalized: $g4_vault_root"
+    fi
+  fi
 fi
+
 g4_violations=""
 g4_violation_count=0
 if [ -n "$g4_vault_canonical" ] && [ -d "$CLAUDE_HOME" ]; then
@@ -471,20 +564,40 @@ $(find "$CLAUDE_HOME" -type l 2>/dev/null)
 EOF
 fi
 if [ "$g4_violation_count" -gt 0 ]; then
-  if [ "$APPLY_MODE" != "1" ]; then
-    # The dry-run surfaces G4 in the NON-WAIVABLE blocking_findings[] channel and
-    # CONTINUES (one-pass preview); --apply keeps the unconditional exit 54. G4 is
-    # genuinely non-waivable (vault-clobber, no override) → blocking_findings[], NOT
-    # required_overrides[] (which would falsely imply a waiver flag exists).
-    note_blocking_finding "G4 vault-clobber: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching ~/Documents/Obsidian Vault/ — NO override; --apply refuses unconditionally (exit 54). Point \$CLAUDE_HOME at a path that does not symlink into the vault before --apply."
-  else
-    diag "G4 fired: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching ~/Documents/Obsidian Vault/. Vault-clobber protection — refuse unconditionally (no --force override)."
-    printf '%s\n' "$g4_violations" | while IFS= read -r v; do
-      [ -z "$v" ] || printf '  %s\n' "$v" >&2
-    done
-    exit 54
-  fi
+  g4_status="fired"
+elif [ -n "$g4_vault_canonical" ]; then
+  g4_status="checked-clean"
 fi
+case "$g4_status" in
+  fired)
+    if [ "$APPLY_MODE" != "1" ]; then
+      # Dry-run surfaces G4 in the NON-WAIVABLE blocking_findings[]
+      # channel + CONTINUES (one-pass preview); --apply keeps the unconditional exit 54.
+      # G4 is genuinely non-waivable (vault-clobber, NO override) → blocking_findings[],
+      # NOT required_overrides[] (which would falsely imply a waiver flag exists).
+      # G4 is NOT registered in guards_passed[] on this lane — a fired blocker and a
+      # passed-guard claim in the SAME document is the contradiction the accumulator
+      # above removes.
+      note_blocking_finding "G4 vault-clobber: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching the configured vault root ($g4_vault_canonical) — NO override; --apply refuses unconditionally (exit 54). Point \$CLAUDE_HOME at a path that does not symlink into the vault before --apply."
+    else
+      diag "G4 fired: \$CLAUDE_HOME contains $g4_violation_count symlink(s) reaching the configured vault root ($g4_vault_canonical). Vault-clobber protection — refuse unconditionally (no --force override)."
+      printf '%s\n' "$g4_violations" | while IFS= read -r v; do
+        [ -z "$v" ] || printf '  %s\n' "$v" >&2
+      done
+      exit 54
+    fi
+    ;;
+  checked-clean)
+    info "G4: vault-symlink distance check passed — no symlink under \$CLAUDE_HOME reaches the configured vault root ($g4_vault_canonical)"
+    note_guard_passed "G4"
+    ;;
+  *)
+    # The third outcome, STATED rather than silent. An unconfigured vault is a
+    # legitimate state (the vault root has no install-convention default), NOT a pass.
+    info "G4 SKIPPED: $g4_skip_reason"
+    note_guard_skipped "G4: $g4_skip_reason"
+    ;;
+esac
 
 info "CLAUDE_HOME=$CLAUDE_HOME"
 info "SOURCE_REPO=$SOURCE_REPO"
@@ -1510,7 +1623,7 @@ fi
 if [ "$APPLY_MODE" != "1" ]; then
   # JSON action-plan emit. Validity contract: jq parseable. Schema:
   #   {version, claude_home, claude_home_defaulted, source_repo,
-  #    state_classification, flags{...}, guards_passed[],
+  #    state_classification, flags{...}, guards_passed[], guards_skipped[],
   #    actions[{step, op, target, source, rationale}], deferred[]}
   # claude_home_defaulted: 1 when CLAUDE_HOME was unset and
   # the dry-run defaulted it to $HOME/.claude; 0 when set
@@ -1528,6 +1641,12 @@ if [ "$APPLY_MODE" != "1" ]; then
   # guards_passed has a fire-site BEFORE this emit: G8 (176), G1-pre (185),
   # G5 (236), G1-main (270), G4 (318), G2 (375), G3 (601). G7 remains a
   # PLANNED action under actions[].step 12.
+  # guards_passed[] is no longer a jq LITERAL: it is the accumulator seeded + appended
+  # above, so the array reports what this RUN evaluated rather than what the code
+  # contains. G4 is the conditional member (it needs a resolvable vault root); when it
+  # does not evaluate it appears in guards_skipped[] WITH ITS REASON, and when it FIRES
+  # it appears in neither — the document can no longer list G4 as passed while carrying
+  # a G4 vault-clobber entry in blocking_findings[].
  # posture discriminator: an install WITH a .installed-state.json
   # stamp and a target>installed delta is the UPGRADE lane — its dry-run is the
   # upgrade-diff preview. The upgrade posture emits the `mode` posture + the upgrade argv
@@ -1572,6 +1691,8 @@ if [ "$APPLY_MODE" != "1" ]; then
     --arg plans_home "$PLANS_HOME" \
     --arg required_overrides "$required_overrides" \
     --arg blocking_findings "$blocking_findings" \
+    --arg guards_passed "$guards_passed" \
+    --arg guards_skipped "$guards_skipped" \
     --arg mode "$dry_run_mode" \
     --arg installed_version "$INSTALLED_VERSION" \
     --arg target_version "${TARGET_VERSION:-}" \
@@ -1628,7 +1749,8 @@ if [ "$APPLY_MODE" != "1" ]; then
        elif $d == "untouched"           then {"class":"USER-PRESERVE", "reason":"copied-once-then-adopter-owned (not in files[]); structurally never written"}
        else {"class":"FOUNDATION-REPLACE", "reason":$d} end)
     | {"path": $p, "class": .class, "disposition": $d, "reason": .reason} + (if has("added_hooks") then {"added_hooks": .added_hooks} else {} end))) end),
-  "guards_passed": ["G1-pre", "G1-main", "G2", "G3", "G4", "G5", "G8"],
+  "guards_passed": (if $guards_passed == "" then [] else ($guards_passed | split("\n")) end),
+  "guards_skipped": (if $guards_skipped == "" then [] else ($guards_skipped | split("\n")) end),
   "actions": [
     {"step": 1, "op": "mkdir", "target": ($claude_home + "/{hooks,hooks/lib,hooks/config,skills,schemas,orchestrator,templates,templates/launchd,templates/settings-fragments,Library/LaunchAgents.staging,installer,logs,governance,governance/file-type-contracts,vault-init}"), "rationale": "create target tree: NO plugins/, NO onboarding/ (dissolved into skills/onboarder/), NO governance/{librarian-capabilities,onboarding-reference}/ (R-20)"},
     {"step": 1.5, "op": "mkdir", "target": ($vault_writer_state_root + "/{,daily-processing,raw,staging} + " + $claude_state_root + "/{,vault-staging,vault-staging/_archive,.coordination,sessions}"), "rationale": "two-root state-tier scaffold: durable second-brain root + ephemeral Claude-runtime root incl .coordination/ + sessions/. NO ~/.claude/state back-compat symlink (fresh lineage)"},
@@ -2422,7 +2544,7 @@ fi
 
 # Step 1.7: DROPPED. The meeting-processor-state migration is struck — it
 # hardcoded a live author-vault path
-# (~/Documents/Obsidian Vault/Meetings/.meeting-processor-state.json)
+# (a Meetings/.meeting-processor-state.json under one machine's vault)
 # and is a fresh-install no-op. brain-stem ships no meeting-processor; there
 # is nothing to migrate. (No mp_state_* vars; the whole step is removed.)
 
@@ -2551,7 +2673,7 @@ if [ -d "$SOURCE_REPO/installer/migrations" ]; then
     # source-of-truth as the legacy elif below and the G9 preview. Enumerating from
     # the frozen PREVIOUS-release baseline snapshot never listed the target release's
     # NEW migrations, so they were never copied to the flat runtime dir the runner
-    # executes (the delivery gap). NOT the baseline-union walk one screen up (:2153):
+    # executes (the delivery gap). NOT the baseline-union walk one screen up (2153):
     # for the flat runtime dir the union is wrong — a migration dropped from the
     # shipped manifest is a retired surface and must not be re-delivered. atomic_apply
     # (stage->validate->mv + journal) + the chmod +x parity below are retained.
@@ -2671,7 +2793,7 @@ if [ -d "$SOURCE_REPO/governance" ]; then
   upgrade_foundation_file "$SOURCE_REPO/governance/foundation-manifest.json" "$CLAUDE_HOME/governance/foundation-manifest.json"   # foundation-replace disposition
   # R-05 system-utility canonicality registry
   upgrade_foundation_file "$SOURCE_REPO/governance/log-subtype-registry.json" "$CLAUDE_HOME/governance/log-subtype-registry.json"   # foundation-replace disposition
-  # Anchored-spoke registry (R-ARCH-13/14): cwd→spoke-key map read at plan-creation
+  # Anchored-spoke registry: cwd→spoke-key map read at plan-creation
   # time by new-plan.sh / promote-from-inbox.sh. It is the adopter's SOURCE OF TRUTH
   # for registered spokes, authored wholesale by new-plan / promote (never appended-to),
   # so it is SEED-ONCE / USER-PRESERVE-by-omission: NOT in foundation-manifest.json
@@ -2849,9 +2971,14 @@ done
 # The 2 CLAUDE.md templates (vault-claude-md + claude-home-claude-md) are
 # staged here sha256-protected; the
 # onboarder author-claude-home.sh consumes them (NOT install-time seeded).
-# librarian-manifest-skeleton.json + README.md remain in the loop for forward
-# compatibility (skipped via [ -e ] || continue when not yet landed; ownership
-# escalated per CSE-templates-band-ownership).
+# librarian-manifest-skeleton.json IS landed and now ships for real: it carries the
+# eight roots schemas/librarian-manifest-schema.json declares required, so the
+# canonical empty-but-valid shape reaches the adopter. Until it was authored, this
+# loop named a file that did not exist and the [ -e ] || continue below silently
+# skipped it every run — a ship-list entry for a non-existent file is independently
+# a defect, and it is closed by AUTHORING the file, not by dropping the entry.
+# README.md is the one remaining forward-compatibility entry (still absent, still
+# skipped by that same guard); ownership escalated per CSE-templates-band-ownership.
 # templates/settings.json IS in files[] and is force-replaced here as
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
@@ -3016,14 +3143,14 @@ else
   info "rules/README.md seeded at $rules_readme_target"
 fi
 
-# Step 11.7a: the generic rules/ entries (R-ARCH-RULES).
+# Step 11.7a: the generic rules/ entries.
 # The generic, cwd-parameterized, always-on entries seeded into
 # $CLAUDE_HOME/rules/ are enumerated by the `# Entry N —` markers below (each
 # marker heads one `seed_rules_entry` call), the source of truth for which
 # entries ship — add or remove an entry there and this header stays true.
 # All are UNSCOPED (no `paths:` key) so they load every session — the #21858
 # user-scope `paths:`-glob limitation makes glob-scoping unreliable here.
-# These are installed by install.sh (R-ARCH-5 reconcile: install.sh runs outside
+# These are installed by install.sh (install.sh runs outside
 # the Edit-blocking sensitive-file gate), on BOTH paths in this same Step 11.7
 # section: fresh = mkdir + atomic-mv; existing-adopter = no-clobber preserve.
 # Generic-only: NO per-project entries are ever written.
@@ -3053,7 +3180,7 @@ seed_rules_entry() {
   info "rules/$fname seeded at $target"
 }
 
-# Entry 1 — binder pointer (R-ARCH-RULES #1). Cwd-parameterized: resolves the
+# Entry 1 — binder pointer. Cwd-parameterized: resolves the
 # CURRENT spoke's _projects/<spoke>/ binder surface. Generic — never names a
 # specific spoke; the launch directory selects the spoke at read time. The binder is
 # 100% machine-derived: the sole cover is the force-ingested situating card (eager,
@@ -3081,7 +3208,7 @@ the binder capabilities) to generate it. This entry is generic and cwd-parameter
 RULE_BINDER
 seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
 
-# Entry 2 — pre-research library-check fallback (R-ARCH-RULES #2). The portable
+# Entry 2 — pre-research library-check fallback. The portable
 # DEGRADED layer that backs the pre-research hook (hooks/pre-research-check.sh):
 # it operates when that hook is unavailable, so library coverage is surfaced even
 # pre-hook. Generic + always-on; advisory-only (mirrors the hook's never-block
@@ -3137,7 +3264,7 @@ it never names a specific project and never blocks.
 RULE_WORKPROJ
 seed_rules_entry "20-work-project-register.md" "$rules_work_project_register"
 
-# Entry 4 — bounded cross-cutting-spoke on-ramp (R-ARCH-RULES #4). Steers
+# Entry 4 — bounded cross-cutting-spoke on-ramp. Steers
 # cross-cutting personal-system work AWAY from $HOME: never launch from the home
 # directory; create a dedicated bounded dir (e.g. ~/system) and register it as a
 # spoke, the same way a code-tree or ~/work project is registered. Sibling to the
@@ -3272,7 +3399,7 @@ if [ "${UPGRADE_PRESENT:-0}" = "1" ]; then
   fi
 fi
 
-# Step 11.7c: project:-field identity migration (R-ARCH-PID). UPGRADE-LANE ONLY +
+# Step 11.7c: project:-field identity migration. UPGRADE-LANE ONLY +
 # idempotent. A legacy adopter plan manifest can carry a human display name in the
 # `project:` field with NO `title:`. This migration is TITLE-RESCUE-ONLY: it copies
 # that display name into a new `title:` field and NEVER writes `project:` — a value
@@ -3773,7 +3900,18 @@ fi
 # idempotent). Forward-only; no down-migration. The full pre-mutation snapshot +
 # reverse-journal restore is its envelope, NOT the migration runner's; the runner
 # owns the chain + the don't-bump-on-failure contract.
+#
+# DEFERRALS ARE NOT FAILURES. A guarded conditional migration (remove-if-empty,
+# converge-if-safe) can run, do the right thing, and still be unable to do its job
+# because its precondition was not met. The runner reports that third outcome
+# separately (run-migrations.sh, "THE 'RAN, BUT DEFERRED' PROTOCOL"): a deferred id
+# is deliberately NOT on stdout, so it never reaches migrations_applied[] and the
+# migration stays armed for a later --apply. The runner still exits 0, so a deferral
+# MUST NOT reach the exit-41 / rollback lane below — nothing went wrong and there is
+# nothing to roll back. It is reported to the operator instead, via MIG_DEFERRED_OUT,
+# so a pending cleanup is visible rather than silently reported as done.
 RAN_MIGRATIONS=""
+DEFERRED_MIGRATIONS=""
 if [ -f "$CLAUDE_HOME/migrations/run-migrations.sh" ] && [ -n "$TARGET_VERSION" ]; then
   if [ "$INSTALLED_VERSION" = "(none)" ]; then mig_floor_is_real=0; else mig_floor_is_real=1; fi
 
@@ -3800,18 +3938,24 @@ if [ -f "$CLAUDE_HOME/migrations/run-migrations.sh" ] && [ -n "$TARGET_VERSION" 
   fi
 
   mig_out="$CLAUDE_HOME/migrations/.run-$$.ids"
+  mig_defer_out="$CLAUDE_HOME/migrations/.defer-$$.ids"
+  rm -f "$mig_defer_out" 2>/dev/null || true
   if MIGRATIONS_DIR="$CLAUDE_HOME/migrations" \
      INSTALLED_VERSION="$INSTALLED_VERSION" \
      TARGET_VERSION="$TARGET_VERSION" \
      APPLIED_IDS="$PRIOR_MIGRATIONS_APPLIED" \
      FLOOR_IS_REAL="$mig_floor_is_real" \
+     MIG_DEFERRED_OUT="$mig_defer_out" \
      CLAUDE_HOME="$CLAUDE_HOME" \
        bash "$CLAUDE_HOME/migrations/run-migrations.sh" > "$mig_out"; then
     RAN_MIGRATIONS="$(cat "$mig_out" 2>/dev/null || true)"
-    rm -f "$mig_out" 2>/dev/null || true
+    DEFERRED_MIGRATIONS="$(cat "$mig_defer_out" 2>/dev/null || true)"
+    rm -f "$mig_out" "$mig_defer_out" 2>/dev/null || true
     [ -n "$RAN_MIGRATIONS" ] && info "migrations applied this run: $(printf '%s' "$RAN_MIGRATIONS" | tr '\n' ' ')"
+    # Deferred: ran, precondition not met, NOT recorded as applied — still armed.
+    [ -n "$DEFERRED_MIGRATIONS" ] && info "migrations deferred this run (ran, but their precondition was not met — NOT recorded as applied; re-evaluated on the next --apply): $(printf '%s' "$DEFERRED_MIGRATIONS" | tr '\n' ' ')"
   else
-    rm -f "$mig_out" 2>/dev/null || true
+    rm -f "$mig_out" "$mig_defer_out" 2>/dev/null || true
  # on the envelope lane a migration failure rolls back the whole
     # transaction (restores every applied file + the sqlite db wholesale +
     # .installed-state.json wholesale). Off the envelope (fresh/legacy) keep the

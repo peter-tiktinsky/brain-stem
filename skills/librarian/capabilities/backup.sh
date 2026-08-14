@@ -1,7 +1,7 @@
 #!/bin/bash
 # backup — Git add/commit/push wrapper across tracked directories.
 #
-# Landed: Sub-plan 02 T-2 (2026-04-21). Extracted from SKILL.md
+# Landed: T-2 (2026-04-21). Extracted from SKILL.md
 # -434 pseudocode. Manifest-wired in T-3 (2026-04-29):
 # system defaults stripped of user-specific targets, extension list reads
 # from `user-manifest.system.backup_targets[]` (schema 1.3.0).

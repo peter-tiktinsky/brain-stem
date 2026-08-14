@@ -56,15 +56,48 @@ if [ "${1:-}" = "--do-close" ]; then
   exit 0
 fi
 
-# Drain stdin (SessionEnd JSON payload) so we never block.
+# Read the SessionEnd JSON payload (session_id fallback).
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
 INPUT=""
 if [ ! -t 0 ]; then
-  INPUT=$(cat 2>/dev/null || true)
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 if [ -z "$SESSION_ID" ] && [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
   SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+fi
+
+# THIS session's cwd, from the SessionEnd payload — the session's LAUNCH directory, and the
+# only place it is available at this seam (the coordination registry stores no cwd). It is
+# read here, next to the session_id, and threaded into the auto-close spawn below for the
+# same reason the id is: the detached child cannot recover it for itself. Ambient $PWD is
+# NOT a substitute — the detached chain's working directory is whatever the harness lane
+# happened to have, and a lane rooted at $HOME resolves the `home` spoke for a session that
+# belonged to another one. Empty (no payload / no jq) simply threads nothing, and the child
+# falls back to its documented ambient-$PWD resolution exactly as before.
+SESSION_CWD=""
+if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
+  SESSION_CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 fi
 
 # Graceful no-op: no session context.
@@ -86,8 +119,8 @@ fi
 # Spawn reconcile-sessions.sh detached UNCONDITIONALLY at every SessionEnd. The old
 # gate (spawn ONLY when a closed-pending-reconciliation peer existed) never tripped on
 # `status:active` ghosts keyed to a shared long-lived pid, so stale rows accumulated
-# until someone ran the reaper by hand (the 2026-07-08 83-row live corpus — 82 reaped
-# by a manual run). The sweep is idempotent + heartbeat-authoritative (T-1), and the
+# until someone ran the reaper by hand (a measured corpus of 83 rows had 82 stale,
+# all reaped by one manual run). The sweep is idempotent + heartbeat-authoritative, and the
 # reconciler's own OUTER reconcile.lock (-t 0) dedups concurrent runs, so an
 # unconditional spawn is safe. Detached so SessionEnd never blocks; reap OWNERSHIP stays
 # with reconcile-sessions.sh — this hook only triggers it. Exits 0 on every path.
@@ -119,7 +152,16 @@ if [ -f "$SESSION_CLOSE" ]; then
     # its OWN registry row (not a sibling's under a shared ancestor pid) instead of the
     # demoted pid ancestor-walk. SESSION_ID is resolved near the top of this file
     # (argv first, env fallback).
-    ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
+    # T-4: thread THIS session's cwd the same way, for the same reason — the close
+    # resolves the ACTIVE SPOKE from it, and every binder writer in its chain is scoped to
+    # that one key. Without the thread the child resolves its own ambient $PWD and can
+    # rewrite another spoke's binder. Both branches keep the id thread; the cwd rides only
+    # when the payload carried one.
+    if [ -n "$SESSION_CWD" ]; then
+      ( "$SESSION_CLOSE" --session-id "$SESSION_ID" --cwd "$SESSION_CWD" >/dev/null 2>&1 & ) || true
+    else
+      ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
+    fi
   fi
 fi
 

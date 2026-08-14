@@ -71,7 +71,7 @@ register_row() {
 #
 # This is a NEW $PPID-comm-walk resolver: walk up to ~4 ancestors via
 # `ps -o ppid=`, return the first whose `ps -o comm=` contains 'claude'. It is
-# NOT a reuse of session-close.sh:135-143 — that is a session-ID REVERSE lookup
+# NOT a reuse of session-close's own lookup — that is a session-ID REVERSE lookup
 # matching ancestor pids against stored .value.pid rows. The only thing borrowed
 # is the prior-art observation that the parent chain is walkable; the technique
 # here (comm-name match) is different. Fail-open: fall back to $PPID, then $$, so
@@ -100,14 +100,34 @@ fi
 # State root for the per-session checkpoint dir. Roots at $CLAUDE_STATE_ROOT
 # via the paths.sh SoT — NOT $HOOKS_STATE: the
 # checkpoint is ephemeral per-session state. HOOKS_STATE_OVERRIDE wins for test
-# isolation (feedback_test_isolation_for_hooks_state).
+# isolation (a throwaway dir, never the live state tree).
 STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}}}"
 
-# Read the SessionStart JSON payload once (session_id + source). Drain stdin so
-# we never block. Env var preferred; stdin .session_id fallback.
+# Read the SessionStart JSON payload once (session_id + source). Env var preferred;
+# stdin .session_id fallback.
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
 INPUT=""
 if [ ! -t 0 ]; then
-  INPUT=$(cat 2>/dev/null || true)
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"

@@ -19,7 +19,7 @@
 # when a tracked file (MEMORY.md / a memory topic-file / a rules/*.md) changed
 # since the last scan — detected via a content-hash state file (the lychee
 # .lycheecache / pre-commit changed-files analog; content-hash, not mtime, is
-# deterministic across parallel invocations per feedback_guard_signal_determinism).
+# deterministic across parallel invocations, where mtime-most-recent is not).
 # SILENT no-op otherwise (NOT an unconditional every-session "all clear" — that
 # trains the operator to ignore the advisory: the ESLint-warnings / Datadog
 # alert-fatigue anti-pattern). First-ever run (no state file) RUNS. The state file
@@ -60,11 +60,11 @@
 #   RULES_DIR               Override the rules dir (else $CLAUDE_HOME/rules).
 #   FINDINGS_OUTPUT         (default: stdout)
 #   HOOKS_STATE             Change-gate state-file home (HOOKS_STATE_OVERRIDE wins
-#                           for test isolation — feedback_test_isolation_for_hooks_state).
+#                           for test isolation — a throwaway dir, never live state).
 #   FOUNDATION_TEST_MODE    Present for test/CI runners (no behavioral gate today;
 #                           the TTY guard is intentionally OMITTED per change (a)).
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
-# ([[feedback_python_heredoc_argv]]).
+# (data via argv, never a piped stdin).
 
 set -euo pipefail
 
@@ -125,24 +125,11 @@ case "$_PLANS_ROOT_RES" in */) _PLANS_ROOT_RES="${_PLANS_ROOT_RES%/}" ;; esac
 BINDER_ROOT="${BINDER_ROOT_OVERRIDE:-$_PLANS_ROOT_RES/_projects}"
 
 # --- resolve the change-gate state file (runtime state under HOOKS_STATE) ------
-# HOOKS_STATE_OVERRIDE wins for test isolation (feedback_test_isolation_for_hooks_state);
+# HOOKS_STATE_OVERRIDE wins for test isolation (a throwaway dir, never live state);
 # paths.sh already folds it into HOOKS_STATE when sourced, but honor it directly
 # in case the lib is unreachable.
 STATE_HOME="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-$CLAUDE_HOME_RES/hooks/state}}"
 STATE_FILE="$STATE_HOME/pointer-currency-scan.cache"
-
-# G5/D3 (plan 110 T-63): transitional new-first/old-fallback for the change-gate
-# cache — ONE release (v1.3.0). If the cache is absent at the new HOOKS_STATE home
-# but present at the OLD $CLAUDE_HOME/hooks/state, seed the new location from it so
-# the content-hash gate does not spuriously re-fire mid-upgrade (alert-fatigue).
-# Reads/writes thereafter target the new STATE_FILE. Skipped under
-# HOOKS_STATE_OVERRIDE (test isolation). Removed in v1.4.0 (T-60).
-_old_state_file="$CLAUDE_HOME_RES/hooks/state/pointer-currency-scan.cache"
-if [[ -z "${HOOKS_STATE_OVERRIDE:-}" && ! -f "$STATE_FILE" \
-      && -f "$_old_state_file" && "$_old_state_file" != "$STATE_FILE" ]]; then
-  mkdir -p "$STATE_HOME" 2>/dev/null || true
-  cp -p "$_old_state_file" "$STATE_FILE" 2>/dev/null || true
-fi
 
 if [[ "$PRINT_STATE" == "true" ]]; then
   echo "$STATE_FILE"
@@ -159,7 +146,7 @@ fi
 # session-close cadence, compare against the state file and SILENT no-op if
 # unchanged; (3) scan every tracked file for plain-text absolute-path pointers
 # and emit a finding for each non-resolving target; (4) update the state file.
-# All data via argv (feedback_python_heredoc_argv).
+# All data via argv, never a piped stdin the heredoc would consume.
 python3 - "$MEMORY_DIR" "$RULES_DIR_RES" "$STATE_FILE" "$SESSION_CLOSE" "$DRY_RUN" "$BINDER_ROOT" <<'PY'
 import hashlib
 import json
@@ -225,7 +212,7 @@ files = tracked_files()
 # --- content-hash the tracked set (deterministic change-gate signal) ---------
 # Hash file-path + content for every tracked file, in sorted order. Content-hash
 # (NOT most-recent-mtime) is deterministic across parallel invocations
-# (feedback_guard_signal_determinism — mtime-most-recent is stochastic).
+# (a change-gate signal must be deterministic — mtime-most-recent is stochastic).
 def corpus_hash():
     h = hashlib.sha256()
     for f in files:

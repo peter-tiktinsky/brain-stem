@@ -1,7 +1,10 @@
 #!/bin/bash
 # stale-detect — Identify files that may need attention based on age or missing processing.
+#
 # Sources `lib/manifest.sh`, `lib/plan-path.sh`, `lib/findings.sh`.
+#
 # 8 staleness rules per SKILL.md (rules 5 + 6 retired — meeting-note extracted,
+# ; vault Logs/ no longer ships, G3):
 #   1. Daily notes — processed: false AND older than 2 days
 #   2. People files — <!-- TODO: enrich context --> marker present
 #   3. People files — no Timeline entry in last 30 days (active engagement only)
@@ -15,7 +18,7 @@
 #   8. Plan trinity lag — manifest.status == "complete" but any tasks.md T-N
 #      **Status:** lags (not-started | in-progress | blocked | pending | planned).
 #      Finding category: `trinity-lag`.
-#   9. Binder freshness (R-FLOW-MAINT-1) — a per-spoke binder surface
+#   9. Binder freshness — a per-spoke binder surface
 #      (_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md) whose
 #      `updated:` regen date lags the newest constituent-plan activity (the max
 #      manifest.json/handoff.md mtime across the plans whose manifest project:
@@ -29,15 +32,18 @@
 #      degraded-utility, NO Stop/exit-2 escalation. A binder with no `updated:` date
 #      or no contributing plans, or an absent binder (adopter never ran the
 #      generators — first-run state, not staleness), yields no finding.
+#
 # Verification evidence for plans (any-of-three):
 #   a. last_verified: <ISO date> frontmatter within 14 days
 #   b. **Last Verified:** <ISO date> header bullet within 14 days
 #   c. sibling handoff.md with non-empty acceptance-criteria section
+#
 # CLI:
 #   stale-detect.sh                    # emit findings to $FINDINGS_OUTPUT or stdout
 #   stale-detect.sh --scope <path>     # limit to a vault subtree
 #   stale-detect.sh --recent           # files touched in last 7 days only
 #   stale-detect.sh --dry-run          # summary counts, no emission
+#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -90,7 +96,7 @@ export MANIFEST_SUBTREE_OUT
 # DESCENDS the vault Work/ symlink (-> ~/work) via the shared walker (vault_view_walk).
 # os.walk(followlinks=False) refused it AND WORK_HOME was never a root, so the Work/ subtree
 # had no stale detector. The python body reads SD_WALK_LIST and FALLS BACK to os.walk when it
-# is empty (floor). Mirrors rename-cascade.sh:79-104's walker retrofit.
+# is empty (floor). Mirrors rename-cascade's bounded stdin-capture retrofit.
 SD_WALK_LIST=""
 _VVW_LIB="${VAULT_VIEW_WALK:-$CLAUDE_HOME_RES/hooks/lib/vault-view-walk.sh}"
 [ -r "$_VVW_LIB" ] || _VVW_LIB="$_REPO_LIB/vault-view-walk.sh"
@@ -514,7 +520,7 @@ for plan_dir in walk_plan_dirs(plans_scope):
           "resolution_hint": "flip lagging T-N **Status:** to `done` if work is actually complete, OR revert manifest.status to in-progress if work remains"})
     counts["trinity-lag"] += 1
 
-# ---------- binder freshness (rule #9 — R-FLOW-MAINT-1) ----------
+# ---------- binder freshness (rule #9) ----------
 # Per-spoke binders live at <plans>/_projects/<spoke>/{research-index,decision-log,
 # handoff-chronicle}.md (the binder generator outputs). Each carries a generated
 # `updated: <ISO date>` frontmatter — the binder regen timestamp. The "max
@@ -533,7 +539,7 @@ for plan_dir in walk_plan_dirs(plans_scope):
 # WARN-ONLY (rules #4/#7/#8 family): no Stop/exit-2 escalation (binder staleness is
 # degraded-but-usable, not the lost-in-flight-state class). An absent binder is
 # first-run state, NOT staleness — no finding. Threshold mirrors rule #4 (the
-# project-freshness rule; D4 R-FLOW-MAINT-1 names no numeric threshold, so the
+# project-freshness rule; no binder contract names a numeric threshold, so the
 # shipped staleness-family convention governs).
 BINDER_STALE_DAYS = 14
 # _situating.md joins the binder-staleness net. The situating
@@ -633,7 +639,7 @@ if os.path.isdir(projects_root):
             # its manifest project: == <spoke>) is an ORPHAN (missing-owner): the generators
             # only regenerate spokes WITH contributing plans, so an orphan spoke binder
             # persisted undetected. An empty/absent binder home is first-run state, not an
-            # orphan (no finding). MUST run against re-stamped project: keys (post-139-Wave-B migration).
+            # orphan (no finding). MUST run against re-stamped project: keys.
             present = [b for b in BINDER_BASENAMES
                        if os.path.isfile(os.path.join(binder_home, b))]
             if present:
@@ -647,7 +653,7 @@ if os.path.isdir(projects_root):
                                 "orphan spoke binder with no reconciling owner" % (spoke, spoke),
                       "resolution_hint": "if spoke '%s' is retired, remove its _projects/ binder "
                                          "home; else confirm a contributing plan carries "
-                                         "project: %s (post-139-Wave-B re-stamp)" % (spoke, spoke)})
+                                         "project: %s" % (spoke, spoke)})
                 counts["orphan-spoke-binder"] += 1
             # no contributing plans -> not staleness
             continue
@@ -681,7 +687,7 @@ if os.path.isdir(projects_root):
                                 "%dd (>%dd) — the binder is auto-maintained "
                                 "(session-close + manifest-write trigger + session-start "
                                 "refresh), so this stale surface signals the "
-                                "auto-maintenance pipeline did not run (R-FLOW-MAINT-1)"
+                                "auto-maintenance pipeline did not run"
                                 % (int(lag_days), BINDER_STALE_DAYS),
                       "resolution_hint": "investigate the auto-maintenance pipeline (which "
                                          "leg dropped the regen for spoke '%s'), not just a "
@@ -715,7 +721,7 @@ PY
 # Review-hardening (empty-VAULT_LOGS contract): with empty VAULT_LOGS the
 # manifest_set lockfile resolves to '/.coordination/manifest.lock' (uncreatable)
 # and raises under set -e, which a no-vault fresh adopter's session-close logs as
-# a spurious capability error — but G2 (plan 110) moved the manifest under
+# a spurious capability error — but G2 moved the manifest under
 # $CLAUDE_STATE_ROOT/manifests and its lock under $COORD_DIR (always creatable), so
 # the persist no longer needs a non-empty VAULT_LOGS. Gate only on content.
 if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then

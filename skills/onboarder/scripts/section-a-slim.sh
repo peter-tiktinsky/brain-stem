@@ -105,14 +105,31 @@ probe_timezone() {
 }
 # Tier-2 ALWAYS builds a fresh "brain" vault. This is
 # not an existing-vault scan — it proposes WHERE to create the brain vault.
-# Default: $HOME/Documents/brain (Obsidian-friendly). User edits or sets "none"
-# to defer the location to the build step.
+#
+# THE VAULT ROOT HAS NO INSTALL-CONVENTION DEFAULT, so this step MUST NOT
+# manufacture one. That contract is published by the paths SoT — hooks/lib/paths.sh:17-18
+# ("VAULT_ROOT and BACKUPS_DIR have no install-convention default — they stay empty when
+# neither env nor manifest provides them") — and enforced at the build step,
+# skills/onboarder/scripts/build-brain-vault.sh:112-116 ("The vault root has NO
+# install-convention default … an exhausted chain is a REFUSAL, not a fallback:
+# inventing a location here would scaffold a whole vault, and every symlink in it,
+# somewhere the adopter never nominated"). This function is the ONE point where a
+# vault root enters the system, so an invented default here defeats both. It used to
+# print one specific machine's vault path unconditionally.
+#
+# The chain, in order: an explicit injection wins ("none" ⇒ no location); otherwise
+# SUGGEST THE RESOLVED ROOT when one already exists (paths.sh is sourced above, so
+# $VAULT_ROOT carries an env- or manifest-configured vault — a re-run proposes what
+# the adopter already chose); otherwise SUGGEST NOTHING and let the operator supply
+# it at field 4, or defer to the build step. Empty is a legitimate, displayed state
+# ("(decide at build time)"), NOT a hole to fill.
 probe_vault_root() {
   if [ -n "${SLIM_A_VAULT:-}" ]; then
     [ "$SLIM_A_VAULT" = "none" ] && { printf '\n'; return 0; }
     printf '%s\n' "$SLIM_A_VAULT"; return 0
   fi
-  printf '%s\n' "$HOME/Documents/brain"
+  [ -n "${VAULT_ROOT:-}" ] && { printf '%s\n' "$VAULT_ROOT"; return 0; }
+  printf '\n'
 }
 
 V_NAME="$(probe_name)"
@@ -137,7 +154,13 @@ display_card() {
   printf '  2. Email:          %s\n' "$(fmt "$V_EMAIL")" >&2
   printf '  3. Timezone:       %s\n' "$(fmt "$V_TZ")" >&2
   printf '  4. Brain vault at: %s\n' "$(fmt_vault "$V_VAULT")" >&2
-  printf "\nWe'll build a fresh \"brain\" vault for you at the location above.\n" >&2
+  # Coherence rider on the probe fix above: with no proposed location there IS no
+  # "location above" to build at, so the sentence has to say what actually happens.
+  if [ -z "$V_VAULT" ]; then
+    printf "\nWe'll build a fresh \"brain\" vault for you — pick 4 to say where, or leave it and decide at build time.\n" >&2
+  else
+    printf "\nWe'll build a fresh \"brain\" vault for you at the location above.\n" >&2
+  fi
   printf '\n[Enter] = accept all   1-4 = edit field   q = quit\n> ' >&2
 }
 
@@ -154,6 +177,10 @@ edit_field() {
 }
 
 emit_fragment() {
+  # The vault half of this fragment is what reaches user-manifest.json (both the
+  # .paths.vault_root key and the .vault.root mirror below). The empty ⇒ null mapping
+  # already existed and is what makes the probe's no-default behaviour safe end-to-end:
+  # an unsupplied location persists as JSON null, never as an invented path.
   local tmp="$FRAGMENT_OUT.tmp.$$"
   jq -n \
     --arg name "$V_NAME" --arg email "$V_EMAIL" --arg tz "$V_TZ" --arg vault "$V_VAULT" \

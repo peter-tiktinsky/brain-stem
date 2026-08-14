@@ -25,8 +25,18 @@ source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || exit 0
 [ -r "$SCRIPT_DIR/lib/registry.sh" ] && source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null
 
 # Drain stdin (SessionStart JSON payload) so we never block; we don't read it.
+# BOUNDED drain: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook chain hangs with zero output. The
+# bound is PER READ: a stream that keeps delivering is never truncated, only silence
+# is. HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
 if [ ! -t 0 ]; then
-  cat >/dev/null 2>&1 || true
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE; do :; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 # Resolve onboarding_complete. Prefer the canonical read API (umr_get_string);

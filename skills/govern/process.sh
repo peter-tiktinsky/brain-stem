@@ -30,6 +30,22 @@ MODES_DIR="$SCRIPT_DIR/modes"
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 LIB_MUTATE="$REPO_ROOT/hooks/lib/overlay-master-mutate.sh"
 
+# Canonical filesystem-path SoT. Mode handlers are sourced into THIS shell (see
+# the dispatch below), so resolving here gives every handler the same
+# VAULT_ROOT / VAULT_CONFIGURED contract the hooks read, instead of leaving a
+# handler to invent a default for a variable nothing set. Resolution order
+# inside paths.sh: caller env > user-manifest.json > install-convention default.
+# VAULT_ROOT deliberately has NO install-convention default, so an unconfigured
+# vault stays EMPTY and VAULT_CONFIGURED stays 0 — the vault-writing modes read
+# that sentinel and no-op rather than composing a destination from a guess.
+# Guarded: if the SoT is unreadable the orchestrator still runs, and the
+# vault-scoped modes degrade through the same VAULT_CONFIGURED=0 branch.
+PATHS_LIB="$REPO_ROOT/hooks/lib/paths.sh"
+if [ -r "$PATHS_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$PATHS_LIB"
+fi
+
 # Allow tests to override via env.
 if [ -n "${GOVERN_REGISTER_LIB_MUTATE:-}" ]; then
   LIB_MUTATE="$GOVERN_REGISTER_LIB_MUTATE"

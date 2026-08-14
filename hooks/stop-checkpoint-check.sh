@@ -37,8 +37,27 @@ fi
 # with no stdin (tests pipe </dev/null) STOP_INPUT stays empty and every reader
 # degrades gracefully. This is the single drain for the whole hook — the session-id
 # resolve and the stop-time pressure refresh below both read $STOP_INPUT.
+# BOUNDED capture: `[ -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the Stop gate hangs with zero output. The
+# timeout is on EVERY read and each line is accumulated as it arrives, so a stream
+# that keeps delivering is never truncated and an expiry mid-stream keeps what already
+# arrived; the trailing-newline trim reproduces `$(cat)` exactly, and absent input
+# still reads as empty (tests pipe </dev/null). HOOKS_STDIN_WAIT overrides (whole
+# seconds); a zero/non-numeric value falls back rather than reaching `read -t 0`,
+# which on bash 3.2 arms no timer at all.
 STOP_INPUT=""
-[ -t 0 ] || STOP_INPUT=$(cat 2>/dev/null || true)
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    STOP_INPUT="${STOP_INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${STOP_INPUT%$'\n'}" != "$STOP_INPUT" ]; do STOP_INPUT="${STOP_INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 
 # Per-session checkpoint/pressure dir roots at $CLAUDE_STATE_ROOT (/
 # /), via the paths.sh SoT (sourced above) — NOT $HOOKS_STATE.

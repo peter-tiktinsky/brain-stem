@@ -39,20 +39,59 @@
 #                        precondition per the authoring contract — never
 #                        min_from-skipped in this lane).
 #   CLAUDE_HOME        — passed through to each migration (its mutation target).
+#   MIG_DEFERRED_OUT   — OPTIONAL path. When set, each DEFERRED id is appended to
+#                        it, one per line, so the caller can report pending
+#                        cleanups to the operator. Unset -> deferrals are logged
+#                        to stderr only.
 #
 # OUTPUT:
-#   stdout — one applied migration id PER LINE, in apply order (the caller folds
+#   stdout — one APPLIED migration id PER LINE, in apply order (the caller folds
 #            these into migrations_applied[] for the .installed-state.json stamp).
-#            Diagnostics + WARNs go to stderr only, so stdout stays a clean id
-#            list (mirrors install.sh's dry-run-JSON-on-stdout discipline).
-#   exit 0 — every selected migration converged (or was correctly skipped).
-#   exit 1 — a migration exited non-zero. The caller MUST NOT bump
-#            foundation_version (the partial high-water mark is the ids already
-#            emitted on stdout before the failure). Up-only; no down-migrations.
+#            A DEFERRED migration is deliberately NOT on stdout. Diagnostics +
+#            WARNs go to stderr only, so stdout stays a clean id list (mirrors
+#            install.sh's dry-run-JSON-on-stdout discipline).
+#   exit 0 — every selected migration converged, deferred, or was correctly
+#            skipped.
+#   exit 1 — a migration exited non-zero AND that code was not the deferral code.
+#            The caller MUST NOT bump foundation_version (the partial high-water
+#            mark is the ids already emitted on stdout before the failure).
+#            Up-only; no down-migrations.
+#
+# ------------------- THE "RAN, BUT DEFERRED" PROTOCOL -------------------------
+# A GUARDED conditional migration (remove-if-empty, converge-if-safe) has a third
+# outcome that this lane could not express: it ran, it did the RIGHT thing, but it
+# could NOT do its job because its precondition was not met. Exiting 0 for that
+# case conflates "I completed without error" with "I performed my job": the runner
+# emits the id, the caller folds it into migrations_applied[], and the selection
+# set-difference below then skips it FOREVER — the cleanup is permanently
+# forfeited by its own no-op branch, even after the precondition is later met.
+#
+# The runner therefore ADVERTISES a deferral code to every migration it invokes,
+# via MIGRATION_DEFER_RC. A migration that speaks the protocol exits that code
+# from its ran-but-deferred branch; the runner maps it to NOT-APPLIED (id withheld
+# from stdout, so the id never enters the high-water log and the migration stays
+# armed for the next --apply) and CONTINUES the chain. A deferral is NOT a failure:
+# it must never reach the caller's non-zero lane (install.sh exit 41 / the rollback
+# envelope), because nothing went wrong and there is nothing to roll back.
+#
+# The code is ADVERTISED rather than hardcoded into migration bodies because a
+# migration is also runnable STANDALONE (adopter audit; each body defaults
+# CLAUDE_HOME to $HOME/.claude). With no runner present MIGRATION_DEFER_RC is
+# unset, the body falls back to exit 0, and the pre-existing standalone contract —
+# a body run against a tolerated precondition exits 0 — is preserved exactly. The
+# protocol is additive: a migration that does not speak it behaves as before.
+#
+# 75 is sysexits.h EX_TEMPFAIL ("temporary failure; the user is invited to retry"),
+# which is precisely "ran, but deferred". It is distinct from the caller's own
+# migration-failure exit (41) and from the shell's 1/2/126/127/128+N codes.
 #
 # bash-3.2-safe (R-23): no associative arrays, no mapfile, no process
 # substitution in the hot path.
 set -u
+
+# The deferral code the runner advertises to every migration it invokes and maps
+# back to NOT-APPLIED. See "THE 'RAN, BUT DEFERRED' PROTOCOL" above.
+MIG_DEFER_RC=75
 
 _mig_log() { printf 'migrations: %s\n' "$1" >&2; }
 
@@ -133,7 +172,7 @@ run_migrations() {
     return 0
   fi
 
-  local f id min_from applies_at v_lo v_hi v_minfrom
+  local f id min_from applies_at v_lo v_hi v_minfrom mig_rc
   # Numeric/lexical prefix order = plain glob sort (NNNN zero-padded).
   for f in "$dir"/[0-9][0-9][0-9][0-9]-*.sh; do
     [ -e "$f" ] || continue          # no-match glob guard
@@ -182,12 +221,27 @@ run_migrations() {
     fi
 
     # --- run the migration (converge-if-needed; its own structural probe) ----
+    # Three outcomes, not two: APPLIED (0) / DEFERRED (MIG_DEFER_RC) / FAILED
+    # (anything else). MIGRATION_DEFER_RC advertises the deferral code to the body.
     _mig_log "RUN  $id ($f): applies_at=$applies_at min_from=${min_from:-<none>}"
-    if CLAUDE_HOME="${CLAUDE_HOME:-}" bash "$f" >&2; then
-      # success -> emit the id on stdout (the caller appends it to the log)
+    MIGRATION_DEFER_RC="$MIG_DEFER_RC" CLAUDE_HOME="${CLAUDE_HOME:-}" bash "$f" >&2
+    mig_rc=$?
+    if [ "$mig_rc" -eq 0 ]; then
+      # applied -> emit the id on stdout (the caller appends it to the log)
       printf '%s\n' "$id"
+    elif [ "$mig_rc" -eq "$MIG_DEFER_RC" ]; then
+      # ran, but DEFERRED: the migration did the right thing and its precondition
+      # was not met. NOT applied -> the id is withheld from stdout, so it never
+      # enters migrations_applied[] and the migration stays ARMED for a later
+      # --apply. NOT a failure -> the chain continues and the caller's non-zero
+      # lane (exit 41 / rollback) is never reached.
+      _mig_log "DEFER $id ($f): ran, but its precondition was NOT met — NOT recorded as applied; it stays armed and is re-evaluated on the next --apply."
+      if [ -n "${MIG_DEFERRED_OUT:-}" ]; then
+        printf '%s\n' "$id" >> "$MIG_DEFERRED_OUT"
+      fi
+      continue
     else
-      _mig_log "FAIL $id ($f) exited non-zero — halting the chain (forward-only; no down-migration). foundation_version MUST NOT bump."
+      _mig_log "FAIL $id ($f) exited non-zero ($mig_rc) — halting the chain (forward-only; no down-migration). foundation_version MUST NOT bump."
       return 1
     fi
   done

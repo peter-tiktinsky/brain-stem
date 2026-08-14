@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # pre-dispatch-scoping.sh — T-2 — Pre-dispatch scoping protocol
 # + 6 refusal filters (extracted standalone module).
+#
 # EXTRACTED from the live dispatch.sh inline scoping block into a clean
-# standalone module (fork-1(a) clean-modules + fork-2
-# orchestrator/lib home). dispatch.sh wires this in at the --job boundary
+# standalone module in its own orchestrator/lib home. dispatch.sh wires this
+# in at the --job boundary
 # (T-06). Decoupled from the 3 DEFER surfaces (governance.sh caps,
 # retry-dispatch.sh mechanical-only-retry, the verifier ENHANCEMENT) — this
 # module sources NO project .sh lib; it shells out to brief-meta.py + jq only.
+#
 # When the brief declares any of scope_summary / team_topology /
 # dispatch_decision:
 #   1. Write a human-readable scope packet to
@@ -16,18 +18,22 @@
 #   3. Advisory by default (OQ-A first-wave rollout); blocking when
 #      ORCHESTRATOR_SP04_T2_BLOCKING=1 (exit code 12, marker "T-2")
 # Legacy briefs (no T-2 fields) skip entirely — backwards-compatible.
+#
 # The 6 canonical refusal-filter keys (the scoping SHAPE) live in
 # brief-meta.py SP04_FILTER_KEYS: sequential_edges, shared_global_context,
 # token_value_asymmetry, decomposition_ambiguity, depth_signal,
 # verifier_coupling.
+#
 # Usage:
 #   pre-dispatch-scoping.sh <brief-path> <target-name>
+#
 # Env vars:
 #   ORCHESTRATOR_SP04_T2_BLOCKING   — "1" to block (exit 12) on filter-fail;
 #                                      unset/empty = advisory (default; proceed)
 #   ORCHESTRATOR_STATE_DIR          — state dir override
 #                                      (default: $CLAUDE_STATE_ROOT/runtime)
 #   CLAUDE_HOME                     — install root (default: ~/.claude)
+#
 # Exit codes:
 #   0   — advisory pass / legacy-skip / brief-meta degraded (graceful)
 #   12  — BLOCKING mode + dispatch-multi + filter-fail (marker "T-2")
@@ -36,6 +42,12 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BRIEF_META="$SCRIPT_DIR/brief-meta.py"
+
+# No bytecode cache beside a SHIPPED module. orchestrator/ is a ship-surface mirror dir, and
+# a __pycache__/ dropped in it is gitignored junk that REDs the release walk-hygiene gate late
+# and generically. The cache buys nothing for a script run once per dispatch. Exported (not
+# `python3 -B` at the call site) so the N+1 python child inherits it too.
+export PYTHONDONTWRITEBYTECODE=1
 
 BRIEF="${1:-}"
 TARGET="${2:-}"

@@ -45,7 +45,7 @@
         },
         "plans_root": {
           "type": ["string", "null"],
-          "description": "Fills {{PLANS_HOME}} in the vault template. Install resolves to ~/.claude-plans when null."
+          "description": "Fills {{PLANS_HOME}} in the vault template. Null means install resolves the plans-root default — the plan corpus is a SIBLING of the install root, never a directory inside it."
         },
         "state_root": {
           "type": ["string", "null"],
@@ -61,7 +61,7 @@
         },
         "backups_dir": {
           "type": ["string", "null"],
-          "description": "Override for $BACKUPS_DIR; default ~/Backups. Read by hooks/lib/paths.sh and the librarian backup capability."
+          "description": "Sets $BACKUPS_DIR — the backup destination root. NO install-convention default: when this key and the environment are both empty, $BACKUPS_DIR resolves EMPTY (same contract as paths.vault_root). Read by hooks/lib/paths.sh."
         }
       }
     },

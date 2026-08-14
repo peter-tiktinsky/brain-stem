@@ -20,7 +20,7 @@
 #
 # Concurrency: TWO nested lockf guards, acquired outer -> inner (non-cyclic, so
 # deadlock-free). OUTER = a dedicated auto-close-backstop.lock process-dedup guard
-# (feedback_shell_lock_pattern `/usr/bin/lockf -k -t 0` re-exec; -t 0 = non-blocking
+# (the canonical `/usr/bin/lockf -k -t 0` re-exec; -t 0 = non-blocking
 # so two concurrently-starting sessions don't both sweep the same dead one — the
 # loser hits contention and skips cleanly; the `auto_close_swept_at` marker covers
 # the sequential case). INNER = the SHARED registry.lock (REGISTRY_LOCK, `-t 2`) held
@@ -60,8 +60,18 @@ if ! command -v pin_detached_spawn_env >/dev/null 2>&1; then pin_detached_spawn_
 pin_detached_spawn_env || true
 
 # Drain stdin (SessionStart JSON payload) so we never block; we don't read it.
+# BOUNDED drain: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook chain hangs with zero output. The
+# bound is PER READ: a stream that keeps delivering is never truncated, only silence
+# is. HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
 if [ ! -t 0 ]; then
-  cat >/dev/null 2>&1 || true
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE; do :; done
+  unset _STDIN_WAIT _STDIN_LINE
 fi
 
 command -v jq >/dev/null 2>&1 || exit 0
@@ -128,17 +138,29 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
   /usr/bin/lockf -k -t 2 "$REGISTRY_LOCK" "$0" "$@" >/dev/null 2>&1 || true
   # --- lock RELEASED here. Spawn the detached close ONCE if the child found a crash.
   if [ -f "$AUTO_CLOSE_FOUND_SENTINEL" ]; then
-    # The re-exec'd child wrote the crashed session's id into the sentinel content; read it
-    # and thread it into the detached close so the recovery close reconciles the CRASHED
-    # session's spoke/handoff, not the recovering session's own $PWD.
+    # The re-exec'd child wrote the crashed session's id on line 1 of the sentinel and its
+    # stored cwd (if the row carried one) on line 2; read both and thread them into the
+    # detached close so the recovery close reconciles the CRASHED session's spoke/handoff,
+    # not the recovering session's own $PWD.
     _crashed_sid="$(head -1 "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null | tr -d '[:space:]')"
+    # A path may legitimately contain spaces, so this line is NOT whitespace-stripped the
+    # way the id is — only the trailing newline goes, which $( ) removes.
+    _crashed_cwd="$(sed -n '2p' "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null)"
     rm -f "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    # WHY $HOME WHEN THE ROW CARRIES NO CWD (the ordinary case today: no registry writer
+    # records one). The alternative is to thread nothing — and then the detached close
+    # falls back to ambient $PWD, which here is the RECOVERING session's launch dir. That
+    # would attribute a crashed session's close to whatever spoke happens to be starting
+    # up, which is precisely the cross-spoke mis-write this threading exists to stop. A
+    # crashed session's cwd is genuinely unknowable at this point, so the resolution lands
+    # deliberately on the registry's documented `home` catch-all instead of guessing.
+    [ -n "$_crashed_cwd" ] || _crashed_cwd="$HOME"
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
       if [ -n "$_crashed_sid" ]; then
-        ( "$SESSION_CLOSE" --session-id "$_crashed_sid" >/dev/null 2>&1 & ) || true
+        ( "$SESSION_CLOSE" --session-id "$_crashed_sid" --cwd "$_crashed_cwd" >/dev/null 2>&1 & ) || true
       else
-        ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+        ( "$SESSION_CLOSE" --cwd "$_crashed_cwd" >/dev/null 2>&1 & ) || true
       fi
     fi
   fi
@@ -159,6 +181,7 @@ sids=$(printf '%s' "$reg" | jq -r '.sessions // {} | keys[]' 2>/dev/null) || exi
 
 found=0
 crashed_sid=""
+crashed_cwd=""
 for sid in $sids; do
   status=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].status // ""' 2>/dev/null)
   swept=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].auto_close_swept_at // ""' 2>/dev/null)
@@ -196,7 +219,14 @@ for sid in $sids; do
   # detached close reconciles the CRASHED session's spoke/handoff (session-close reads
   # .sessions[<id>].touched_files for its R-25 scan) rather than the recovering session's
   # own $PWD. The spawn fires once; the first crashed row is the threaded identity.
-  [ -z "$crashed_sid" ] && crashed_sid="$sid"
+  # Its cwd rides along WHEN THE ROW HAS ONE — read defensively rather than assumed,
+  # because no registry writer records the field today (session-register.sh stores
+  # session_id/source/pid/heartbeat/touched_files). A row that gains one later is threaded
+  # with no further change here; an absent one takes the documented fallback at the spawn.
+  if [ -z "$crashed_sid" ]; then
+    crashed_sid="$sid"
+    crashed_cwd=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].cwd // ""' 2>/dev/null)
+  fi
   found=1
 done
 
@@ -212,19 +242,23 @@ done
 if [ "$found" -eq 1 ]; then
   [ -n "$reg" ] && write_registry "$reg"
   if [ -n "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] && [ -n "${AUTO_CLOSE_FOUND_SENTINEL:-}" ]; then
-    # Locked re-exec: hand the crashed session's id to the lock-released parent via the
-    # sentinel CONTENT (the parent — which does not run this sweep — reads it back and
-    # threads it into the spawn); DO NOT spawn here (the spawn must run lock-released).
-    printf '%s\n' "$crashed_sid" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    # Locked re-exec: hand the crashed session's id (line 1) and its stored cwd (line 2,
+    # empty when the row carries none) to the lock-released parent via the sentinel CONTENT
+    # (the parent — which does not run this sweep — reads them back and threads them into
+    # the spawn); DO NOT spawn here (the spawn must run lock-released).
+    printf '%s\n%s\n' "$crashed_sid" "$crashed_cwd" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
   else
     # Unlocked (lockf-absent) inline path: no held lock to release -> spawn here, threading
-    # the crashed session's id so the close reconciles the crashed spoke.
+    # the crashed session's id so the close reconciles the crashed spoke. Same cwd rule as
+    # the lock-released spawn above: the row's stored cwd when it has one, else $HOME —
+    # never this recovering session's ambient, which belongs to a different session.
+    [ -n "$crashed_cwd" ] || crashed_cwd="$HOME"
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
       if [ -n "$crashed_sid" ]; then
-        ( "$SESSION_CLOSE" --session-id "$crashed_sid" >/dev/null 2>&1 & ) || true
+        ( "$SESSION_CLOSE" --session-id "$crashed_sid" --cwd "$crashed_cwd" >/dev/null 2>&1 & ) || true
       else
-        ( "$SESSION_CLOSE" >/dev/null 2>&1 & ) || true
+        ( "$SESSION_CLOSE" --cwd "$crashed_cwd" >/dev/null 2>&1 & ) || true
       fi
     fi
   fi

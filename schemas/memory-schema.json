@@ -3,7 +3,7 @@
   "$id": "https://brain-stem.local/schemas/memory-schema.json",
   "schema_version": "2.1.0",
   "title": "Memory file frontmatter contract (System A — curated file-memory)",
-  "description": "YAML frontmatter contract every file under ~/.claude/projects/<project>/memory/*.md MUST carry. Codifies the System-A curated-memory frontmatter contract. Schema validates the frontmatter block parsed as an object; additionalProperties is true so memory files may carry per-type extensions alongside the universal fields.",
+  "description": "YAML frontmatter contract every file under the per-project memory directory (`projects/<project>/memory/*.md`, beneath the install root) MUST carry. Codifies the System-A curated-memory frontmatter contract. Schema validates the frontmatter block parsed as an object; additionalProperties is true so memory files may carry per-type extensions alongside the universal fields.",
 
   "_design_notes": {
     "purpose": "Codify the memory contract: filename prefix carries provenance, the `type:` frontmatter field carries retrieval axis. Foundation-repo only; adopter live memory cutover is OUT OF SCOPE.",
@@ -30,18 +30,18 @@
     },
 
     "revalidation_interval_days": {
-      "_description": "Single re-validation interval. Per-type half-lives are deferred to v1.1 — a single 180-day interval applies to all non-episodic memory. Consumed by the librarian memory-staleness capability; flags entries where last_validated exceeds the interval (propose-only, never deletes). Per-file `confidence` and explicit operator override at run time both supersede the default.",
+      "_description": "Single re-validation interval. Per-type half-lives are deliberately not modelled — one 180-day interval applies to all non-episodic memory. Consumed by the librarian memory-staleness capability; flags entries where last_validated exceeds the interval (propose-only, never deletes). Per-file `confidence` and explicit operator override at run time both supersede the default.",
       "non_episodic": 180,
       "episodic": null
     },
 
     "body_conventions": {
       "_description": "Markdown body shape is NOT validated by this JSON Schema (no JSON path into body bytes). Conventions are documentary; regression tests verify body-shape compliance for the episodic chronicle row (internal/tests/ac-m1-chronicle-row.sh).",
-      "feedback_procedural": "Rule sentence (lead) + **Why:** (incident/preference rationale; 1-2 lines) + **How to apply:** (edge-case judgment; 1-2 lines). Per ~/.claude/CLAUDE.md feedback-authoring contract.",
+      "feedback_procedural": "Rule sentence (lead) + **Why:** (incident/preference rationale; 1-2 lines) + **How to apply:** (edge-case judgment; 1-2 lines). Per the global CLAUDE.md feedback-authoring contract.",
       "project_semantic": "Lead with fact or decision + **Why:** (motivation, constraint, deadline) + **How to apply:** (how this shapes future suggestions). Project memories decay fast; the Why pins relevance.",
       "user_semantic": "Lead with the identity/preference statement; rationale optional but recommended for non-obvious preferences.",
       "reference_semantic": "Lead with the external-system pointer (URL or system name) + purpose (what consumer of the pointer needs to know).",
-      "episodic_chronicle_row": "Supersedes the CoALA Situation/Thought/Action/Result episodic body. One no-LLM row PER SESSION, PREPENDED newest-first to episodic-chronicle.md by hooks/session-episode-write.sh at SessionEnd. Fields, all harvested no-LLM (no transcript_path parse): **Anchor** = cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`); **Touched** = `touched: <COUNT> file(s) on <branch>` (COUNT from the registry touched_files row, branch via git rev-parse --abbrev-ref HEAD); **Next session** = the verbatim `**Next session:**` line harvested from the plan handoff/close-out (handoff-disposition-check.sh:80-126 python3 argv line-harvest); **Summary** = written NO-LLM as the literal placeholder `— summary on review —` at SessionEnd, BACKFILLED by the chronicle-index capability at librarian session-close after the handoff/close-out block is written.",
+      "episodic_chronicle_row": "Supersedes the CoALA Situation/Thought/Action/Result episodic body. One no-LLM row PER SESSION, PREPENDED newest-first to episodic-chronicle.md by hooks/session-episode-write.sh at SessionEnd. Fields, all harvested no-LLM (no transcript_path parse): **Anchor** = cwd->git-slug (the hooks/lib/paths.sh project-slug resolver) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`); **Touched** = `touched: <COUNT> file(s) on <branch>` (COUNT from the registry touched_files row, branch via git rev-parse --abbrev-ref HEAD); **Next session** = the verbatim `**Next session:**` line harvested from the plan handoff/close-out (the handoff-disposition-check python3 argv line-harvest); **Summary** = written NO-LLM as the literal placeholder `— summary on review —` at SessionEnd, BACKFILLED by the chronicle-index capability at librarian session-close after the handoff/close-out block is written.",
       "episodic_chronicle_optional_slots": "Each episodic-chronicle row carries 3 OPTIONAL pointer slots — handoff.md path / checkpoint.md path / claude-mem session-summary — each emitted ONLY after on-disk resolution; renders the literal `— none —` on absence (NEVER a dangling link; the DataCite-tombstone analog that disambiguates checked-and-absent from broken-link). The claude-mem slot pins the content_session_id UUID via `source_session_id`, NEVER the renumberable `#S` ids, and resolves only when the claude-mem db ($HOME/.claude-mem/claude-mem.db) is reachable. The row ALSO carries a MACHINE-CANONICAL presence map in its frontmatter — `slots: {handoff: bool, checkpoint: bool, claude_mem: bool}` — written ALONGSIDE (not instead of) the inline `— none —` human render: an O(1), parse-free presence signal for the pointer-currency scanner + future tooling (Tolerant Reader / lifecycle-state-metadata pattern), so machine consumers never parse rendered prose."
     },
 
@@ -181,7 +181,7 @@
       "updated": "2026-05-12",
       "last_validated": "2026-05-12",
       "confidence": "high",
-      "source_session_id": "90618d9b-6b3f-4688-a0ae-ff8afd79c064"
+      "source_session_id": ""
     },
     {
       "name": "vault-operating-philosophy",
@@ -201,7 +201,7 @@
       "created": "2026-05-24",
       "updated": "2026-05-24",
       "last_validated": "2026-05-24",
-      "source_session_id": "317e0014-3386-4026-a528-d34008052815"
+      "source_session_id": ""
     }
   ]
 }

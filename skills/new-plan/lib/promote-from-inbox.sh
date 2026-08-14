@@ -6,7 +6,7 @@
 # the migration + scaffold is judgment-free given the inbox note, so it lives in a
 # runtime; the skill orchestrates + frames). Ported from the
 # ~/Code//skills/backlog-research/promote-from-inbox.sh and retargeted to
-# this skills/new-plan/lib/ home (OWNS; REC-2 roster member).
+# this skills/new-plan/lib/ home, which owns it.
 #
 # Given a pre-plan idea note at $PLANS_ROOT/_inbox/<slug>.md (type: idea, per
 # plans-rules.json :: inbox), it:
@@ -34,7 +34,7 @@
 # CLI:
 #   promote-from-inbox.sh <inbox-slug>                  # graduate the note
 #   promote-from-inbox.sh <inbox-slug> --title "X"      # override rendered title
-#   promote-from-inbox.sh <inbox-slug> --project <key>  # override owning-spoke (R-ARCH-14)
+#   promote-from-inbox.sh <inbox-slug> --project <key>  # override owning-spoke
 #   promote-from-inbox.sh <inbox-slug> --dry-run        # compute + emit; no write
 #   promote-from-inbox.sh --capture <slug>              # (A): version-on-collision capture
 #   promote-from-inbox.sh --capture <slug> --title "X"
@@ -46,10 +46,10 @@
 # straight to a hand-invented ~/.claude-plans/ root surface:
 #   capture:   promote-from-inbox.sh --capture <slug>   # write the idea note now
 #   graduate:  promote-from-inbox.sh <slug>             # mint the NN-<slug>/ plan when ready
-# then the artifact lands in <plan>/_research/ (DT-4 Amendment A1). These two lines are the
+# then the artifact lands in <plan>/_research/ (Amendment A1). These two lines are the
 # guard's deny/ask redirect text — keep them in sync with the guard message.
 #
-# Identity field-triad (R-ARCH-PID): the graduated manifest stamps `title:` (human
+# Identity field-triad: the graduated manifest stamps `title:` (human
 # display name, from the inbox note title) and `project:` (the owning-spoke machine
 # identity, a registry-resolved spoke key — NEVER the bare title).
 #
@@ -60,7 +60,7 @@
 #     `project:` frontmatter > cwd auto-resolve fallback. The note-frontmatter tier kills
 #     the drift-cwd `home`-mint class (a graduation from an unanchored session cwd no
 #     longer overrides an already-attributed note).
-# --project <spoke-key> is validated against the registry (no silent fallback, R-ARCH-14).
+# --project <spoke-key> is validated against the registry (no silent fallback).
 #
 # Env overrides:
 #   PLANS_ROOT             Plan-tree root (test isolation). Else PLANS_DIR (paths.sh),
@@ -83,7 +83,7 @@ if [[ -z "${PLANS_DIR:-}" ]]; then
   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" 2>/dev/null || true
 fi
 
-# Spoke-key resolver (R-ARCH-13/14): prefer the live install, fall back to this
+# Spoke-key resolver: prefer the live install, fall back to this
 # skill's lib/ copy (dev-repo / test isolation). This lib lives alongside us.
 for _sr in \
   "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh" \
@@ -157,8 +157,8 @@ if [[ -z "$RULES_PATH" ]]; then
     if [[ -f "$candidate" ]]; then RULES_PATH="$candidate"; break; fi
   done
 fi
-# master-fallback (R4 / H-6): plans-rules.json is repo-only (
-# install.sh Step 8.5 keeps the 7 loose pillars unshipped). A clean adopter ships ONLY the
+# Master-fallback: plans-rules.json is repo-only (install.sh Step 8.5 keeps the
+# 7 loose pillars unshipped). A clean adopter ships ONLY the
 # two bundles (foundation-master + overlay-master), which governance consumers read as ONE
 # merged view via hooks/lib/foundation-overlay-load.sh (the R-52 union-load primitive —
 # overlay overlaid on foundation). When the loose pillar is absent, resolve the EFFECTIVE
@@ -183,17 +183,17 @@ if [[ -z "$RULES_PATH" || ! -f "$RULES_PATH" ]]; then
   exit 1
 fi
 
-# Resolve the owning-spoke key (R-ARCH-13/14). Attribution is decided at CAPTURE (a
+# Resolve the owning-spoke key. Attribution is decided at CAPTURE (a
 # human is attending) and RE-USED at graduation via note-frontmatter precedence:
 #   --project flag  >  the note's own `project:` frontmatter  >  cwd auto-resolve.
 # --capture: spoke key stamped into the new note (--project override else cwd auto).
 # graduate: --project override else the note's stamped project: else cwd auto (the
 #           note tier kills the drift-cwd `home`-mint class). Every path validates
-#           against the registry (no silent fallback, R-ARCH-14); a collision or an
+#           against the registry (no silent fallback); a collision or an
 #           unrecognized key BLOCKS here, before any write.
 SPOKE_KEY=""
 if ! type spoke_resolve_from_cwd >/dev/null 2>&1; then
-  echo "promote-from-inbox: spoke-resolve.sh not found — cannot resolve owning-spoke key (R-ARCH-13)" >&2
+  echo "promote-from-inbox: spoke-resolve.sh not found — cannot resolve owning-spoke key" >&2
   exit 1
 fi
 if [[ -n "$PROJECT_OVERRIDE" ]]; then
@@ -529,7 +529,7 @@ manifest = {
         }
     ],
 }
-manifest_content = json.dumps(manifest, indent=2) + "\n"
+manifest_content = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
 
 files = {
     "spec.md": spec_content,

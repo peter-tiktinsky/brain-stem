@@ -213,7 +213,7 @@ classify_plan_path() {
     echo "1|0|${top}"; return
   fi
   # Depth-2 plan-root-file branch. The `$top != _*` carve-out keeps an _inbox / _projects /
-  # _library funnel-registry surface (e.g. an _inbox note slugged `spec` -> _inbox/spec.md)
+  # _library funnel-registry surface (e.g. an _inbox note slugged `spec` ->)
   # from being mis-classified as a plan root by the spec.md basename match — those top
   # segments are registry surfaces, never plan roots (plans-rules.json :: root_namespace).
   if [[ "$rel" == */* ]] && [[ "${rel#*/}" != */* ]] && [[ "$top" != _* ]]; then

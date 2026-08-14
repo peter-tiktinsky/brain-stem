@@ -4,11 +4,11 @@
 #
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/execution-queue.sh"
 #
-# The connector dispatch.sh hard-sources at load time
-# (dispatch.sh:34 QUEUE_LIB=$HOOKS_DIR/lib/execution-queue.sh + :41
+# (NET-NEW). The connector dispatch.sh hard-sources at
+# load time (dispatch.sh's QUEUE_LIB=$HOOKS_DIR/lib/execution-queue.sh export +
 # source). Provides queue persistence for the --overnight / --delay ≥4h timing
-# modes and the queue ops (--hold/--unhold/--queue-status). The engine cannot
-# run until this lib exists.
+# modes and the queue ops (--hold/--unhold/--queue-status). The ported engine
+# cannot run until this lib exists (HARD intra-SP dep →/).
 #
 # Function contract consumed by dispatch.sh:
 #   exec_queue_add <name> <type> <ref> <model> <timeout> <budget> <priority> <queued_by>
@@ -21,13 +21,13 @@
 # Hook-portability: the queue file + lock resolve under
 # $CLAUDE_STATE_ROOT via hooks/lib/paths.sh — NO $HOME/.claude literal. The
 # queue is machine-local ephemeral state (same tier as the coordination
-# registry).
+# registry per).
 #
 # Bash 3.2 clean (R-23): no associative arrays, no mapfile/readarray, no
 # parameter-expansion case conversion, no GNU-only constructs.
 
-# Resolve state-root via paths.sh (no $HOME/.claude literal — Hook-portability).
-# HOOKS_STATE resolves under $CLAUDE_STATE_ROOT.
+# Resolve state-root via paths.sh (no $HOME/.claude literal — Hook-portability
+# AC). HOOKS_STATE resolves under $CLAUDE_STATE_ROOT per .
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 
 EXEC_QUEUE_FILE="${EXEC_QUEUE_FILE:-$HOOKS_STATE/execution-queue.json}"

@@ -75,7 +75,7 @@ if [[ -z "$SCOPES" ]]; then
 fi
 
 # Capture stdin to a tmp file so the python heredoc doesn't cannibalize
-# the pipe (see memory: feedback_python_heredoc_argv.md). Empty stdin is
+# the pipe (the heredoc IS the script source). Empty stdin is
 # a valid no-op.
 #
 # THE CAPTURE IS BOUNDED ON THE FIRST BYTE. This drain is UNCONDITIONAL — every

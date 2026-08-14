@@ -58,6 +58,9 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/anchored-spoke-registry.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/anchored-spoke-registry.sh"; } \
+  || { [ -r "$_REPO_LIB/anchored-spoke-registry.sh" ] && source "$_REPO_LIB/anchored-spoke-registry.sh"; } || true
 
 DRY_RUN=false
 PARENT_FILTER=""
@@ -83,18 +86,24 @@ USER_MANIFEST_PATH="${USER_MANIFEST_PATH:-$CLAUDE_HOME_RES/user-manifest.json}"
 # Anchored-spoke registry: resolves each plan's manifest `project:` spoke key to
 # its project-home directory (cwd_anchors[0]) for the per-row ownership annotation
 # (the render-shape ruling is per-row annotation on the bullet row, mirroring the
-# master_rollup precedent). Test override -> shipped bundle dir -> foundation
-# governance/. A missing/unreadable registry renders every row's annotation as the
-# graceful empty (never a crash).
-SPOKE_REG="${SPOKE_REGISTRY_PATH:-}"
-if [ -z "$SPOKE_REG" ]; then
-  _REPO_GOV="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
-  for cand in \
-    "$CLAUDE_HOME_RES/governance/anchored-spoke-registry.json" \
-    "$_REPO_GOV/anchored-spoke-registry.json"; do
-    [ -f "$cand" ] && { SPOKE_REG="$cand"; break; }
-  done
+# master_rollup precedent). The ONE shared resolver
+# (hooks/lib/anchored-spoke-registry.sh) owns the order — test override -> the
+# $CLAUDE_HOME install -> the repo governance/ copy as a fallback. A
+# missing/unreadable registry renders every row's annotation as the graceful empty
+# (never a crash).
+if ! command -v spoke_registry_resolve >/dev/null 2>&1; then
+  echo "plan-index: hooks/lib/anchored-spoke-registry.sh not found (looked under $CLAUDE_HOME_RES/hooks/lib and $_REPO_LIB)" >&2
+  exit 1
 fi
+_REPO_GOV="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/governance"
+SPOKE_REG="$(spoke_registry_resolve "$_REPO_GOV")"
+
+# WRITE-TARGET COHERENCE. The index path is resolved from $HOME while the registry
+# is resolved from $CLAUDE_HOME; pairing the live plan corpus with another tree's
+# registry would rewrite _index.md with a silently blank ownership annotation on
+# every row that registry cannot resolve. Refuse before the walk, in the same
+# abort-rather-than-write posture that guards the 0-plan wipe.
+spoke_registry_assert_coherent "$SPOKE_REG" "$INDEX_PATH" "plan-index" || exit 1
 
 python3 - "$PLANS_ROOT" "$INDEX_PATH" "$TMP_PATH" "$DRY_RUN" "$PARENT_FILTER" "$USER_MANIFEST_PATH" "$SPOKE_REG" "$SHOW_ALL" "$PLAN_INDEX_TODAY" <<'PY'
 import json, os, re, sys, datetime, pathlib
@@ -119,7 +128,7 @@ try:
 except ValueError:
     TODAY = datetime.date.today()
 
-# Coarse-bucket map for the master sub_plans[] rollup: the D2 pending/active/done
+# Coarse-bucket map for the master sub_plans[] rollup: the pending/active/done
 # display vocabulary (Layer 2 coarsening — lossy, never written back). Terminal
 # tokens from older manifests (verified/closed/archived) coarsen to `done` for
 # robustness; they never render as their own columns.
@@ -178,8 +187,8 @@ def _load_spoke_dir_map():
 
 SPOKE_DIR_MAP = _load_spoke_dir_map()
 
-# D3 roster groups: pending / active / done + superseded + abandoned. Shared
-# pending/active/done core with the D2 rollup, plus the two terminal-without-
+# roster groups: pending / active / done + superseded + abandoned. Shared
+# pending/active/done core with the rollup, plus the two terminal-without-
 # completion groups a roster needs (superseded / abandoned). `archived` groups
 # under `done` (completed-then-retired), correcting the prior archived-under-
 # Superseded miscategorization. `paused` groups under `active` (parked mid-flight).

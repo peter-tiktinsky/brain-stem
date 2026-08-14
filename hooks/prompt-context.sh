@@ -5,6 +5,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh"
+# The single owner of "may I overwrite this checkpoint?" (the passive band below is
+# one of its two consumers). Sourced UNCONDITIONALLY — a graceful-degrade guard here
+# would silently restore the bare-overwrite path this lib exists to close.
+source "$SCRIPT_DIR/lib/checkpoint-guard.sh"
 # the memory-review re-firing band reads the review queue. Source
 # the producer/reader API when present (graceful-degrade — advisory band).
 [ -r "$SCRIPT_DIR/lib/review-queue.sh" ] && source "$SCRIPT_DIR/lib/review-queue.sh"
@@ -14,8 +18,9 @@ source "$SCRIPT_DIR/lib/registry.sh"
 # T-3: internal lockf re-exec target. `prompt-context.sh --do-heartbeat <sid>`
 # refreshes ONLY that session's last_heartbeat while holding REGISTRY_LOCK across the
 # read_registry..write_registry span (heartbeat_row from registry.sh, sourced above),
-# then exits. Placed BEFORE the `INPUT=$(cat)` stdin read below so the re-exec (which
-# carries its sid as an arg, not a stdin payload) never blocks on `cat`.
+# then exits. Placed BEFORE the bounded stdin capture below — which replaced an unbounded
+# `INPUT=$(cat)` — so the re-exec (which carries its sid as an arg, not a stdin payload)
+# never blocks on the read.
 if [ "${1:-}" = "--do-heartbeat" ]; then
   heartbeat_row "${2:-}"
   exit 0
@@ -33,7 +38,30 @@ STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${
 # fall through to default-pct-0 path; R-26 mandate firing preserved.
 # Read stdin once up-front so we can resolve the per-session checkpoint path
 # before the pressure block (which reads CHECKPOINT_FILE mtime).
-INPUT=$(cat)
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 if [[ -z "$SESSION_ID" ]]; then
   SESSION_ID="${CLAUDE_SESSION_ID:-}"
@@ -179,9 +207,15 @@ Clearing condition: checkpoint.md mtime < 10 min old (R-26)."
     fi
   elif (( pct_int >= 35 )); then
     # 35% silent passive checkpoint — preserves prior behavior as PreCompact feed.
-    # Only writes if no fresh checkpoint already exists (don't clobber manual ones).
+    # Don't clobber manual ones: that clause is now enforced by predicate, not by
+    # prose. checkpoint_guarded_write (hooks/lib/checkpoint-guard.sh) preserves a
+    # RICH checkpoint at ANY age and refuses to put this stub over a structured
+    # block; mtime freshness is retained only as a write THROTTLE, never as the
+    # clobber guard it used to be (this stub carries no state to trade for a
+    # manual /session-checkpoint, and age raises that record's value). rc 10 =
+    # preserved, a normal outcome, so the call is guarded under `set -e`.
     if ! $checkpoint_fresh && [[ -n "$CHECKPOINT_FILE" ]]; then
-      cat > "$CHECKPOINT_FILE" <<CKPT 2>/dev/null || true
+      checkpoint_guarded_write "$CHECKPOINT_FILE" <<CKPT || true
 # Auto-checkpoint at ${pct}% context — $(date -Iseconds)
 # Passive 35% silent capture — feeds PreCompact hook
 CKPT

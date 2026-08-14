@@ -1,8 +1,8 @@
 #!/bin/bash
 # plan-decision-log — generate the per-spoke binder decision surface:
-# <plans-root>/_projects/<spoke>/decision-log.md (R-BIND-3 / R-BIND-6) — the
+# <plans-root>/_projects/<spoke>/decision-log.md — the
 # decision_records[] projection across every plan launched from the spoke,
-# re-derived from each plan manifest on every run. Implements R-BIND-3.
+# re-derived from each plan manifest on every run.
 # Distinct from the shipped handoff-disposition-check.sh (a close-out chronicle
 # checker, NOT a binder generator).
 #
@@ -13,7 +13,7 @@
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
 #
-# Grouping (R-BIND-6): the binder is per-spoke — only plans whose manifest
+# Grouping: the binder is per-spoke — only plans whose manifest
 # project: key matches the target spoke contribute rows. Within a spoke, rows are
 # grouped by parent_plan: lineage (a top-level plan heads its own lineage group;
 # nested plans group under their parent_plan slug). One row per declared
@@ -21,19 +21,19 @@
 # gate; no symlink farm, no inline-vs-pointer selectivity — those belong to the
 # research-index surface, not the decision log).
 #
-# R-BIND-6 row schema: ADR id (ADR-NN) / title / status
+# row schema: ADR id (ADR-NN) / title / status
 # (proposed|accepted|rejected|deprecated|superseded) / path; plus optional
 # superseded_by and created columns when present. ADR BODIES, rationale, and
 # option-tables STAY at the path — the projection never copies them inline.
 #
-# R-BIND-6 append-immutability (TRANSCRIBED from D3:183, verbatim contract clause
+# Append-immutability (TRANSCRIBED from the binding contract, verbatim clause
 # "Superseded records are forward-linked, never deleted"): the append-immutable
 # semantic the contract mandates is scoped to the SUPERSEDED lifecycle STATUS — a
 # record whose status == superseded is FORWARD-LINKED via its superseded_by ADR
 # ordinal and is NEVER filtered/dropped from the projection (it persists in the
 # log, pointing forward at the ADR that replaced it). The contract speaks ONLY to
 # the superseded status; it does NOT mandate caching records that vanish from a
-# source manifest (that crash-window/divergence class is R-FLOW-PROMO-4's, owned
+# source manifest (that crash-window/divergence class is a separate concern, owned
 # by the research-index detector, not the decision log). This is a re-derive-from-
 # frontmatter projection: every decision_records[] entry present in a contributing
 # manifest is projected; a superseded entry is rendered with its forward-link and
@@ -42,10 +42,10 @@
 # spoke's projection, the forward-link is cross-referenced to that row.
 #
 # Re-derive from manifests every run; missing/empty decision_records[] = EMPTY
-# section, never an error (R-BIND-10a defensive default; legacy manifests carry no
+# section, never an error (defensive default; legacy manifests carry no
 # field). A malformed manifest emits a finding and is skipped — block-and-log.
 #
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/decision-log.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a generated roll-up surface, no
@@ -54,21 +54,21 @@
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder roll-up markdown;
 #     decision-log.md is a generated human-readable projection — the row shape is
-#     fixed by R-BIND-6, the SOURCE field by the SHIPPED decision_records[] at
+#     fixed by that contract, the SOURCE field by the SHIPPED decision_records[] at
 #     schemas/plan-manifest-schema.json:723, status enum :744-753). Body-structure
-#     authority: the R-BIND-6 decision-log artifact contract (the ratified
+#     authority: the decision-log artifact contract (the ratified
 #     binder-contract decision).
 #   Pre-write validation:
 #     - the plans home must resolve to a directory (absent => block-and-log, no
-#       write, exit 0 — R-BIND-10a defensive class, never crash).
+#       write, exit 0 — defensive class, never crash).
 #     - each manifest is read defensively; a malformed/missing decision_records[]
 #       is treated as empty, never an error; a plan with zero records contributes
 #       no rows (and an empty spoke renders a valid empty decision log).
 #     - atomic temp-file + os.replace.
 #   Failure mode: BLOCK-AND-LOG. A manifest that cannot be parsed emits a finding
 #     and is skipped; no partial/garbage write. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): decision-log.md is a librarian-maintained
-#     artifact (R-BIND-3, maintainer=librarian); this capability is its sole
+#   Maintainer-provenance: decision-log.md is a librarian-maintained
+#     artifact (maintainer=librarian); this capability is its sole
 #     originating writer. It NEVER writes research-index.md,
 #     handoff-chronicle.md, the research/ symlink farm, plan manifests, or any
 #     plan _research/ / decisions/ content. It reads decision_records[] and writes
@@ -172,7 +172,7 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
-            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
+            # defensive skip + finding — never crash on a bad manifest.
             emit({"finding": "plan-decision-log-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
@@ -223,13 +223,13 @@ for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
     if not spoke:
         # missing project: => cannot attribute to a spoke; skip silently
-        # (R-BIND-10a missing-field-empty; this is not an error).
+        # (missing-field-empty; this is not an error).
         continue
     if spoke_filter and spoke != spoke_filter:
         continue
     slug = slug_of(plan_dir)
     drs = man.get("decision_records")
-    # R-BIND-10a defensive default: missing/empty/malformed => EMPTY, never error.
+    # defensive default: missing/empty/malformed => EMPTY, never error.
     if not isinstance(drs, list) or not drs:
         continue
     lineage = lineage_of(man, slug)
@@ -256,7 +256,7 @@ for plan_dir, man in manifests:
             # key by the owning plan_slug: the ✓ qualifies same-plan only.
             spoke_adr_ids[spoke].setdefault(slug, set()).add(adr_id)
 
-        # R-BIND-6 append-immutability is a CONTENT property of the SUPERSEDED
+        # append-immutability is a CONTENT property of the SUPERSEDED
         # status: never drop a superseded record; it MUST carry a forward-link.
         # A superseded record missing its superseded_by forward-link is a contract
         # gap — flag it (the record still renders; it is never suppressed).
@@ -274,7 +274,7 @@ for plan_dir, man in manifests:
 
 # --- render one decision log per spoke --------------------------------------
 def md_link(text, target):
-    # deterministic relative-path link (R-GOV-7 binder roll-up class — generated
+    # deterministic relative-path link (binder roll-up class — generated
     # roll-up rows use relative-path markdown links, never wikilinks).
     return "[%s](%s)" % (text, target)
 
@@ -287,10 +287,10 @@ def render_row(row, plan_adr_ids):
     adr = row["id"] or "—"
     title = esc(row["title"]) or "—"
     status = row["status"] or "—"
-    # the ADR body STAYS at the path (R-BIND-6); the row links to it, never copies.
+    # the ADR body STAYS at the path; the row links to it, never copies.
     path = row["path"]
     pcell = md_link(path, path) if path else "—"
-    # forward-link (R-BIND-6): a superseded record points forward at the ADR that
+    # forward-link: a superseded record points forward at the ADR that
     # replaced it; cross-reference to the in-projection row when present. The ✓
     # qualifies against the ADR ids of the row's OWN plan only (ADR ordinals
     # restart per plan) — a cross-plan same-numbered ADR is not a match.
@@ -331,7 +331,7 @@ for spoke in target_spokes:
     binder_home = os.path.join(PROJECTS, spoke)
     decision_log = os.path.join(binder_home, "decision-log.md")
 
-    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
+    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
 
     body_lines = [
@@ -346,7 +346,7 @@ for spoke in target_spokes:
         "",
         "_Auto-generated by `librarian plan-decision-log`. Do not hand-edit._",
         "",
-        "Append-immutable cross-plan ADR roll-up (R-BIND-6): one row per declared "
+        "Append-immutable cross-plan ADR roll-up: one row per declared "
         "`decision_records[]` entry across every `%s`-spoke plan, grouped by "
         "`parent_plan` lineage. ADR bodies, rationale, and option-tables stay at "
         "the linked path. Superseded records are forward-linked (Superseded-by), "

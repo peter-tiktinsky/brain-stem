@@ -9,20 +9,26 @@
     "rule_id_range_reconciliation": "_index.json#pillars[tagging].rule_id_range = [R-05, R-60, R-47, R-50]. This pillar's _rules[] = [R-05, R-47, R-50] (3 objects). R-60 is in the range (its tag-grammar substance is category=tagging) but its _rules[] object is HOMED in governance/naming-rules.json. This is the home != range divergence — the tagging surface owns R-60's runtime substance (it validates against this pillar's taxonomy); naming owns R-60's declaration site."
   },
   "taxonomy": {
-    "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry) + ONE user-facing dimension: project (see _project_dimension_note). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
+    "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry — plus the generator-stamped episode and scope, which mark durable session records and generated/writer pages respectively and carry no canonical-value registry) + the user-facing dimensions: project (see _project_dimension_note) and library (#library/<topic> — topic navigation over authored library articles; topic slugs are identifiers, not vocabulary terms). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
     "canonical_authority": "governance/tagging-rules.json#taxonomy (the dissolved-schema anchors _tag_prefixes / _tag_prefixes_meta resolve to dimension_prefixes / (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to) here)",
     "tag_pattern_regex": "^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
     "dimension_prefixes": [
       "status",
       "log",
-      "project"
+      "project",
+      "episode",
+      "library",
+      "scope"
     ],
     "user_facing_dimensions": [
-      "project"
+      "project",
+      "library"
     ],
     "system_utility_dimensions": [
       "status",
-      "log"
+      "log",
+      "episode",
+      "scope"
     ],
     "cap_25_applies_to": "user_facing_dimensions",
     "system_utility_governance": "log-subtype-registry (canonical values per dimension; near-match DENY via R-05)",

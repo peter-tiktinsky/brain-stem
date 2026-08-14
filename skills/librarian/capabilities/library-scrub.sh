@@ -4,10 +4,10 @@
 # with bidirectional cross-reference stamps, in one propose/--apply.
 #
 # plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is only a header/env-var path reference (MANIFEST_SCHEMA_PATH); no Draft202012Validator is constructed, so there is no schema-gate degrade path.
-# This capability OWNS the full promotion write-orchestration (R-FLOW-PROMO):
+# This capability OWNS the full promotion write-orchestration:
 #   PROMO-1  identify finalized candidates from workshop content + manifest
 #            research_artifacts[] entries with status: finalized.
-#   CAP-3 / R-LIB-6  copy the immutable original into _library/<topic>/_raw/
+#   RAW COPY  copy the immutable original into _library/<topic>/_raw/
 #            BEFORE scrubbing (read-not-mutate the source) so the article's
 #            REQUIRED `sources:` pointers resolve.
 #   PROMO-2  deterministic scrub: extract universally-applicable content and
@@ -27,17 +27,17 @@
 #            _library/log.md append half is owned by a separate capability and
 #            is NOT written here.
 #
-# NOVEL BET (advisory-first, R-FLOW-DISC-2): scrub quality is unproven. The
+# NOVEL BET (advisory-first): scrub quality is unproven. The
 # propose phase emits NDJSON candidates and writes NOTHING; the propose diff is
-# the human backstop where over-/under-strip is visible (R-FLOW-PROMO-2/-5).
+# the human backstop where over-/under-strip is visible.
 # --apply is the ONLY writing path. This capability never blocks a prompt and
 # never escalates to a harder posture on its own — escalation needs
-# observed-failure data (R-FLOW-DISC-2).
+# observed-failure data.
 #
-# R-FLOW-DISC-5 — block-and-log, never write-and-hope: an empty/malformed scrub
+# Block-and-log, never write-and-hope: an empty/malformed scrub
 # output is never written; it emits a `scrub-blocked` finding and is skipped.
 #
-# NOTE (transcription): the binding SoT labels this dual-output scrub `R-WS-1`;
+# NOTE (transcription): the binding SoT labels this a dual-output scrub;
 # that is the same-ID as the distinct frictionless-capture workshop contract in
 # the surface-architecture doc. Same-ID drift, not an error.
 #
@@ -102,7 +102,7 @@
 #
 # Env overrides:
 #   WORKSHOP_DIR   workshop home (default: $CLAUDE_STATE_ROOT/workshop via
-#                  paths.sh, R-ARCH-1a — NEVER a hardcoded literal).
+#                  paths.sh — NEVER a hardcoded literal).
 #   LIBRARY_DIR    library home (default: $PLANS_DIR/_library).
 #   PLANS_DIR      plan tree root (test isolation; resolved via paths.sh).
 #   MANIFEST_SCHEMA_PATH   (default: $CLAUDE_HOME/schemas/plan-manifest-schema.json
@@ -159,7 +159,7 @@ if [[ "$APPLY" == "true" ]] && [[ -z "${FOUNDATION_TEST_MODE:-}" ]] \
 fi
 
 # --- Resolve the three surface homes -----------------------------------------
-# Workshop home: $CLAUDE_STATE_ROOT/workshop/ (R-ARCH-1a) — NEVER hardcoded.
+# Workshop home: $CLAUDE_STATE_ROOT/workshop/ — NEVER hardcoded.
 STATE_ROOT_RES="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"
 WORKSHOP_RES="${WORKSHOP_DIR:-$STATE_ROOT_RES/workshop}"
 PLANS_RES="${PLANS_DIR:-$HOME/.claude-plans}"
@@ -222,10 +222,10 @@ if [[ -x "$_OVL" && -n "$FM_BUNDLE" && -f "$FM_BUNDLE" ]]; then
 fi
 
 # PROMO-6 log half: resolve the library-log-append hook — the SOLE
-# appender of the _library/log.md change-log entries (R-GOV-1a composite). The
+# appender of the _library/log.md change-log entries (composite). The
 # scrub CALLS the appender at PROMO-6; the appender OWNS the write, frontmatter
 # seeding, R-33 tolerance, and rotation-threshold detection. NEVER append inline
-# here (that would make the scrub a second appender, violating R-GOV-1a).
+# here (that would make the scrub a second appender, breaking the disjoint-surface split).
 LOG_APPENDER="${LIBRARY_LOG_APPENDER:-}"
 if [[ -z "$LOG_APPENDER" ]]; then
   for c in "$CLAUDE_HOME_RES/hooks/library-log-append.sh" \
@@ -274,8 +274,8 @@ derive_desc_helper = sys.argv[11] if len(sys.argv) > 11 else ""
 
 
 def append_log_event(action, rel_path, note):
-    """PROMO-6 log half (R-FLOW-PROMO-6): invoke the library-log-append hook (the
-    SOLE appender, R-GOV-1a) for one event. The hook OWNS the write/frontmatter/
+    """PROMO-6 log half: invoke the library-log-append hook (the
+    SOLE appender) for one event. The hook OWNS the write/frontmatter/
     rotation; the scrub only CALLS it. Best-effort: a missing/failed appender
     never aborts an otherwise-successful promotion (the log is an audit trail,
     not a promotion precondition)."""
@@ -423,7 +423,7 @@ def validate_ra_item(item):
 
 
 # ---- plan-id / topic parsing -------------------------------------------------
-# Workshop routing is by directory naming convention ONLY (R-FLOW-CAP-1):
+# Workshop routing is by directory naming convention ONLY:
 #   <topic>/            -> general (no plan-id; library-only output)
 #   <topic>-<plan-id>/  -> plan-specific (the -<plan-id> suffix routes the
 #                          plan-SoT output to <plan-id>/_research/).
@@ -442,15 +442,15 @@ def split_topic_plan(dirname):
 
 
 # ---- deterministic scrub -----------------------------------------------------
-# Strip plan/project-specific detail (R-FLOW-PROMO-2): task IDs, plan slugs,
+# Strip plan/project-specific detail: task IDs, plan slugs,
 # engagement names, decision dates. Deterministic, line-oriented. Over-/under-
-# strip is VISIBLE in the propose diff before any write (R-FLOW-PROMO-5) — the
+# strip is VISIBLE in the propose diff before any write — the
 # human backstop for the novel bet.
 TASK_ID_RE = re.compile(r'\b[TM]-\d+\b|\bSP-?\d+\b|\bADR-\d+\b|\bRA-\d+\b')
 PLAN_SLUG_RE = re.compile(r'\bplan\s*\d+\b', re.IGNORECASE)
 DATE_RE = re.compile(r'\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?Z?)?\b')
 # A leading in-document section index / auto-TOC is FORBIDDEN in article bodies
-# (R-LIB-1 body shape) — drop a generated "## Contents" / "## Table of Contents"
+# (body shape) — drop a generated "## Contents" / "## Table of Contents"
 # block if the captured source carries one.
 TOC_HEADING_RE = re.compile(r'^\s*#{1,6}\s+(contents|table of contents|toc)\s*$',
                             re.IGNORECASE)
@@ -493,7 +493,7 @@ def scrub_body(text, plan_slug, engagement_terms):
 
 
 def synthesize_routing(topic, article_name, body):
-    """Synthesize the routing: activation-condition one-liner (R-LIB-routing).
+    """Synthesize the routing: the per-article activation-condition one-liner.
     Deterministic: 'Read when working on <article-concept> in the <topic>
     domain.' — derived from the topic + article concept name, not a build ref.
     library-index's Description column consumes this as its FIRST derivation source."""
@@ -504,7 +504,7 @@ def synthesize_routing(topic, article_name, body):
 
 
 def derive_h1(body, article_name):
-    """The article H1 is the concept name (R-LIB-1 body scaffold)."""
+    """The article H1 is the concept name (body scaffold)."""
     return article_name.replace("-", " ").replace("_", " ").strip().title()
 
 
@@ -513,7 +513,7 @@ def build_article(topic, article_name, scrubbed_body, routing, raw_sources,
                   schema_version):
     """Compose the article markdown: reference frontmatter -> H1 = concept ->
     synthesized body -> [[name]] bare sibling wikilinks at the foot.
-    NO leading in-document section index, NO auto-TOC (R-LIB-1)."""
+    NO leading in-document section index, NO auto-TOC."""
     h1 = derive_h1(scrubbed_body, article_name)
     fm = []
     fm.append("---")
@@ -682,7 +682,7 @@ for tdir in topic_dirs:
             if seg and not seg.isdigit() and len(seg) > 3:
                 engagement_terms.append(seg)
 
-    # Each loose .md in the topic dir is a promotion candidate (R-WS-1 loose
+    # Each loose .md in the topic dir is a promotion candidate (loose
     # markdown). _raw is provenance, not a candidate source on its own.
     src_files = sorted(
         f for f in os.listdir(tpath)
@@ -712,12 +712,12 @@ for tdir in topic_dirs:
         except OSError:
             continue
 
-        # CAP-3 / R-LIB-6: the immutable original is the _raw/ provenance source.
+        # RAW COPY: the immutable original is the _raw/ provenance source.
         raw_sources = [src]
 
         scrubbed, n_removed = scrub_body(raw_text, plan_slug, engagement_terms)
 
-        # R-FLOW-DISC-5: empty-article output -> block-and-log, never write.
+        # empty-article output -> block-and-log, never write.
         if not scrubbed.strip():
             counts["blocked"] += 1
             counts["skipped_empty"] += 1
@@ -731,7 +731,7 @@ for tdir in topic_dirs:
                 })
             continue
 
-        # C-OUT / R-FLOW-DISC-5: no promoting plan resolvable -> block-and-log,
+        # C-OUT: no promoting plan resolvable -> block-and-log,
         # never write a plan-less article. C-FM-ART requires originating_plan
         # unconditionally; the SoT defines no plan-less write. A topic whose
         # directory carries no -<plan-id> suffix (or whose suffix names no plan
@@ -765,12 +765,12 @@ for tdir in topic_dirs:
         cohort_id = cohort_slug("%s/%s" % (topic, article_name)) or "note"
 
         # pre-write validation: article frontmatter required-field set.
-        # C-FM-ART (D3): originating_plan is REQUIRED unconditionally — the
+        # C-FM-ART: originating_plan is REQUIRED unconditionally — the
         # F-PROMO chain is plan-bound by construction (PROMO-3 persists to
         # <plan>/_research/, PROMO-4 stamps that plan's manifest), so EVERY
         # promotion has a promoting plan whose slug is the value. There is no
         # plan-less write. A topic that cannot resolve a promoting plan
-        # block-and-logs below (C-OUT, R-FLOW-DISC-5), never writes the article
+        # block-and-logs below (C-OUT), never writes the article
         # without the field.
         art_fm = article_frontmatter_dict(
             topic, article_name, routing, raw_sources, tags, plan_slug,
@@ -826,7 +826,7 @@ for tdir in topic_dirs:
         raw_root = os.path.join(topic_root, "_raw")
         article_path = os.path.join(topic_root, article_name + ".md")
 
-        # CAP-3 / R-LIB-6: copy the immutable original into _library/<topic>/_raw/
+        # RAW COPY: copy the immutable original into _library/<topic>/_raw/
         # BEFORE scrubbing the article (read-not-mutate the source). Written once.
         os.makedirs(raw_root, exist_ok=True)
         raw_target = os.path.join(raw_root, src)
@@ -863,7 +863,7 @@ for tdir in topic_dirs:
         shutil.move(src_path, archive_target)
 
         # PROMO-6 log half: record the promotion in _library/log.md via
-        # the SOLE appender hook (R-GOV-1a). Event->ACTION mapping (the seam
+        # the SOLE appender hook. Event->ACTION mapping (the seam
         # contract): the _raw/ immutable provenance copy is an INGEST; the
         # universal article is a PROMOTE. Both paths are <topic>/<article>.md form
         # so the library-index staleness reader keys the topic from segment 0.

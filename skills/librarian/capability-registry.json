@@ -2,10 +2,11 @@
   "schema_version": 1,
   "_note": "Librarian capability registry. Each entry's output_contract block is the contract-of-record: files-written · schema · validation · failure-mode, plus the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit this file DIRECTLY — no generator regenerates it (the no-hand-edit rule applies to read-replica manifests such as librarian-manifest.json, not to this primary registry). Home: skills/librarian/capability-registry.json. A strict disk↔registry↔SKILL.md bijection over the shipped capability bodies is enforced by capability-registry-parity (classes a/b/e). Read the live registry length rather than any count quoted in prose.",
   "_parity_pending_manifest_writes": [],
-  "_parity_pending_tag_prefixes": [
-    "episode",
-    "library",
-    "scope"
+  "_parity_pending_tag_prefixes": [],
+  "_parity_pending_tag_prefixes_note": "Tag prefixes that shipped generators emit but the composed foundation-master.json tagging.taxonomy.dimension_prefixes does not register. capability-registry-parity class (n) emits allowlisted members ADVISORY (warn, not counted in TOTAL) instead of RED, because REGISTERING a prefix is a governance-pillar edit and this audit cannot make one for itself; a NON-allowlisted unregistered prefix fires HARD. Bounded, provably-shrinking pending inventory whose legal target state is EMPTY, on the same contract as _parity_pending_manifest_writes and _parity_pending_session_close_callsites — not a welded floor. The inventory is EMPTY: the former members (episode, library, scope) are registered dimensions in governance/tagging-rules.json — episode and scope as system-utility (generator-stamped), library as user-facing.",
+  "_parity_pending_session_close_callsites": [
+    "capability-registry-parity",
+    "librarian-manifest-validate"
   ],
   "capabilities": {
     "governance-parity-audit": {
@@ -124,10 +125,10 @@
         "writes": [
           "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving relative-path link chosen by declared home — a _research/ path keeps the research/<plan-slug>/ farm route with the full remainder, any other declared home (decisions/, target-state/, deliverables/, legacy research/, plan-root) links binder-relative to the plan file; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
           "{plans_root}/_projects/<spoke>/research/<plan-slug>/ directory symlinks -> each contributing plan's <plan>/_research/ (generated + pruned each run; the LINK only, never the target)",
-          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the R-FLOW-PROMO-4 one-sided-edge DETECTOR findings (detect + report, never repair-write)"
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the one-sided-edge DETECTOR findings (detect + report, never repair-write)"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; symlink farm reconciled only after the index renders; a real path squatting a farm name is never clobbered",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; symlink farm reconciled only after the index renders; a real path squatting a farm name is never clobbered",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -191,11 +192,11 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/decision-log.md (atomic temp+os.replace; full-file regenerate from every spoke plan's decision_records[]; one row per entry ADR-id/title/status/path/superseded-by/created/plan-origin; grouped by parent_plan lineage; append-immutable per R-BIND-6 — superseded records forward-linked, never dropped; ADR bodies stay at the path, never copied inline)",
+          "{plans_root}/_projects/<spoke>/decision-log.md (atomic temp+os.replace; full-file regenerate from every spoke plan's decision_records[]; one row per entry ADR-id/title/status/path/superseded-by/created/plan-origin; grouped by parent_plan lineage; append-immutable — superseded records forward-linked, never dropped; ADR bodies stay at the path, never copied inline)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. superseded-without-forward-link + status-out-of-enum findings"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a missing/empty decision_records[] is empty not an error; atomic temp+os.replace",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing/empty decision_records[] is empty not an error; atomic temp+os.replace",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -222,17 +223,17 @@
       "requires_confirmation": false,
       "output_contract": {
         "modes": [
-          "(default) regenerate every spoke's binder handoff-chronicle.md (librarian re-derive role of the R-GOV-1a composite)",
+          "(default) regenerate every spoke's binder handoff-chronicle.md (librarian re-derive role of the composite)",
           "--spoke <key> regenerate one spoke's chronicle only",
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
           "{plans_root}/_projects/<spoke>/handoff-chronicle.md (atomic temp+os.replace; FULL-FILE re-derive — the librarian role owns the whole file: frontmatter + intro + the sentinel-bounded chronicle region; newest-first; one block per session across every spoke plan's handoff.md — source path + session number/date + the Next session: line + a one-line summary harvested from ### Locks captured / ### Decision-Quality Protocol passes, else the first ~200 chars of the block body; handoff bodies are NEVER concatenated)",
-          "the SECONDARY-ROLE hook (hooks/handoff-chronicle-append.sh) appends ONE block at the HEAD of the EXACT sentinel-bounded region '<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->' (R-GOV-2 field-1); the two surfaces are DISJOINT — the hook never re-derives, the librarian never appends a routine block",
+          "the SECONDARY-ROLE hook (hooks/handoff-chronicle-append.sh) appends ONE block at the HEAD of the EXACT sentinel-bounded region '<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->' (field-1); the two surfaces are DISJOINT — the hook never re-derives, the librarian never appends a routine block",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. handoff-unreadable / handoff-empty / handoff-malformed / no-session-blocks skip findings"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); each handoff.md is read defensively, a missing/unreadable/empty/no-session-heading handoff is SKIPPED with a finding not an error; atomic temp+os.replace; the sentinel markers are emitted every re-derive so the hook always has a region to append into",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); each handoff.md is read defensively, a missing/unreadable/empty/no-session-heading handoff is SKIPPED with a finding not an error; atomic temp+os.replace; the sentinel markers are emitted every re-derive so the hook always has a region to append into",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -268,7 +269,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. manifest-parse-failed defensive-skip + card-over-budget findings"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0, R-BIND-10a); manifests read defensively, a malformed manifest emits a finding and is SKIPPED (never crash), a missing field is empty not an error; the rendered card is bounded < 9728B (defensively trimmed if over); atomic temp+os.replace; the card is the sole binder cover (no separate cover file is written)",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a malformed manifest emits a finding and is SKIPPED (never crash), a missing field is empty not an error; the rendered card is bounded < 9728B (defensively trimmed if over); atomic temp+os.replace; the card is the sole binder cover (no separate cover file is written)",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -792,7 +793,7 @@
           "{MEM_DIR}/MEMORY.md (sentinel-bounded ## Episodic pointer-line metadata refresh ONLY)"
         ],
         "schema": "governance/file-type-contracts/episodic-chronicle.md.json (append-only newest-first row shape; 50KB cap = no-LLM PROXY for a ~12.5K-token single-read budget)",
-        "validation": "total_counted==0 walk ABORTS (exit 4) without blanking the chronicle/pointer (plan-index.sh:318 clone); group-sum assertion live+archive == pre-rotation (exit 3); sentinel-bounded pointer re-derive never clobbers hand-curation (index-maintain.sh:209-383)",
+        "validation": "total_counted==0 walk ABORTS (exit 4) without blanking the chronicle/pointer (a plan-index clone); group-sum assertion live+archive == pre-rotation (exit 3); sentinel-bounded pointer re-derive never clobbers hand-curation (the index-maintain renderer)",
         "failure_mode": "block-and-log; never write-and-hope. Graceful no-op (exit 0) when the memory dir / chronicle is absent"
       },
       "implementation_status": "shipped",
@@ -1054,7 +1055,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "DT-3 surface-and-walk: emits plan-terminal-lag when a plan is non-terminal under a TERMINAL parent_plan master; writes NO status (never auto-closes / auto-stamps verified); TERMINAL byte-identical to trinity-drift-detect.sh:103 / subplan-aggregate.sh:127 / plan-terminal-lag-check.sh:99 (parity-gated by ac-terminal-set-parity.sh)",
+        "validation": "surface-and-walk: emits plan-terminal-lag when a plan is non-terminal under a TERMINAL parent_plan master; writes NO status (never auto-closes / auto-stamps verified); the TERMINAL set is byte-identical across trinity-drift-detect.sh, subplan-aggregate.sh and plan-terminal-lag-check.sh (parity-gated by ac-terminal-set-parity.sh)",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1082,7 +1083,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "R-28 parent_plan: frontmatter resolution via hooks/lib/frontmatter.sh; plan-slug existence check. R-ARCH-PID-DRIFT / R-FLOW-MAINT-7: also re-validates the auto-stamped project: spoke key against the anchored-spoke registry (sourced via skills/new-plan/lib/spoke-resolve.sh) and the plan's lineage — a disagreement reuses the parent-plan-path-drift finding name (drift_class=project-stamp-unregistered|project-stamp-vs-lineage, warn) for human adjudication, never a silent re-file",
+        "validation": "R-28 parent_plan: frontmatter resolution via hooks/lib/frontmatter.sh; plan-slug existence check. Project-stamp drift: also re-validates the auto-stamped project: spoke key against the anchored-spoke registry (sourced via skills/new-plan/lib/spoke-resolve.sh) and the plan's lineage — a disagreement reuses the parent-plan-path-drift finding name (drift_class=project-stamp-unregistered|project-stamp-vs-lineage, warn) for human adjudication, never a silent re-file",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1422,7 +1423,7 @@
           "(default) re-derive every topic index + the root index",
           "--topic <name> re-derive one topic index (+ the root)",
           "--dry-run findings + would-be writes, NO file write",
-          "--query <topic> READ-ONLY: print one topic's _index.md to stdout (exact topic-name match first, then case-insensitive/fuzzy prefix; topic/library absent -> a short available-topics list); writes NONE, exit 0 — the executable target of the R-FLOW-PRE-4 at-cap pointer"
+          "--query <topic> READ-ONLY: print one topic's _index.md to stdout (exact topic-name match first, then case-insensitive/fuzzy prefix; topic/library absent -> a short available-topics list); writes NONE, exit 0 — the executable target of the at-cap pointer"
         ],
         "writes": [
           "{library}/<topic>/_index.md (C-IDX bounded: contents-enum sentinel region + updated:; prose outside the sentinels — H1, folder-context paragraph — survivorship-preserved; light-content topics get a prose 'Current Contents' section in place of the table)",

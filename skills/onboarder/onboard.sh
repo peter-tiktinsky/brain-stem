@@ -11,7 +11,7 @@
 #
 # NO `/adopt` call. NO Tier-3 machinery (auto-author surfaces, seed-content intake,
 # infer-vault chain, archetype-inference, opt-outs) — Tier-3 is entirely out of
-# brain-stem (no onboard-tier3.sh in the skill).
+# brain-stem (cuts; no onboard-tier3.sh in the skill).
 #
 # Resume model: $USER_MANIFEST `.system.onboarding_complete` (schema 2.0.0),
 # NOT the dropped `.system.phases_completed[]` A–E model.
@@ -130,14 +130,14 @@ onboarding_complete() {
 
 # Step runners.
 run_section_a() {
- # --resume re-entry (+ the --resume half of):
+  # --resume re-entry (-onboard-1 + the --resume half of-onboard-4):
   # Section A is deterministic + idempotent pure discovery, and emit_fragment
-  # (section-a-slim.sh:150) atomically OVERWRITES user-fragment-A.json — so a
+  # (section-a-slim) atomically OVERWRITES user-fragment-A.json — so a
   # naive re-run on --resume would re-probe the host and wipe any Pass-1 identity
   # corrections. The point of --resume is to re-enter at the extraction handoff,
- # not to re-discover identity (documented --resume re-entry contract).
+  # not to re-discover identity (documented --resume re-entry contract).
   # This is also the only read of RESUME (closing the dead-flag half of
- # onboard.sh:107 sets it but it was never consumed).
+  # -onboard-4: onboard.sh:107 sets it but it was never consumed).
   if [ "$RESUME" -eq 1 ] && [ -f "$INPUTS_DIR/user-fragment-A.json" ]; then
     log "Section A — resuming; keeping staged user-fragment-A.json"
     return 0
@@ -162,7 +162,7 @@ run_section_b() {
     # Propagate section-b's rc — do NOT swallow it with an unconditional return 0
     # (mirrors the interactive branch's rc handling below). A swallowed exit 3
     # here would let run_bootstrap proceed with no user-fragment-B.json and latch
- #.system.onboarding_complete=true with B silently dropped.
+    # .system.onboarding_complete=true with B silently dropped (-onboard-3).
     set +e
     EXTRACTION_OUTPUT_OVERRIDE="$stub" bash "$SECTION_B" "$@"
     local rc=$?
@@ -189,8 +189,8 @@ run_section_b() {
 run_bootstrap() {
   log "Finalize — bootstrap-user-manifest (merge A+B → user-manifest.json)"
   [ "$DRY_RUN" -eq 1 ] && { emit_handoff "would-run bootstrap-user-manifest"; return 0; }
- # Producer-output gate (DURABLE class fix): bootstrap treats
-  # Section B as OPTIONAL (bootstrap-user-manifest.sh:169 merges B only when present)
+  # Producer-output gate (-onboard-3, DURABLE class fix): bootstrap treats
+  # Section B as OPTIONAL (bootstrap-user-manifest merges B only when present)
   # and latches .system.onboarding_complete=true once A alone validates (196), so
   # ANY path that loses B silently would latch onboarding complete with role/org/
   # behavioral prose dropped. Assert B exists AND is non-empty before bootstrap runs,
@@ -199,7 +199,7 @@ run_bootstrap() {
     log "Section B fragment missing or empty: $INPUTS_DIR/user-fragment-B.json — refusing to bootstrap (would drop behavioral prose)."
     exit 3
   fi
- # do NOT force unconditionally — a careless re-onboard must not silently
+  # do NOT force unconditionally — a careless re-onboard must not silently
   # clobber a differing manifest. Forward --force only when the user passed it.
   set -- --inputs-dir "$INPUTS_DIR" --schema "$SCHEMA" --out "$USER_MANIFEST"
   [ "$FORCE" -eq 1 ] && set -- "$@" --force
@@ -236,7 +236,7 @@ run_external_gate() {
 }
 
 # Main control flow.
-# Single-use lifecycle: the onboarding_complete sentinel gates a BARE invoke
+# single-use lifecycle: the onboarding_complete sentinel gates a BARE invoke
 # (not only --resume). A bare /onboard with .system.onboarding_complete == true no-ops;
 # a real re-onboard requires the explicit --force escape hatch.
 if [ "$FORCE" -ne 1 ] && onboarding_complete; then

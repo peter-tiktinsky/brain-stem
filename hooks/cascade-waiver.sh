@@ -1,17 +1,28 @@
 # cascade-waiver.sh — Canonical writer for $HOOKS_STATE/cascade-waivers.json.
-# Home: hooks/cascade-waiver.sh (top-level), so the install-time
-# lib/→hooks/lib/ translation does NOT apply here.
+#
+# Home: hooks/cascade-waiver.sh (FORK-C:2 roster +.1 line 89 authoring
+# authority). NOTE the 3-way source discrepancy flagged at:.4
+# says hooks/lib/cascade-waiver.sh; the source is lib/cascade-waiver.sh;
+# BUILD-CHARTER-06 lists it under lib/. The2 roster (the authoring
+# authority when a roster and an as-is port disagree on ownership) places it at
+# hooks/ top-level, so the install-time lib/→hooks/lib/ translation does NOT
+# apply here.
+#
 # Single forward-looking writer for cascade-rule waivers. Every agent / skill /
 # hook that files a waiver must source this file and call `cascade_waiver_write`.
 # Reads tolerate four historical drift shapes for back-compat; writes always
 # emit the canonical sessions.<id>.waivers[] form documented below.
+#
 # Usage:
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/cascade-waiver.sh"
 #   cascade_waiver_write <entry_id> <reason> [ttl_days]
+#
 #   Optional env: CLAUDE_SESSION_ID (preferred). If unset, caller may set
 #   CASCADE_WAIVER_SESSION_ID for a deterministic label. If neither is set,
 #   helper falls back to "unknown-$(date +%s)".
+#
 # Shape contract (CANONICAL — all future writes use this shape):
+#
 #     "sessions": {
 #       "<session-id>": {
 #         "waivers": [
@@ -19,12 +30,14 @@
 #             "reason": "<free-text justification>",
 #             "ts": "<YYYY-MM-DDTHH:MM:SS±HH:MM>",
 #             "expires_at": "<YYYY-MM-DDTHH:MM:SS±HH:MM>" },
-# Waivers carry expires_at — a TTL after which the waiver no longer
+#
+# waivers gain expires_at — a TTL after which the waiver no longer
 # suppresses the cascade (consumers MUST treat an expired waiver as absent and
 # re-surface the dependency). Default TTL = 30 days from ts; override with the
 # optional ttl_days arg or CASCADE_WAIVER_TTL_DAYS env. expires_at is additive:
-# reads of legacy waivers without the field treat them as non-expiring for
-# back-compat.
+# reads of legacy waivers without the field treat them as non-expiring (the
+# pre-behavior) for back-compat.
+#
 # Bash 3.2 clean per R-23. Atomic writes via temp-file + mv.
 
 # Idempotent paths.sh source guard. Resolve via $SCRIPT_DIR-relative lib (this

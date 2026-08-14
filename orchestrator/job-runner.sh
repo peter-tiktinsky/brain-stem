@@ -1,6 +1,7 @@
 #!/bin/bash
 # job-runner.sh — Freeform prompt executor for jobs without manifests.
 # Same patterns as cron wrappers: PATH, portable timeout, log format, claude -p flags.
+#
 # Usage:
 #   job-runner.sh --name "Job Name" --prompt-file ~/.claude/orchestrator/jobs/foo.md \
 #     [--model sonnet] [--timeout 3600] [--budget 10] [--trigger-type on-demand] [--requested-by session_id]
@@ -72,10 +73,10 @@ claude_lockf_reexec "$HOOKS_STATE/job-runner-${SLUG}.lock" "$@"
 
 # --- Resolve job-runtime defaults from orchestration.json ---
 # CLI args win; orchestration.json fills missing slots; hardcoded fallback
-# is last-resort. Schema gap:-shipped orchestration-schema.json
-# (commit b64e425) does not yet declare timeout_seconds / model / budget_usd
-# at the per-job level. T-9 amendment will add them. Until then, jq lookup
-# returns empty and hardcoded fallback applies — forward-compatible.
+# is last-resort. schemas/orchestration-schema.json declares timeout_seconds,
+# model and budget_usd per job (jobs[] item properties) and each field's
+# description states this same precedence. A job that omits a field yields an
+# empty jq lookup, and the hardcoded fallback applies.
 _orch_get() {
   if [ -r "$ORCHESTRATION_JSON" ] && command -v jq >/dev/null 2>&1; then
     jq -r --arg id "$SLUG" --arg field "$1" \
@@ -279,8 +280,9 @@ rm -f "$PRE_SNAPSHOT_FILE" "$POST_SNAPSHOT_FILE" "$RESULT_TEXT_FILE"
 # dispatch.sh checks for the sentinel pre-flight and refuses new dispatches
 # when present. Reads the BASE verifier's EXEC_STATUS (false-success-no-mutations
 # at :255-256, set from orchestrator/lib/verifier.sh verifier_check, T-12)
-# — NOT any DEFER enhancement verdict (fork-1).
-# OMITTED (DEFER, fork-1): the T-4 STREAK_BREACH
+# — NOT any DEFER enhancement verdict.
+#
+# OMITTED (DEFER): the T-4 STREAK_BREACH
 # single-occurrence retry-escalation branch (it fires only from the deferred
 # retry-dispatch.sh mechanical-only-retry path) and the DEFER enhancement
 # verdict maps (false-success-missing-artifacts / -missing-session-close /
@@ -298,6 +300,7 @@ mkdir -p "$F0_STATE_DIR" 2>/dev/null || true
 # Map EXEC_STATUS to F0 verdict class. The BASE verifier emits
 # FALSE-SUCCESS-NO-MUTATIONS (job-runner.sh:255-256); PASS / TIMEOUT / ERROR
 # reset the streak (timeouts/errors are loud failures already visible to
+# ). Per spec.md "F0 verdict scope".
 case "$EXEC_STATUS" in
   false-success-no-mutations) F0_VERDICT="FALSE-SUCCESS-NO-MUTATIONS" ;;
   success)                    F0_VERDICT="PASS" ;;

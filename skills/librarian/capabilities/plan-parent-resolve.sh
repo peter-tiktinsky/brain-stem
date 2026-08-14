@@ -18,11 +18,12 @@
 #   - plan-root files at depth 2 (spec.md, tasks.md, handoff.md,
 #     00-ideation-brief.md, README.md, manifest.json)
 #   - handoff.md at any depth (append-only session records)
-#   - tests/**, _orchestrator/**, baselines/**, corpus/**,
-#     regression-baseline/** (ephemeral diagnostic artifacts)
+#   - tests/**, _orchestrator/**, baselines/**, corpus/**, and the remaining
+#     fixture-directory names the exclusion set below enumerates (ephemeral
+#     diagnostic artifacts and test fixtures, never plan state)
 #
 # _research/** is NOT excluded: declared research_artifacts[] pointers land under
-# <plan>/_research/ and MUST be walkable by the resolver (R-FLOW-MAINT-8).
+# <plan>/_research/ and MUST be walkable by the resolver.
 #
 # Findings emitted (per SKILL.md-575):
 #   parent-plan-inferred     — info  — missing field, parent from path
@@ -34,11 +35,11 @@
 #                                      reused for the project:-stamp-vs-lineage
 #                                      drift case (drift_class field distinguishes)
 #
-# R-ARCH-PID-DRIFT / R-FLOW-MAINT-7: the auto-stamped project: spoke key
-# (D2 R-ARCH-PID field-triad) is re-validated against the anchored-spoke registry
+# PROJECT-STAMP DRIFT: the auto-stamped project: spoke key
+# (the manifest identity field-triad) is re-validated against the anchored-spoke registry
 # and the plan's lineage. A disagreement reuses the SHIPPED parent-plan-path-drift
 # finding name (no new finding name is minted) with drift_class=project-stamp-*,
-# severity warn, for human adjudication — NEVER a silent re-file (R-FLOW-MAINT-7).
+# severity warn, for human adjudication — NEVER a silent re-file.
 #
 # T-3: the --classify mode is a GROUND-TRUTH per-plan spoke
 # CLASSIFIER layered on top of the drift validator. It reads the blessed 3-spoke
@@ -70,9 +71,9 @@ fi
   || source "$_REPO_LIB/frontmatter.sh"
 
 # Source the landed spoke-derivation discipline (skills/new-plan/lib/spoke-resolve.sh)
-# rather than duplicating it (R-ARCH-PID-DRIFT re-validation reads, never re-derives).
+# rather than duplicating it (the project-stamp re-validation reads, never re-derives).
 # spoke_validate_override <key> exits 0 iff <key> is a registered anchored-spoke
-# key — the registry IS the derivation authority (R-ARCH-13). If the lib is not
+# key — the registry IS the derivation authority. If the lib is not
 # resolvable, project-drift checking degrades to off (the parent_plan resolver is
 # unaffected); SPOKE_RESOLVE_AVAILABLE gates the check.
 _REPO_ROOT_RES="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)"
@@ -238,10 +239,10 @@ except Exception:
 # check_project_drift <file> <rel> — re-validate the auto-stamped project: spoke
 # key against the anchored-spoke registry (derivation authority) and the plan's
 # lineage. On disagreement emit the SHIPPED parent-plan-path-drift finding name
-# (R-FLOW-MAINT-7 — no new name minted) with a drift_class distinguishing the
+# (no new finding name is minted) with a drift_class distinguishing the
 # project-stamp case, severity warn, for human adjudication. NEVER re-files.
 #
-# Two sound read-side disagreement classes (R-ARCH-PID / R-ARCH-15):
+# Two sound read-side disagreement classes:
 #   project-stamp-unregistered — the stamped project: is not a registered spoke
 #     key, so it cannot have been derived from the registry (e.g. a stale
 #     title-valued value, or a wrong/unknown spoke key).
@@ -478,7 +479,9 @@ run_classify() {
     case "$rel" in
       _*) continue ;;
     esac
-    # Ephemeral diagnostics / synthetic fixtures are not plan state.
+    # Ephemeral diagnostic and test-fixture directories are not plan state.
+    # Every entry below is a DIRECTORY NAME matched against the corpus on disk
+    # (data, not a label): extend the list, never rename an entry in place.
     case "/$rel/" in
       */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*|*/sp08-fixture-inputs/*|*/synthetic-plans/*) continue ;;
     esac
@@ -514,11 +517,13 @@ in_scope() {
 
   # Test/fixture artifacts are not subject to R-28 inheritance — they are
   # ephemeral diagnostic outputs, not plan-state files.
-  # tests/ + _orchestrator/ per CLAUDE.md rule #5; baselines/ + corpus/ +
-  # regression-baseline/ added 2026-04-22 after parent-plan-resolve remediation
-  # sweep (84/143 findings were test-fixture false positives).
+  # tests/ + _orchestrator/ per the CLAUDE.md placement rule; the remaining
+  # fixture-directory names were added after a resolver remediation sweep
+  # measured that a majority of its findings were test-fixture false positives.
+  # Every entry is a DIRECTORY NAME matched against the corpus on disk, so a
+  # corpus that names its fixture dirs differently EXTENDS the list here.
   # _research/ is NOT excluded: declared research_artifacts[] pointers land there
-  # and MUST be walkable by the resolver (R-FLOW-MAINT-8).
+  # and MUST be walkable by the resolver.
   case "/$rel/" in
     */tests/*|*/_orchestrator/*|*/baselines/*|*/corpus/*|*/regression-baseline/*|*/sp08-fixture-inputs/*|*/synthetic-plans/*) return 1 ;;
   esac
@@ -527,7 +532,7 @@ in_scope() {
   # articles, _projects binder files, _drafts — from the R-28 lineage walk. They are
   # NOT plan-state (they were over-reaching 106+ binder/library files into the lineage).
   # TOP-LEVEL-specific (top=${rel%%/*}) so a <plan>/_research/ artifact (research_
-  # artifacts[] pointers, R-FLOW-MAINT-8, header :24-25) stays walkable — its top segment
+  # artifacts[] pointers, header :24-25) stays walkable — its top segment
   # is the plan dir, not one of these three. Mirrors run_classify's leading-_ prune (469).
   # note: this is wrong-root-walk over-reach ONLY; broken:null (resolve_chain :180)
   # is dissolved by and is NOT touched here.
@@ -592,7 +597,7 @@ emit_resolution() {
       ;;
   esac
 
-  # R-ARCH-PID-DRIFT / R-FLOW-MAINT-7: re-validate the auto-stamped
+  # PROJECT-STAMP DRIFT: re-validate the auto-stamped
   # project: spoke key against the registry + lineage for EVERY in-scope file
   # (independent of parent_plan presence — a top-level plan can carry a stale
   # project: stamp). Reuses the parent-plan-path-drift finding name above. The

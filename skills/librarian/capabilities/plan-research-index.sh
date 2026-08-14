@@ -1,25 +1,29 @@
 #!/bin/bash
 # plan-research-index — generate the per-spoke binder research surface:
-# <plans-root>/_projects/<spoke>/research-index.md (R-BIND-2/R-BIND-5) plus the
-# research/<plan-slug>/ dir-symlink farm (R-BIND-8), re-derived from every plan
-# manifest's research_artifacts[] on every run. Implements R-BIND-1/R-BIND-2;
-# traces R-FLOW-PROMO-4 (this capability is a DETECTOR of one-sided promotion
-# edges, never a repair-writer — library-scrub owns the PROMO write-orchestration).
+# <plans-root>/_projects/<spoke>/research-index.md plus the
+# research/<plan-slug>/ dir-symlink farm, re-derived from every plan
+# manifest's research_artifacts[] on every run; it also
+# traces the one-sided-promotion-edge contract (this capability is a DETECTOR,
+# never a repair-writer — library-scrub owns the promotion write-orchestration).
+#
 # The plans home resolves robustly the way sibling capabilities resolve it —
 # PLANS_ROOT/PLANS_DIR override, else paths.sh, never a hardcoded user-home
 # literal. The _projects/ scaffold proper is the install unit's scope; this
 # capability mkdir -p's its OWN output home on demand (generation, not install
 # scaffolding).
-# Grouping (R-BIND-5): the binder is per-spoke — only plans whose manifest
+#
+# Grouping: the binder is per-spoke — only plans whose manifest
 # project: key matches the target spoke contribute rows. Within a spoke, rows are
 # grouped by parent_plan: lineage (a top-level plan heads its own lineage group;
 # nested plans group under their parent_plan slug). One row per declared
 # research_artifacts[] entry (declaration is the selectivity gate — undeclared
 # artifacts never earn a row).
-# R-BIND-5 row schema: path / type / status (active|finalized|deferred) /
+#
+# row schema: path / type / status (active|finalized|deferred) /
 # plan-origin / one-liner, PLUS a Library column populated from the entry's
 # library_refs[].
-# R-BIND-5 row-content selectivity (02:179, "Copy only non-inferable finalized
+#
+# row-content selectivity (02:179, "Copy only non-inferable finalized
 # findings (> distilled); otherwise emit a pointer"): a row copies a finalized
 # finding body inline (a `> ` distilled blockquote line) ONLY when the finding is
 # NON-INFERABLE; otherwise it emits a pointer to the artifact path. Operationalized
@@ -28,17 +32,20 @@
 # is NOT already inferable from the row's one-liner (not a case-folded substring of,
 # nor containing, the one-liner — i.e. it adds content the row's other fields do not
 # already convey). Every other entry emits a path POINTER, never the full body.
-# Defensive: a missing/empty distilled field => pointer (R-BIND-10a).
+# Defensive: a missing/empty distilled field => pointer.
+#
 # Re-derive from frontmatter/manifests every run; missing fields = EMPTY, never an
-# error (R-BIND-10a defensive default). Re-derive surfaces one-sided PROMO-4 edges
+# error (defensive default). Re-derive surfaces one-sided promotion edges
 # as findings (an entry whose library_refs name an article that lacks the
 # originating_plan back-stamp, or vice versa) — DETECT + report, never repair-write.
-# R-BIND-8 symlink farm: under the spoke binder home, research/<plan-slug>/ is a
+#
+# symlink farm: under the spoke binder home, research/<plan-slug>/ is a
 # DIRECTORY symlink -> each contributing plan's <plan>/_research/ dir. Generated
 # AND pruned each run: a farm symlink whose target plan/_research no longer exists
 # (or whose plan no longer belongs to the spoke) is removed. NEVER follows or
 # deletes through a symlink target — only the farm link itself is unlinked.
-# Output Contract (per CLAUDE.md skill-creation rule; C-OUT R-GOV-2/R-GOV-3):
+#
+# Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/research-index.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a generated roll-up surface, no
@@ -48,12 +55,12 @@
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder roll-up markdown;
 #     research-index.md is a generated human-readable projection — the row shape is
-#     fixed by R-BIND-5, not a shipped schema). Body-structure authority: the
-#     R-BIND-5 / R-BIND-8 research-index artifact contracts (the ratified
+#     fixed by contract, not a shipped schema). Body-structure authority: the
+#     research-index artifact contracts (the ratified
 #     binder-contract decision).
 #   Pre-write validation:
 #     - the plans home must resolve to a directory (absent => block-and-log, no
-#       write, exit 0 — R-BIND-10a defensive class, never crash).
+#       write, exit 0 — defensive class, never crash).
 #     - each manifest is read defensively; a malformed/missing field is treated as
 #       empty, never an error; a plan with zero matching research_artifacts[]
 #       contributes no rows (and an empty spoke renders a valid empty binder).
@@ -61,19 +68,22 @@
 #       missing, prune the stale) only after the index renders.
 #   Failure mode: BLOCK-AND-LOG. A manifest that cannot be parsed emits a finding
 #     and is skipped; no partial/garbage write. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): research-index.md + the research/ farm are
-#     librarian-maintained artifacts (R-BIND-2/R-BIND-8, maintainer=librarian);
+#   Maintainer-provenance: research-index.md + the research/ farm are
+#     librarian-maintained artifacts (maintainer=librarian);
 #     this capability is their sole originating writer. It NEVER writes
 #     decision-log.md, handoff-chronicle.md, plan manifests, or any plan _research/
-#     content, and NEVER repairs a one-sided PROMO-4 edge (it only detects it).
+#     content, and NEVER repairs a one-sided promotion edge (it only detects it).
+#
 # CLI:
 #   plan-research-index.sh                 # regenerate every spoke's binder
 #   plan-research-index.sh --spoke <key>   # regenerate one spoke's binder only
 #   plan-research-index.sh --dry-run       # findings + would-be writes, NO write
 #   plan-research-index.sh --help
+#
 # Env overrides (testing):
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh)
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24. Read-only manifest
 # walk + atomic file write(s) + symlink-farm reconcile.
 
@@ -163,7 +173,7 @@ def walk_manifests(root):
         mp = os.path.join(dp, "manifest.json")
         man = read_json(mp)
         if man is None:
-            # defensive skip + finding (R-BIND-10a) — never crash on a bad manifest.
+            # defensive skip + finding — never crash on a bad manifest.
             emit({"finding": "plan-research-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
@@ -193,7 +203,7 @@ def field(man, key, default=""):
 
 
 # --- build the cross-manifest library_refs / originating_plan maps for the
-# one-sided PROMO-4 edge detection (R-FLOW-PROMO-4 DETECTOR role). ------------
+# one-sided promotion-edge detection (DETECTOR role). ------------
 # manifest side: ref-string -> set(plan-slug) that declares it in research_artifacts[].
 manifest_refs = {}
 for plan_dir, man in manifests:
@@ -240,7 +250,7 @@ article_backstamps = collect_article_backstamps(LIBRARY_ROOT)
 
 # --- selectivity: non-inferable finalized finding => inline; else pointer ----
 def distilled_inline(ra, one_liner):
-    """R-BIND-5 selectivity (02:179). Return the distilled finding text to inline
+    """selectivity (02:179). Return the distilled finding text to inline
     iff the entry is finalized AND carries a non-inferable distilled-finding field;
     else return None (=> the row emits a path pointer). Operationalization:
       - status must be 'finalized'.
@@ -300,7 +310,7 @@ for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
     if not spoke:
         # missing project: => cannot attribute to a spoke; skip silently
-        # (R-BIND-10a missing-field-empty; this is not an error).
+        # (missing-field-empty; this is not an error).
         continue
     if spoke_filter and spoke != spoke_filter:
         continue
@@ -330,7 +340,7 @@ for plan_dir, man in manifests:
         # this plan contributes to the symlink farm (it declares artifacts)
         spoke_plan_dirs[spoke][slug] = plan_dir
 
-        # --- R-FLOW-PROMO-4 one-sided-edge DETECTOR (detect + report only) ----
+        # --- one-sided promotion-edge DETECTOR (detect + report only) ----
         for lr in lib_refs:
             ref = lr[:-3] if lr.endswith(".md") else lr
             back = article_backstamps.get(ref)
@@ -338,13 +348,13 @@ for plan_dir, man in manifests:
                 emit({"finding": "research-index-one-sided-edge", "file": ref,
                       "issue": "manifest-library_ref-without-article-backstamp",
                       "plan": slug, "library_ref": lr,
-                      "detector_role": "R-FLOW-PROMO-4-crash-window",
+                      "detector_role": "promotion-edge-crash-window",
                       "detected_at": today})
             elif back and back != slug:
                 emit({"finding": "research-index-one-sided-edge", "file": ref,
                       "issue": "article-backstamp-disagrees-with-manifest",
                       "plan": slug, "library_ref": lr, "article_originating_plan": back,
-                      "detector_role": "R-FLOW-PROMO-4-crash-window",
+                      "detector_role": "promotion-edge-crash-window",
                       "detected_at": today})
 
 # the reverse one-sided edge: an article names an originating_plan whose manifest
@@ -358,20 +368,20 @@ for ref, op in article_backstamps.items():
               "issue": "article-originating_plan-without-manifest-library_ref",
               "originating_plan": op,
               "manifest_backlinks": ",".join(sorted(decls)) or "(none)",
-              "detector_role": "R-FLOW-PROMO-4-crash-window",
+              "detector_role": "promotion-edge-crash-window",
               "detected_at": today})
 
 
 # --- render one binder per spoke --------------------------------------------
 def md_link(text, target):
-    # deterministic relative-path link (R-GOV-7 binder roll-up class).
+    # deterministic relative-path link (binder roll-up class).
     return "[%s](%s)" % (text, target)
 
 
 def render_library_cell(lib_refs):
     if not lib_refs:
         return "—"
-    # wikilink form is NOT used for binder roll-ups (R-GOV-7); emit the bare
+    # wikilink form is NOT used for binder roll-ups; emit the bare
     # <topic>/<article> ref text (the article lives in the library, linked there).
     return ", ".join(lib_refs)
 
@@ -440,7 +450,7 @@ for spoke in target_spokes:
     research_idx = os.path.join(binder_home, "research-index.md")
     farm_home = os.path.join(binder_home, "research")
 
-    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$  (R-GOV-4)
+    # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
 
     body_lines = [
@@ -455,7 +465,7 @@ for spoke in target_spokes:
         "",
         "_Auto-generated by `librarian plan-research-index`. Do not hand-edit._",
         "",
-        "Project-wide research surface (R-BIND-5): one row per declared "
+        "Project-wide research surface: one row per declared "
         "`research_artifacts[]` entry across every `%s`-spoke plan, grouped by "
         "`parent_plan` lineage. Inline `> ` finding bodies appear only for "
         "non-inferable finalized findings; all other rows point at the artifact." % spoke,
@@ -511,7 +521,7 @@ for spoke in target_spokes:
             continue
     spokes_written += 1
 
-    # --- R-BIND-8 dir-symlink farm: generate + prune --------------------------
+    # --- dir-symlink farm: generate + prune --------------------------
     # Targets: each contributing plan's <plan>/_research/ dir. Generate the
     # missing; prune the stale (a farm link whose target plan/_research no longer
     # exists, or whose plan no longer contributes to this spoke). NEVER follow or

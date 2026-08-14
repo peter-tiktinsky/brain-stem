@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "inventory": {
+    "by_type": {},
+    "by_path": {}
+  },
+  "xref_graph": {},
+  "tags": {},
+  "scan_state": {
+    "last_scanned_at": null,
+    "findings_by_capability": {}
+  },
+  "drift_findings": {},
+  "architect_recommendations": {
+    "last_scanned_log": null,
+    "items": []
+  },
+  "rename_history": []
+}

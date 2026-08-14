@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # modes/writer.sh — Class D handler for /govern register --kind writer.
-# Per Session 5..(writer-reference frontmatter contract; one file
-# per writer-skill; destinations[] carries per-flow shape) + Session 5
-# (Class D auto-suggestion; shared overlay slot with wizard +
+#
+# Implements the writer-reference frontmatter contract (one file per
+# writer-skill; destinations[] carries the per-flow shape) plus Class D
+# auto-suggestion (shared overlay slot with the registration wizard +
 # user-direct invocation). Writer mode is STRUCTURALLY DISTINCT from
 # folder/file-type/tag-extension:
+#
 #   - Canonical declaration = `<vault-root>/Vault Writers/<slug>.md`
 #     (writer-reference file; standard atomic write through pre-write-guard.sh
 #     + post-write-verify.sh)
@@ -25,6 +27,7 @@
 #     schema. The regression internal/tests/ac-vault-writer-deny-regression.sh
 #     drives invalid frontmatter through the production bare-path hook chain and
 #     asserts a DENY, so the Output Contract is GATE-backed, not write-and-hope.
+#
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible.
 
@@ -73,6 +76,22 @@ mode_propose() {
       ;;
   esac
 
+  # A writer registration's canonical declaration is a file INSIDE the vault, so
+  # an unconfigured vault has no valid destination to propose. The sentinel
+  # consulted is the ROOT VALUE ITSELF: the empty root is the dangerous state,
+  # because composing a destination from it collapses to a bare
+  # `/Vault Writers/...` at the filesystem root. VAULT_CONFIGURED is the DERIVED
+  # flag the paths SoT materializes from this same root — a convenience for
+  # consumers, not an independent authority — so it is deliberately NOT required
+  # here: a caller that exports VAULT_ROOT directly (the seam named in the message
+  # below) has supplied a vault. Refuse rather than invent a root; no proposal is
+  # emitted and nothing is written.
+  if [ -z "${VAULT_ROOT:-}" ]; then
+    printf 'writer.mode_propose: no vault is configured — set .paths.vault_root in %s (or export VAULT_ROOT) and re-run. A writer-reference file has no valid destination without a vault root; no proposal composed.\n' \
+      "${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}" >&2
+    return 3
+  fi
+
   local proposed_by
   proposed_by="${PROPOSED_BY:-user-direct}"
 
@@ -104,9 +123,9 @@ mode_propose() {
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   local vault_root
-  vault_root="${VAULT_ROOT:-$HOME/Documents/Obsidian Vault}"
+  vault_root="${VAULT_ROOT:-}"
 
-  # Build a writer-reference frontmatter draft per + Session 5 contract.
+  # Build a writer-reference frontmatter draft per + contract.
   # Conditional fields per writer_kind — operator validates per-field.
   # When a project spoke is resolved, the SUGGESTED default destination is the
   # Form-A vault-view path under $VAULT_ROOT/Work/<spoke>/ — single-keyed for
@@ -301,7 +320,7 @@ sys.stdout.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
   fi
 
   # propose-and-confirm the daily writers-health-audit cron dispatch
-  # at writer registration (operator ruling 2026-07-09). DORMANT-UNTIL-OPT-IN: emit a one-time
+  # at writer registration (a ruled default). DORMANT-UNTIL-OPT-IN: emit a one-time
   # proposal when the durable activation key is `unset` (never proposed — covers first-writer)
   # OR `declined` (re-proposable) — NEVER when `enabled` (already opted in; default-on for all
   # subsequent writers). No re-prompt within this registration. The model surfaces the

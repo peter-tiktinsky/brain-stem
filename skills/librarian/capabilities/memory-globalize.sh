@@ -1,14 +1,14 @@
 #!/bin/bash
 # memory-globalize — Promote `scope: global` project memories to ~/.claude/rules/.
 #
-# Memory-scope-routing. The `scope:` field on a memory
+# Part of T-6 (memory-scope-routing). The `scope:` field on a memory
 # (schemas/memory-schema.json :: scope) is the typed router between the project
 # layer (per-git-root MEMORY.md, capped, isolated) and the global layer
 # (~/.claude/rules/*.md, loaded every session). Auto-capture feeds the project
 # layer; this capability is the PROMOTION TRANSPORT that elevates a
 # `scope: global` memory into a rule conforming to schemas/rules-schema.json.
 #
-# Scan predicate: EXPLICIT `scope: global` only by default
+# Scan predicate (T-6 design): EXPLICIT `scope: global` only by default
 # — the act of writing `scope: global` is the operator's promotion signal.
 # `--include-default-scope` widens the scan to absent-scope memories (the
 # schema's literal "default if absent = global" reading); off by default so a
@@ -19,7 +19,9 @@
 # (lean-pointer disposition; source memory is NOT moved or deleted).
 #
 # GOVERNANCE: writes ONLY to ~/.claude/rules/ — NEVER opens ~/.claude/CLAUDE.md
-# for write (the rules-only-never-CLAUDE.md principle).
+# for write (rules-only-never-CLAUDE.md,-memory-management.md.2
+# +.5 — the canonical SoT recording the principle; re-point off the
+# dangling docs/decisions/0007 path).
 #
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (ONLY in --apply mode; propose mode writes nothing):
@@ -70,12 +72,12 @@
 #                           -> $CLAUDE_HOME/schemas/rules-schema.json)
 #   FINDINGS_OUTPUT         (default: stdout)
 #   FOUNDATION_TEST_MODE    Bypass non-interactive guard (test/CI runners).
-#   MEMORY_GLOBALIZE_AUTO   Bypass non-interactive guard for the fully-auto
+#   MEMORY_GLOBALIZE_AUTO   Bypass non-interactive guard for the T-7 fully-auto
 #                           surface (kept distinct from FOUNDATION_TEST_MODE so
 #                           prod-auto and test-mode never alias).
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
-# ([[feedback_python_heredoc_argv]]).
+# (data via argv, never a piped stdin).
 
 set -euo pipefail
 
@@ -108,9 +110,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Judgment-tier non-interactive guard. Two distinct bypasses, kept separate so
-# prod-auto and test-mode never alias:
+# prod-auto and test-mode never alias (T-7):
 #   FOUNDATION_TEST_MODE   — synthetic harnesses / CI runners.
-#   MEMORY_GLOBALIZE_AUTO  — the fully-auto surface (the toggle-gated
+#   MEMORY_GLOBALIZE_AUTO  — the T-7 fully-auto surface (the toggle-gated
 #                            PostToolUse hook fires this with --apply when the
 #                            operator opts into fully-auto promotion).
 if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${MEMORY_GLOBALIZE_AUTO:-}" ]] \

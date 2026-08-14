@@ -66,7 +66,9 @@
 # CLAUDE_HOME *is* the escape (paths.sh minted it from $HOME/.claude). So the pin
 # resolves CLAUDE_HOME to the tree THIS FILE LIVES IN — <root>/hooks/lib/ -> <root> —
 # which is by construction the tree the spawning hook itself was loaded from, since
-# every hook sources its libs $SCRIPT_DIR-relative. Precedence:
+# the hooks source their libs $SCRIPT_DIR-relative (lib-sourcing clause of the
+# sibling-resolution contract, hooks/README.md; CLAUDE_HOME-anchored components resolve
+# SIBLINGS via clause 1 — the two compose at this pin). Precedence:
 #
 #   CLAUDE_HOME unset                      -> anchor
 #   CLAUDE_HOME == anchor                  -> anchor          (no-op; idempotent)

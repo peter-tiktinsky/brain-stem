@@ -2,12 +2,14 @@
 # library-index — KEYSTONE re-derive of the three-surface library indexes:
 # per-topic `_library/<topic>/_index.md` and the library-root `_library/_index.md`,
 # regenerated from article frontmatter on every run (type: index).
-# Implements R-LIB-3 (topic index) + R-LIB-4 (root index) under the C-IDX index
-# contract; consumes R-LIB-routing (the per-article routing one-liner that
+# Emits both tiers — the topic index and the root index — under the C-IDX index
+# contract; consumes the routing one-liner (the per-article activation line that
 # library-scrub.sh synthesizes).
+#
 # The library home resolves robustly the way sibling capabilities resolve the
 # plans home — LIBRARY_DIR override, else $PLANS_DIR/_library (paths.sh), else
 # $PLANS_ROOT/_library, never a hardcoded user-home literal.
+#
 # Re-derive discipline (C-IDX, mirrors index-maintain.sh's R-34 boundary):
 #   In-bounds (regenerated each run): the sentinel-bounded contents-enum table
 #     (rows: File wikilink / Lines wc-l / Type frontmatter / Description routing-
@@ -18,29 +20,33 @@
 #     first run it emits a placeholder folder-context paragraph for adopter fill.
 #   parent_folder: is auto-populated from the dirname at depth >= 2 and verified
 #     intact on every idempotent re-derive.
+#
 # C-IDX light-content fallback: a topic folder with fewer than 3 child .md files
 #   of DISTINCT types emits a prose "Current Contents" section INSTEAD of the
 #   sentinel table.
-# R-LIB-4a root index: one row per topic; the topic Description is the topic-scope
+#
+# root index: one row per topic; the topic Description is the topic-scope
 #   activation line synthesized by AGGREGATING member-article routing: fields
 #   (1:many) — NOT the per-row single-file derivation chain. Each topic row carries
 #   the topic's staleness date read from _library/log.md's last entry for that
 #   topic (log.md is owned by a separate capability; absent => empty column; the
 #   first run is valid with no log).
-# Findings (R-GOV-5/R-GOV-6 — audit-time scan, NEVER a write-time guard):
+#
+# Findings (audit-time scan, NEVER a write-time guard):
 #   library-article-over-threshold  an article exceeds the soft length budget
 #     (size_limits read from governance/file-type-contracts/library-article.md.json
 #     when present, else the SoT constants {400 soft, 800 hard}).
 #   library-basename-collision      two files share a basename (breaks bare-
-#     wikilink resolution; load-bearing v1 component per R-GOV-7).
+#     wikilink resolution; a load-bearing component of the library contract).
 #   library-duplicate-title         two articles carry near-duplicate H1/title
-#     (R-FLOW-RECON-5 reconciliation signal).
+#     (reconciliation signal).
 #   library-broken-link             a dangling wikilink/path, OR a one-sided
-#     originating_plan/manifest library_refs edge — the R-FLOW-PROMO-4 crash-window
+#     originating_plan/manifest library_refs edge — the crash-window
 #     DETECTOR role (detect + report; this capability NEVER repair-writes the edge).
 #   library-article-body-shape      an article carries a leading in-document
-#     section index or an auto-generated TOC under the soft budget (R-LIB-1
+#     section index or an auto-generated TOC under the soft budget (the
 #     body-shape; advisory finding routed here per the owner-pick).
+#
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (--query mode: NONE — it is a pure read surface; it prints a
 #     topic's _index.md (or an available-topics list) to stdout and performs ZERO
@@ -60,17 +66,18 @@
 #     governance/file-type-contracts/library-article.md.json when present.
 #   Pre-write validation:
 #     - the library home must resolve to a directory (absent => block-and-log,
-#       no write, exit 0 — never crash, R-BIND-10a defensive-default class).
+#       no write, exit 0 — never crash, defensive-default class).
 #     - every generated _index.md carries valid C-IDX frontmatter (type=index,
 #       non-empty tags, ISO updated, parent_folder at depth >= 2) BEFORE write.
 #     - atomic temp-file + os.replace; the sentinel region is the ONLY mutated
 #       body span (plus updated:).
 #   Failure mode: BLOCK-AND-LOG. A topic that cannot be rendered emits a finding
 #     and is skipped; no partial write. Never write-and-hope.
-#   Maintainer-provenance (R-GOV-3): _index.md is a librarian-maintained artifact
-#     (R-LIB-3/R-LIB-4, maintainer=librarian); this capability is its sole
+#   Maintainer-provenance: _index.md is a librarian-maintained artifact
+#     (maintainer=librarian); this capability is its sole
 #     originating writer. It NEVER writes articles, _raw/, or log.md (other
 #     maintainers own those) and NEVER repairs a one-sided PROMO-4 edge.
+#
 # CLI:
 #   library-index.sh                 # re-derive every topic index + the root index
 #   library-index.sh --topic <name>  # re-derive one topic index (+ the root)
@@ -80,9 +87,10 @@
 #                                       then case-insensitive/fuzzy prefix match);
 #                                       topic/library absent -> a short available-
 #                                       topics list. ZERO writes; exit 0. This is
-#                                       the executable target of the R-FLOW-PRE-4
+#                                       the executable target of the
 #                                       at-cap pointer pre-research-check.sh emits.
 #   library-index.sh --help
+#
 # Env overrides (testing):
 #   LIBRARY_DIR     library home (default: $PLANS_DIR/_library -> $PLANS_ROOT/_library)
 #   PLANS_DIR / PLANS_ROOT  plan-tree root (test isolation; resolved via paths.sh)
@@ -90,6 +98,7 @@
 #   PLAN_MANIFEST_GLOB_ROOT  root walked for manifest library_refs[] (one-sided-edge
 #                   detection); default: PLANS_ROOT. (test isolation)
 #   FINDINGS_OUTPUT NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -128,7 +137,7 @@ LIBRARY="${LIBRARY_DIR:-${PLANS_DIR:-$PLANS_ROOT}/_library}"
 case "$LIBRARY" in */) LIBRARY="${LIBRARY%/}" ;; esac
 MANIFEST_ROOT="${PLAN_MANIFEST_GLOB_ROOT:-$PLANS_ROOT}"
 
-# --- --query: READ-ONLY topic-index print (R-FLOW-PRE-4 pointer target) -------
+# --- --query: READ-ONLY topic-index print (pointer target) -------
 # Pure read surface for the three-load selectivity chain (root index -> topic
 # index -> article): resolve the topic (exact dir-name match first, then a
 # case-insensitive / fuzzy prefix match), print that topic's _index.md to stdout,
@@ -326,6 +335,7 @@ if os.path.isfile(art_contract_path):
         pass
 
 # --- Type-column enum source: the EFFECTIVE type registry (non-_-prefixed) ----
+# canonical read: the merged union (foundation-master + overlay) is
 # materialized by the merger in the shell wrapper and handed in as fm_bundle_path
 # (.frontmatter.types shape). Read it FIRST so an adopter's overlay amendments to
 # the type registry are honored; fall back to the loose pillar (.types shape) when
@@ -347,7 +357,7 @@ if not type_enum and os.path.isfile(fm_rules_path):
         type_enum = set()
 
 # reference-type REQUIRED set for audit-time frontmatter conformance —
-# the SAME set library-scrub validates at write-time (library-scrub.sh:362-363/:773); here it
+# the SAME set library-scrub validates at write-time (its canonical merged-union read); here it
 # catches a POST-write field drop the write-time gate cannot see. Merged-bundle FIRST (adopter
 # overlay honored), then the loose pillar, then the SoT constants (mirrors library-scrub).
 REF_REQUIRED = ["type", "tags", "updated", "routing", "sources", "originating_plan",
@@ -438,7 +448,7 @@ def derive_description(fm, text):
     return v[:200] if v else ""
 
 def has_inline_toc(text):
-    # R-LIB-1 body shape: a leading in-document section index / auto-generated
+    # body shape: a leading in-document section index / auto-generated
     # TOC. Detect an explicit "## Contents" / "## Table of Contents" heading or a
     # "- [text](#anchor)" anchor-link block near the top of the body.
     body = text
@@ -578,7 +588,7 @@ manifest_refs = collect_manifest_refs(manifest_root)
 # --- staleness: parse log.md last-entry-per-topic when present --------------
 def topic_staleness(log_path):
     """topic -> ISO date from the LAST log.md line that names that topic's path.
-    log.md format (R-LIB-8): `YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>`."""
+    log.md format: `YYYY-MM-DDTHH:MM:SSZ [ACTION] <path> — <note>`."""
     st = {}
     if not os.path.isfile(log_path):
         return st
@@ -688,7 +698,7 @@ for topic in topic_dirs:
             emit({"finding": "library-broken-link", "file": p,
                   "issue": "one-sided-promo4-edge", "originating_plan": op,
                   "library_ref": ref_key, "manifest_backlinks": ",".join(sorted(back)) or "(none)",
-                  "detector_role": "R-FLOW-PROMO-4-crash-window", "detected_at": today})
+                  "detector_role": "promotion-edge-crash-window", "detected_at": today})
         # dangling bare wikilinks at the article foot -> sibling that does not exist
         for wl in re.findall(r"\[\[([^\[\]|]+?)\]\]", text):
             base = wl.split("/")[-1]
@@ -772,11 +782,11 @@ for title, entries in all_titles.items():
     if len(entries) > 1:
         emit({"finding": "library-duplicate-title", "file": entries[0][0],
               "title": entries[0][1], "duplicate_paths": ",".join(sorted(e[0] for e in entries)),
-              "count": len(entries), "reconciliation_signal": "R-FLOW-RECON-5",
+              "count": len(entries), "reconciliation_signal": "",
               "detected_at": today})
 
 # --- root _index.md ---------------------------------------------------------
-# R-LIB-4a: one row per topic; Description = aggregated member routing; each row
+# one row per topic; Description = aggregated member routing; each row
 # carries the topic's staleness date (empty when no log.md). Columns reuse the
 # C-IDX shape with the topic dir as the wikilink target.
 root_hdr = "| Topic | Articles | Type | Description |\n|---|---|---|---|"

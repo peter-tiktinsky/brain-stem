@@ -2,9 +2,11 @@
 # index-maintain — Audit-time reconciler for every non-exempt folder's
 # _index.md contents-enum table against filesystem reality. The first canonical
 # self-healing capability under the R-34 boundary.
+#
 # NET-NEW librarian body (1.1 line 136 — replaces the phantom
 # doc-reference). Authored from the authoring-spec index-maintain.md
 # (REFERENCE only —(a)).
+#
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
 #     missing/orphan rows, updated: bump, auto-bootstrap of a missing non-exempt
@@ -14,6 +16,7 @@
 #     SEMANTIC-DRIFT branch which emits findings and NEVER writes vault content.
 #   The two branches are not interchangeable — the semantic branch has no
 #     write-to-vault code path.
+#
 # Output Contract
 #   Files written: vault _index.md (bounded mechanical scope — sentinel-bounded
 #     contents-enum region + updated: frontmatter only); findings to stdout
@@ -26,6 +29,7 @@
 #     mandatory-files pillar JSON is malformed.
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Survivorship: content outside the sentinels preserved verbatim.
+#
 # Finding categories (7 — §Finding categories):
 #   bootstrap-auto-created     (info-event) created a missing non-exempt _index.md
 #   index-row-drift-mechanical (info-event) auto-corrected Lines/Type/missing/orphan row
@@ -39,15 +43,18 @@
 #     deliverables/ or reference/ — read-only, never auto-relocated (the
 #     master-deliverables-conflict audit; MASTER-PENDING spokes with no qualifying
 #     child are benign and not flagged)
+#
 # CLI:
 #   index-maintain.sh             # Tier 2 sweep (mechanical auto-correct)
 #   index-maintain.sh --deep      # Tier 3 (+ semantic-drift findings, no auto-overwrite)
 #   index-maintain.sh --dry-run   # findings + would-be corrections, no write
 #   index-maintain.sh --help
+#
 # Env overrides (testing):
 #   VAULT_ROOT        vault root to walk (required for any real sweep)
 #   GOVERNANCE_DIR    governance root (default: foundation-repo -> live install)
 #   FINDINGS_OUTPUT   NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -587,15 +594,15 @@ if subtree_out:
         "dry_run": dry_run,
     }
     with open(subtree_out, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(subtree))
+        fh.write(json.dumps(subtree, ensure_ascii=False))
 PY
 
 # G5 (S4 T-1): persist the index-maintain summary subtree to the
 # librarian-manifest — makes the registry's declared
 # writes_manifest_subtree: "drift_findings.index_maintain" real (removed from
 # _parity_pending_manifest_writes[] in the same commit), mirroring
-# placement-validate.sh:224-226. manifest+lock live under always-creatable
-# $CLAUDE_STATE_ROOT/$COORD_DIR (G2/plan 110), so the persist needs no non-empty
+# placement-validate's own walker. manifest+lock live under always-creatable
+# $CLAUDE_STATE_ROOT/$COORD_DIR (G2), so the persist needs no non-empty
 # VAULT_LOGS. Gate only on having a subtree to write.
 if [ -s "$MANIFEST_SUBTREE_OUT" ]; then
   manifest_set '.drift_findings.index_maintain' "$(cat "$MANIFEST_SUBTREE_OUT")"

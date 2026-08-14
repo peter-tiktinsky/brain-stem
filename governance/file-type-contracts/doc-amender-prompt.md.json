@@ -6,12 +6,13 @@
   "version": "1.1.0",
   "status": "runtime",
   "design_source": "the writer-pipeline layering design",
-  "matcher_pillar": "governance/mandatory-files-rules.json",
-  "matcher_entry": "mandates.doc_amender_prompt",
+  "matcher_pillar": "skills/doc-amender/process.sh",
+  "matcher_entry": null,
+  "matcher_rationale": "No pillar or schema entry matches these files: prompt assets live outside the vault, beyond the vault-scoped frontmatter registry's reach, and governance/mandatory-files-rules.json declares mandates for the vault _index.md, the MEMORY.md cap and the vault-writer reference only. This contract is SELF-declaring — its own frontmatter_required/optional/enums are the matcher — and is read by skills/doc-amender/process.sh; matcher_entry is null because a non-JSON matcher has no entry to anchor into.",
   "_design_notes": {
     "consumer": "skills/doc-amender",
-    "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in",
-    "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries"
+    "lockstep_pair": "skills/doc-amender (the runtime that reads this contract). The foundation ships governance/doc-dependencies.json :: entries[] EMPTY — writer-fan-in entries are adopter-registered, so no shipped entry moves in lockstep with this contract.",
+    "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + any adopter-registered writer-fan-in doc-deps entries"
   },
 
   "type": "doc-amender-prompt",

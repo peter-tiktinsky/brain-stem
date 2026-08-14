@@ -1,8 +1,8 @@
 #!/bin/bash
 # log-archive — Archive old log files from the state/logs/ run-log dir per
-# retention thresholds (G7, plan 110: the rotation home moved off the indexed
+# retention thresholds (G7,: the rotation home moved off the indexed
 # vault Logs/ to the XDG state tier $CLAUDE_LOG_DIR).
-# Landed: Sub-plan 02 T-1 (2026-04-21). Extracted from SKILL.md
+# Landed: T-1 (2026-04-21). Extracted from SKILL.md
 # `lib/dates.sh` (co-shipped in this commit).
 # Thresholds per SKILL.md:
 #   - Dashboard-sync logs: older than 3 days
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# G7 (plan 110): rotate the XDG state-tier run-log dir, not the indexed vault Logs/.
+# G7: rotate the XDG state-tier run-log dir, not the indexed vault Logs/.
 LOGS_ROOT="${LOG_ARCHIVE_SOURCE:-$CLAUDE_LOG_DIR}"
 ARCHIVE_ROOT="${LOG_ARCHIVE_TARGET:-$CLAUDE_LOG_DIR/archive}"
 DASHBOARD_THRESHOLD=3
@@ -90,7 +90,7 @@ for file in "$LOGS_ROOT"/*.md; do
   if [[ "$fn" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
     date="${BASH_REMATCH[1]}"
   elif [[ "$fn" =~ ([0-9]{4})([0-9]{2})([0-9]{2}) ]]; then
-    # session-close.sh:279 emits session-close-YYYYMMDD-
+    # session-close emits session-close-YYYYMMDD-
     # HHMMSS.md (%Y%m%d, no dashes), which the dashed-only matcher above skipped
     # -> 20+ session-close logs accumulated unarchivable. Accept the compact
     # %Y%m%d form too and NORMALIZE to dashed so days_since / week_of_year / the

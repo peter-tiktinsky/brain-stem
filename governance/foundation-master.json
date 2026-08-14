@@ -461,13 +461,13 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-08-06T14:58:18Z",
-    "bundle_version": "c218abb8042d674037e51e3d2ee69bc7ae2da1ec2798f47085a894f95b7e0702",
+    "built_at": "2026-08-09T01:50:35Z",
+    "bundle_version": "85c3cddc93c46fee217337872bdd55aa3a67decd01273d66859604bcb992399e",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-08-03T04:06:57Z",
+      "governance/_index.json": "2026-08-09T01:50:35Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
-      "governance/frontmatter-rules.json": "2026-08-03T04:06:57Z",
+      "governance/frontmatter-rules.json": "2026-08-09T01:50:35Z",
       "governance/mandatory-files-rules.json": "2026-08-03T04:06:57Z",
       "governance/naming-rules.json": "2026-08-03T04:06:57Z",
       "governance/plans-rules.json": "2026-08-03T04:06:57Z",
@@ -599,8 +599,9 @@
       },
       "description": "Hook-consumable runtime artifact for the vault-root CLAUDE.md body-structure contract. The k8s ValidatingAdmissionPolicy paramKind for the only mandatory vault-root file.",
       "design_source": "the vault-root CLAUDE.md template + its locked shape record",
-      "matcher_entry": "mandates.claude_md_vault_root",
-      "matcher_pillar": "governance/mandatory-files-rules.json",
+      "matcher_entry": null,
+      "matcher_pillar": "hooks/pre-write-guard.sh",
+      "matcher_rationale": "No pillar or schema entry matches this file: governance/mandatory-files-rules.json declares mandates for the vault _index.md, the MEMORY.md cap and the vault-writer reference only, and the vault-root CLAUDE.md carries no `type:` frontmatter for the frontmatter registry to key on. The real matcher is the vault-root write class in hooks/pre-write-guard.sh, which knows CLAUDE.md as the sole mandatory vault-root file; matcher_entry is null because a non-JSON matcher has no entry to anchor into.",
       "mustache_substitution": [
         "{{IDENTITY_NAME}}",
         "{{IDENTITY_ROLE}}",
@@ -1045,8 +1046,8 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "_design_notes": {
         "consumer": "skills/doc-amender",
-        "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + writer-fan-in doc-deps entries",
-        "lockstep_pair": "governance/doc-dependencies.json :: entries[] kind: writer-fan-in"
+        "evolution_protocol": "R-37 atomic lockstep with doc-amender skill + any adopter-registered writer-fan-in doc-deps entries",
+        "lockstep_pair": "skills/doc-amender (the runtime that reads this contract). The foundation ships governance/doc-dependencies.json :: entries[] EMPTY — writer-fan-in entries are adopter-registered, so no shipped entry moves in lockstep with this contract."
       },
       "applies_to": {
         "path_glob": "$VAULT_WRITER_STATE_ROOT/prompts/*.md"
@@ -1100,8 +1101,9 @@
         "created",
         "updated"
       ],
-      "matcher_entry": "mandates.doc_amender_prompt",
-      "matcher_pillar": "governance/mandatory-files-rules.json",
+      "matcher_entry": null,
+      "matcher_pillar": "skills/doc-amender/process.sh",
+      "matcher_rationale": "No pillar or schema entry matches these files: prompt assets live outside the vault, beyond the vault-scoped frontmatter registry's reach, and governance/mandatory-files-rules.json declares mandates for the vault _index.md, the MEMORY.md cap and the vault-writer reference only. This contract is SELF-declaring — its own frontmatter_required/optional/enums are the matcher — and is read by skills/doc-amender/process.sh; matcher_entry is null because a non-JSON matcher has no entry to anchor into.",
       "persistence_mode_detail": {
         "_description": "Persistence-mode contract-extension (the det/LLM split). persistence_mode selects the composition lane the doc-amender runtime dispatches to (skills/doc-amender/process.sh :: resolve_persistence_mode). When a prompt omits persistence_mode, the runtime DERIVES it from amendment_strategy via persistence_mode_default below (the mapping is the CONTRACT's, not hand-coded in the composer). EXTENDS the already-shipped contract — no new artifact.",
         "modes": {
@@ -1161,9 +1163,9 @@
       "_design_notes": {
         "consumer": "hooks/session-episode-write.sh (SessionEnd producer — newest-first row PREPEND + the MEMORY.md ## Episodic pointer line) + skills/librarian/capabilities/chronicle-index.sh (session-close maintainer — pointer-metadata refresh + 50KB rotation + one-line-summary backfill)",
         "evolution_protocol": "Append-only; historical rows never edited in place except the one-line-summary backfill of the just-closed-session row (placeholder -> harvested close-out one-liner, no-LLM). R-37 documentary lockstep with schemas/memory-schema.json body_conventions.episodic_chronicle_row + episodic_chronicle_optional_slots — the append-only invariant is the lockstep record, NOT a write-time DENY.",
-        "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder (hooks/memory-consolidation-run.sh:209 `grep -q \"$BASE\"`) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
+        "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder in hooks/memory-consolidation-run.sh (its per-file basename substring grep) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
         "runtime_generated": "This file is RUNTIME-GENERATED in each adopter's memory dir. It is NOT a foundation-manifest files[] member; only this contract + the chronicle-index capability are manifest-managed.",
-        "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (memory-consolidation-run.sh:174; episodic never decays)."
+        "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (the memory-consolidation-run scan; episodic never decays)."
       },
       "append_only": true,
       "append_only_rationale": "One harvested no-LLM row per session. Historical rows are an immutable witnessed skeleton of the session arc. The sole in-place mutation is the one-line-summary backfill of the most-recent row by chronicle-index.",
@@ -1177,7 +1179,7 @@
       "newest_first": true,
       "newest_first_rationale": "Repository convention — newest row PREPENDS at top (under the header block); pre-existing rows shift downward without modification, so the last N sessions are read first.",
       "row_fields": {
-        "anchor": "cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
+        "anchor": "cwd->git-slug (the hooks/lib/paths.sh project-slug resolver) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
         "next_session": "the verbatim `**Next session:**` line harvested no-LLM from the plan handoff/close-out",
         "optional_pointer_slots": "handoff.md path / checkpoint.md path / claude-mem session-summary; each emitted only after on-disk resolution; `— none —` on absence (never a dangling link). claude-mem pins content_session_id via source_session_id, never the renumberable `#S` ids",
         "slots_presence_map": "frontmatter-line `slots: {handoff: bool, checkpoint: bool, claude_mem: bool}` — machine-canonical O(1) parse-free presence signal carried ALONGSIDE the inline `— none —` human render",
@@ -1243,7 +1245,7 @@
       "_design_notes": {
         "consumer": "librarian plan-index; body-immutability is documentary — no write-time DENY (no immutability guard branch), per evolution_protocol",
         "evolution_protocol": "Body frozen post-Session-1; amendments via prepended amendment-pointer-block referencing the canonical reference. Body preserved as the Session 0 research record. R-37 atomic lockstep — documentary-by-design (the frozen-body + amendment-pointer-block protocol is the lockstep record, NOT a write-time DENY).",
-        "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet"
+        "lockstep_pair": "governance/frontmatter-rules.json :: types.ideation-brief (the type registration) + governance/plans-rules.json :: plan_folder_quartet (the quartet this file is the conditional companion to, not a member of)"
       },
       "amendment_pattern": "amendment-pointer-block at top of body referencing canonical reference; body preserved as Session 0 research record",
       "applies_to": {
@@ -1257,8 +1259,9 @@
       "description": "Hook-consumable runtime artifact for plan-tree 00-ideation-brief.md files. Frozen-post-Session-1 body with amendment-pointer-block prepend pattern. Conditional plan-folder quartet member (gates at planned → in-progress for manifest.research_driven: true).",
       "frozen_post_session_1": true,
       "frozen_rationale": "Body preserved as Session 0 research record; subsequent decision shifts captured via amendment-pointer-blocks rather than in-place edits.",
-      "matcher_entry": "plan_folder_quartet.conditional[0]",
-      "matcher_pillar": "governance/plans-rules.json",
+      "matcher_entry": "types.ideation-brief",
+      "matcher_pillar": "governance/frontmatter-rules.json",
+      "matcher_rationale": "The matching registry entry is the frontmatter type registry, which declares the ideation-brief type and names this contract as its body_structure_contract. The plans pillar's plan_folder_quartet declares only `required` (spec.md, tasks.md, handoff.md, manifest.json) and carries no conditional slot: the ideation brief is not a quartet member, and the conditional_required block below is advisory-by-declaration with no write-time enforcer.",
       "recommendation_enum": [
         "PROCEED",
         "DEFER",
@@ -2251,9 +2254,12 @@
           "Daily",
           "Plans",
           "Skills",
-          "Vault Writers"
+          "Vault Writers",
+          "Work"
         ],
-        "rule_text": "Files written to a vault-root directory must reside in a documented root. Known roots are a hardcoded allowlist in pre-write-guard.sh covering foundation-shipped system folders only; user-created top-level folders register via overlay-master path_routing extensions. A small set of top-level files is exempt from the root-must-be-a-directory rule. Adding a new foundation-shipped root requires R-10's checklist + R-37 lockstep.",
+        "known_roots_exclusion_rationale": "Appearing in a walker exemption, orphan-exclusion or loose-schema list does not qualify a directory — those lists tolerate optional content wherever it exists and carry folders that are not roots. `Inbox/` is the worked case: it appears in several such lists, no shipped surface establishes it as a root, and it is therefore deliberately absent from known_roots.",
+        "known_roots_rationale": "A directory belongs on this list only when a shipped surface establishes it as a foundation root: the vault-init tree, an `[F]` row in the vault CLAUDE.md structure template, the guard's own foundation-system-folder register, or a governance pillar naming it foundation-shipped. Adopter-created top-level folders register via overlay-master path_routing instead. Work qualifies on that test: the guard's own folder register and the CLAUDE.md template's [F] rows both list it.",
+        "rule_text": "Files written to a vault-root directory must reside in a documented root. The allowlist is this rule's `known_roots` list, read at write time from the composed foundation bundle by pre-write-guard.sh; the hardcoded list in that hook is a bundle-less fallback mirror of this one and moves with it. It covers foundation-shipped system folders only; user-created top-level folders register via overlay-master path_routing extensions. A small set of top-level files is exempt from the root-must-be-a-directory rule. Adding a new foundation-shipped root requires R-10's checklist + R-37 lockstep.",
         "source": "governance/naming-rules.json :: _rules (SoT)",
         "status": "active",
         "tier": "advisory",
@@ -2267,7 +2273,7 @@
           "Declare purpose — what archetype/content the directory holds",
           "Declare consumer — which skill, hook, capability, or query parses this path",
           "Add governance/frontmatter-rules.json#types entry + governance/file-type-contracts/<file>.json body-structure contract (the latter only if the new root carries a foundation-shipped mandatory file)",
-          "Extend pre-write-guard.sh known-root list (R-04 allowlist update)",
+          "Add the root to governance/naming-rules.json :: _rules[R-04].known_roots (the SoT the guard reads from the composed bundle at write time) + rebuild the composed master; the hook's hardcoded list is only the bundle-less fallback mirror and moves with the pillar",
           "Add librarian-capability entry (placement-validation / plan-index / walker)",
           "Commit R-37 documentary lockstep — all surfaces move in one commit"
         ],
@@ -2889,23 +2895,29 @@
     "schema_version": "2.0.0",
     "taxonomy": {
       "_adopter_extension_path": "overlay-master.tagging.taxonomy.dimension_prefixes[] + .user_facing_dimensions[]",
-      "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry) + ONE user-facing dimension: project (see _project_dimension_note). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
+      "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry — plus the generator-stamped episode and scope, which mark durable session records and generated/writer pages respectively and carry no canonical-value registry) + the user-facing dimensions: project (see _project_dimension_note) and library (#library/<topic> — topic navigation over authored library articles; topic slugs are identifiers, not vocabulary terms). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
       "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it.",
       "canonical_authority": "governance/tagging-rules.json#taxonomy (the dissolved-schema anchors _tag_prefixes / _tag_prefixes_meta resolve to dimension_prefixes / (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to) here)",
       "cap_25_applies_to": "user_facing_dimensions",
       "dimension_prefixes": [
         "status",
         "log",
-        "project"
+        "project",
+        "episode",
+        "library",
+        "scope"
       ],
       "system_utility_dimensions": [
         "status",
-        "log"
+        "log",
+        "episode",
+        "scope"
       ],
       "system_utility_governance": "log-subtype-registry (canonical values per dimension; near-match DENY via R-05)",
       "tag_pattern_regex": "^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
       "user_facing_dimensions": [
-        "project"
+        "project",
+        "library"
       ]
     }
   },

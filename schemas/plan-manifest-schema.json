@@ -305,14 +305,14 @@
           "items": {
             "type": "string"
           },
-          "description": "Glob patterns under which mutations gate. e.g., [\"$HOME/.claude/**\"]"
+          "description": "Glob patterns under which mutations gate. Each entry is an absolute-path glob; a trailing `/**` gates every file at any depth beneath the named directory."
         },
         "exempt_paths": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Post-detection carve-outs. Sub-plan can extend, NOT subtract. Generalizes the historical hardcoded ~/.claude/projects/** carve-out."
+          "description": "Post-detection carve-outs. Sub-plan can extend, NOT subtract. Generalizes the historical single hardcoded per-project-subtree carve-out into a declared list."
         },
         "detection_signals": {
           "type": "object",
@@ -480,7 +480,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Path globs added to ~/.claude/.git/hooks/pre-commit denylist for the duration of this plan's gate."
+          "description": "Path globs added to the guarded repository's `.git/hooks/pre-commit` denylist for the duration of this plan's gate."
         },
         "enforcement": {
           "type": "object",

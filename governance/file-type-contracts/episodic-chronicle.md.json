@@ -11,8 +11,8 @@
   "_design_notes": {
     "consumer": "hooks/session-episode-write.sh (SessionEnd producer — newest-first row PREPEND + the MEMORY.md ## Episodic pointer line) + skills/librarian/capabilities/chronicle-index.sh (session-close maintainer — pointer-metadata refresh + 50KB rotation + one-line-summary backfill)",
     "runtime_generated": "This file is RUNTIME-GENERATED in each adopter's memory dir. It is NOT a foundation-manifest files[] member; only this contract + the chronicle-index capability are manifest-managed.",
-    "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder (hooks/memory-consolidation-run.sh:209 `grep -q \"$BASE\"`) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
-    "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (memory-consolidation-run.sh:174; episodic never decays).",
+    "orphan_adder_self_immunization": "The MEMORY.md ## Episodic pointer line embeds the literal substring `episodic-chronicle.md`, so the orphan-adder in hooks/memory-consolidation-run.sh (its per-file basename substring grep) reads the chronicle as already-indexed and skips it with zero new skip-code (the file is self-immunizing by construction).",
+    "staleness_skip": "The chronicle carries `type: episodic` frontmatter, so the staleness scan skips it for re-validation (the memory-consolidation-run scan; episodic never decays).",
     "evolution_protocol": "Append-only; historical rows never edited in place except the one-line-summary backfill of the just-closed-session row (placeholder -> harvested close-out one-liner, no-LLM). R-37 documentary lockstep with schemas/memory-schema.json body_conventions.episodic_chronicle_row + episodic_chronicle_optional_slots — the append-only invariant is the lockstep record, NOT a write-time DENY."
   },
   "type": "episodic-chronicle",
@@ -26,7 +26,7 @@
   "section_schema": "## <YYYY-MM-DD> — <git-slug>\\n- slots: \\{handoff: (true|false), checkpoint: (true|false), claude_mem: (true|false)\\}\\n- \\*\\*Anchor:\\*\\* .*\\n- \\*\\*Touched:\\*\\* touched: [0-9]+ file\\(s\\) on .*\\n- \\*\\*Next session:\\*\\* .*\\n- \\*\\*Summary:\\*\\* .*\\n- \\*\\*handoff:\\*\\* .*\\n- \\*\\*checkpoint:\\*\\* .*\\n- \\*\\*claude-mem:\\*\\* .*",
   "section_schema_format": "regex",
   "row_fields": {
-    "anchor": "cwd->git-slug (hooks/lib/paths.sh:180-187) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
+    "anchor": "cwd->git-slug (the hooks/lib/paths.sh project-slug resolver) + ISO date (date +%Y-%m-%d) + plan/phase (checkpoint.md flat scalars -> plan-path classify_plan_path -> `— none —`)",
     "touched": "`touched: <COUNT> file(s) on <branch>` — COUNT from the registry touched_files row; branch via git rev-parse --abbrev-ref HEAD",
     "next_session": "the verbatim `**Next session:**` line harvested no-LLM from the plan handoff/close-out",
     "summary": "written NO-LLM at SessionEnd as the literal placeholder `— summary on review —`; chronicle-index BACKFILLS it at session-close from the just-written handoff/close-out",

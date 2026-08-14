@@ -110,7 +110,7 @@ trap cleanup EXIT
 
 case "$INPUT_MODE" in
   live)
-    # G2/D3 (plan 110 T-62): resolve via the manifest.sh new-first/old-fallback
+    # G2/(T-62): resolve via the manifest.sh new-first/old-fallback
     # READ resolver (state/manifests/ first, vault Logs/ for one release; honors
     # a caller MANIFEST_PATH override). Removed in v1.4.0 (T-60).
     PAYLOAD_FILE="$(_manifest_read_path)"

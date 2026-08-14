@@ -2,7 +2,7 @@
 # Hook: SessionEnd — Evaluate consolidation gates and spawn background runner.
 # Must complete in <100ms. Actual consolidation runs detached.
 #   - Decay = re-validation prompt, never deletion. A SINGLE 180-day interval
-#     applies to all non-episodic memory (per-type half-lives deferred to v1.1);
+#     applies to all non-episodic memory (per-type half-lives are not modelled);
 #     episodic NEVER decays. last_validated is the SOLE decay input (required
 #     per schema 2.0.0); `updated` does NOT reset the clock. States are
 #     FRESH (<180d → none) / STALE (180-360d → propose revalidate) / EXPIRED
@@ -16,15 +16,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/lib/paths.sh"
-source "$SCRIPT_DIR/lib/lockf.sh"
+# FAIL-GRACEFUL SOURCE GUARD. Under the `set -euo pipefail` above, a bare `source` of a missing
+# or unreadable lib ABORTS this SessionEnd hook with a bash error on stderr and a non-zero exit —
+# a half-installed or partially-copied tree turns a silent no-op into a visible hook failure at
+# every session end. Both libs are REQUIRED (resolve_memory_dir comes from paths.sh, the lockf
+# spawn guard from lockf.sh), so the correct degrade is to leave the consolidation gate
+# unevaluated and exit clean.
+# THE GUARD IS A READABILITY PRE-TEST, NOT `source … || exit 0`, and the difference is measured,
+# not stylistic: on bash 3.2 a `.`/`source` whose file does not exist terminates a non-interactive
+# shell WHEN ERREXIT IS SET, so the `||` clause never runs and the hook still dies 1. (Verified
+# both ways: with `set -e` the trailing `|| exit 0` is unreachable; without it, it fires.) The
+# other hooks carrying that shorter form all run WITHOUT errexit, which is why it works there and
+# would be inert here. The pre-test form is the tree's own errexit-safe idiom —
+# hooks/handoff-chronicle-append.sh, hooks/library-log-append.sh, cron-health-banner.sh.
+# The hook is unchanged in every other respect and stays wired: only its FAILURE MODE moves from
+# hard-abort to silent no-op.
+{ [ -r "$SCRIPT_DIR/lib/paths.sh" ] && source "$SCRIPT_DIR/lib/paths.sh"; } || exit 0
+{ [ -r "$SCRIPT_DIR/lib/lockf.sh" ] && source "$SCRIPT_DIR/lib/lockf.sh"; } || exit 0
 MEMORY_DIR="$(resolve_memory_dir)"
 
 # --- Detached-spawn env pin (T-3) -----------------------------------
 # Sanctioned call-site block, verbatim from hooks/lib/detached-spawn-env.sh's header.
 # Re-pins CLAUDE_HOME (the measured escape vector) + MEMORY_DIR to the tree THIS hook was
 # loaded from, so the nohup'd runner below never re-resolves them itself
-# (memory-consolidation-run.sh:26 calls resolve_memory_dir() independently and :37
+# (memory-consolidation-run.sh calls resolve_memory_dir() independently and
 # `mkdir -p`s the result — a WRITE this parent's resolution never reached).
 # WHY HERE and not at the top of the file — two reasons, both load-bearing:
 #   1. BUDGET (<100ms, stated above). MEMORY_DIR is already resolved on the line above,
@@ -54,7 +69,30 @@ STALE_DAYS=180
 EXPIRED_DAYS=360
 
 # Parse stdin for session_id
-INPUT=$(cat)
+# BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
+# EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
+# `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
+# is on EVERY read and each line accumulates as it arrives, so a stream that keeps
+# delivering is never truncated; blank lines are PRESERVED and the trailing-newline
+# trim reproduces `$(cat)` exactly, so the payload reaches jq byte-identical.
+# HOOKS_STDIN_WAIT overrides (whole seconds); a zero/non-numeric value falls back
+# rather than reaching `read -t 0`, which on bash 3.2 arms no timer at all.
+# The two reference implementations under skills/librarian/capabilities/ are NOT
+# equivalent and this is neither: handoff-disposition-check.sh re-arms per read but
+# DROPS blank lines; rename-cascade.sh bounds only the FIRST read, then free-runs an
+# unbounded `cat`. This is the byte-preserving form the other hook drains carry.
+INPUT=""
+if [ ! -t 0 ]; then
+  _STDIN_WAIT="${HOOKS_STDIN_WAIT:-5}"
+  case "$_STDIN_WAIT" in ''|0|*[!0-9]*) _STDIN_WAIT=5 ;; esac
+  _STDIN_LINE=""
+  while IFS= read -r -t "$_STDIN_WAIT" _STDIN_LINE || [ -n "$_STDIN_LINE" ]; do
+    INPUT="${INPUT}${_STDIN_LINE}"$'\n'
+    _STDIN_LINE=""
+  done
+  while [ "${INPUT%$'\n'}" != "$INPUT" ]; do INPUT="${INPUT%$'\n'}"; done
+  unset _STDIN_WAIT _STDIN_LINE
+fi
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
 # Audit log entry so absence-of-runs is observable.

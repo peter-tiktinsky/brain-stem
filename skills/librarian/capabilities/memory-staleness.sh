@@ -52,7 +52,7 @@
 #                           — overrides per-type half-life table)
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
-# ([[feedback_python_heredoc_argv]]).
+# (data via argv, never a piped stdin).
 
 set -euo pipefail
 

@@ -2,8 +2,8 @@
 # SessionStart hook: legacy plans-dir tripwire.
 #
 # Detect resurrection of the legacy ~/.claude/plans/ stub with unexpected contents.
-# The plans dir migrated to ~/.claude-plans/ on 2026-04-13 (per
-# feedback_plans_dir_location). Any non-README.md content under the legacy path is a
+# The plans dir migrated to ~/.claude-plans/ on 2026-04-13; the legacy
+# ~/.claude/plans/ path is retired. Any non-README.md content under it is a
 # stale-reference bug; capture forensics, log, and preserve the placeholder for manual
 # investigation.
 #

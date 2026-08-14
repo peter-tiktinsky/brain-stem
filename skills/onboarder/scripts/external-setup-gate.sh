@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# skills/onboarder/scripts/external-setup-gate.sh — external-setup soft-mandate gate.
+# skills/onboarder/scripts/external-setup-gate.sh — (Tier-2 external-setup soft-mandate gate).
 #
 # Soft-mandate gate over the two GA external dependencies — claude-mem + GitHub.
-# (Obsidian moved OUT to the build-brain-vault Step-5 vault-open confirm beat.)
-# For each: probe (read-only) whether it is already set up; if not,
+# (Obsidian moved OUT to the build-brain-vault Step-5 vault-open confirm beat per
+# .) For each: probe (read-only) whether it is already set up; if not,
 # present a strong recommendation + honest rationale + frictionless skip; record
-# the disposition. Soft-mandate pattern: strong rec + frictionless
+# the disposition. A soft mandate: strong rec + frictionless
 # skip + honest cost framing — the flow completes coherently whether the user sets
 # up both or neither. NEVER blocks.
 #
@@ -48,6 +48,7 @@
 # Exit codes: 0 always (soft-mandate — never blocks) | 2 bad invocation/dep
 #             | 1 IO/state-write failure (block-and-log)
 #
+# Author: Claude Opus 4.7 (1M context) —
 set -u
 
 diag() { printf 'external-setup-gate FAIL: %s\n' "$1" >&2; }
@@ -103,7 +104,7 @@ probe_claude_mem() {
   # registry-truth check. The old `plugins/*claude-mem*` glob
   # and bare `command -v claude-mem` rungs false-positived — `npm install -g
   # claude-mem` leaves the SDK binary on PATH WITHOUT registering hooks (upstream's
- # own footgun), and install.sh never creates plugins/. Read the registry
+  # own footgun), and install.sh never creates plugins/. Read the registry
   # Claude Code itself loads plugins from. Shape-robust: .plugins may be an OBJECT
   # keyed by <plugin>@<marketplace> (→ keys) or an ARRAY of strings (→ elements);
   # match startswith("claude-mem@") or =="claude-mem". Missing/unreadable file ⇒
@@ -188,7 +189,7 @@ gate_tool() {
 
 printf '\n=== External setup — recommended for the full experience ===\n' >&2
 
-# claude-mem onboarding offer. claude-mem
+# claude-mem onboarding offer (.2). claude-mem
 # is OPTIONAL/recommended, NEVER required (System B is strictly additive). Honest
 # standalone-vs-augmented framing + the concrete marketplace-install command.
 gate_tool claude-mem probe_claude_mem "claude-mem (memory)" \

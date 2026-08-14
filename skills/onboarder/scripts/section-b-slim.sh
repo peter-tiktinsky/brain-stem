@@ -2,9 +2,9 @@
 # skills/onboarder/scripts/section-b-slim.sh — Tier-2 slim Section B'.
 #
 # The single voice-optional transcript section of the slim interview. Section A
-# is deterministic (section-a-slim.sh); Section C was cut (clusters defer to the
-# runtime propose-and-validate folder flow, vault rules are hand-edited into the
-# vault CLAUDE.md). B' captures
+# is deterministic (section-a-slim.sh); Section C was cut (operator decision
+# Clusters defer to the runtime propose-and-validate folder
+# flow, vault rules are hand-edited into the vault CLAUDE.md). B' captures
 # free-form input (long-winded is fine) and runs a SLIM LLM extraction that
 # CONSOLIDATES it into the tight, template-ready manifest fields: identity.role,
 # identity.organization, and the three behavioral prose blocks.

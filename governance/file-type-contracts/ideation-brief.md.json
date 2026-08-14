@@ -5,11 +5,12 @@
   "description": "Hook-consumable runtime artifact for plan-tree 00-ideation-brief.md files. Frozen-post-Session-1 body with amendment-pointer-block prepend pattern. Conditional plan-folder quartet member (gates at planned → in-progress for manifest.research_driven: true).",
   "version": "1.0.0",
   "status": "runtime",
-  "matcher_pillar": "governance/plans-rules.json",
-  "matcher_entry": "plan_folder_quartet.conditional[0]",
+  "matcher_pillar": "governance/frontmatter-rules.json",
+  "matcher_entry": "types.ideation-brief",
+  "matcher_rationale": "The matching registry entry is the frontmatter type registry, which declares the ideation-brief type and names this contract as its body_structure_contract. The plans pillar's plan_folder_quartet declares only `required` (spec.md, tasks.md, handoff.md, manifest.json) and carries no conditional slot: the ideation brief is not a quartet member, and the conditional_required block below is advisory-by-declaration with no write-time enforcer.",
   "_design_notes": {
     "consumer": "librarian plan-index; body-immutability is documentary — no write-time DENY (no immutability guard branch), per evolution_protocol",
-    "lockstep_pair": "governance/plans-rules.json :: plan_folder_quartet",
+    "lockstep_pair": "governance/frontmatter-rules.json :: types.ideation-brief (the type registration) + governance/plans-rules.json :: plan_folder_quartet (the quartet this file is the conditional companion to, not a member of)",
     "evolution_protocol": "Body frozen post-Session-1; amendments via prepended amendment-pointer-block referencing the canonical reference. Body preserved as the Session 0 research record. R-37 atomic lockstep — documentary-by-design (the frozen-body + amendment-pointer-block protocol is the lockstep record, NOT a write-time DENY)."
   },
 
