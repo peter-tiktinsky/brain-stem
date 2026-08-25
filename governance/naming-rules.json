@@ -141,16 +141,17 @@
       "home": "naming",
       "category": "C3",
       "surface": "plan-governance",
-      "tier": "informational",
+      "tier": "deny",
       "enforcement_layer": [
-        "librarian plan-parent-resolve capability (read-time / reconciler drift finding)",
+        "pre-write-guard.sh parent_plan write-time gate (DENY on depth>=3 sub-plan ROOT artifacts: spec.md / tasks.md / 00-ideation-brief.md; marker R28_DENY)",
+        "librarian plan-parent-resolve capability (read-time / reconciler drift finding — the broad sub-task-file population stays at this lane)",
         "librarian plan-index --parent <slug> flag",
         "librarian frontmatter shared helper"
       ],
       "status": "active",
       "source": "governance/naming-rules.json :: _rules (SoT; home naming, category C3)",
-      "failure_mode": "Sub-plan files at depth >= 3 without `parent_plan:` frontmatter are invisible to plan-tree walkers — librarian cannot resolve ancestry. Advisory: drift surfaced as a librarian reconciler finding, NOT a write-time block.",
-      "rule_text": "Sub-task files at depth >= 3 under `{plans_root}/` must carry `parent_plan: <top-level-slug>` frontmatter. Value is the top-level plan slug (no path, no extension). Plan-root files at depth 2, handoff.md at any depth, files under tests/, and files under _orchestrator/ are EXEMPT. R-28 is the COMPLEMENT to R-27: R-27 governs the sub-plan's OWN status; R-28 governs the sub-plan's POINTER TO ITS MASTER. Both fire on depth-3 sub-plan roots, independently. ADVISORY at v1.0.0 — librarian-audit only; pre-write-guard does NOT DENY on missing parent_plan: at depth >= 3.",
+      "failure_mode": "Sub-plan files at depth >= 3 without parent_plan: frontmatter are invisible to plan-tree walkers — librarian cannot resolve ancestry. PROMOTED: the sub-plan ROOT artifacts (spec.md / tasks.md / 00-ideation-brief.md) DENY at write time; the broad sub-task-file population (research notes, packets) stays a read-time reconciler drift finding, never a write block.",
+      "rule_text": "Sub-task files at depth >= 3 under `{plans_root}/` must carry `parent_plan: <top-level-slug>` frontmatter. Value is the top-level plan slug (no path, no extension). Plan-root files at depth 2, handoff.md at any depth, files under tests/, and files under _orchestrator/ are EXEMPT. R-28 is the COMPLEMENT to R-27: R-27 governs the sub-plan's OWN status; R-28 governs the sub-plan's POINTER TO ITS MASTER. Both fire on depth-3 sub-plan roots, independently. PROMOTED per this rule's own rollout.promotion_mechanism: pre-write-guard DENIES a depth>=3 sub-plan ROOT artifact (spec.md / tasks.md / 00-ideation-brief.md) missing parent_plan:; escape hatch R28_ALLOW_OVERRIDE=1; the broader population remains librarian-audit advisory.",
       "applies_to_depth": ">= 3 under {plans_root}/",
       "field_value_format": "top-level plan slug (no path, no extension)",
       "exemptions": [
@@ -164,7 +165,8 @@
         "v1_0_0": "ADVISORY at write-time (surfaces drift via librarian reconciler drift finding; no write-block).",
         "observation_window": ">= 30 days post-v1.0.0; librarian reconciler logs every R-28 advisory fire as a drift finding.",
         "promotion_trigger": "When advisory-fire data shows empirically low FP-rate (the scaffolder-emitted parent_plan correct-by-construction property), R-28 promotes to write-time DENY.",
-        "promotion_mechanism": "A substance change to pre-write-guard.sh or to this rule's enforcement_layer field; does NOT require a superseding ADR (the advisory-then-promote rollout idiom is part of the rule itself)."
+        "promotion_mechanism": "A substance change to pre-write-guard.sh or to this rule's enforcement_layer field; does NOT require a superseding ADR (the advisory-then-promote rollout idiom is part of the rule itself).",
+        "promoted": "Write-time DENY live on the sub-plan ROOT scope. Trigger verified at promotion: build-time census found 446 depth>=3 sub-plan-root artifacts with ZERO missing parent_plan (scaffolder-emitted, correct-by-construction) and 21 broad-population strays (historical deep files), which is why the DENY scope is the ROOTS population — the strays stay advisory at the reconciler lane. Promotion mechanism used: guard substance change + this enforcement_layer/tier edit, one commit, no superseding ADR (per promotion_mechanism)."
       }
     },
     {

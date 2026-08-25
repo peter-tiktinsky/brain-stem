@@ -45,6 +45,26 @@
 # (or whose plan no longer belongs to the spoke) is removed. NEVER follows or
 # deletes through a symlink target — only the farm link itself is unlinked.
 #
+# RULED VIEWER CONTRACT (operator-ruled):
+#   - The binder stays SYMLINK-based: the farm serves filesystem consumers; no
+#     file is ever duplicated into the binder, and the farm is never
+#     materialized as real per-plan copies.
+#   - Vault-viewer (Obsidian) navigation is carried by the research-index rows'
+#     CANONICAL links, not by the farm route: the farm subtree deliberately
+#     stays OUT of the viewer's index (dir-symlinks reached through a nested
+#     chain do not render there, and indexing the farm would double-index every
+#     research file — and later double-embed it).
+#   - The paired viewer ignore-filter narrowing (index the real binder pages
+#     while keeping the farm excluded) is an OPERATOR-side configuration step,
+#     never executed by this capability.
+#   - FARM SCOPE (ratified): the farm links _research/ ONLY, by design. The
+#     research-index rows carry resolving links for EVERY declared home
+#     (decisions/, target-state/, deliverables/ included), so a decisions-only
+#     plan is fully navigable through its rows; a wider farm would add
+#     filesystem surface with no consumer. plan-research-declare's four
+#     sanctioned homes are a DECLARATION vocabulary, not a farm-coverage
+#     mandate.
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/research-index.md   (atomic temp+os.replace;
@@ -387,25 +407,26 @@ def render_library_cell(lib_refs):
 
 
 def resolve_pcell(path, plan, plan_dir, binder_home):
-    # Resolving Path link by DECLARED home. A path under the plan's _research/ home is
-    # reachable through the research/<plan-slug>/ dir-symlink farm (which mirrors
-    # <plan>/_research/), so it keeps that farm route with the FULL remainder after
-    # _research/ — the whole remainder, not just the basename, so a nested subdir path
-    # resolves. Any OTHER declared home (decisions/, target-state/ incl. canonical/,
-    # deliverables/, a legacy research/ dir, a plan-root file, a depth-2 sub-plan) is
-    # not mirrored by the farm, so it links by a binder-home-relative path straight to
-    # the plan file. Links derive only from the manifest's DECLARED path, so a later
-    # move that repoints the declaration keeps the row resolving with no renderer change.
+    # CANONICAL-ROUTE-ONLY emission (the ruled viewer contract — header block
+    # above): EVERY Path cell links binder-relative straight to the plan file,
+    # the _research/ home included. The research/<plan-slug>/ farm is a
+    # filesystem surface and is NEVER emitted as a link route — a farm-routed
+    # link resolves only through the subtree the vault viewer deliberately keeps
+    # out of its index, so it dies for the human while the canonical route
+    # resolves for both the filesystem and the viewer. Links derive only from
+    # the manifest's DECLARED path, so a later move that repoints the
+    # declaration keeps the row resolving with no renderer change.
     if not path or path == "—":
         return "—"
-    if path == "_research" or path.startswith("_research/"):
-        remainder = path[len("_research/"):] if path.startswith("_research/") else ""
-        return md_link(path, "./research/%s/%s" % (plan, remainder))
     if plan_dir:
         target = os.path.normpath(os.path.join(plan_dir, path))
         return md_link(path, os.path.relpath(target, binder_home))
-    # defensive: no plan dir known => keep the legacy farm route with the basename.
-    return md_link(path, "./research/%s/%s" % (plan, os.path.basename(path)))
+    # defensive degenerate — UNREACHABLE from this capability's entry points
+    # (every rendered row is built FROM its plan_dir at the manifest walk): emit
+    # the declared path as plain text rather than fabricating a route. The
+    # retired legacy farm-route fallback is gone; its input population (non-farm
+    # research/ dirs) is permanently empty in the corpus.
+    return path
 
 
 def render_row(row, binder_home):

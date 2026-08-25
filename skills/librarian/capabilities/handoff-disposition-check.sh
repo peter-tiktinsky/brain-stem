@@ -2,7 +2,9 @@
 # handoff-disposition-check — Block session-close when touched handoff.md
 # files contain unresolved follow-up language without a disposition tag.
 #
-# Enforcement layer for R-25.
+# Landed: T-5 (2026-04-21). Extracted from SKILL.md
+# -723 pseudocode. Enforcement layer for rule R-25 (handoff disposition
+# completeness; the R-NN id resolves in the governance JSON registry).
 #
 # Usage:
 #   handoff-disposition-check.sh --files <file> [--files <file> ...]
@@ -128,7 +130,7 @@ while IFS= read -r file; do
   RESULT=$(python3 - "$file" <<'PY'
 import re, sys
 path = sys.argv[1]
-# Word-boundary-guarded unresolved-language regex per SKILL.md.
+# Word-boundary-guarded unresolved-language regex per SKILL.md-688.
 hit_re = re.compile(
     r"(^|[^a-zA-Z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)([^a-zA-Z]|$)",
     re.IGNORECASE,

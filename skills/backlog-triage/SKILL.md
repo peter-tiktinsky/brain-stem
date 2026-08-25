@@ -68,8 +68,13 @@ owning-spoke key, stamped mechanically at capture); optional
 when set. The disposition TARGET is a machine-joinable plan-dir key —
 `absorbed_into:` for ABSORB, `promoted_to:` for a graduated idea — resolvable against the
 plan roster as `NN-<slug>` or a sub-plan `NN-<slug>/SS-<subslug>`, with an optional
-` :: T-N` task suffix. The terminal `resolution ∈ {promoted, absorbed, resolved, dropped}`
-(+ `resolved_at`) is stamped by the `librarian:backlog-index` closure loop, not by triage.
+` :: T-N` task suffix. The terminal
+`resolution ∈ {promoted, absorbed, resolved, dropped, superseded, discharged}`
+(+ `resolved_at`) is stamped by the `librarian:backlog-index` closure loop (targeted
+notes) or the `librarian:inbox-settle` manual channel (operator-judgment settlement,
+no target) — not by triage. A settlement event relocates the note to
+`{paths.plans_root}/_inbox/_settled/` (forward-only; a settled note keeps owning its
+slug for capture collision).
 The note is NOT a `frontmatter-rules.json#types` vault type — it lives in the plans tree,
 hook-unblocked (`hooks/lib/plan-path.sh::classify_plan_path` returns `is_plan=0`).
 
@@ -132,7 +137,7 @@ note is confirmed well-formed. No partial note ever lands. Diagnostic written to
 
 Read, in order:
 1. `{paths.plans_root}/_backlog.md` — the unified rendered view (idea rows + plan rows). Read-only.
-2. Every `{paths.plans_root}/_inbox/*.md` idea note — extract `title`, `status`, `disposition`, and body for overlap comparison.
+2. Every `{paths.plans_root}/_inbox/*.md` idea note — extract `title`, `status`, `disposition`, and body for overlap comparison. Include `{paths.plans_root}/_inbox/_settled/*.md` in the COMPARISON set only (a new idea duplicating a settled one is a DUPLICATE — the need was already met); settled notes are never triage candidates themselves.
 3. Every `{paths.plans_root}/<NN>-<slug>/manifest.json` whose `status ∈ {researching, planned}` — extract `title`, `project`, `disposition` for overlap against in-flight plans.
 
 Build an index of titles, statuses, dispositions, and capability descriptions across all three sources.

@@ -19,6 +19,14 @@
 #   rename-detect.sh --since <iso8601>       # override 24h default (git-parsable)
 #   rename-detect.sh --root <path>           # override configured roots (repeatable)
 #   rename-detect.sh --register              # also append findings via manifest.sh
+#   rename-detect.sh --persist-history       # ALSO append each record to the
+#                                            # librarian-manifest rename_history[]
+#                                            # (named populator: manifest.sh
+#                                            # manifest_append_rename_history,
+#                                            # dedup on commit+from+to) so the
+#                                            # move outlives the 24h git window
+#                                            # and stays repairable later via
+#                                            # rename-cascade --from-history
 #   rename-detect.sh --min-similarity <int>  # filter by R-score (default: 0 = all)
 #   rename-detect.sh --help
 #
@@ -49,6 +57,7 @@ fi
 SINCE="24 hours ago"
 MIN_SIM="0"
 REGISTER="false"
+PERSIST_HISTORY="false"
 ROOTS=""
 
 while [[ $# -gt 0 ]]; do
@@ -56,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --since) SINCE="$2"; shift 2 ;;
     --root) ROOTS="${ROOTS}${ROOTS:+:}$2"; shift 2 ;;
     --register) REGISTER="true"; shift ;;
+    --persist-history) PERSIST_HISTORY="true"; shift ;;
     --min-similarity) MIN_SIM="$2"; shift 2 ;;
     -h|--help)
       awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
@@ -77,12 +87,25 @@ if [[ -z "$ROOTS" ]]; then
   ROOTS="${RENAME_DETECT_ROOTS:-$VAULT_ROOT:$PLANS_DIR:${CLAUDE_GIT_REPO:-}:${WORK_HOME:-}}"
 fi
 
-# Optional late-source of manifest.sh so --register doesn't cost anything
-# when unused (manifest.sh spins up python3 per call).
-if [[ "$REGISTER" == "true" ]]; then
+# Optional late-source of manifest.sh so --register / --persist-history don't
+# cost anything when unused (manifest.sh spins up python3 per call).
+if [[ "$REGISTER" == "true" || "$PERSIST_HISTORY" == "true" ]]; then
   # shellcheck source=/dev/null
   { [ -r "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh"; } \
     || source "$_REPO_LIB/manifest.sh"
+fi
+
+# --persist-history: mirror every emitted record into a temp NDJSON and append
+# it to the librarian-manifest rename_history[] at exit (the named populator:
+# manifest_append_rename_history, hooks/lib/manifest.sh — dedup on
+# commit+from+to). This is the durable trail that lets a rename outlive the
+# 24-hour git-log window: detect once, repair any time later via
+# rename-cascade --from-history. Flag-gated so a bare ad-hoc pipe stays
+# read-only against shared state.
+HISTORY_TMP=""
+if [[ "$PERSIST_HISTORY" == "true" ]]; then
+  HISTORY_TMP=$(mktemp -t rename-detect-history.XXXXXX)
+  trap 'rm -f "${HISTORY_TMP:-}"' EXIT
 fi
 
 # process_root — dispatch a configured root. A root that is itself a git repo is
@@ -177,6 +200,9 @@ emit_record() {
   if [[ "$REGISTER" == "true" ]]; then
     manifest_append_finding rename_detected "$payload" || true
   fi
+  if [[ -n "$HISTORY_TMP" ]]; then
+    printf '%s\n' "$payload" >> "$HISTORY_TMP"
+  fi
 }
 
 json_escape() {
@@ -197,5 +223,9 @@ for r in $ROOTS; do
   IFS=:
 done
 IFS="$OLD_IFS"
+
+if [[ -n "$HISTORY_TMP" && -s "$HISTORY_TMP" ]]; then
+  manifest_append_rename_history "$HISTORY_TMP" || true
+fi
 
 exit 0

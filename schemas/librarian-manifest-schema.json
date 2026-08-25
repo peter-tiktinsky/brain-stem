@@ -88,7 +88,7 @@
               "id": {
                 "type": "string",
                 "pattern": "^AR-[0-9]{3}$",
-                "description": "Architect recommendation ID. Pattern AR-NNN avoids collision with ENFORCEMENT-MAP R-NNN rules (per spec §R-C)."
+                "description": "Architect recommendation ID. The AR-NNN pattern is chosen so these ids cannot collide with the R-NNN governance rule-id space."
               },
               "title": { "type": "string" },
               "category": { "type": "string" },

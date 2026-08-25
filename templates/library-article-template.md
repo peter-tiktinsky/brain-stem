@@ -40,12 +40,15 @@ Body shape (C-FM-ART):
     regenerated content, not hand-maintained prose.
   - Per-article changelogs are killed — the single global _library/log.md is the
     change record.
-  - Bare [[name]] sibling wikilinks at the FOOT of the body (backlink-graph value;
-    basename uniqueness backs the bare form).
+  - Sibling links at the FOOT of the body: relative markdown links to sibling
+    article files (backlink-graph value; a real path resolves for an agent with
+    no basename index). The bare [[name]] wikilink form remains accepted during
+    the corpus conversion, backed by basename uniqueness and the
+    basename-collision scan — but new articles seed the markdown form.
 -->
 
 <Claude-synthesized body. Universal knowledge, one concept, scrubbed of all
 plan/project-specific detail. No leading section index.>
 
-[[<sibling-article-one>]]
-[[<sibling-article-two>]]
+[<Sibling Article One>](<sibling-article-one>.md)
+[<Sibling Article Two>](<sibling-article-two>.md)

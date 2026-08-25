@@ -250,6 +250,7 @@ for plan_dir, man in manifests:
         row = {
             "plan_slug": slug, "id": adr_id, "title": title, "status": status,
             "path": path, "superseded_by": superseded_by, "created": created,
+            "plan_dir": plan_dir,
         }
         grp.append(row)
         if adr_id:
@@ -275,7 +276,10 @@ for plan_dir, man in manifests:
 # --- render one decision log per spoke --------------------------------------
 def md_link(text, target):
     # deterministic relative-path link (binder roll-up class — generated
-    # roll-up rows use relative-path markdown links, never wikilinks).
+    # roll-up rows use relative-path markdown links, never wikilinks). The
+    # target must already be rebased to resolve FROM the binder file's own
+    # directory (_projects/<spoke>/) — the caller owns that arithmetic; a
+    # plan-relative path passed through raw is a dead link from the binder home.
     return "[%s](%s)" % (text, target)
 
 
@@ -288,8 +292,16 @@ def render_row(row, plan_adr_ids):
     title = esc(row["title"]) or "—"
     status = row["status"] or "—"
     # the ADR body STAYS at the path; the row links to it, never copies.
+    # The declared path is plan-relative (or absolute — join() passes it through),
+    # but this log is written to _projects/<spoke>/ — rebase the href against
+    # binder_home the way plan-research-index and plan-handoff-index do, keeping
+    # the DECLARED path as the visible text.
     path = row["path"]
-    pcell = md_link(path, path) if path else "—"
+    if path:
+        target = os.path.normpath(os.path.join(row["plan_dir"], path))
+        pcell = md_link(path, os.path.relpath(target, binder_home))
+    else:
+        pcell = "—"
     # forward-link: a superseded record points forward at the ADR that
     # replaced it; cross-reference to the in-projection row when present. The ✓
     # qualifies against the ADR ids of the row's OWN plan only (ADR ordinals

@@ -318,7 +318,7 @@ trap 'rm -f "$PWV_UNION_FILE"' EXIT
 
 # Gates 5 + 6 — registered-pattern match + atomic single-folder bootstrap. REUSES
 # the EXACT _index.md shape from index-maintain.sh (type:index + parent_folder at
-# depth>=1 + tags + updated + # <folder> + ## Contents + contents-enum sentinels;
+# depth>=2 + tags + updated + # <folder> + ## Contents + contents-enum sentinels;
 # atomic mkstemp+os.replace). The python body matches PWV_REL_DIR against
 # .frontmatter.path_routing.rules[]?.pattern (same fnmatch semantics as
 # index-maintain.sh's de-exemption walk) and writes ONLY when a pattern matches.
@@ -385,7 +385,9 @@ if os.path.isfile(idx_path):
     sys.exit(0)
 
 # Gate 6 — atomic single-folder bootstrap. Shape is BYTE-IDENTICAL to
-# index-maintain.sh's auto-bootstrap branch (except the `updated:` date is today's).
+# index-maintain.sh's auto-bootstrap branch (except the `updated:` date is today's,
+# and index-maintain's vault-root surfaces arm, which Gate 6 never needs — it
+# bootstraps registered Work subdirs, never the vault root).
 def file_type(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -410,28 +412,45 @@ def line_count(path):
     except Exception:
         return 0
 
+def nonzero(pth):
+    try:
+        return os.path.getsize(pth) > 0
+    except Exception:
+        return False
+
+def md_target(t):
+    # minimal percent-quoting so a markdown link target survives spaces/parens
+    return t.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+
 try:
+    # zero-byte .md children are non-authored placeholders — excluded (they enter
+    # the table when they gain content).
     children = [f for f in os.listdir(dirpath)
                 if f.endswith(".md") and f != "_index.md" and not f.startswith(".")
-                and os.path.isfile(os.path.join(dirpath, f))]
+                and os.path.isfile(os.path.join(dirpath, f))
+                and nonzero(os.path.join(dirpath, f))]
 except Exception:
     sys.exit(0)
 
 rows = []
 for c in sorted(children):
     cp = os.path.join(dirpath, c)
-    rows.append("| [[%s]] | %d | %s | |" % (c[:-3], line_count(cp), file_type(cp) or "—"))
+    rows.append("| [%s](%s) | %d | %s | |" % (c[:-3], md_target(c), line_count(cp), file_type(cp) or "—"))
 folder = os.path.basename(dirpath) or os.path.basename(os.path.dirname(dirpath))
-parent = os.path.basename(os.path.dirname(dirpath)) if os.sep in rel_dir else ""
+# parent_folder (contract shape): the indexed folder's PARENT as a vault-relative
+# path (rel is the vault-view dir, e.g. Work/<spoke>/<sub> -> parent Work/<spoke>).
+# Predicate `os.sep in rel_dir` == index-maintain's `rel and os.sep in rel`
+# (`os.sep in ""` is False, so the extra guard is redundant): both emit at depth >= 2.
+parent = os.path.dirname(rel) if os.sep in rel_dir else ""
 fm_lines = ["---", "type: index"]
 if parent:
     fm_lines.append("parent_folder: %s" % parent)
 _cohort_slug = re.sub(r"[^a-z0-9]+", "-", (rel or folder).lower()).strip("-") or "index"
 fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
 body = "\n".join(fm_lines)
-body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
+body += "# %s\n\n*[Folder context paragraph: 2-4 sentences describing what lives here, what doesn't, why the folder exists. Pedagogical.]*\n\n" % folder
 body += "## Contents\n\n" + START + "\n\n"
-body += "| Name | Lines | Type | Description |\n|------|-------|------|-------------|\n"
+body += "| File | Lines | Type | Description |\n|---|---|---|---|\n"
 body += ("\n".join(rows) + "\n") if rows else ""
 body += "\n" + END + "\n"
 try:

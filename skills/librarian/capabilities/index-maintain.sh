@@ -10,10 +10,20 @@
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
 #     missing/orphan rows, updated: bump, auto-bootstrap of a missing non-exempt
-#     _index.md. These flow through the AUTO-CORRECT branch.
+#     _index.md, and the bounded frontmatter re-mint on an existing index — the
+#     heal set tracks the staleness-flag set: type: (const `index` per the mandate
+#     contract; absent inserted, wrong rewritten), tags: (bootstrap default seeded
+#     ONLY when the key line is entirely absent — a present key is never
+#     rewritten), parent_folder: (path-derived root-relative parent at depth>=2;
+#     absent or divergent values heal). Atomic, dry-run-aware. These flow through
+#     the AUTO-CORRECT branch.
 #   Out of bounds (flagged, never overwritten): descriptions, ordering,
-#     exemption-list decisions, folder-context paragraph. These flow through the
-#     SEMANTIC-DRIFT branch which emits findings and NEVER writes vault content.
+#     exemption-list decisions, folder-context paragraph, created: (unknowable for
+#     an existing file), every human-authored/foreign frontmatter key (e.g. a
+#     hand-era engagement:/status:/owner: shape — preserved, never auto-removed),
+#     and whole-frontmatter-block creation on a file with no block. These flow
+#     through the SEMANTIC-DRIFT branch which emits findings and NEVER writes vault
+#     content.
 #   The two branches are not interchangeable — the semantic branch has no
 #     write-to-vault code path.
 #
@@ -35,8 +45,14 @@
 #   index-row-drift-mechanical (info-event) auto-corrected Lines/Type/missing/orphan row
 #   index-row-drift-semantic   (warning, --deep) description/ordering drift — NO auto-overwrite
 #   index-stale-frontmatter    (warning) _index.md frontmatter fails the index contract
-#   index-orphan-folder        (warning) parent_folder: does not resolve
-#   index-exemption-conflict   (warning) _index.md exists at an exempt path
+#   parent-folder-healed       (info-event) parent_folder: line healed to the
+#     path-derived root-relative parent (AUTO-CORRECT; dry-run emits with dry_run:true)
+#   index-frontmatter-healed   (info-event) bounded FM re-mint applied on an
+#     existing index (healed_keys[]: type const / absent-key tags default seed)
+#   index-orphan-folder        (warning) parent_folder: does not resolve (root-join)
+#   index-exemption-conflict   (warning) STRAY _index.md at an exempt path — a
+#     file matching another capability's declared writes[] target (capability
+#     registry) is writer-owned and NOT flagged
 #   mandate-violation          (warning) non-exempt folder lacks _index.md AND bootstrap failed
 #   work-master-deliverables-conflict (warning, advisory) a Work/<spoke> MASTER
 #     (sub-projects own deliverables/reference) ALSO carries a non-empty top-level
@@ -134,12 +150,21 @@ fi
 MANIFEST_SUBTREE_OUT="$(mktemp -t index-subtree-XXXXXX)"
 export MANIFEST_SUBTREE_OUT
 
-python3 - "$VROOT" "${GOV_DIR:-}" "$DEEP" "$DRY_RUN" "$BUNDLE" <<'PY'
+# Writer-owned exemption-conflict skip inputs: the capability registry (the
+# parity-checked declared-writes SoT) and the plans root (placeholder resolution
+# for {PLANS_ROOT}/{library} targets). Env-overridable for test isolation; a
+# missing/unreadable registry fails closed to the flag-everything behavior.
+CAP_REGISTRY="${CAPABILITY_REGISTRY:-$(cd "$(dirname "$0")/.." && pwd)/capability-registry.json}"
+PLANS_ROOT_RES="${PLANS_DIR:-$HOME/.claude-plans}"
+
+python3 - "$VROOT" "${GOV_DIR:-}" "$DEEP" "$DRY_RUN" "$BUNDLE" "$CAP_REGISTRY" "$PLANS_ROOT_RES" <<'PY'
 import json, os, re, sys, tempfile, fnmatch
 from datetime import date, datetime, timezone
 
 vroot, gov_dir, deep_s, dry_s = sys.argv[1:5]
 bundle_path = sys.argv[5] if len(sys.argv) > 5 else ""
+registry_path = sys.argv[6] if len(sys.argv) > 6 else ""
+plans_root = sys.argv[7] if len(sys.argv) > 7 else ""
 deep = (deep_s == "true")
 dry_run = (dry_s == "true")
 today = date.today().isoformat()
@@ -162,7 +187,7 @@ def emit(d):
 # carries the composed .mandatory_files slot; read mandates._index_md from it on
 # a fresh adopter (the loose pillar is repo-only). Fall back to the loose pillar
 # under gov_dir when the bundle is absent (dev-repo authoring).
-# DEAD-IN-PRACTICE default (round-2 finding): a non-empty pillar
+# DEAD-IN-PRACTICE default: a non-empty pillar
 # mandates._index_md.exemption_paths UNCONDITIONALLY replaces this at the
 # `if isinstance(ep, list) and ep` gate below; kept coherent with the pillar
 # (also the four foreign symlink surfaces Plans/Projects/Wiki/Skills)
@@ -275,6 +300,10 @@ def parse_fm(text):
             fm[m.group(1)] = m.group(2)
     return fm, 3, end
 
+def md_target(t):
+    # minimal percent-quoting so a markdown link target survives spaces/parens
+    return t.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+
 def file_type(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -290,6 +319,72 @@ def line_count(path):
             return sum(1 for _ in fh)
     except Exception:
         return 0
+
+# "Exempt from the MANDATE to exist" is not "forbidden to EXIST": an _index.md at
+# an exempt path that matches ANOTHER capability's declared writes[] target in the
+# capability registry is writer-owned (nonconformance heals at that writer) and is
+# NOT an exemption conflict. The skip set derives from the registry — the
+# parity-checked SoT — never a hardcoded path list; index-maintain's own entry is
+# EXCLUDED (its {VAULT_ROOT}/** target is the mandate population itself, not an
+# ownership claim over exempt paths). A missing/unreadable registry yields an
+# empty set (fail-closed to the flag-everything behavior — the arm is a warning).
+def _expand_braces(glob):
+    i = glob.find("{")
+    if i < 0:
+        return [glob]
+    j = glob.find("}", i)
+    if j < 0:
+        return [glob]
+    pre, opts, post = glob[:i], glob[i + 1:j], glob[j + 1:]
+    out = []
+    for opt in opts.split(","):
+        out.extend(_expand_braces(pre + opt + post))
+    return out
+
+def _writer_owned_globs():
+    globs = []
+    if not registry_path:
+        return globs
+    try:
+        with open(registry_path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except Exception:
+        return globs
+    caps = reg.get("capabilities", {}) if isinstance(reg, dict) else {}
+    pr = os.path.realpath(plans_root) if plans_root else ""
+    lib_root = os.path.join(pr, "_library") if pr else ""
+    wh = os.environ.get("WORK_HOME", "") or os.environ.get("BRAIN_STEM_WORK_HOME", "")
+    wh = os.path.realpath(wh) if wh else ""
+    vr = os.path.realpath(vroot)
+    for name, cap in caps.items():
+        if name == "index-maintain" or not isinstance(cap, dict):
+            continue
+        for w in ((cap.get("output_contract") or {}).get("writes") or []):
+            if not isinstance(w, str):
+                continue
+            token = w.split(" ", 1)[0].strip()
+            if not token.endswith("/_index.md"):
+                continue
+            token = token.replace("{PLANS_ROOT}", pr or "\0")
+            token = token.replace("{library}", lib_root or "\0")
+            token = token.replace("{VAULT_ROOT}", vr)
+            token = token.replace("$WORK_HOME", wh or "\0")
+            token = re.sub(r"<[^>/]+>", "*", token)
+            token = token.replace("/.../", "/*/")
+            for t in _expand_braces(token):
+                if "\0" in t or "{" in t:
+                    continue  # placeholder unresolvable in this environment
+                globs.append(t)
+    return globs
+
+_owned_globs = _writer_owned_globs()
+
+def _writer_owned(path):
+    rp = os.path.realpath(path)
+    for g in _owned_globs:
+        if fnmatch.fnmatch(rp, g):
+            return g
+    return None
 
 corrections = 0
 bootstraps = 0
@@ -318,36 +413,68 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
     idx_path = os.path.join(dirpath, "_index.md")
 
     if exempt:
-        # index-exemption-conflict — _index.md present at an exempt path.
-        if os.path.isfile(idx_path):
+        # index-exemption-conflict — a STRAY _index.md at an exempt path. A file
+        # matching another capability's declared writes[] target is writer-owned
+        # and skipped (see _writer_owned above) — exempt-from-mandate is not
+        # forbidden-to-exist (mandatory-files-rules.json :: exemption_semantics).
+        if os.path.isfile(idx_path) and not _writer_owned(idx_path):
             emit({"finding": "index-exemption-conflict", "file": idx_path,
                   "matched_exemption_glob": exempt,
                   "recommended_action": "review-exemption-or-remove",
                   "detected_at": today, "first_seen": today})
         continue
 
+    def _nonzero(pth):
+        try:
+            return os.path.getsize(pth) > 0
+        except Exception:
+            return False
+
+    # zero-byte .md children are non-authored placeholders — excluded from
+    # enumeration (they enter the table when they gain content).
     children = [f for f in filenames
-                if f.endswith(".md") and f != "_index.md" and not f.startswith(".")]
-    if not children and not os.path.isfile(idx_path):
+                if f.endswith(".md") and f != "_index.md" and not f.startswith(".")
+                and _nonzero(os.path.join(dirpath, f))]
+
+    # vault-root surfaces: at the ROOT index only, direct child dirs render as
+    # `surface`-type rows (File -> markdown link, Description -> resolved target)
+    # so a symlink-hub root is navigable instead of tabling 2 files while the
+    # hubs stay invisible. Description is DERIVED (re-resolved each splice).
+    surfaces = []
+    if not rel:
+        for d in sorted(dirnames):
+            _dp = os.path.join(dirpath, d)
+            if os.path.islink(_dp):
+                surfaces.append((d, "→ %s" % os.path.realpath(_dp)))
+            else:
+                surfaces.append((d, "(directory)"))
+
+    if not children and not surfaces and not os.path.isfile(idx_path):
         continue
 
     if not os.path.isfile(idx_path):
         # auto-bootstrap a missing non-exempt _index.md (AUTO-CORRECT branch).
         rows = []
+        for d, dest in surfaces:
+            rows.append("| [%s](%s/) | — | surface | %s |" % (d, md_target(d), dest))
         for c in sorted(children):
             cp = os.path.join(dirpath, c)
-            rows.append("| [[%s]] | %d | %s | |" % (c[:-3], line_count(cp), file_type(cp) or "—"))
+            rows.append("| [%s](%s) | %d | %s | |" % (c[:-3], md_target(c), line_count(cp), file_type(cp) or "—"))
         folder = os.path.basename(dirpath) or os.path.basename(vroot)
-        parent = os.path.basename(os.path.dirname(dirpath)) if rel and os.sep in rel else ""
+        # parent_folder (contract shape): the indexed folder's PARENT as a
+        # root-relative path — at depth 2 this equals the parent's basename, at
+        # depth >= 3 it is path-qualified (e.g. Work/<spoke>). Emitted at depth >= 2
+        # only (conditional_required per the _index.md contract).
+        parent = os.path.dirname(rel).replace(os.sep, "/") if rel and os.sep in rel else ""
         fm_lines = ["---", "type: index"]
         if parent:
             fm_lines.append("parent_folder: %s" % parent)
         _cohort_slug = re.sub(r"[^a-z0-9]+", "-", (rel or folder).lower()).strip("-") or "index"
         fm_lines += ["description: Folder index for %s." % folder, "created: %s" % today, "tags: [\"#scope/reference\"]", "updated: %s" % today, "id: index-%s" % _cohort_slug, "schema_version: 1", "---", ""]
         body = "\n".join(fm_lines)
-        body += "# %s\n\n_Folder index (auto-bootstrapped). Add a folder-context paragraph._\n\n" % folder
+        body += "# %s\n\n*[Folder context paragraph: 2-4 sentences describing what lives here, what doesn't, why the folder exists. Pedagogical.]*\n\n" % folder
         body += "## Contents\n\n" + START + "\n\n"
-        body += "| Name | Lines | Type | Description |\n|------|-------|------|-------------|\n"
+        body += "| File | Lines | Type | Description |\n|---|---|---|---|\n"
         body += ("\n".join(rows) + "\n") if rows else ""
         body += "\n" + END + "\n"
         if not dry_run:
@@ -372,29 +499,114 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
         text = fh.read()
     fm, _, _ = parse_fm(text)
 
+    depth = len([p for p in rel.split(os.sep) if p]) if rel else 0
+
+    # frontmatter heal (AUTO-CORRECT branch): the bounded re-mint set tracks the
+    # staleness-flag set — type: (const `index` per the mandate contract; absent
+    # inserted, wrong rewritten), tags: (bootstrap default seeded ONLY when the
+    # key line is entirely ABSENT — a present key is never rewritten, because an
+    # empty inline value is indistinguishable from a multi-line YAML list head and
+    # rewriting it would orphan the list items), parent_folder: (the path-derived
+    # root-relative parent at depth>=2). created:/description: and every
+    # human-authored key (e.g. a hand-era engagement:/status:/owner: shape) are
+    # NEVER touched — additions land around them. A file with no frontmatter
+    # block at all stays flag-only (whole-block creation is out of bounds). One
+    # atomic write; dry-run emits findings and mirrors the healed state in-memory
+    # without writing.
+    if text.startswith("---"):
+        fm_end = text.find("\n---", 3)
+        if fm_end != -1:
+            fm_block = text[3:fm_end]
+            fm_lines = fm_block.split("\n")
+            healed_keys = []
+            pf_from = None
+            pf_to = None
+
+            def _key_line_idx(key):
+                for i, ln in enumerate(fm_lines):
+                    if re.match(r"^%s:(\s|$)" % key, ln):
+                        return i
+                return -1
+
+            def _insert_after_type(line):
+                ti = _key_line_idx("type")
+                fm_lines.insert(ti + 1 if ti >= 0 else 1, line)
+
+            ti = _key_line_idx("type")
+            if ti < 0:
+                fm_lines.insert(1, "type: index")
+                healed_keys.append("type")
+            elif fm.get("type") != "index":
+                fm_lines[ti] = "type: index"
+                healed_keys.append("type")
+
+            if _key_line_idx("tags") < 0:
+                _insert_after_type('tags: ["#scope/reference"]')
+                healed_keys.append("tags")
+
+            if depth >= 2:
+                derived_pf = os.path.dirname(rel).replace(os.sep, "/")
+                cur_pf = fm.get("parent_folder", "")
+                if derived_pf and cur_pf != derived_pf:
+                    pi = _key_line_idx("parent_folder")
+                    if pi >= 0:
+                        fm_lines[pi] = "parent_folder: %s" % derived_pf
+                    else:
+                        _insert_after_type("parent_folder: %s" % derived_pf)
+                    pf_from, pf_to = cur_pf, derived_pf
+
+            if healed_keys or pf_to is not None:
+                healed_text = "---" + "\n".join(fm_lines) + text[fm_end:]
+                heal_ok = True
+                if not dry_run:
+                    try:
+                        fd, tmp = tempfile.mkstemp(dir=dirpath, prefix="._index.", suffix=".tmp")
+                        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                            fh.write(healed_text)
+                        os.replace(tmp, idx_path)
+                    except Exception as exc:
+                        heal_ok = False
+                        emit({"finding": "mandate-violation", "file": idx_path,
+                              "heal_error": str(exc),
+                              "detected_at": today, "first_seen": today})
+                if heal_ok:
+                    text = healed_text
+                    fm, _, _ = parse_fm(text)
+                    if pf_to is not None:
+                        emit({"finding": "parent-folder-healed", "file": idx_path,
+                              "healed_from": pf_from, "healed_to": pf_to,
+                              "dry_run": dry_run, "detected_at": today})
+                    if healed_keys:
+                        emit({"finding": "index-frontmatter-healed", "file": idx_path,
+                              "healed_keys": healed_keys,
+                              "dry_run": dry_run, "detected_at": today})
+
     # index-stale-frontmatter (SEMANTIC/flag branch — emit, no auto-fix of FM
-    # shape beyond updated: bump).
+    # shape beyond updated: bump). parent_folder is demanded at depth >= 2 only,
+    # matching the contract's conditional_required (depth-1 indexes omit it).
     missing_fields = []
     if fm.get("type") != "index":
         missing_fields.append("type")
     if not fm.get("tags"):
         missing_fields.append("tags")
-    depth = len([p for p in rel.split(os.sep) if p]) if rel else 0
-    if depth >= 1 and "parent_folder" not in fm:
+    if depth >= 2 and "parent_folder" not in fm:
         missing_fields.append("parent_folder")
     if missing_fields:
         emit({"finding": "index-stale-frontmatter", "file": idx_path,
               "missing_or_invalid_fields": missing_fields,
               "detected_at": today, "first_seen": today})
 
-    # index-orphan-folder
+    # index-orphan-folder — single-mode: the contract's parent_folder is
+    # root-relative, so the ONE canonical resolution is a root join (which also
+    # resolves across the vault's symlink hubs, e.g. Work/). The former
+    # sibling-relative probe existed only to half-tolerate bare-basename values
+    # (silent pass at depth 2, false orphan at depth >= 3) and is deliberately
+    # removed with them.
     pf = fm.get("parent_folder", "")
-    if pf:
-        cand = os.path.join(os.path.dirname(dirpath), pf)
-        if not os.path.isdir(cand) and not os.path.isdir(os.path.join(vroot, pf)):
-            emit({"finding": "index-orphan-folder", "file": idx_path,
-                  "declared_parent_folder": pf, "resolved_parent_folder_exists": False,
-                  "detected_at": today, "first_seen": today})
+    if pf and not os.path.isdir(os.path.join(vroot, pf)):
+        emit({"finding": "index-orphan-folder", "file": idx_path,
+              "declared_parent_folder": pf, "resolved_parent_folder_exists": False,
+              "detected_at": today, "first_seen": today})
 
     s_idx = text.find(START)
     e_idx = text.find(END)
@@ -424,7 +636,12 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
             delim_row = ln
             continue
         cols = [c.strip() for c in st.strip("|").split("|")]
+        # data rows carry either the retired wikilink grammar (live files converge
+        # on their next drifted re-splice) or the ruled markdown-link grammar;
+        # both key on the display label.
         m = re.match(r"\[\[(.+?)\]\]", cols[0]) if cols else None
+        if not m and cols:
+            m = re.match(r"\[([^\]]+)\]\([^)]*\)", cols[0])
         if m:
             existing_rows[m.group(1)] = cols
         elif not existing_rows:
@@ -433,6 +650,23 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
     new_rows = []
     drifted = False
     seen = set()
+    for d, dest in surfaces:
+        seen.add(d)
+        srow = ["[%s](%s/)" % (d, md_target(d)), "—", "surface", dest]
+        if d in existing_rows:
+            old = existing_rows[d]
+            if (old[3] if len(old) > 3 else "") != dest or (old[2] if len(old) > 2 else "") != "surface":
+                drifted = True
+                emit({"finding": "index-row-drift-mechanical", "file": idx_path,
+                      "drift_type": "surface-resolution", "child_file": d + "/",
+                      "before": (old[3] if len(old) > 3 else ""), "after": dest,
+                      "detected_at": today})
+        else:
+            drifted = True
+            emit({"finding": "index-row-drift-mechanical", "file": idx_path,
+                  "drift_type": "missing-row", "child_file": d + "/",
+                  "before": "", "after": "row-added", "detected_at": today})
+        new_rows.append("| %s | %s | %s | %s |" % tuple(srow))
     for c in sorted(children):
         name = c[:-3]
         seen.add(name)
@@ -456,13 +690,13 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
                       "drift_type": "description-coherence", "row_wikilink": name,
                       "suggested_correction": "review description vs file H1",
                       "detected_at": today, "first_seen": today})
-            new_rows.append("| [[%s]] | %s | %s | %s |" % (name, lc, ty, desc))
+            new_rows.append("| [%s](%s.md) | %s | %s | %s |" % (name, md_target(name), lc, ty, desc))
         else:
             drifted = True
             emit({"finding": "index-row-drift-mechanical", "file": idx_path,
                   "drift_type": "missing-row", "child_file": c,
                   "before": "", "after": "row-added", "detected_at": today})
-            new_rows.append("| [[%s]] | %s | %s | |" % (name, lc, ty))
+            new_rows.append("| [%s](%s.md) | %s | %s | |" % (name, md_target(name), lc, ty))
     for name in existing_rows:
         if name not in seen:
             drifted = True
@@ -479,8 +713,8 @@ for dirpath, dirnames, filenames in os.walk(vroot, followlinks=True):
         # assemble the header from the SURVIVING rows, falling back to the
         # bootstrap-branch canonical 2-line header (see :334) when the region carried
         # none — preserves an operator-tuned header, self-heals a damaged one.
-        canonical_header = "| Name | Lines | Type | Description |"
-        canonical_delimiter = "|------|-------|------|-------------|"
+        canonical_header = "| File | Lines | Type | Description |"
+        canonical_delimiter = "|---|---|---|---|"
         hdr = (header_row or canonical_header) + "\n" + (delim_row or canonical_delimiter)
         new_region = "\n\n" + hdr + "\n" + "\n".join(new_rows) + "\n\n"
         new_text = text[:s_idx + len(START)] + new_region + text[e_idx:]

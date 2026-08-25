@@ -68,7 +68,8 @@
       "r47_exempt_paths": [
         "Archive/**",
         ".claude/**",
-        ".claude/hooks/lib/**"
+        ".claude/hooks/lib/**",
+        "Work/*/reference/**"
       ],
       "exempt_path_semantics": "positive-list — unenumerated top-level paths default to the advisory firing (NOT auto-exempt). Adding a new exempt path requires R-37 documentary lockstep updating this rule + pre-write-guard.sh + foundation-master.json bundle composition (composed via tools/build-foundation-master.sh, never hand-edited).",
       "seed_taxonomy_exempt_paths": [

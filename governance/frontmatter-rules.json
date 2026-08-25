@@ -126,7 +126,7 @@
       "enforcement_layer": [
         "librarian frontmatter-coverage-audit (`provides-canonicality-drift` finding category)",
         "drift-allowlist override at hooks/drift-allowlist.json (`provides_overlap[]` for deliberate co-canonical pairs)",
-        "manifest mirror at librarian-manifest.json `drift_findings.provides_canonicality`"
+        "manifest mirror at librarian-manifest.json `drift_findings.frontmatter.provides_canonicality`"
       ],
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
@@ -155,7 +155,7 @@
         "adopter_extension_path": "overlay-master.frontmatter.canonical_scope_exemptions[]"
       },
       "drift_allowlist_path": "hooks/drift-allowlist.json",
-      "manifest_mirror_path": "librarian-manifest.json drift_findings.provides_canonicality"
+      "manifest_mirror_path": "librarian-manifest.json drift_findings.frontmatter.provides_canonicality"
     },
     {
       "id": "R-64",
@@ -345,7 +345,9 @@
         }
       },
       "optional": [
-        "provides"
+        "provides",
+        "project",
+        "workstream"
       ],
       "body_structure_contract": "governance/file-type-contracts/_index.md.json",
       "canonical_scope": true
@@ -416,7 +418,9 @@
         "timestamp"
       ],
       "optional": [
-        "tags"
+        "tags",
+        "project",
+        "workstream"
       ],
       "canonical_scope": false
     },
@@ -465,7 +469,26 @@
           "label": "_library/"
         }
       ],
-      "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime; the only write-time line-count enforcement is the navigational hub-file max-lines guard (R-03). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template."
+      "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime, and the runtime ships NO synchronous write-time line-count cap at all (the former navigational hub-file max-lines guard, R-03, is RETIRED: its block was removed rather than re-pointed; declared size limits are audit-time checks). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template."
+    },
+    "note": {
+      "tier": "standard",
+      "_description": "Thin universal raw-note type for durable hand- or machine-captured notes (work-spoke reference/ material and vault notes). Standard tier: user-authored capture is never DENY-gated — missing or partial frontmatter on a hand-written note draws at most a soft warning. The project-workspace scaffolder's --note mint stamps the full cohort plus the path_routing lineage fields (project, workstream) so machine-minted notes are conformant from birth; ephemeral scratch (daily/inbox/fleeting) stays out of scope by location.",
+      "required": [
+        "type",
+        "description",
+        "created",
+        "updated",
+        "tags",
+        "id",
+        "schema_version"
+      ],
+      "optional": [
+        "title",
+        "project",
+        "workstream"
+      ],
+      "canonical_scope": false
     }
   }
 }

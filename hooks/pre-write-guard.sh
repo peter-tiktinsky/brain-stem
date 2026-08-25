@@ -5,7 +5,8 @@
 # Plan file writes:   R-40 frontmatter-type advisory on canonical plan artifacts
 # Skill file edits:   4-step change protocol checklist
 #
-# ENFORCEMENT-MAP rules implemented here (see ~/.claude-plans/ENFORCEMENT-MAP.md):
+# R-NN enforcement rules implemented here (rule ids resolve in the governance JSON
+# registry, governance/*.json — the live rule source of truth):
 #   R-01  dead plans path DENY                        — line 26+
 #   R-03  RETIRED — the hub size guard keyed its trigger path off a hardcoded
 #         vault root that the path SoT no longer resolves to, and the file it
@@ -209,6 +210,47 @@ if [[ "${WORK_CONFIGURED:-0}" == "1" ]] && [[ "$FILE_PATH" == "$WORK_HOME/"* ]];
   fi
 fi
 # === end remap prelude ======================================
+
+# === PLANS_ADDR_CONV: plans-tree address-convergence prelude ================
+# Ruling: EXEMPT-with-convergence. The plans tree is governed by the R-40
+# advisory lane (schemas/plans-schema.json) at BOTH of its addresses — the
+# physical plans-root path and the vault-view Plans/ symlink spelling. The
+# vault 3-tier schema gate does NOT apply to the plans tree at either address:
+# before this prelude, the SAME file hard-DENIED via its Plans/ vault spelling
+# while the physical spelling passed every schema arm (no remap; R-40 exits
+# allow first) — a guard whose verdict depends on the spelling of a path is
+# not an enforcement layer.
+#
+# Mechanism (mirror-image of the Work remap above, opposite direction): when
+# the vault surfaces the plans root as a Plans/ SYMLINK, a vault-view spelling
+# canonicalizes to the physical plans path here, so every downstream consumer
+# — R-40, the plans-root namespace gate, the librarian registry-file screen,
+# the tasks.md generated-replica screen — governs the write identically at
+# both spellings, and the vault-gate prefix test no longer matches. The
+# physical path is the canonical key of a plans file under the corpus's
+# two-form addressing convention (markdown relative links for clickable
+# note-to-note references; absolute plans-root paths for machine and prose
+# citations).
+#
+# Adopter safety / fail-OPEN: rewrite ONLY when $VAULT_ROOT/Plans is a symlink
+# whose canonical target IS the plans root (pwd -P comparison). A REAL Plans/
+# directory in a vault — or a symlink pointing elsewhere — is never rewritten
+# and keeps full vault governance. Any resolution error leaves FILE_PATH
+# untouched.
+if [[ "${VAULT_CONFIGURED:-0}" == "1" ]] && [[ -n "${VAULT_ROOT:-}" ]] \
+   && [[ "$FILE_PATH" == "$VAULT_ROOT/Plans/"* ]]; then
+  PC_PLANS_ROOT="${PLANS_DIR:-$HOME/.claude-plans}"
+  PC_LINK="$VAULT_ROOT/Plans"
+  if [[ -L "$PC_LINK" ]]; then
+    PC_LINK_CANON="$(cd "$PC_LINK" 2>/dev/null && pwd -P 2>/dev/null || true)"
+    PC_PLANS_CANON="$(cd "$PC_PLANS_ROOT" 2>/dev/null && pwd -P 2>/dev/null || true)"
+    if [[ -n "$PC_LINK_CANON" ]] && [[ -n "$PC_PLANS_CANON" ]] \
+       && [[ "$PC_LINK_CANON" == "$PC_PLANS_CANON" ]]; then
+      FILE_PATH="$PC_PLANS_ROOT/${FILE_PATH#$VAULT_ROOT/Plans/}"
+    fi
+  fi
+fi
+# === end PLANS_ADDR_CONV prelude ===========================================
 #
 # (The R-55 live-mutation gate that formerly ran here — a fails-open exec of a
 # never-shipped helper — has been removed: that write-time enforcement was never built
@@ -402,6 +444,70 @@ if [[ "$(dirname "$FILE_PATH")" == "$B4_PT_PARENT" ]]; then
 fi
 # === end Branch #4 ====================================================
 
+# === Plan-tree tasks.md generated-replica write screen =======================
+# tasks.md is a rendered read-replica of manifest.tasks[] — single writer:
+# librarian tasks-render, auto-maintained by post-manifest-binder-refresh.sh
+# (every plan-manifest write) and tasks-md-autosync.sh (handoff task-done
+# path). A hand-edit to the rendered region is accepted silently and then
+# silently overwritten by the next manifest-triggered re-render — the
+# operator's edit disappears with no signal, and in the interim the replica
+# disagrees with the source of truth. This screen DENIES only a write that
+# CHANGES the <!-- tasks:start --> .. <!-- tasks:end --> sentinel region of an
+# EXISTING plan tasks.md:
+#   - operator narrative OUTSIDE the sentinels stays writable;
+#   - NEW tasks.md creation (the scaffolder's emitter) is untouched;
+#   - a file with no sentinel pair is not a rendered replica and is not
+#     screened;
+#   - CLAUDE_LIBRARIAN_WRITE=1 escapes (Branch #4 parity).
+# RENDER-PATH SAFETY: the renderers write via bash child processes (shell/
+# python file IO), which never cross this PreToolUse surface — the R-5
+# bash-blindness documented at the plans-root arm below is load-bearing here:
+# the screen cannot deadlock the render path. That same blindness is the
+# honest residual: a bash-side hand-edit is not screened; tasks-render's
+# tasks-md-drift finding is the detection layer for that class.
+T5R_PT_ROOT="${PLANS_DIR:-$HOME/.claude-plans}"
+if [[ "$FILE_PATH" == "$T5R_PT_ROOT/"* ]] && [[ "$(basename "$FILE_PATH")" == "tasks.md" ]] \
+   && [[ -f "$FILE_PATH" ]] && [[ "${CLAUDE_LIBRARIAN_WRITE:-0}" != "1" ]]; then
+  T5R_PROPOSED=""
+  if [[ "$TOOL_NAME" == "Write" ]]; then
+    T5R_PROPOSED=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
+  elif [[ "$TOOL_NAME" == "Edit" ]]; then
+    T5R_OLD=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty')
+    T5R_NEW=$(echo "$INPUT" | jq -r '.tool_input.new_string // empty')
+    T5R_PROPOSED=$(python3 - "$FILE_PATH" "$T5R_OLD" "$T5R_NEW" <<'PY' || true
+import sys
+fp, old_s, new_s = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(fp) as f:
+    content = f.read()
+sys.stdout.write(content.replace(old_s, new_s, 1))
+PY
+)
+  fi
+  if [[ -n "$T5R_PROPOSED" ]]; then
+    T5R_CHANGED=$(python3 - "$FILE_PATH" "$T5R_PROPOSED" <<'PY' 2>/dev/null || printf '0'
+import sys
+def region(text):
+    s = text.find('<!-- tasks:start -->')
+    e = text.find('<!-- tasks:end -->')
+    if s == -1 or e == -1 or e < s:
+        return None
+    return text[s:e]
+with open(sys.argv[1]) as f:
+    cur = f.read()
+cur_r = region(cur)
+new_r = region(sys.argv[2])
+print('1' if (cur_r is not None and new_r != cur_r) else '0')
+PY
+)
+    if [[ "$T5R_CHANGED" == "1" ]]; then
+      T5R_REASON="Plan-tree tasks.md generated-replica write blocked. tasks.md is a rendered read-replica of manifest.tasks[] — the sentinel region (<!-- tasks:start --> .. <!-- tasks:end -->) is owned by the librarian tasks-render capability, and a hand-edit there is silently overwritten by the next manifest-triggered re-render. Make the change in the plan's manifest.json (manifest.tasks[] is the task-state source of truth), then regenerate the view via \`librarian tasks-render\` (auto-fires on the manifest write). Operator narrative OUTSIDE the sentinel block is writable directly. Sanctioned mechanical writers export CLAUDE_LIBRARIAN_WRITE=1."
+      format_output_deny "PreToolUse" "$T5R_REASON"
+      exit 0
+    fi
+  fi
+fi
+# === end plan-tree tasks.md replica screen ===================================
+
 # === Plans-root closed-namespace allowlist arm (positioned BEFORE R-27) ======
 # BASH-BLINDNESS (R-5, documented-by-design): this PreToolUse Edit|Write MINT-arm — like the whole Edit|Write write-time cohort — is blind to Bash-tool writes (heredoc/cp/mv/tee/python), so a Bash-scaffolded root entry / manifest bypasses it; the "honest residual" labeled at placement-validate.sh:95-96. The rule-30 Phase-2 PreToolUse Bash command-screen escalation is data-gated + NOT built.
 # Enforces plans-rules.json :: root_namespace — the plans-tree root is a CLOSED namespace.
@@ -469,9 +575,9 @@ fi
 #   ~/.claude-plans/*/README.md                 (folder-style plans' index doc)
 #   ~/.claude-plans/*/manifest.json             (top-level status field)
 #
-# Whitelisted (vault-wide registries, not plans):
-#   ~/.claude-plans/ENFORCEMENT-MAP.md
+# Whitelisted (registry surfaces per classify_root_entry, not plans):
 #   ~/.claude-plans/_index.md
+#   ~/.claude-plans/_backlog.md
 #
 # Detection: reconstruct post-write content; require one of
 #   (a) **Status:** <value> header bullet
@@ -837,9 +943,27 @@ fi
 # generated_by=librarian:backlog-index). Branch #4 (~line 243) enforces
 # librarian-only writes to _backlog.md/_index.md.
 #
-# Never blocks. Always exit 0 with permissionDecision: allow.
+# PROMOTED POSTURE (R65_PROMOTED / R28_DENY): two arms of this block are now
+# write-time GATES; everything else stays advisory exit-0-allow.
+#   1. Canonical-type gate (registered rule id R-65, plans-rules.json :: _rules):
+#      a MISSING or NON-CANONICAL type: on the 4 canonical basenames DENIES the
+#      write. The blocking mechanism is this block + schemas/plans-schema.json.
+#      Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades the
+#      gate to the legacy advisory for that write.
+#   2. parent_plan gate (rule R-28, naming-rules.json :: _rules, promoted per
+#      its own rollout.promotion_mechanism): a depth>=3 sub-plan ROOT artifact
+#      (spec.md / tasks.md / 00-ideation-brief.md; handoff.md and tests/ /
+#      _orchestrator/ paths exempt per the rule) missing parent_plan: DENIES.
+#      Escape hatch: R28_ALLOW_OVERRIDE=1.
+# LABEL NOTE: the emitted advisory strings keep their historical
+# "[R-40 PLAN FRONTMATTER]" (and sibling [R-40 LIBRARY/BINDER]) prefixes for
+# fixture/sentinel continuity — but the REGISTERED id of the canonical-type
+# rule is R-65: the bare R-40 id belongs to the frontmatter pillar's
+# provides-canonicality rule, so DENY messages name the mechanism, never the
+# legacy label.
 if [[ "$FILE_PATH" == *"/.claude-plans/"*".md" ]]; then
   R40_ADVISORY=""
+  R65_DENY_MSG=""
   PL_CONTENT=""
   PL_BASE=$(basename "$FILE_PATH")
   PL_EXPECTED_TYPE=""
@@ -879,9 +1003,34 @@ PYEOF
       PL_ACTUAL_TYPE=$(printf '%s\n' "$PL_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' 2>/dev/null | grep -E '^type:[[:space:]]*' 2>/dev/null | head -1 | sed -E 's/^type:[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//' 2>/dev/null || true)
 
       if [[ -z "$PL_ACTUAL_TYPE" ]]; then
-        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} is missing a canonical type: field in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json). Advisory only — this write is allowed. Canonical frontmatter stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/status: planned|active|complete|draft/created: YYYY-MM-DD/updated: YYYY-MM-DD/---"
+        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} is missing a canonical type: field in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json). Canonical frontmatter stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/description: ...(one line)/created: YYYY-MM-DD/updated: YYYY-MM-DD/id: ...(slug)/schema_version: 1/---. NOTE: no status: in artifact frontmatter — status is DERIVE, owned solely by manifest.json :: status."
+        R65_DENY_MSG="Write blocked — plan-artifact frontmatter gate (rule R-65; schemas/plans-schema.json): ${PL_BASE} is missing its canonical type: field. Add type: ${PL_EXPECTED_TYPE} to the YAML frontmatter and retry. Canonical stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/description: ...(one line)/created: YYYY-MM-DD/updated: YYYY-MM-DD/id: ...(slug)/schema_version: 1/---. No status: in artifact frontmatter — status is DERIVE, owned solely by manifest.json :: status. Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades this gate to the legacy advisory."
       elif [[ "$PL_ACTUAL_TYPE" != "$PL_EXPECTED_TYPE" ]]; then
-        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} has non-canonical type: '${PL_ACTUAL_TYPE}' in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json filename-to-type map). Advisory only — this write is allowed. 5 canonical plan-artifact types: spec, tasks, handoff, ideation-brief, manifest."
+        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} has non-canonical type: '${PL_ACTUAL_TYPE}' in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json filename-to-type map). 5 canonical plan-artifact types: spec, tasks, handoff, ideation-brief, manifest."
+        R65_DENY_MSG="Write blocked — plan-artifact frontmatter gate (rule R-65; schemas/plans-schema.json): ${PL_BASE} carries non-canonical type: '${PL_ACTUAL_TYPE}'. Expected type: ${PL_EXPECTED_TYPE} (filename-to-type map). Fix the type: field and retry. Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades this gate to the legacy advisory."
+      fi
+
+      # R28_DENY: promoted parent_plan write-time gate (naming-rules.json R-28,
+      # promoted via its own rollout.promotion_mechanism — trigger verified at
+      # build: 446 depth>=3 sub-plan-root artifacts, 0 missing parent_plan,
+      # scaffolder correct-by-construction). SCOPE = sub-plan ROOT artifacts
+      # only (spec.md / tasks.md / 00-ideation-brief.md at depth >= 3): the
+      # rule's own summary sentence — "both fire on depth-3 sub-plan roots".
+      # The broad sub-task-file population (research notes, packets) stays at
+      # the read-time reconciler lane (plan-parent-resolve), where its 21
+      # historical strays are advisory findings, never write blocks.
+      if [[ "$PL_EXPECTED_TYPE" == "spec" || "$PL_EXPECTED_TYPE" == "tasks" || "$PL_EXPECTED_TYPE" == "ideation-brief" ]]; then
+        R28_REL="${FILE_PATH#*/.claude-plans/}"
+        R28_SLASHES="$(printf '%s' "$R28_REL" | tr -cd '/' | wc -c | tr -d ' ')"
+        R28_DEPTH=$(( R28_SLASHES + 1 ))
+        case "/$R28_REL" in */tests/*|*/_orchestrator/*) R28_DEPTH=0 ;; esac
+        if [[ "$R28_DEPTH" -ge 3 ]] && [[ "${R28_ALLOW_OVERRIDE:-0}" != "1" ]]; then
+          R28_PP="$(printf '%s\n' "$PL_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' 2>/dev/null | grep -m1 -E '^parent_plan:[[:space:]]*[^[:space:]]' || true)"
+          if [[ -z "$R28_PP" ]]; then
+            format_output_deny "PreToolUse" "Write blocked — parent_plan gate (rule R-28, governance/naming-rules.json, promoted to write-time DENY): ${PL_BASE} is a depth>=3 sub-plan root artifact and must carry parent_plan: <top-level-slug> frontmatter (value: the top-level plan slug, no path, no extension). handoff.md and files under tests/ or _orchestrator/ are exempt. Escape hatch for field over-fire: R28_ALLOW_OVERRIDE=1."
+            exit 0
+          fi
+        fi
       fi
 
       # --- T-3: spec.md status-line single-enum advisory ----------
@@ -1042,12 +1191,16 @@ PYEOF
     # No advisory — pass through allow.: format_output_allow with empty
     # ctx (adds empty additionalContext; decision/permissionDecision unchanged).
     format_output_allow "PreToolUse" ""
+  elif [[ -n "$R65_DENY_MSG" ]] && [[ "${R65_ALLOW_OVERRIDE:-0}" != "1" ]]; then
+    # R65_PROMOTED: the canonical-type arm DENIES (mechanism-named message;
+    # the legacy advisory below survives only under the rollback override).
+    format_output_deny "PreToolUse" "$R65_DENY_MSG"
   else
     format_output_allow "PreToolUse" "$R40_ADVISORY"
   fi
   exit 0
 fi
-# === end R-40 plan-artifact frontmatter advisory ==========================
+# === end R-40 plan-artifact frontmatter advisory (type arm PROMOTED: R-65) =
 
 # --- REMINDER: Skill change protocol + Branch #1 Class D ---
 # Runtime skills only (${CLAUDE_HOME:-$HOME/.claude}/skills/<skill>/SKILL.md and
@@ -1606,6 +1759,7 @@ fi
 # (skill-file glob scope).
 B1_OVERLAY="${OVERLAY_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/overlay-master.json}"
 B1_FRAGMENT=""
+B1_DEPTH0_EXISTING=0
 
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B1_REL="${FILE_PATH#$VAULT_ROOT/}"
@@ -1624,7 +1778,18 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
         : # known vault-root file; no propose-and-validate
         ;;
       *)
-        B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class B /] You are creating a new vault-root file: '${B1_REL}'. The only mandatory vault-root file is CLAUDE.md. New vault-root files register a new semantic extension. Suggested: run \`/govern register --kind file-type --name <type-slug> --contract <path>\` to register a contract for this file, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-b; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+        if [[ -f "$FILE_PATH" ]]; then
+          # EXISTING vault-root file (Write or Edit): this is a mutation of an
+          # already-governed file, not a creation, so no propose-and-validate
+          # advisory fires. The flag routes it past Class C (the new-file-type
+          # proposal path) so it falls through to the 3-TIER VAULT SCHEMA gate
+          # below — the same existing-file enforcement every deeper path
+          # already has. Without this, a type: hijack on the root _index.md
+          # short-circuits to allow with a misleading "creating" advisory.
+          B1_DEPTH0_EXISTING=1
+        else
+          B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class B /] You are creating a new vault-root file: '${B1_REL}'. The only mandatory vault-root file is CLAUDE.md. New vault-root files register a new semantic extension. Suggested: run \`/govern register --kind file-type --name <type-slug> --contract <path>\` to register a contract for this file, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-b; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
+        fi
         ;;
     esac
   fi
@@ -1668,8 +1833,11 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
 
   # Class C: new file-type in existing (known) folder. Only runs on Write
   # ops (Edit ops are mutations of existing files where type: already exists
-  # in foundation/overlay or was previously registered).
-  if [[ -z "$B1_FRAGMENT" ]] && [[ "$TOOL_NAME" == "Write" ]]; then
+  # in foundation/overlay or was previously registered). An EXISTING depth-0
+  # file is likewise excluded (B1_DEPTH0_EXISTING): overwriting an existing
+  # vault-root file is a mutation, not a new-file-type proposal, and must
+  # reach the 3-tier gate below rather than allow-with-advisory here.
+  if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH0_EXISTING" == "0" ]] && [[ "$TOOL_NAME" == "Write" ]]; then
     B1_C_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
     if [[ -n "$B1_C_CONTENT" ]]; then
       B1_C_TYPE=$(printf '%s\n' "$B1_C_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' | grep -E '^type:' | head -1 | sed -E 's/^type:[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//' || true)
@@ -1906,6 +2074,28 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
       break
     fi
   done <<< "$GATE_R32_EXEMPT_PATHS"
+
+  # GENBY_EXEMPT: machine-written-file exemption. A file whose EXISTING on-disk
+  # frontmatter carries a generated_by: writer stamp (or generated: true) is a
+  # machine surface owned by its writer — the schema gate does not DENY the
+  # model's edits to it (the writer, not the editor, owns its conformance; a
+  # nonconformant machine file heals at the WRITER, never by hand-fixing under
+  # write-time pressure). NOT A BYPASS: the signal is read from the file ON
+  # DISK only, never from the proposed payload — a NEW file claiming
+  # generated_by in its content, or an edit ADDING the key to an unmarked
+  # file, gets no exemption (the on-disk state is what the machine writer
+  # actually minted). Fail-closed: unreadable file or no frontmatter -> no
+  # exemption.
+  if [[ $R32_EXEMPT -eq 0 ]] && [[ -f "$FILE_PATH" ]]; then
+    GENBY_HEAD="$(head -c 2048 "$FILE_PATH" 2>/dev/null || true)"
+    if printf '%s' "$GENBY_HEAD" | head -1 | grep -q '^---' ; then
+      GENBY_FM="$(printf '%s\n' "$GENBY_HEAD" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}')"
+      if printf '%s\n' "$GENBY_FM" | grep -qE '^generated_by:[[:space:]]*[^[:space:]]' \
+         || printf '%s\n' "$GENBY_FM" | grep -qE '^generated:[[:space:]]*true[[:space:]]*$'; then
+        R32_EXEMPT=1
+      fi
+    fi
+  fi
 
   if [[ $R32_EXEMPT -eq 0 ]] && [[ -n "$BUNDLE_JSON" ]]; then
 
@@ -2259,7 +2449,11 @@ print(content, end='')
         if [[ -n "$CONTENT" ]]; then
           R48_TMP=$(mktemp -t r48content.XXXXXX)
           printf '%s' "$CONTENT" > "$R48_TMP"
-          R48_BROKEN=$(python3 - "$VAULT_ROOT" "$R48_TMP" "${PLANS_DIR:-}" <<'PYEOF' 2>/dev/null || true
+          # argv 4 (T-3): the write's own path anchors source-relative
+          # markdown-link resolution. Appended AFTER the original argv so the
+          # fixture extractions that pin this line's shape keep matching; the
+          # python body treats a missing argv 4 as "markdown branch off".
+          R48_BROKEN=$(python3 - "$VAULT_ROOT" "$R48_TMP" "${PLANS_DIR:-}" "$FILE_PATH" <<'PYEOF' 2>/dev/null || true
 import sys, os, re
 
 vault_root = sys.argv[1]
@@ -2341,11 +2535,67 @@ for t in sorted(targets):
 
 if broken:
     print(",".join(broken[:5]))  # cap at 5 for advisory brevity
+
+# --- markdown-link targets (T-3): the SECOND grammar, additive. ---
+# `[text](target)` resolves SOURCE-RELATIVE, anchored at the file being
+# written (argv 4; absent argv 4 = branch off, so extracted-body fixtures
+# passing 3 argv are byte-compatible). The walk above already indexed EVERY
+# file's rel path (not only .md), so resolution is index membership; ONE
+# os.path.exists() confirm fires only on an index miss (e.g. a target routed
+# through the Plans/ symlink, which the followlinks=False walk cannot see),
+# bounded by miss count — never per-link. Absolute/~/anchor-only/URL targets
+# and unquoted-whitespace captures are dropped, %-quoting is decoded. Broken
+# targets print on a separate `MD:`-prefixed line so the shell can label the
+# two grammars distinctly.
+file_path = sys.argv[4] if len(sys.argv) > 4 else ""
+if file_path:
+    from urllib.parse import unquote
+    src_dir = os.path.dirname(file_path)
+    md_broken = []
+    md_seen = set()
+    # Full [text](target) shape required — a bare `](x)` in prose is not a link.
+    for m in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", content):
+        raw = m.group(1).strip()
+        if not raw or raw.startswith(("/", "~", "#", "http://", "https://", "mailto:")):
+            continue
+        if " " in raw or "\t" in raw:
+            continue
+        t = raw.split("#")[0]
+        if not t:
+            continue
+        t = unquote(t)
+        if raw in md_seen:
+            continue
+        md_seen.add(raw)
+        cand = os.path.normpath(os.path.join(src_dir, t))
+        try:
+            rel = os.path.relpath(cand, vault_root).lower()
+        except ValueError:
+            rel = ".."
+        if not rel.startswith(".."):
+            if rel in existing_paths or rel.rstrip("/") in existing_paths:
+                continue
+        if os.path.exists(cand):
+            continue
+        md_broken.append(raw)
+    if md_broken:
+        print("MD:" + ",".join(md_broken[:5]))
 PYEOF
 )
           rm -f "$R48_TMP" 2>/dev/null || true
           if [[ -n "$R48_BROKEN" ]]; then
-            TIER1_MSGS="${TIER1_MSGS}[R-48 BROKEN WIKILINK] File at '${REL_PATH}' contains wikilink(s) to non-existent target(s): ${R48_BROKEN}. Advisory only — not blocking. Run /librarian (wikilink-repair capability) or create the target file if intended.\n"
+            # Two grammars, two lines (T-3): the wikilink list is the
+            # bare first line (byte-compatible with the original single-line
+            # contract); markdown-link breakage arrives on an `MD:`-prefixed
+            # line and gets its own advisory label.
+            R48_WIKI=$(printf '%s\n' "$R48_BROKEN" | grep -v '^MD:' | head -1 || true)
+            R48_MD=$(printf '%s\n' "$R48_BROKEN" | grep '^MD:' | head -1 | sed 's/^MD://' || true)
+            if [[ -n "$R48_WIKI" ]]; then
+              TIER1_MSGS="${TIER1_MSGS}[R-48 BROKEN WIKILINK] File at '${REL_PATH}' contains wikilink(s) to non-existent target(s): ${R48_WIKI}. Advisory only — not blocking. Run /librarian (wikilink-repair capability) or create the target file if intended.\n"
+            fi
+            if [[ -n "$R48_MD" ]]; then
+              TIER1_MSGS="${TIER1_MSGS}[R-48 BROKEN MARKDOWN LINK] File at '${REL_PATH}' contains markdown link(s) to non-existent target(s): ${R48_MD}. Advisory only — not blocking. Fix the relative path or create the target file if intended.\n"
+            fi
           fi
         fi
 
@@ -2358,6 +2608,15 @@ PYEOF
         if [[ -n "$SCHEMA_KEY" ]]; then
           REQUIRED_FIELDS=$(jq -r --arg key "$SCHEMA_KEY" '.frontmatter.types[$key].required // [] | .[]' <<<"$UNION_JSON" 2>/dev/null)
           if [[ -n "$REQUIRED_FIELDS" ]]; then
+            # STD_TIER_WARN: tier-aware required-field enforcement. The type
+            # registry's tier_compliance contract declares Standard-tier types
+            # validation_behavior "warn" (user-authored capture is never
+            # DENY-gated) — so for a tier=standard type EVERY missing required
+            # field routes to the Tier-1 warn set; Strict-tier types keep the
+            # hard-block on their residual fields. Before this, the gate
+            # enforced required[] identically for every tier, denying the very
+            # capture class the Standard tier exists to keep soft.
+            SCHEMA_TIER=$(jq -r --arg key "$SCHEMA_KEY" '.frontmatter.types[$key].tier // "strict"' <<<"$UNION_JSON" 2>/dev/null)
             MISSING_FIELDS=""
             COHORT_SOFT_MISSING=""
             while IFS= read -r field; do
@@ -2371,7 +2630,11 @@ PYEOF
                   created|description|id|schema_version)
                     COHORT_SOFT_MISSING="${COHORT_SOFT_MISSING}${field}, " ;;
                   *)
-                    MISSING_FIELDS="${MISSING_FIELDS}${field}, " ;;
+                    if [[ "$SCHEMA_TIER" == "standard" ]]; then
+                      COHORT_SOFT_MISSING="${COHORT_SOFT_MISSING}${field}, "
+                    else
+                      MISSING_FIELDS="${MISSING_FIELDS}${field}, "
+                    fi ;;
                 esac
               fi
             done <<< "$REQUIRED_FIELDS"
@@ -2474,6 +2737,7 @@ PYEOF
         WIKILINK_FIELDS="owner engagement attendees projects previous_instance"
         WIKILINK_CHECK_COUNT=0
         BAD_LINKS=""
+        BAD_MDLINKS=""
         for wfield in $WIKILINK_FIELDS; do
           [[ $WIKILINK_CHECK_COUNT -ge 10 ]] && break
           WVAL=$(fm_val "$wfield")
@@ -2492,11 +2756,42 @@ PYEOF
                 WIKILINK_CHECK_COUNT=$((WIKILINK_CHECK_COUNT + 1))
               done <<< "$LINKS"
             fi
+            # Markdown-grammar references in the same fields (T-3,
+            # additive): [text](target). External/absolute/anchor targets are
+            # skipped; a %-quoted or space-carrying target is skipped
+            # (conservative — this bash arm cannot normalize those spellings
+            # and must never DENY on one it cannot resolve). Resolution tries
+            # vault-root-relative (parity with the wikilink check above) then
+            # source-file-relative; shares the same per-write check cap.
+            MD_REFS=$(echo "$WVAL" | grep -oE '\[[^][]*\]\([^)]+\)' || true)  # errexit-crash-guard-ok: GUARDED — '|| true' is inside the substitution; a paren-blind scan ends the span at the ')' inside the bracket class of this regex literal and cannot see the guard
+            if [[ -n "$MD_REFS" ]]; then
+              while IFS= read -r mref; do
+                [[ $WIKILINK_CHECK_COUNT -ge 10 ]] && break
+                MD_TGT=$(printf '%s' "$mref" | sed -E 's/^\[[^]]*\]\(([^)]+)\)$/\1/')
+                case "$MD_TGT" in
+                  ""|/*|\~*|"#"*|http://*|https://*|mailto:*|*%*|*" "*) continue ;;
+                esac
+                MD_TGT="${MD_TGT%%#*}"
+                [[ -z "$MD_TGT" ]] && continue
+                MD_SRC_DIR=$(dirname "$FILE_PATH")
+                if [[ ! -f "$VAULT_ROOT/$MD_TGT" ]] && [[ ! -f "$VAULT_ROOT/${MD_TGT}.md" ]] \
+                   && [[ ! -d "$VAULT_ROOT/$MD_TGT" ]] \
+                   && [[ ! -f "$MD_SRC_DIR/$MD_TGT" ]] && [[ ! -f "$MD_SRC_DIR/${MD_TGT}.md" ]] \
+                   && [[ ! -d "$MD_SRC_DIR/$MD_TGT" ]]; then
+                  BAD_MDLINKS="${BAD_MDLINKS}${wfield}: ${mref}, "
+                fi
+                WIKILINK_CHECK_COUNT=$((WIKILINK_CHECK_COUNT + 1))
+              done <<< "$MD_REFS"
+            fi
           fi
         done
         BAD_LINKS="${BAD_LINKS%, }"
         if [[ -n "$BAD_LINKS" ]]; then
           TIER2_MSGS="${TIER2_MSGS}Wikilink fields referencing non-existent files: ${BAD_LINKS}.\n"
+        fi
+        BAD_MDLINKS="${BAD_MDLINKS%, }"
+        if [[ -n "$BAD_MDLINKS" ]]; then
+          TIER2_MSGS="${TIER2_MSGS}Link fields referencing non-existent files (markdown grammar): ${BAD_MDLINKS}.\n"
         fi
 
         # --- Emit Tier 2 DENY if any blocking issues ---

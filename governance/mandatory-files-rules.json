@@ -33,9 +33,10 @@
         "Wiki/**",
         "Skills/**"
       ],
-      "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check.",
+      "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check. Exempt-from-mandate is NOT forbidden-to-exist: an _index.md at an exempt path that matches another capability's declared writes[] target (skills/librarian/capability-registry.json :: output_contract.writes[]) is writer-owned — nonconformance heals at that writer — and the index-maintain exemption-conflict arm skips it; genuinely stray exempt-path indexes still flag. The skip set derives from the registry at run time, never a hardcoded path list.",
       "exemption_categories": [
-        "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
+        "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)",
+        "plans-tree machine indexes owned by registered librarian writers (Plans/ — the plan navigation index, the inbox funnel index, the library topic/root indexes): librarian-generated, not mandate-bootstrapped, and not exemption conflicts"
       ],
       "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
       "consumers": [
@@ -85,7 +86,7 @@
         "hooks/pre-write-guard.sh (PreToolUse Edit|Write advisory at write-time)",
         "hooks/memory-consolidation-run.sh (Check 8 budget monitor: byte-first, both-raw-and-stripped-gate-on-larger)"
       ],
-      "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md referenced via [[wikilinks]]. The byte cap is the governing trigger (bites at ~110 entries before the line cap)."
+      "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md reached via index-entry links and [[wikilink]] cross-references — the memory/rules pointer tier is EXEMPT from the corpus link-grammar conversion (its links resolve against the enumerated memory namespace, not the vault walk). The byte cap is the governing trigger (bites at ~110 entries before the line cap)."
     }
   },
   "_rules": [

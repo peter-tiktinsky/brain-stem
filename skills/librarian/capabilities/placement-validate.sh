@@ -118,8 +118,9 @@ if [[ "$PV_PLANS_MODE" == "1" ]]; then
   # dir) is a stray placed inside a binder interior — flag it path-qualified. Detect-and-
   # report ONLY: this sweep never deletes a stray (removal is not its job), and live AND
   # dangling symlinks belong to the generator and are never flagged. Binder-owned files
-  # that live at the binder ROOT (research-index.md, decision-log.md, hub.md, _situating.md)
-  # sit outside the farm dirs and are never walked. Persisted into the SAME plans_root leaf
+  # that live at the binder ROOT (research-index.md, decision-log.md,
+  # handoff-chronicle.md, _situating.md) are the binder-ROOT arm's population below,
+  # not this farm walk's. Persisted into the SAME plans_root leaf
   # as the root-namespace findings, so the SessionStart reader re-surfaces them. bash 3.2.
   for _farm in "$SCOPE_ROOT"/_projects/*/research; do
     [ -d "$_farm" ] || continue
@@ -134,6 +135,53 @@ if [[ "$PV_PLANS_MODE" == "1" ]]; then
       PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $_qual"
     done
   done
+  # Binder-ROOT walk: each spoke binder root (_projects/<spoke>/) holds ONLY the
+  # writer-owned surfaces the capability registry declares. The allowlist DERIVES
+  # at run time from capability-registry.json output_contract.writes[] tokens of
+  # the shape {plans_root}/_projects/<spoke>/<entry> (first segment after <spoke>:
+  # research-index.md, decision-log.md, handoff-chronicle.md, _situating.md, and
+  # the research/ farm dir) — the parity-checked SoT, never a second hand-kept
+  # list. A root entry outside the derived set is a stray (e.g. a re-minted
+  # retired file) — detect-and-report only, never auto-deleted. A missing or
+  # unreadable registry yields an empty allowlist and the arm SKIPS (fail-quiet:
+  # a broken registry must not flag every legitimate surface).
+  _PV_REG="${CAPABILITY_REGISTRY:-$(cd "$(dirname "$0")/.." && pwd)/capability-registry.json}"
+  _PV_ALLOW="$(python3 - "$_PV_REG" <<'PYA'
+import json, re, sys
+try:
+    reg = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+allow = set()
+for _name, cap in (reg.get("capabilities") or {}).items():
+    if not isinstance(cap, dict):
+        continue
+    for w in ((cap.get("output_contract") or {}).get("writes") or []):
+        if not isinstance(w, str):
+            continue
+        token = w.split(" ", 1)[0].strip()
+        m = re.match(r"^\{plans_root\}/_projects/<spoke>/([^/]+)", token)
+        if m:
+            allow.add(m.group(1).rstrip("/"))
+print("\n".join(sorted(allow)))
+PYA
+)"
+  if [ -n "$_PV_ALLOW" ]; then
+    for _br in "$SCOPE_ROOT"/_projects/*/; do
+      [ -d "$_br" ] || continue
+      _spoke="$(basename "$_br")"
+      for _re in "$_br"*; do
+        [ -e "$_re" ] || [ -L "$_re" ] || continue
+        _rname="$(basename "$_re")"
+        if ! printf '%s\n' "$_PV_ALLOW" | grep -qxF "$_rname"; then
+          _qual="_projects/$_spoke/$_rname"
+          _line=$(jq -nc --arg e "$_qual" --arg n "$_rname" --arg s "$_spoke" '{finding:"binder-root-stray-entry", entry:$e, name:$n, spoke:$s, issue:"binder-root entry outside the registry-derived writer-owned set (e.g. a re-minted retired file); re-home via the funnel — detect-and-report only, never auto-deleted", classification:"manual"}')
+          if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
+          PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $_qual"
+        fi
+      done
+    done
+  fi
   [[ "$DRY_RUN" == "true" ]] && printf 'placement-validate: scanned=%d findings=%d (plans-root-namespace)\n' "$PV_SCANNED" "$PV_FINDINGS"
   _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null || true)
   [ -n "$_PV_OPEN_JSON" ] || _PV_OPEN_JSON='[]'

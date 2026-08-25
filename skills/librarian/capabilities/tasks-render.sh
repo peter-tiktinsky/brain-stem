@@ -39,12 +39,25 @@
 #   plan-manifest-schema degrade-contract: REFUSE-AND-FREEZE (loud-skip) — a schema-invalid manifest is refused (no partial write); the skip is surfaced on stderr ("skipped <plan> — manifest invalid: … fails schema"); the read-replica is never silently frozen.
 #
 # Finding categories (2 — §Finding categories):
-#   tasks-md-drift       (warning, --check only) on-disk tasks.md != would-be render
-#   tasks-md-regenerated (info-event) tasks.md regenerated (write) or evaluated (--check)
+#   tasks-md-drift       (warning, --check only) on-disk tasks.md != would-be render;
+#                        carries a `remedy` field naming the sanctioned repair (re-render
+#                        via tasks-render / fix manifest.tasks[]) — never a hand-edit
+#   tasks-md-regenerated (info-event) tasks.md regenerated (write) or evaluated (--check);
+#                        suppressed under --drift-only (the sweep lane stays silent on
+#                        the steady state)
 #
 # CLI:
-#   tasks-render.sh <plan-dir>            # regenerate <plan-dir>/tasks.md
-#   tasks-render.sh --check <plan-dir>    # parity report + findings; no write
+#   tasks-render.sh <plan-dir>                 # regenerate <plan-dir>/tasks.md
+#   tasks-render.sh --check <plan-dir>         # parity report + findings; no write
+#   tasks-render.sh --check --drift-only <dir> # sweep-lane shape: tasks-md-drift only,
+#                                              # no info-event/summary; --drift-only
+#                                              # without --check is refused (rc=2).
+#                                              # Invoked per plan by trinity-drift-detect's
+#                                              # replica-freshness delegation, which rides
+#                                              # its automatic lanes (librarian-full,
+#                                              # session-close step 2d). Compare + emission
+#                                              # live HERE only — the delegating sweep
+#                                              # carries no second implementation.
 #   tasks-render.sh --help
 # <plan-dir> may be absolute or relative to PLANS_ROOT.
 #
@@ -73,10 +86,12 @@ fi
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
 
 CHECK_ONLY="false"
+DRIFT_ONLY="false"
 TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_ONLY="true"; shift ;;
+    --drift-only) DRIFT_ONLY="true"; shift ;;
     -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     --*) echo "tasks-render: unknown flag '$1'" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
@@ -85,6 +100,14 @@ done
 
 if [[ -z "$TARGET" ]]; then
   echo "tasks-render: missing <plan-dir> argument (see --help)" >&2
+  exit 2
+fi
+
+# --drift-only is a CHECK-MODE modifier (the sweep-lane shape: emit only the
+# tasks-md-drift finding, no per-plan info-event, no stderr summary). A writing
+# run must never carry it silently — refuse the combination loudly.
+if [[ "$DRIFT_ONLY" == "true" && "$CHECK_ONLY" != "true" ]]; then
+  echo "tasks-render: --drift-only requires --check (it is a check-mode sweep modifier, never a write mode)" >&2
   exit 2
 fi
 
@@ -150,7 +173,7 @@ if [[ -z "$SCHEMA_PATH" ]]; then
   done
 fi
 
-python3 - "$PLAN_DIR" "$CHECK_ONLY" "$RULES_PATH" "$SCHEMA_PATH" "$TASKS_FILE" "$MANIFEST_PATH" <<'PY'
+python3 - "$PLAN_DIR" "$CHECK_ONLY" "$RULES_PATH" "$SCHEMA_PATH" "$TASKS_FILE" "$MANIFEST_PATH" "$DRIFT_ONLY" <<'PY'
 import json
 import os
 import re
@@ -164,6 +187,7 @@ rules_path = sys.argv[3]
 schema_path = sys.argv[4]
 tasks_file = sys.argv[5]
 manifest_path = sys.argv[6]
+drift_only = sys.argv[7] == "true"
 
 today = date.today().isoformat()
 plan_slug = os.path.basename(plan_dir.rstrip("/"))
@@ -605,21 +629,31 @@ if check_only:
             "ledger_rows_ondisk": ledger_rows_ondisk,
             "ledger_rows_manifest": len(tasks),
             "sentinel_present_bool": sentinel_existed,
+            # The replica heals at its WRITER, never by hand: re-render via
+            # tasks-render.sh <plan-dir>, or correct manifest.tasks[] and let the
+            # post-manifest refresh hook re-render. Never hand-edit the generated
+            # sentinel region of tasks.md.
+            "remedy": "re-render via tasks-render.sh <plan-dir> (or fix manifest.tasks[] and let post-manifest-binder-refresh re-render); never hand-edit the generated region",
             "detected_at": today,
             "first_seen": today,
         })
-    emit({
-        "finding": "tasks-md-regenerated",
-        "file": os.path.basename(tasks_file),
-        "plan_slug": plan_slug,
-        "tasks_rendered_count": len(tasks),
-        "sentinel_recreated_bool": (not sentinel_existed),
-        "dry_run": True,
-        "drift_detected_bool": drift,
-        "detected_at": today,
-    })
-    print("tasks-render: --check (plan=%s) tasks=%d drift=%s" % (
-        plan_slug, len(tasks), str(drift).lower()), file=sys.stderr)
+    # --drift-only is the sweep-lane shape: a corpus walk invoking this check per
+    # plan must stay SILENT on the steady state (no per-plan info-event, no
+    # per-plan stderr line) so an in-parity corpus produces zero output. The
+    # ad-hoc single-plan --check keeps the info-event + summary.
+    if not drift_only:
+        emit({
+            "finding": "tasks-md-regenerated",
+            "file": os.path.basename(tasks_file),
+            "plan_slug": plan_slug,
+            "tasks_rendered_count": len(tasks),
+            "sentinel_recreated_bool": (not sentinel_existed),
+            "dry_run": True,
+            "drift_detected_bool": drift,
+            "detected_at": today,
+        })
+        print("tasks-render: --check (plan=%s) tasks=%d drift=%s" % (
+            plan_slug, len(tasks), str(drift).lower()), file=sys.stderr)
     sys.exit(0)
 
 if SENTINEL_START not in new_content or SENTINEL_END not in new_content:

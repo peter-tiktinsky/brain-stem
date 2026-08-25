@@ -90,7 +90,11 @@ This rule stays out of context until a session touches `infrastructure/**` or a 
 
 - Keep individual rule files under ~500 lines (industry convergence: Cursor `.mdc`, GitHub Copilot `applyTo:`).
 - One concern per file; split when a file outgrows a single domain.
-- Cross-link related rules and memory files via `[[wikilinks]]`.
+- Cross-link related rules and memory files via `[[wikilink]]` cross-references. The
+  memory/rules tier is EXEMPT from the corpus link-grammar conversion: a `[[name]]` here
+  resolves against the enumerated memory/rules namespace, not the vault walk. This is a
+  different shape from a vault-pointer, which stays a bare path token (see the pointer
+  shape above) — the two never mix.
 
 ---
 

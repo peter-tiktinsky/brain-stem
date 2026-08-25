@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "_comment": "Canonical frontmatter schema for plan-artifact files under ${PLANS_DIR}. Enforced via R-40 in pre-write-guard.sh.",
+  "schema_version": "1.1.0",
+  "_comment": "Canonical frontmatter schema for plan-artifact files under ${PLANS_DIR}. Enforced via R-40 in pre-write-guard.sh. ADDRESS CONVERGENCE: the plans tree is governed by this schema's R-40 advisory lane at BOTH of its addresses — the physical plans-root path and the vault-view Plans/ symlink spelling. The vault 3-tier schema gate does not apply to the plans tree at either address; the guard's PLANS_ADDR_CONV prelude canonicalizes a vault-view spelling to the physical path (the canonical addressing key), so no path spelling produces a different verdict for the same file.",
   "_filename_map": {
     "spec.md": "spec",
     "tasks.md": "tasks",
@@ -12,9 +12,11 @@
     "required": [
       "type",
       "title",
-      "status",
+      "description",
       "created",
-      "updated"
+      "updated",
+      "id",
+      "schema_version"
     ],
     "optional": [
       "parent_plan"
@@ -24,9 +26,11 @@
     "required": [
       "type",
       "title",
-      "status",
+      "description",
       "created",
-      "updated"
+      "updated",
+      "id",
+      "schema_version"
     ],
     "optional": [
       "parent_plan"
@@ -36,9 +40,11 @@
     "required": [
       "type",
       "title",
-      "status",
+      "description",
       "created",
-      "updated"
+      "updated",
+      "id",
+      "schema_version"
     ],
     "optional": [
       "parent_plan"
@@ -48,9 +54,11 @@
     "required": [
       "type",
       "title",
-      "status",
+      "description",
       "created",
-      "updated"
+      "updated",
+      "id",
+      "schema_version"
     ],
     "optional": [
       "parent_plan"

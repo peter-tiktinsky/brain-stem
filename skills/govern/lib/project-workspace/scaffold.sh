@@ -115,6 +115,7 @@ SPOKE=""
 WORK_HOME="${BRAIN_STEM_WORK_HOME:-}"
 LAYOUT="flat"
 SUBDIR=""
+NOTE_TITLE=""
 TEMPLATES_DIR=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -127,8 +128,9 @@ while [ "$#" -gt 0 ]; do
     --work-home)     WORK_HOME="${2:-}"; shift 2 ;;
     --layout)        LAYOUT="${2:-}"; shift 2 ;;
     --subdir)        SUBDIR="${2:-}"; shift 2 ;;
+    --note)          NOTE_TITLE="${2:-}"; shift 2 ;;
     --templates-dir) TEMPLATES_DIR="${2:-}"; shift 2 ;;
-    -h|--help) printf 'Usage: %s --spoke <name> [--work-home <path>] [--layout flat|master] [--subdir <name>] [--templates-dir <path>]\n' "$0"; exit 0 ;;
+    -h|--help) printf 'Usage: %s --spoke <name> [--work-home <path>] [--layout flat|master] [--subdir <name>] [--note <title>] [--templates-dir <path>]\n' "$0"; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
 done
@@ -149,6 +151,53 @@ ISO_NOW="$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/')"
 # carry. CLAUDE.md stays EXEMPT (it is a context file, not a typed vault note).
 SPOKE_SLUG="$(printf '%s' "$SPOKE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
 [ -n "$SPOKE_SLUG" ] || SPOKE_SLUG="spoke"
+
+# --- --note arm: mint a STAMPED raw note into a spoke's (or sub-project's) reference/ ---
+# The `note` type's shipped mint path — every machine-minted raw note is conformant from
+# birth: the full universal cohort plus the path_routing lineage fields (project, and
+# workstream when the note lives under a sub-project). Hand-dropped notes stay legal too
+# (Standard tier: soft-warn, never DENY) — this arm exists so nothing HAS to hand-author
+# frontmatter to capture durably. Runs against an EXISTING spoke only; never scaffolds.
+if [ -n "$NOTE_TITLE" ]; then
+  [ -d "$SPOKE_DIR" ] || die "spoke dir not found for --note: $SPOKE_DIR (create the spoke first)"
+  NOTE_HOME="$SPOKE_DIR"
+  WS_SLUG=""
+  if [ -n "$SUBDIR" ]; then
+    case "$SUBDIR" in */*|.*|"") die "invalid subdir name: '$SUBDIR' (no slashes, no leading dot)" ;; esac
+    [ -d "$SPOKE_DIR/$SUBDIR" ] || die "sub-project dir not found for --note: $SPOKE_DIR/$SUBDIR"
+    NOTE_HOME="$SPOKE_DIR/$SUBDIR"
+    WS_SLUG="$(printf '%s' "$SUBDIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+  fi
+  NOTE_SLUG="$(printf '%s' "$NOTE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+  [ -n "$NOTE_SLUG" ] || die "cannot derive a slug from --note title: '$NOTE_TITLE'"
+  NOTE_PATH="$NOTE_HOME/reference/$NOTE_SLUG.md"
+  if [ -e "$NOTE_PATH" ]; then
+    die "refusing to clobber existing note: $NOTE_PATH" 2
+  fi
+  mkdir -p "$NOTE_HOME/reference" || die "mkdir failed under $NOTE_HOME/reference"
+  {
+    printf -- '---\n'
+    printf 'type: note\n'
+    printf 'description: %s\n' "$NOTE_TITLE"
+    printf 'created: %s\n' "$TODAY"
+    printf 'updated: %s\n' "$TODAY"
+    printf 'tags: ["#project/%s"]\n' "$SPOKE_SLUG"
+    if [ -n "$WS_SLUG" ]; then
+      printf 'id: work-%s-%s-note-%s\n' "$SPOKE_SLUG" "$WS_SLUG" "$NOTE_SLUG"
+    else
+      printf 'id: work-%s-note-%s\n' "$SPOKE_SLUG" "$NOTE_SLUG"
+    fi
+    printf 'schema_version: 1\n'
+    printf 'project: %s\n' "$SPOKE_SLUG"
+    if [ -n "$WS_SLUG" ]; then
+      printf 'workstream: %s\n' "$WS_SLUG"
+    fi
+    printf -- '---\n'
+    printf '# %s\n\n' "$NOTE_TITLE"
+  } > "$NOTE_PATH" || die "write failed: $NOTE_PATH"
+  printf 'scaffold: minted note %s\n' "$NOTE_PATH"
+  exit 0
+fi
 
 # --- --subdir arm: scaffold an ORGANIZATIONAL-UNIT sub-project under an existing spoke ---
 # A sub-project is NOT a full project: it mints README + deliverables/ + reference/
@@ -183,6 +232,8 @@ tags: ["#project/$SPOKE_SLUG"]
 id: work-$SPOKE_SLUG-$SUBDIR_SLUG-readme
 schema_version: 1
 parent_folder: $SPOKE
+project: $SPOKE_SLUG
+workstream: $SUBDIR_SLUG
 ---
 # $SPOKE / $SUBDIR
 
@@ -243,6 +294,7 @@ tags: ["#project/$SPOKE_SLUG"]
 id: work-$SPOKE_SLUG-readme
 schema_version: 1
 parent_folder: $SPOKE
+project: $SPOKE_SLUG
 ---
 # $SPOKE
 
@@ -270,6 +322,7 @@ updated: $TODAY
 tags: ["#project/$SPOKE_SLUG"]
 id: work-$SPOKE_SLUG-updates
 schema_version: 1
+project: $SPOKE_SLUG
 ---
 # $SPOKE — updates
 

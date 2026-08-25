@@ -2,6 +2,13 @@
 # wikilink-repair — Detect broken [[wikilinks]] across the vault and propose
 # repairs from the doc-dependency registry seed (no heuristic fuzzy match).
 #
+# SECOND GRAMMAR (additive): markdown links `[text](relative/target)` are
+# resolved source-relative against the file's PHYSICAL directory via a
+# pre-built physical-path index (no per-link stat). A broken target emits
+# `broken-mdlink` — DETECTION ONLY, never a repair proposal: a path-valued
+# target has no basename-cardinality ambiguity and no registry repair seed.
+# Wikilink behavior is unchanged.
+#
 # Landed: T-3 (2026-04-20, parallel session with T-5). Uses's
 # lib/path.sh + lib/findings.sh helpers from day one (no inline path parsing,
 # no inline JSON finding writes).
@@ -136,6 +143,7 @@ python3 - "$SCOPE_ROOT" "$DOC_DEP_FILE_EFF" "$APPLY" "$REPORT_PATH" <<'PY'
 import json, os, re, sys
 from collections import defaultdict
 from datetime import datetime, timezone
+from urllib.parse import unquote
 
 scope_root, dep_path, apply_s, report_path = sys.argv[1:5]
 apply = (apply_s == "true")
@@ -193,11 +201,76 @@ if walk_list_path and os.path.isfile(walk_list_path):
             _walk_lines = _wf.read().split("\n")
     except Exception:
         _walk_lines = []
+# --- markdown-link resolution index (T-3) --------------------------
+# The SECOND grammar: `[text](relative/path)`. Targets are source-relative and
+# resolve against the PHYSICAL directory of the source file, so the index keys
+# on physical paths — every regular file the walker emitted (all extensions:
+# resolution is existence, not repair scope), plus the ancestor-dir set for
+# directory-style targets like `[name](name/)`. Per-link resolution is set
+# membership — NO per-link stat(); realpath + one exists() fire only on an
+# index MISS (bounded by breakage count). Broken md-links are DETECTION-ONLY
+# (`broken-mdlink`, manual triage): a path-valued target has no
+# basename-cardinality ambiguity and no registry repair seed, so the
+# ambiguous/repair branches below simply do not apply to this grammar.
+_real_dir_cache = {}
+def _real_dirname(path_s):
+    d = os.path.dirname(path_s)
+    r = _real_dir_cache.get(d)
+    if r is None:
+        r = os.path.realpath(d)
+        _real_dir_cache[d] = r
+    return r
+
+md_real_files = set()
+md_real_dirs = set()
+def _md_index_add(logical_s):
+    rp = os.path.join(_real_dirname(logical_s), os.path.basename(logical_s))
+    md_real_files.add(rp)
+    d = os.path.dirname(rp)
+    while d and d != "/" and d not in md_real_dirs:
+        md_real_dirs.add(d)
+        d = os.path.dirname(d)
+
+def _mdlink_candidate(src_path_s, target_raw):
+    """Proven kernel: drop absolute/~/anchor-only/URL targets, refuse unquoted
+    whitespace, strip #frag, %-decode, normpath-join against the source's
+    physical directory. Returns (candidate, is_dir) or None."""
+    t = target_raw.strip()
+    if not t or t.startswith(("/", "~", "#", "http://", "https://", "mailto:")):
+        return None
+    if " " in t or "\t" in t or "\n" in t:
+        return None
+    t = t.split("#")[0]
+    if not t:
+        return None
+    t = unquote(t)
+    is_dir = t.endswith("/")
+    cand = os.path.normpath(os.path.join(_real_dirname(src_path_s), t))
+    return cand, is_dir
+
+def _mdlink_resolve(cand, is_dir):
+    if is_dir:
+        if cand in md_real_dirs:
+            return True
+        return os.path.realpath(cand) in md_real_dirs or os.path.isdir(cand)
+    if cand in md_real_files:
+        return True
+    if os.path.realpath(cand) in md_real_files:
+        return True
+    return os.path.exists(cand)
+
+# Full `[text](target)` shape required (deliberate kernel deviation): a bare
+# `](x)` in prose is not a link; a finder must not flag it.
+MDLINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
 _used_walker = False
 for full in _walk_lines:
-    if not full or not full.endswith(".md"):
+    if not full:
         continue
     if any(ex in full + "/" for ex in EXEMPT_DIRS):
+        continue
+    _md_index_add(full)
+    if not full.endswith(".md"):
         continue
     fn = os.path.basename(full)
     rel = os.path.relpath(full, scope_real)
@@ -211,6 +284,7 @@ if not _used_walker:
         if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
             continue
         for fn in filenames:
+            _md_index_add(os.path.join(dirpath, fn))
             if fn.endswith(".md"):
                 full = os.path.join(dirpath, fn)
                 rel = os.path.relpath(full, scope_root)
@@ -251,6 +325,7 @@ MEMORY_NS = memory_namespace_stems()
 WL = re.compile(r"\[\[([^\]\|\#]+)(?:#[^\]\|]+)?(?:\|[^\]]+)?\]\]")
 
 broken_count = 0
+broken_md = 0
 proposed = 0
 applied = 0
 unresolved = 0
@@ -261,8 +336,9 @@ for path in md_files:
         content = open(path).read()
     except Exception:
         continue
-    # Skip if no wikilinks
-    if "[[" not in content:
+    # Skip if no links in either grammar (T-3 widened the wikilink-only
+    # gate — a file carrying ONLY markdown links must be scanned too).
+    if "[[" not in content and "](" not in content:
         continue
     # Strip fenced code blocks and inline code spans — wikilinks inside code
     # are documentation examples, not real links (matches R-48 hook behavior).
@@ -272,6 +348,23 @@ for path in md_files:
     content = re.sub(r'`[^`\n]+`', '', content)
 
     rel_path = os.path.relpath(path, scope_real)   # scope_real: match the walker root norm
+
+    # Markdown-link branch (T-3, additive): scans the SAME code-stripped
+    # content. Detection only — a broken target emits `broken-mdlink` for manual
+    # triage; nothing here seeds a rewrite.
+    for m in MDLINK_RE.finditer(content):
+        res = _mdlink_candidate(path, m.group(1))
+        if res is None:
+            continue
+        cand, is_dir = res
+        if _mdlink_resolve(cand, is_dir):
+            continue
+        broken_md += 1
+        emit({"finding": "broken-mdlink",
+              "file": rel_path, "target": m.group(1).strip(),
+              "candidate": cand,
+              "note": "Markdown-link target does not resolve from the source file's directory. Detection only — no repair proposal (path-valued target; no basename-cardinality seed)."})
+
     for m in WL.finditer(content):
         target = m.group(1).strip()
         # Strip trailing backslash escape artifact — Obsidian renders
@@ -383,8 +476,8 @@ if apply and per_file_rewrites:
             f.write(content)
         os.replace(tmp, path)
 
-print("wikilink-repair: scanned=%d broken=%d proposed_repairs=%d applied=%d unresolved=%d" % (
-    len(md_files), broken_count, proposed, applied, unresolved), file=sys.stderr)
+print("wikilink-repair: scanned=%d broken=%d broken_mdlinks=%d proposed_repairs=%d applied=%d unresolved=%d" % (
+    len(md_files), broken_count, broken_md, proposed, applied, unresolved), file=sys.stderr)
 
 if report_path:
     # self-stamp the COMPLETE log contract so the audit report is findable
@@ -405,6 +498,7 @@ if report_path:
     lines.append("")
     lines.append("- Files scanned: %d" % len(md_files))
     lines.append("- Broken wikilinks: %d" % broken_count)
+    lines.append("- Broken markdown links (detection only): %d" % broken_md)
     lines.append("- Registry-seeded repair proposals: %d" % proposed)
     lines.append("- Applied: %d" % applied)
     lines.append("- Unresolved (manual review): %d" % unresolved)

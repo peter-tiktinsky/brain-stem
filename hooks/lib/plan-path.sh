@@ -27,10 +27,10 @@
 # surfaces, derived from the pillar via classify_root_entry — no longer hard-coded):
 #   $PLANS_DIR/_index.md  $PLANS_DIR/_backlog.md
 #   $PLANS_DIR/_inbox/    $PLANS_DIR/_projects/   $PLANS_DIR/_library/
-# (ENFORCEMENT-MAP.md is NOT an enumerated registry surface; it is carried only by the
-#  pillar's TRANSITIONAL root_namespace.grandfathered list — treated as registry-class
-#  while it still lives at the root, and reverting to `nonconforming` the moment the
-#  census/re-homing pass relocates it and removes the grandfather entry.)
+# (ENFORCEMENT-MAP.md — the historical rule map — was relocated out of the plans root and
+#  its transitional root_namespace.grandfathered entry removed in the same change: it now
+#  classifies `nonconforming` like any other non-enumerated root name. The grandfathered
+#  list is EMPTY; the mechanism remains for any future still-present file pending relocation.)
 #
 # Bash 3.2 clean per R-23 (macOS /bin/bash compatibility).
 # Depends on $PLANS_DIR — caller must source hooks/lib/paths.sh first OR
@@ -48,7 +48,8 @@ fi
 # the write-time root-allowlist guard (hooks/pre-write-guard.sh) and the placement-validate
 # sweep both read, and the SAME derivation the three plan-root functions below (is_plan_root_file
 # classify_plan_path / walk_plan_roots) reconcile onto — retiring the drifting hard-coded
-# registry whitelists (ENFORCEMENT-MAP.md / _index.md) each carried independently.
+# registry whitelists (the since-relocated ENFORCEMENT-MAP.md / _index.md) each carried
+# independently.
 
 # _root_ns_registry_members — print the enumerated NON-plan-root registry surfaces
 # (root_files members + funnel/registry dir members) from root_namespace, one per line,
@@ -100,9 +101,9 @@ _root_ns_plan_patterns() {
 #                   root file pending relocation — never write-denied while it lives here)
 #   plan          — NN-<slug> plan dir or NN-<slug>.md flat plan
 #   nonconforming — anything else (ad-hoc root stock; denied at write-time + swept)
-# ENFORCEMENT-MAP.md is deliberately NOT an enumerated registry member (dropped from the
-# enum — the historical map is not a durable root registry surface); it rides ONLY the
-# transitional grandfathered list and reverts to `nonconforming` when that entry is removed.
+# ENFORCEMENT-MAP.md (the historical rule map) is neither enumerated nor grandfathered —
+# its transitional grandfather entry was removed when the file relocated out of the plans
+# root, so it classifies `nonconforming` like any other non-enumerated root name.
 classify_root_entry() {
   local entry="$1" m members oldIFS
   case "$entry" in
@@ -226,7 +227,8 @@ classify_plan_path() {
 }
 
 # walk_plan_roots — print plan slugs (top-level dirs + flat *.md), one per
-# line. Excludes _index.md, ENFORCEMENT-MAP.md, and anything starting with _.
+# line. Excludes registry surfaces (_index.md, _backlog.md, funnel/registry dirs),
+# dot entries, and nonconforming ad-hoc names — anything not plan-class.
 # Used by plan-index, stale-detect, sync-check, plan-parent-resolve.
 walk_plan_roots() {
   local entry slug
@@ -235,7 +237,7 @@ walk_plan_roots() {
     slug=$(basename "$entry")
     # Reconciled to root_namespace: emit ONLY plan-class entries (NN-<slug> dirs + flat
     # NN-*.md plans). Registry surfaces, dot entries, and nonconforming ad-hoc stock
-    # (incl. ENFORCEMENT-MAP.md) are skipped via the single classifier.
+    # are skipped via the single classifier.
     case "$(classify_root_entry "$slug")" in
       plan) echo "$slug" ;;
     esac

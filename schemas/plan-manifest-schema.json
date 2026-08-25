@@ -109,6 +109,17 @@
       ],
       "description": "Successor plan slug (no path, no extension) when status == superseded; else null/absent. A plain provenance field recording the successor, sourced from the program reconciliation ledger at superseding time."
     },
+    "promoted_from": {
+      "type": "string",
+      "description": "Graduation provenance: the inbox idea-note ref (_inbox/<slug>.md) this plan was promoted from. Stamped by promote-from-inbox at graduation (the note itself is tombstoned — this field is the surviving record); consumed by the librarian backlog-index settled ledger (the graduated-row join). Declared here to codify long-standing behaviour — plain string, canonical _inbox/<slug>.md form."
+    },
+    "absorbed_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Absorption provenance: inbox-note refs (canonical _inbox/<slug>.md form) this plan absorbed — the N:1 join the note-side absorbed_into: frontmatter cannot record from the plan side (a plan absorbing several notes previously had no structural record). Consumed by the librarian backlog-index settled ledger (one absorption-join row per listed note, landing plan named; a note-side settled row for the same note takes precedence)."
+    },
     "tasks": {
       "type": "array",
       "minItems": 1,
@@ -136,6 +147,47 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "status": {
+            "description": "Task lifecycle state. This property is the SINGLE DECLARED HOME of the task-status vocabulary — the declared_vocabulary annotation below is the machine-readable roster and terminal/advanced split that vocabulary-keyed consumers key on. DELIBERATELY NON-ASSERTING (no type/enum/pattern keyword): three shipped validator sites hard-refuse on schema violations (tasks-render.sh, matrix-render.sh and subplan-aggregate.sh each construct Draft202012Validator(...).validate(manifest)), so an asserting constraint here would freeze replica renders over a typo'd or historical status — the same replica-staleness class the drift instrumentation exists to detect. Out-of-vocabulary values are FLAGGED (advisory), never refused: the write-time advisory validator lane and vocabulary-keyed consumers reading this declaration carry the flag; tasks.items stays permissive (additionalProperties true) by ruled contract.",
+            "declared_vocabulary": {
+              "canonical": [
+                "not-started",
+                "in-progress",
+                "blocked",
+                "done",
+                "cut"
+              ],
+              "terminal": [
+                "done",
+                "cut"
+              ],
+              "open_states": [
+                "",
+                "null",
+                "none",
+                "not-started",
+                "planned",
+                "pending",
+                "in-progress",
+                "proposed",
+                "blocked",
+                "needs-revision"
+              ],
+              "advanced_rule": "The open-state list is CLOSED and every other value reads as ADVANCED: the live corpus carries settled free-form dispositions, so an advanced-side allowlist would refuse legitimate settled rows. An absent status key, empty string, or null-like token is OPEN. cut is ADVANCED and TERMINAL — deliberately-not-done, never counted as lagging.",
+              "normalization": "Classify on the normalized front token: substring before ' (', stripped, lowercased, underscores to hyphens — a narrated status like 'in-progress (slice closed)' classifies by its front token (the session-close.sh task_state contract).",
+              "historical_tail": [
+                "complete",
+                "pending",
+                "planned",
+                "deferred",
+                "needs-revision",
+                "closed",
+                "retired"
+              ],
+              "historical_tail_note": "Values observed live in settled historical manifests, FROZEN: tolerated on read via the open_states/advanced_rule split, never used for new writes. New writes use the canonical roster. Converging historical rows is a live-corpus operation, deliberately outside the schema's reach.",
+              "out_of_vocabulary_handling": "A normalized front token outside canonical + open_states + historical_tail is OUT-OF-VOCABULARY: vocabulary-keyed consumers flag it as an advisory finding, never refuse the manifest. Under advanced_rule it still READS as advanced — which is exactly why the flag matters: a typo'd open status would otherwise silently read as settled."
             }
           },
           "file_references": {

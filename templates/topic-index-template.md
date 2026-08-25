@@ -18,8 +18,9 @@ contract governs the library-root _index.md.
 
 Frontmatter (type: index): REQUIRED type (const index) / tags (non-empty, item
 pattern ^#<dim>/<value>$) / updated (ISO date). CONDITIONAL parent_folder
-(REQUIRED at path depth >= 2; auto-populated from the dirname relative to the
-vault root). OPTIONAL description / provides.
+(REQUIRED at path depth >= 2; auto-populated with the indexed folder's PARENT
+as a root-relative path — the parent's basename at depth 2, path-qualified at
+depth >= 3). OPTIONAL description / provides.
 
 Body (C-IDX body_structure):
   - H1 matches the folder name (case-insensitive substring of the parent basename).
@@ -30,9 +31,10 @@ Body (C-IDX body_structure):
   - The generated table lives INSIDE the sentinel region below. Only content
     between the markers is regenerated; prose outside is preserved.
   - Columns in order: | File | Lines | Type | Description |.
-      File        — Obsidian wikilink, .md-suffixed form [[<article>.md]] matching
+      File        — relative markdown link, .md-suffixed label [<article>.md](<article>.md) matching
                     the shipped _index.md.json File-column value_pattern
-                    ^\[\[[^\[\]]+\.md\]\]$ (C-IDX binding reconciliation). The
+                    ^\[[^\]]+\]\([^)]+\)$ (C-IDX binding reconciliation; nested
+                    articles link their subdir-relative path). The
                     library-index generator emits this form; basename uniqueness
                     backs the cross-ref.
       Lines       — wc -l, ^~?[0-9]+$ (leading ~ when approximated).
@@ -47,6 +49,6 @@ Body (C-IDX body_structure):
 
 | File | Lines | Type | Description |
 |---|---|---|---|
-| [[<article>.md]] | <~lines> | reference | <routing one-liner / description / H1> |
+| [<article>.md](<article>.md) | <~lines> | reference | <routing one-liner / description / H1> |
 
 <!-- contents-enum:end -->

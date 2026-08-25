@@ -3,7 +3,8 @@
 # inherited state, and emit drift findings.
 #
 # Wraps the parent-plan resolver algorithm as a CLI-invocable capability.
-# Enforcement layer for ENFORCEMENT-MAP R-28 (parent_plan: chain integrity).
+# Enforcement layer for rule R-28 (parent_plan: chain integrity; the R-NN id resolves in
+# the governance JSON registry).
 # Test harness: tests/plan-parent-resolve.sh.
 #
 # Usage:

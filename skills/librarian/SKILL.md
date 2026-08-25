@@ -195,10 +195,16 @@ Runtime: `capabilities/drift-sweep.sh`.
 
 ## Capability: plan-index
 
-Regenerates `<plans-root>/_index.md` as a status-grouped navigation index;
-reader cap — READS the master `sub_plans[]` aggregate for the per-master
-coarse-bucket rollup. The plan-index.md capability contract is governed by the
-registry `output_contract` (no governance/librarian-capabilities/ doc).
+Regenerates `<plans-root>/_index.md` as a single-table plan ledger (house
+tasks.md style): one `| Plan | Status | Project dir | Subs |` row per plan,
+sorted by status group then numeric slug, with a `**By status:**` counts line
+and the collapsed `## Archived (N)` age view-filter. Status and Project dir are
+first-class cells on every row (`—` marks an empty resolution, loud); the
+former by-status H2 groups and appended `## By project directory` section are
+superseded by the columns. reader cap — READS the master `sub_plans[]`
+aggregate for the per-master coarse-bucket rollup (the Subs cell). The
+plan-index.md capability contract is governed by the registry `output_contract`
+(no governance/librarian-capabilities/ doc).
 Runtime: `capabilities/plan-index.sh`.
 
 ## Capability: backlog-index
@@ -209,9 +215,28 @@ the `promoted_to`/`absorbed_into` plan-dir key) plus the derived settled ledger 
 the `backlog-settled` sentinel region — and the machine-written
 `_inbox/_index.md` (active + settled rosters + remediation highlights). Runs the
 terminal-resolution closure loop over `_inbox/` notes first (write-if-changed
-`resolution:` restamps when a target plan reaches `lifecycle.terminal_status`).
+`resolution:` restamps when a target plan reaches `lifecycle.terminal_status`);
+the stamp EVENT relocates the note to the settled home (`_inbox/_settled/`,
+forward-only — already-settled flat notes are never moved), and the `_settled/`
+walk is render-only (settled-ledger rows at the note's real location; residents
+without settlement evidence draw the `inbox-settled-misfiled` advisory).
+Settlement classifies on terminal-resolution EVIDENCE — an out-of-enum
+`resolution:` corroborated by `resolved_at`/`superseded_by` settles, with the
+`inbox-resolution-out-of-enum` advisory keeping vocabulary drift visible.
 reader cap for plan rows — master-row-only policy (READS the aggregate).
 Runtime: `capabilities/backlog-index.sh`.
+
+## Capability: inbox-settle
+
+The manual-settlement channel for a funnel note settled by operator judgment
+with NO plan target (the shape the closure loop can never auto-stamp): stamps
+the terminal `resolution:` + `resolved_at:` and relocates the note to
+`_inbox/_settled/` in one event (default run is dry; writes only with
+`--apply`). STRICT vocabulary — `--resolution` must be a member of the
+governance `resolution_enum` (the sanctioned channel never mints drift);
+`superseded` requires `--superseded-by`. Refuses an already-settled note and a
+destination collision.
+Runtime: `capabilities/inbox-settle.sh`.
 
 ## Capability: capability-registry-parity
 
@@ -413,8 +438,12 @@ Runtime: `capabilities/rename-detect.sh`.
 
 ## Capability: rename-cascade
 
-Consumes rename-detect output and cascades wikilink updates downstream across
-vault `.md` files (dry-run by default). Ported as-is.
+Consumes rename-detect output and cascades wikilink AND markdown-link updates
+downstream across vault `.md` files (dry-run by default; markdown targets are
+re-rendered source-file-relative, never substring-replaced). `--from-history`
+also loads the librarian-manifest `rename_history[]` trail (populated by
+rename-detect `--persist-history`), so a move that left the 24h detection
+window stays repairable.
 Runtime: `capabilities/rename-cascade.sh`.
 
 ## Capability: rename-history-sync
@@ -468,6 +497,22 @@ fresh with an `[AUDIT]` rotation marker so the appender keeps appending to a sma
 tail. Under threshold it emits a `rotation-not-due` finding with zero writes
 (idempotent); `--dry-run` reports would-rotate counts without writing.
 Runtime: `capabilities/library-log-rotate.sh`.
+
+## Capability: link-grammar-convert
+
+Converts live-prose wikilinks to the ruled relative markdown-link grammar
+across the vault view, under the promoted house conversion pattern:
+structural-fresh seed from the vault-view walk, `.lgcnew` dry-run siblings
+(never in-place), a register with a blank approval line that `--apply` refuses
+without, a full apply-time refusal battery (fire band, editor running, dirty
+tree, register-vs-derivation drift, non-interactive shell), ambiguity routed
+to a judgment register never guessed, and six self-verifying per-file
+invariants including hard-blocking RESOLUTION-SET EQUALITY (every converted
+link must resolve to the same physical file in both the logical vault-view
+frame and the physical frame). Memory-namespace targets are exempt (that tier
+resolves against its own namespace); fenced/inline-code wikilinks are
+quotations and never converted; alias and `#anchor` tails round-trip.
+Runtime: `capabilities/link-grammar-convert.sh`.
 
 ## Capability: plan-research-index
 

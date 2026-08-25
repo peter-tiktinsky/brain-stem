@@ -3,6 +3,10 @@
 #
 # Sources `lib/manifest.sh`, `lib/plan-path.sh`, `lib/findings.sh`.
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as
+# the declared task-status vocabulary home in the Rule-8 comments (manifests are read with plain
+# json.loads); no Draft202012Validator is constructed, so there is no schema-gate degrade path.
+#
 # 8 staleness rules per SKILL.md (rules 5 + 6 retired — meeting-note extracted,
 # ; vault Logs/ no longer ships, G3):
 #   1. Daily notes — processed: false AND older than 2 days
@@ -15,9 +19,15 @@
 #   7. Plan files — completion marker without verification evidence (R-16)
 #      Scope: plan-root files ONLY (flat *.md, */spec.md, */00-ideation-brief.md,
 #      */README.md, */manifest.json). Sub-task files (depth ≥ 2) excluded.
-#   8. Plan trinity lag — manifest.status == "complete" but any tasks.md T-N
-#      **Status:** lags (not-started | in-progress | blocked | pending | planned).
-#      Finding category: `trinity-lag`.
+#   8. Plan trinity lag — manifest.status is terminal-complete but any
+#      manifest.tasks[] row's status lags (outside DONE_SET). Read
+#      MANIFEST-DIRECT: manifest.tasks[] is the DERIVE status SoT; tasks.md is a
+#      rendered read-replica (tasks-render.sh owns it) and is never a data
+#      source here — replica freshness is a separate axis (tasks-render.sh
+#      --check and its trinity-drift-detect sweep wiring). The ledger reader is
+#      the byte-identical twin of trinity-drift-detect.sh's
+#      task_ledger_from_manifest (the two capabilities measure the same axis and
+#      move together). Finding category: `trinity-lag`.
 #   9. Binder freshness — a per-spoke binder surface
 #      (_projects/<spoke>/{research-index,decision-log,handoff-chronicle}.md) whose
 #      `updated:` regen date lags the newest constituent-plan activity (the max
@@ -433,37 +443,44 @@ for dirpath, dirnames, filenames in os.walk(plans_scope):
             counts["stale-status"] += 1
 
 # ---------- plans walk (check #8 — trinity lag) ----------
-# For every manifest.json with .status == "complete", assert every tasks.md
-# **Status:** line reads `done`. If any lags, emit finding with severity `warn`
-# and payload listing which task IDs lag.
-TASK_HEADING_RE = re.compile(r"^###\s+(T-\d+)\s*:", re.MULTILINE)
-STATUS_LINE_RE = re.compile(r"^\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
+# For every manifest.json whose .status is terminal-complete, assert every
+# manifest.tasks[] row's status is terminal (DONE_SET). If any lags, emit a
+# severity-warn finding listing which task IDs lag. MANIFEST-DIRECT: the ledger
+# comes from manifest.tasks[] — the DERIVE status SoT — never from tasks.md.
+# DONE_SET is deliberately byte-stable (vocabulary closure — the missing `cut`
+# class — is the consolidation plan's charter, keyed to the declared vocabulary
+# in schemas/plan-manifest-schema.json); membership tests normalize with
+# strip().lower(), matching trinity-drift-detect.sh's norm() so the two
+# capabilities' counts agree on the same corpus.
 DONE_SET = {"done", "complete", "completed", "implemented"}
 
-def parse_task_statuses(tasks_path):
-    try:
-        t = open(tasks_path).read()
-    except Exception:
-        return None
-    body = t
-    if t.startswith("---"):
-        end = t.find("\n---", 3)
-        if end == -1:
-            return None
-        body = t[end+4:]
-    heads = [(m.group(1), m.start()) for m in TASK_HEADING_RE.finditer(body)]
+# KEPT-IN-STEP TWIN: the def block below is byte-identical to
+# trinity-drift-detect.sh's task_ledger_from_manifest — the two capabilities
+# measure the same axis and must move together. The capabilities are
+# self-contained bash-embedded python with no shared python-library surface, so
+# the helper is TWINNED rather than imported; byte-parity of the two def blocks
+# is fixture-enforced. Edit both sites together or neither.
+def task_ledger_from_manifest(d):
+    """The task ledger is manifest.tasks[] — the DERIVE status SoT. tasks.md is a
+    rendered read-replica owned by tasks-render.sh (its ledger lives between the
+    tasks:start/end sentinels) and is deliberately NOT read here: replica husks
+    stranded outside the sentinels and hand-era **Status:** line shapes cannot
+    reach this axis, and comparing the manifest against its own derivative would
+    measure render freshness, not status truth."""
+    tasks = d.get("tasks") if isinstance(d, dict) else None
+    if not isinstance(tasks, list):
+        return []
     out = []
-    for i, (tid, off) in enumerate(heads):
-        end = heads[i+1][1] if i+1 < len(heads) else len(body)
-        seg = body[off:end]
-        sm = STATUS_LINE_RE.search(seg)
-        status = ""
-        if sm:
-            raw = sm.group(1).strip().strip("*").strip("_").strip().lower()
-            # Normalize "done (...)" / "done — ..." trailing annotations to just the head token
-            m2 = re.match(r"([a-z-]+)", raw)
-            status = m2.group(1) if m2 else raw
-        out.append({"id": tid, "status": status})
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        tid = t.get("id")
+        st = t.get("status")
+        if st is None:
+            st = ""
+        elif not isinstance(st, str):
+            st = str(st)
+        out.append({"id": str(tid) if tid is not None else "?", "status": st})
     return out
 
 def walk_plan_dirs(root):
@@ -491,8 +508,7 @@ def walk_plan_dirs(root):
 
 for plan_dir in walk_plan_dirs(plans_scope):
     man_p = os.path.join(plan_dir, "manifest.json")
-    tasks_p = os.path.join(plan_dir, "tasks.md")
-    if not (os.path.isfile(man_p) and os.path.isfile(tasks_p)):
+    if not os.path.isfile(man_p):
         continue
     try:
         mdata = json.loads(open(man_p).read())
@@ -503,21 +519,21 @@ for plan_dir in walk_plan_dirs(plans_scope):
     mstatus = str(mdata.get("status", "")).strip().lower()
     if mstatus not in DONE_SET:
         continue
-    ledger = parse_task_statuses(tasks_p)
+    ledger = task_ledger_from_manifest(mdata)
     if not ledger:
         continue
-    lagging = [x for x in ledger if x["status"] not in DONE_SET]
+    lagging = [x for x in ledger if x["status"].strip().lower() not in DONE_SET]
     if not lagging:
         continue
     rel = os.path.relpath(plan_dir, plans_scope)
     slug = rel.split("/")[0]
-    emit({"finding": "stale-status", "file": rel + "/tasks.md",
+    emit({"finding": "stale-status", "file": rel + "/manifest.json",
           "category": "trinity-lag", "severity": "warn",
           "plan_slug": slug,
           "manifest_status": mstatus,
           "lagging_tasks": lagging,
           "reason": "manifest.status=complete but task ledger lags (trinity lag)",
-          "resolution_hint": "flip lagging T-N **Status:** to `done` if work is actually complete, OR revert manifest.status to in-progress if work remains"})
+          "resolution_hint": "advance the lagging manifest.tasks[].status rows to a terminal value if the work is actually complete, OR revert manifest.status to in-progress if work remains; tasks.md is a rendered read-replica — never hand-edit it (re-render via tasks-render.sh after the manifest moves)"})
     counts["trinity-lag"] += 1
 
 # ---------- binder freshness (rule #9) ----------

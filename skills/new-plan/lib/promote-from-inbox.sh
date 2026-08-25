@@ -313,6 +313,11 @@ inbox_cfg = rules.get("inbox", {})
 inbox_slug_pattern = inbox_cfg.get("slug_pattern", r"^[a-z][a-z0-9-]+$")
 plan_slug_pattern = rules.get("slug_rules", {}).get("pattern", r"^[0-9]{2,}-[a-z][a-z0-9-]+$")
 inbox_dir = os.path.join(plans_root, "_inbox")
+# Settled home (plans-root-relative; fallback EQUALS the pillar contract). A settled
+# note still OWNS its slug: capture collision-versioning probes here too, so a
+# duplicate-slug capture versions instead of re-minting over settled history.
+_settled_rel = inbox_cfg.get("settled_dir", "_inbox/_settled/").strip("/")
+settled_dir = os.path.join(plans_root, *_settled_rel.split("/"))
 
 
 # (A): version-on-collision at _inbox/ CAPTURE.
@@ -325,7 +330,10 @@ if action == "capture":
     final_slug = slug
     note_path = os.path.join(inbox_dir, final_slug + ".md")
     n = 1
-    while os.path.exists(note_path):
+    # A slug is HELD by an active note OR a settled one — a settled note keeps
+    # owning its slug (duplicate capture must version, never re-mint over history).
+    while (os.path.exists(note_path)
+           or os.path.exists(os.path.join(settled_dir, final_slug + ".md"))):
         n += 1
         final_slug = "%s-%d" % (slug, n)
         note_path = os.path.join(inbox_dir, final_slug + ".md")

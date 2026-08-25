@@ -1,18 +1,20 @@
 #!/bin/bash
-# trinity-drift-detect — Detect disagreement between spec.md / manifest.json /
-# tasks.md / per-task T-N statuses across plan-root and sub-plan-root dirs, AND
-# (the extension) between a master's sub_plans[] read-replica and the
-# subs' real published status (the master<->sub aggregation axis).
+# trinity-drift-detect — Detect plan-status drift across plan-root and sub-plan-root
+# dirs (manifest status vs the manifest's own tasks[] ledger), AND (the
+# extension) between a master's sub_plans[] read-replica and the subs' real
+# published status (the master<->sub aggregation axis).
 #
 # Librarian reconciler (1.1 line 129). Ported from the
 # trinity-drift-detect.sh. The trinity axis
 # is PARTIALLY RETIRED under DERIVE (manifest is the sole status SoT): the
 # `spec-manifest-divergence` + `header-trinity-divergence` sub-axes read the plan
 # artifact FRONTMATTER status (spec.md/tasks.md status:) that no longer exists after
-# the strip, so they are RETIRED; `trinity-task-ledger-lag` (manifest status + the
-# per-task ledger **Status:** lines) is PRESERVED. The master<->sub aggregation axis
-# is the NET-NEW extension per §Decision (b) + line 119 — manifest-only,
-# unaffected by DERIVE, PRESERVED.
+# the strip, so they are RETIRED; `trinity-task-ledger-lag` is PRESERVED and reads
+# MANIFEST-DIRECT — plan status and the per-task ledger both come from manifest.json
+# (status + tasks[]), the DERIVE SoT end to end. tasks.md is a rendered read-replica
+# of manifest.tasks[] and is never parsed by this axis. The master<->sub aggregation
+# axis is the NET-NEW extension per §Decision (b) + line 119 —
+# manifest-only, unaffected by DERIVE, PRESERVED.
 #
 # Cross-file invariants live in THIS reconciler, NEVER in a blocking write-time
 # path. The PreToolUse substance branch + PostToolUse manifest-verify
@@ -38,6 +40,13 @@
 #   master-sub-aggregation-drift (R-61)   master sub_plans[] vs sub real status
 #   sub-publishes-upward-gap (R-62)       sub transition the master shows stale
 #   sub-peer-isolation (R-63, advisory)   sub depends on a sibling sub
+#   tasks-md-drift (DELEGATED)            replica-freshness axis: emitted BY
+#     tasks-render.sh --check --drift-only, invoked check-only per plan (non-empty
+#     manifest.tasks[] population) through this walk so the axis rides every
+#     automatic lane this capability carries; compare + emission live in
+#     tasks-render.sh ONLY (no second implementation here); read-only — repair
+#     stays owned by post-manifest-binder-refresh.sh / tasks-md-autosync.sh.
+#     Skipped under --dry-run.
 #
 # CLI:
 #   trinity-drift-detect.sh                # emit findings to $FINDINGS_OUTPUT or stdout
@@ -89,11 +98,19 @@ if [[ ! -d "$PLANS_SCOPE" ]]; then
   exit 2
 fi
 
-python3 - "$PLANS_SCOPE" "$DRY_RUN" "$AXIS" <<'PY'
-import json, os, re, sys
+# Replica-freshness delegation target: the shipped tasks-render.sh --check is the
+# ONLY implementation of the tasks.md byte-compare + tasks-md-drift emission; this
+# capability never re-implements it — it invokes it check-only per plan so the
+# freshness axis rides every automatic lane this capability carries. Sibling
+# resolution (same capabilities dir, repo and live installs alike); env override
+# for test isolation.
+TASKS_RENDER_BIN="${TASKS_RENDER_BIN:-$(cd "$(dirname "$0")" && pwd)/tasks-render.sh}"
+
+python3 - "$PLANS_SCOPE" "$DRY_RUN" "$AXIS" "$TASKS_RENDER_BIN" <<'PY'
+import json, os, re, subprocess, sys
 from datetime import datetime
 
-plans_scope, dry_run_s, axis = sys.argv[1:4]
+plans_scope, dry_run_s, axis, tasks_render_bin = sys.argv[1:5]
 dry_run = (dry_run_s == "true")
 # Gate the two axes on the selector. `all` runs both (default).
 run_trinity = axis in ("all", "trinity-status")
@@ -129,41 +146,28 @@ def load_manifest(path):
         return None, "parse-failure"
     return (d if isinstance(d, dict) else None), (None if isinstance(d, dict) else "parse-failure")
 
-def parse_manifest_status(path):
-    d, err = load_manifest(path)
-    if err:
-        return "", err
-    if d is None:
-        return "", None
-    v = d.get("status", "")
-    return (v if isinstance(v, str) else ""), None
-
-TASK_HEADING = re.compile(r"^###\s+(T-\d+)\s*:", re.MULTILINE)
-STATUS_LINE = re.compile(r"^\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
-
-def parse_task_ledger(path):
-    t = read_text(path)
-    if t is None:
-        return [], None
-    body = t
-    if t.startswith("---"):
-        end = t.find("\n---", 3)
-        if end == -1:
-            return [], "parse-failure"
-        body = t[end + 4:]
-    headings = [(m.group(1), m.start()) for m in TASK_HEADING.finditer(body)]
+def task_ledger_from_manifest(d):
+    """The task ledger is manifest.tasks[] — the DERIVE status SoT. tasks.md is a
+    rendered read-replica owned by tasks-render.sh (its ledger lives between the
+    tasks:start/end sentinels) and is deliberately NOT read here: replica husks
+    stranded outside the sentinels and hand-era **Status:** line shapes cannot
+    reach this axis, and comparing the manifest against its own derivative would
+    measure render freshness, not status truth."""
+    tasks = d.get("tasks") if isinstance(d, dict) else None
+    if not isinstance(tasks, list):
+        return []
     out = []
-    for i, (tid, offset) in enumerate(headings):
-        end = headings[i + 1][1] if i + 1 < len(headings) else len(body)
-        section = body[offset:end]
-        sm = STATUS_LINE.search(section)
-        status = ""
-        if sm:
-            raw = sm.group(1).strip().strip("*").strip("_").strip()
-            m2 = re.match(r"([A-Za-z-]+)", raw)
-            status = m2.group(1) if m2 else raw
-        out.append({"id": tid, "status": status})
-    return out, None
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        tid = t.get("id")
+        st = t.get("status")
+        if st is None:
+            st = ""
+        elif not isinstance(st, str):
+            st = str(st)
+        out.append({"id": str(tid) if tid is not None else "?", "status": st})
+    return out
 
 def norm(s):
     return (s or "").strip().lower()
@@ -182,27 +186,37 @@ counts = {"trinity-task-ledger-lag": 0, "parse-failure": 0,
           "sub-peer-isolation": 0}
 inspected = 0
 
+# Replica-freshness axis (delegated): active with the trinity axis, skipped under
+# --dry-run (dry-run summarizes THIS capability's own counters; the delegated
+# findings flow through tasks-render's emission contract, not emit()). A missing
+# delegation target degrades loudly to skipped — never a silent hole.
+freshness_enabled = run_trinity and not dry_run
+if freshness_enabled and not os.path.isfile(tasks_render_bin):
+    print("trinity-drift-detect: tasks-render.sh not found (%s) — "
+          "replica-freshness delegation SKIPPED this run" % tasks_render_bin,
+          file=sys.stderr)
+    freshness_enabled = False
+
 def inspect_trinity(dirpath):
-    """spec/manifest/tasks/T-N axis. DERIVE: the two artifact-frontmatter sub-axes
+    """Manifest-direct status axis. DERIVE: the two artifact-frontmatter sub-axes
     (spec-manifest-divergence, header-trinity-divergence) are RETIRED (they read the
-    stripped status: frontmatter); trinity-task-ledger-lag (manifest + per-task
-    ledger) is PRESERVED."""
+    stripped status: frontmatter); trinity-task-ledger-lag (manifest status vs the
+    manifest's own tasks[] ledger) is PRESERVED."""
     global inspected
     spec_p = os.path.join(dirpath, "spec.md")
     manifest_p = os.path.join(dirpath, "manifest.json")
-    tasks_p = os.path.join(dirpath, "tasks.md")
     if not (os.path.isfile(spec_p) and os.path.isfile(manifest_p)):
         return
     inspected += 1
     rel = os.path.relpath(dirpath, plans_scope)
-    manifest_s, manifest_err = parse_manifest_status(manifest_p)
-    has_tasks = os.path.isfile(tasks_p)
-    ledger, ledger_err = parse_task_ledger(tasks_p) if has_tasks else ([], None)
-    errs = [e for e in (manifest_err, ledger_err) if e]
-    if errs:
+    d, manifest_err = load_manifest(manifest_p)
+    v = d.get("status", "") if d is not None else ""
+    manifest_s = v if isinstance(v, str) else ""
+    ledger = task_ledger_from_manifest(d)
+    if manifest_err:
         emit({"finding": "trinity-status-drift", "file": rel, "drift_class": "parse-failure",
               "manifest_status": manifest_s,
-              "task_ledger": ledger, "parse_errors": errs, "detected_at": iso_now})
+              "task_ledger": ledger, "parse_errors": [manifest_err], "detected_at": iso_now})
         counts["parse-failure"] += 1
         return
     # RETIRED (DERIVE / manifest-as-sole-status-SoT): the `spec-manifest-divergence` and
@@ -213,9 +227,14 @@ def inspect_trinity(dirpath):
     # parsing, and no spec/tasks status payload fields.
     #
     # PRESERVED: `trinity-task-ledger-lag` reads the MANIFEST status (manifest_s) and
-    # the per-task ledger **Status:** lines (parse_task_ledger) — NEITHER is artifact
-    # frontmatter — so it is unaffected by DERIVE and stays active.
-    if is_complete(manifest_s) and has_tasks:
+    # the manifest's OWN tasks[] ledger (task_ledger_from_manifest) — the DERIVE status
+    # SoT end to end. Under DERIVE tasks.md is a rendered read-replica of
+    # manifest.tasks[] (tasks-render.sh renders it; post-manifest-binder-refresh.sh and
+    # tasks-md-autosync.sh keep it fresh), so it is NOT a data source for this axis:
+    # comparing the manifest against its own derivative would measure render freshness,
+    # not status truth. Replica freshness is a separate detection axis
+    # (tasks-render.sh --check and its sweep wiring).
+    if is_complete(manifest_s):
         lagging = [x for x in ledger if not is_complete(x["status"])]
         if lagging:
             emit({"finding": "trinity-status-drift", "file": rel,
@@ -223,6 +242,26 @@ def inspect_trinity(dirpath):
                   "manifest_status": manifest_s,
                   "task_ledger": ledger, "lagging_tasks": lagging, "detected_at": iso_now})
             counts["trinity-task-ledger-lag"] += 1
+    # Replica-freshness delegation: tasks.md staleness is DETECTED by the shipped
+    # tasks-render.sh --check --drift-only (byte-compare + tasks-md-drift emission
+    # live THERE — the single implementation; --drift-only keeps the steady state
+    # silent, no per-plan info-event). Invoked check-only per plan through this
+    # walk so the axis rides every automatic lane this capability carries
+    # (ad-hoc, librarian-full, session-close step 2d). Population: manifests
+    # carrying a non-empty tasks[] — no source ledger, nothing to be fresh
+    # against. The child inherits FINDINGS_OUTPUT so its finding lands in the
+    # same sink (stdout mode passes through). Read-only by contract: --check
+    # never writes, and tasks-render itself refuses --drift-only without
+    # --check. Repair stays owned by post-manifest-binder-refresh.sh and
+    # tasks-md-autosync.sh — this axis only reports.
+    if freshness_enabled and ledger:
+        try:
+            subprocess.run(
+                ["bash", tasks_render_bin, "--check", "--drift-only", dirpath],
+                stdin=subprocess.DEVNULL, timeout=120)
+        except Exception as e:
+            print("trinity-drift-detect: freshness delegation failed for %s: %s"
+                  % (rel, e), file=sys.stderr)
 
 def inspect_master_sub(master_dir):
     """NET-NEW master<->sub aggregation axis (R-61/62/63)."""

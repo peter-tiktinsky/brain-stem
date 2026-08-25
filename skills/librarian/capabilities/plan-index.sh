@@ -1,7 +1,7 @@
 #!/bin/bash
-# plan-index — Regenerate <plans-root>/_index.md as a status-grouped navigation
-# index over every plan root, READING the master sub_plans[] aggregate so a
-# master's row carries its sub-plan rollup (a reader cap).
+# plan-index — Regenerate <plans-root>/_index.md as a single-table plan ledger
+# over every plan root (house tasks.md ledger style), READING the master
+# sub_plans[] aggregate so a master's row carries its sub-plan rollup (a reader cap).
 #
 # Librarian reader cap: regenerates _index.md and reads the master sub_plans[] aggregate.
 # There is NO separate plan-index.md capability contract — the capability is governed by
@@ -15,13 +15,16 @@
 #     _index.md on a misread); group-count sum assertion.
 #   Failure mode: block-and-log; never write-and-hope. Read-only walk + one
 #     atomic file write.
-#   Sections (render order): the status-grouped roster (Pending / Active / Done /
-#     Superseded / Abandoned / Unknown), the collapsed "Archived (N)" view-filter
-#     footnote, then `## By project directory` as the FINAL section — one
-#     `### <project-home-dir>` group per resolved directory (alphabetical) of
-#     one-line plan entries, with a trailing `### (no project directory)` group for
-#     empty-resolution rows. The by-project section mirrors the roster's membership
-#     (view-filter parity, incl. --all) and is render-only (never re-parsed).
+#   Sections (render order): a `**By status:**` counts line, then `## Plan ledger`
+#     — ONE table (| Plan | Status | Project dir | Subs |) with one row per plan,
+#     sorted by status group (Pending / Active / Done / Superseded / Abandoned /
+#     Unknown) then numeric slug, then the collapsed "Archived (N)" view-filter
+#     footnote. Status and Project dir are first-class cells on EVERY row (the .md
+#     branch included); `—` is the loud empty cell for an unresolvable project dir
+#     or a non-master Subs cell. Titles/descriptions are dropped by design (the
+#     spec H1 restated the slug — noise). The former `## By project directory`
+#     section is SUPERSEDED by the per-row Project dir column (one table carries
+#     both views; the appended per-dir grouping duplicated every row).
 #
 # master sub_plans[] read: when a plan manifest declares type:master (or
 # carries sub_plans[]), the index row appends a coarse-bucket rollup
@@ -151,17 +154,19 @@ def _load_master_initiative_whitelist():
     return {s for s in raw if isinstance(s, str)}
 
 MASTER_INITIATIVE_WHITELIST = _load_master_initiative_whitelist()
-EXCLUDE_SLUGS = {"_index.md", "ENFORCEMENT-MAP.md"}
+# _index.md is the sole excluded registry file. The historical ENFORCEMENT-MAP.md entry was
+# removed as inert when that file relocated out of the plans root: the closed-namespace guard
+# now denies re-minting it, and a stray copy SHOULD surface as a plan-naming-drift finding.
+EXCLUDE_SLUGS = {"_index.md"}
 
 def _load_spoke_dir_map():
     """Map each registry spoke_key -> its project-home directory (cwd_anchors[0]),
-    the SINGLE resolution point feeding BOTH the per-row ownership annotation and the
-    `## By project directory` grouping. The `home` spoke key is EXCLUDED
-    unconditionally — skipped even when the registry declares cwd_anchors for it (the
-    LIVE registry anchors `home` at ["~", "$HOME"]) — so a `project: home` plan
-    resolves to the graceful empty at every consumer, never a useless ` · ~`.
+    the SINGLE resolution point feeding the per-row Project dir column. The `home`
+    spoke key is EXCLUDED unconditionally — skipped even when the registry declares
+    cwd_anchors for it (the LIVE registry anchors `home` at ["~", "$HOME"]) — so a
+    `project: home` plan resolves to the loud empty cell (`—`), never a useless `~`.
     A missing/unreadable/malformed registry yields an empty map — every row then
-    renders the graceful empty annotation (never a crash)."""
+    renders the empty cell (never a crash)."""
     if not SPOKE_REGISTRY_PATH or not SPOKE_REGISTRY_PATH.is_file():
         return {}
     try:
@@ -175,9 +180,9 @@ def _load_spoke_dir_map():
             continue
         key = sp.get("spoke_key", "")
         # `home` is the anchorless catch-all identity, not a project directory:
-        # exclude it unconditionally here (the single resolution point) so both the
-        # per-row annotation and the by-project grouping resolve it to the graceful
-        # empty even when the registry declares anchors for it (the live shape).
+        # exclude it unconditionally here (the single resolution point) so the
+        # Project dir column resolves it to the loud empty cell even when the
+        # registry declares anchors for it (the live shape).
         if key == "home":
             continue
         anchors = sp.get("cwd_anchors", []) or []
@@ -288,28 +293,10 @@ def extract_status(entry):
             return fm["status"]
     return ""
 
-def extract_title(entry):
-    if entry.is_dir():
-        for name in ("spec.md", "00-ideation-brief.md", "README.md"):
-            sp = entry / name
-            if sp.is_file():
-                txt = read_text(sp)
-                m = re.search(r"^#\s+(.+?)\s*$", txt, re.M)
-                if m:
-                    t = m.group(1).strip()
-                    return re.sub(r"\s*[—\-]\s*(Spec|Plan)\s*$", "", t)
-        return entry.name
-    if entry.is_file():
-        txt = read_text(entry)
-        m = re.search(r"^#\s+(.+?)\s*$", txt, re.M)
-        if m:
-            t = m.group(1).strip()
-            return re.sub(r"\s*[—\-]\s*(Spec|Plan)\s*$", "", t)
-    return entry.name
-
 def master_rollup(entry):
-    """: READ the master sub_plans[] read-replica; return a coarse-bucket
-    rollup string, or '' if not a master / no sub_plans."""
+    """: READ the master sub_plans[] read-replica; return the coarse-bucket
+    rollup for the Subs cell ('N pending / N active / N done'), or '' if not a
+    master / no sub_plans (the emitter renders '' as the loud empty cell)."""
     if not entry.is_dir():
         return ""
     doc = read_manifest(entry)
@@ -322,34 +309,29 @@ def master_rollup(entry):
     for sp in subs:
         if isinstance(sp, dict):
             buckets[COARSE.get(sp.get("status", ""), "active")] += 1
-    return " · subs: %d pending / %d active / %d done" % (
+    return "%d pending / %d active / %d done" % (
         buckets["pending"], buckets["active"], buckets["done"])
 
 def project_home_dir_bare(entry):
-    """Resolve the plan's project-home directory BARE (no ` · ` annotation prefix):
-    the group key for the `## By project directory` section. Resolved from the
-    manifest `project:` spoke key via SPOKE_DIR_MAP. Uses a FRESH per-entry
-    read_manifest (mirroring master_rollup), NEVER the entry-scoped `doc` that leaks
-    a stale value across non-dir iterations. Returns '' for a non-dir entry, absent/
-    malformed `project:`, the `home` key (excluded at _load_spoke_dir_map — see the
-    explicit home-key rule there), or an unresolvable key."""
-    if not entry.is_dir():
-        return ""
-    doc = read_manifest(entry)
-    if not doc:
-        return ""
-    proj = doc.get("project")
+    """Resolve the plan's project-home directory: the Project dir cell value.
+    Resolved from the `project:` spoke key via SPOKE_DIR_MAP — read from the
+    manifest for a dir plan (a FRESH per-entry read_manifest, mirroring
+    master_rollup, NEVER an entry-scoped doc that leaks a stale value across
+    iterations) and from the file's own frontmatter for a bare .md plan (the same
+    precedent extract_status sets for status on that branch — the column is
+    first-class on EVERY row). Returns '' for absent/malformed `project:`, the
+    `home` key (excluded at _load_spoke_dir_map — see the explicit home-key rule
+    there), or an unresolvable key; the emitter renders '' as the loud empty cell."""
+    if entry.is_dir():
+        doc = read_manifest(entry)
+        if not doc:
+            return ""
+        proj = doc.get("project")
+    else:
+        proj = parse_frontmatter(read_text(entry)).get("project", "")
     if not proj or not isinstance(proj, str):
         return ""
-    return SPOKE_DIR_MAP.get(proj) or ""
-
-def project_home_dir(entry):
-    """Render the ` · <dir>` per-row ownership annotation from project_home_dir_bare.
-    Absent `project:`, the `home` key (excluded at _load_spoke_dir_map — the registry
-    may anchor `home` at ["~", "$HOME"], but it never resolves to a directory here),
-    or an unresolvable key renders a graceful empty annotation, never a crash."""
-    d = project_home_dir_bare(entry)
-    return " · %s" % d if d else ""
+    return SPOKE_DIR_MAP.get(proj.strip()) or ""
 
 def parent_plan_chain(entry):
     chain = []
@@ -398,10 +380,6 @@ def completion_date(entry):
 
 entries_by_group = {"Pending": [], "Active": [], "Done": [],
                     "Superseded": [], "Abandoned": [], "Unknown": []}
-# ## By project directory: per-entry records for the appended by-project
-# section — (slug, title, group, rollup, bare_dir, is_dir). Collected in lockstep with
-# entries_by_group (same filters), so section membership mirrors the roster exactly.
-by_project = []
 # view-filter: slugs whose `completed` row is older than the archival window and so
 # is default-hidden into the collapsed "Archived (N)" section (empty under --all).
 archived_slugs = set()
@@ -447,16 +425,16 @@ for entry in sorted(PLANS_DIR.iterdir()):
             continue
     raw_status = extract_status(entry)
     group = normalize_status(raw_status)
-    title = extract_title(entry)
     rollup = master_rollup(entry)
-    projdir = project_home_dir(entry)
-    if entry.is_dir():
-        line = "- [%s](./%s/) — %s%s%s" % (slug, slug, title, projdir, rollup)
-    else:
-        line = "- [%s](./%s) — %s" % (slug, slug, title)
+    bare_dir = project_home_dir_bare(entry)
+    # Ledger row: Status and Project dir are first-class cells on EVERY row —
+    # the .md branch included (it formerly dropped both silently). `—` is the
+    # loud empty cell. Links stay in the ruled grammar: [slug](./slug/) for a
+    # dir plan, [slug](./slug) for a bare .md plan.
+    link = "./%s/" % slug if entry.is_dir() else "./%s" % slug
+    line = "| [%s](%s) | %s | %s | %s |" % (
+        slug, link, group, bare_dir or "—", rollup or "—")
     entries_by_group[group].append((slug, line))
-    by_project.append((slug, title, group, rollup,
-                       project_home_dir_bare(entry), entry.is_dir()))
     total_counted += 1
     if group == "Unknown":
         warnings.append(slug)
@@ -488,25 +466,39 @@ if total_counted == 0:
     sys.exit(4)
 
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+GROUP_ORDER = ("Pending", "Active", "Done", "Superseded", "Abandoned", "Unknown")
+# the Done group hides its archived (completed >= window) rows into the
+# collapsed Archived section below (never under --all, where archived_slugs is empty).
+visible = {}
+for g in GROUP_ORDER:
+    items = entries_by_group[g]
+    if g == "Done":
+        items = [it for it in items if it[0] not in archived_slugs]
+    visible[g] = items
+
+# ONE ledger table replaces the former by-status H2 groups AND the appended
+# `## By project directory` section (both SUPERSEDED — the per-dir grouping
+# duplicated every row; the Project dir column carries the attribution now).
+# The by-status counts line preserves the per-group counts the H2 headers
+# carried; rows sort by status-group order then numeric slug, so the by-status
+# scan order survives as sort order. Render-only: never re-parsed from _index.md.
 out = ["# Plan Index", "",
        "_Auto-generated by `librarian plan-index`. Do not hand-edit._", "",
        "**Total plans:** %d" % total_counted,
-       "**Last regenerated:** %s" % now, ""]
-for group_name in ("Pending", "Active", "Done", "Superseded", "Abandoned", "Unknown"):
-    items = entries_by_group[group_name]
-    # the Done group hides its archived (completed >= window) rows into the
-    # collapsed Archived section below (never under --all, where archived_slugs is empty).
-    if group_name == "Done":
-        items = [it for it in items if it[0] not in archived_slugs]
-    out.append("## %s (%d)" % (group_name, len(items)))
-    out.append("")
-    if group_name == "Unknown":
-        out.append("_Plans missing a detectable status._")
-        out.append("")
-    if items:
-        for _, line in items:
-            out.append(line)
-    out.append("")
+       "**Last regenerated:** %s" % now,
+       "**By status:** " + " · ".join(
+           "%s %d" % (g, len(visible[g])) for g in GROUP_ORDER),
+       "", "## Plan ledger", "",
+       "_One row per plan; `—` marks an empty resolution (loud, never silent: an "
+       "unattributed Project dir, a non-master Subs cell). Rows sort by status "
+       "(Pending → Active → Done → Superseded → Abandoned → Unknown), then numeric "
+       "slug. Titles are dropped by design — open the plan's spec.md._", "",
+       "| Plan | Status | Project dir | Subs |",
+       "|------|--------|-------------|------|"]
+for g in GROUP_ORDER:
+    for _, line in visible[g]:
+        out.append(line)
+out.append("")
 
 # archival view-filter: a collapsed count-only section for the completed plans older
 # than the window (soft/reversible — the plan never moved; `--all` re-shows the rows).
@@ -516,38 +508,6 @@ if archived_slugs:
     out.append("_%d completed plan(s) older than %d days, hidden from the roster above. "
                "Run `librarian plan-index --all` to show them._"
                % (len(archived_slugs), ARCHIVE_WINDOW_DAYS))
-    out.append("")
-
-# ## By project directory: the FINAL section, appended after the Archived
-# block. One `### <project-home-dir>` H3 group per resolved directory (alphabetical by
-# rendered dir string), a trailing `### (no project directory)` group for the empty-
-# resolution entries (absent project:, the home key, an unresolvable key, file-backed
-# .md plans). Entry shape: `- [<slug>](./<slug>/) — <title> (<Group>)` + the existing
-# master-rollup suffix; NO ` · <dir>` annotation (the group header carries the dir).
-# Membership mirrors the roster above exactly — archived-hidden slugs are excluded here
-# too (archived_slugs is empty under --all, so the full roster reappears). Render-only:
-# derived from by_project this run, never re-parsed from _index.md.
-NO_DIR_GROUP = "(no project directory)"
-by_project_groups = {}
-for slug, title, group, rollup, bare_dir, is_dir in by_project:
-    if slug in archived_slugs:
-        continue
-    key = bare_dir if bare_dir else NO_DIR_GROUP
-    link = "./%s/" % slug if is_dir else "./%s" % slug
-    row = "- [%s](%s) — %s (%s)%s" % (slug, link, title, group, rollup)
-    by_project_groups.setdefault(key, []).append((slug, row))
-
-out.append("## By project directory")
-out.append("")
-# Groups alphabetical by rendered dir string; the unattributed group ALWAYS last.
-dir_keys = sorted(k for k in by_project_groups if k != NO_DIR_GROUP)
-if NO_DIR_GROUP in by_project_groups:
-    dir_keys.append(NO_DIR_GROUP)
-for key in dir_keys:
-    out.append("### %s" % key)
-    out.append("")
-    for _, row in sorted(by_project_groups[key], key=slug_sort_key):
-        out.append(row)
     out.append("")
 
 content = "\n".join(out).rstrip() + "\n"

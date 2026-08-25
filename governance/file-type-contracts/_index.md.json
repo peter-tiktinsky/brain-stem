@@ -28,7 +28,7 @@
       "parent_folder": {
         "condition": "path_depth >= 2",
         "condition_semantics": "path_depth = number of segments between vault root and the _index.md file; depth 1 = `<cluster>/_index.md` (parent_folder omitted); depth >= 2 = `<cluster>/<instance>/_index.md` or deeper (parent_folder mandatory).",
-        "auto_populate_source": "post-write-verify.sh bootstrap step 2 — derived from $FILE_PATH dirname relative to $VAULT_ROOT"
+        "auto_populate_source": "post-write-verify.sh bootstrap — the PARENT of $FILE_PATH's dirname, expressed relative to $VAULT_ROOT"
       }
     },
     "optional": [
@@ -40,8 +40,8 @@
       },
       "parent_folder": {
         "type": "string",
-        "pattern": "^[A-Za-z][A-Za-z0-9 /._-]+$",
-        "rationale": "Vault-relative path naming the parent folder of this _index.md"
+        "pattern": "^[A-Za-z_][A-Za-z0-9 /._-]+$",
+        "rationale": "Root-relative path naming the PARENT of the folder this _index.md describes (vault-relative for vault-governed indexes; plans-root-relative for plans-tree indexes, whose canonical address family is the physical one). At depth 2 the value coincides with the parent's basename; at depth >= 3 it is path-qualified (e.g. Work/<spoke>). Resolved by a single root join — never sibling-relative."
       },
       "tags": {
         "type": "array",
@@ -108,9 +108,9 @@
         {
           "position": 1,
           "name": "File",
-          "value_type": "wikilink",
-          "value_pattern": "^\\[\\[[^\\[\\]]+\\.md\\]\\]$",
-          "derivation": "filename of the child .md file rendered as Obsidian wikilink"
+          "value_type": "markdown-link",
+          "value_pattern": "^\\[[^\\]]+\\]\\([^)]+\\)$",
+          "derivation": "filename of the child .md file rendered as a relative markdown link [<label>](<relative-path>) — one link grammar across every index writer; library article cells carry a .md-suffixed label, nested articles link their subdir-relative path, and vault-root surface rows link the child directory (see root_surfaces_adaptation)"
         },
         {
           "position": 2,
@@ -159,6 +159,12 @@
         "condition_semantics": "Both predicates must hold (logical AND): the prose fallback fires only when file_count < 3 AND distinct_type_count < 3. A folder with 3+ files, or 3+ distinct types, renders the full sentinel table.",
         "alternative": "prose 'Current Contents' section replaces the table",
         "rationale": "Table enumeration is premature when a folder has very few children AND little type variety; prose is more readable. The AND reading keeps a small-but-type-diverse folder on the table, where the Type column is the load-bearing routing signal"
+      },
+      "zero_byte_exclusion": "zero-byte .md children are excluded from enumeration — non-authored placeholders enter the table when they gain content",
+      "root_surfaces_adaptation": {
+        "applies_to": "the vault-root _index.md only",
+        "rationale": "a symlink-hub root that tables only its direct .md files hides the hubs that ARE the root's content; surface rows make the root render navigable",
+        "row_shape": "one row per direct child directory, ordered before the file rows: File = [<name>](<name>/), Lines = —, Type = surface, Description = → <resolved target> for a symlinked dir (re-resolved on every splice) or (directory) for a plain dir"
       }
     },
     "root_index_adaptation": {
@@ -171,8 +177,8 @@
         {
           "position": 1,
           "name": "Topic",
-          "value_type": "wikilink",
-          "derivation": "the topic directory name rendered as an Obsidian wikilink to that topic's _index.md"
+          "value_type": "markdown-link",
+          "derivation": "the topic directory name rendered as a relative markdown link to that topic's _index.md ([<topic>](<topic>/_index.md))"
         },
         {
           "position": 2,
@@ -221,7 +227,7 @@
       "scope": "single folder of the written file",
       "writes": [
         "auto-bootstrap (if _index.md missing AND folder non-exempt): create with frontmatter stub + H1 + placeholder folder-context paragraph + empty contents-enum table wrapped in sentinel markers",
-        "reconcile entry for written file (append/update/refresh row by wikilink)",
+        "reconcile entry for written file (append/update/refresh row keyed by display label — markdown-link rows and retired-grammar wikilink rows both parse; emission is markdown-link only)",
         "bump _index.md frontmatter `updated:` to today"
       ],
       "blast_radius": "the sibling _index.md only",

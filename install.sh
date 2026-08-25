@@ -1635,12 +1635,14 @@ if [ "$APPLY_MODE" != "1" ]; then
   # consumer contract. Numeric flags (claude_home_defaulted, force_*, etc.) are
   # 0/1 integers and are interpolated as JSON numbers; the static action-plan
   # structure (steps/ops/rationale strings — no user input) is a jq literal.
- # DJ: "G7" is REMOVED from guards_passed — G7 is the
-  # settings.json silent-key-deletion gate that runs only at Step 12 (~:1102),
-  # AFTER this dry-run exit 0, so it was a false attestation. Every guard now in
-  # guards_passed has a fire-site BEFORE this emit: G8 (176), G1-pre (185),
-  # G5 (236), G1-main (270), G4 (318), G2 (375), G3 (601). G7 remains a
-  # PLANNED action under actions[].step 12.
+  # "G7" is NOT a member of guards_passed — G7 is the
+  # settings.json silent-key-deletion gate and it runs at Step 12, AFTER this
+  # dry-run's exit 0, so listing it here was a false attestation. G7 remains a
+  # PLANNED action under actions[].step 12. The members SEEDED into the accumulator
+  # (G1-pre, G1-main, G2, G3, G5, G8) are exactly those whose fire-sites are
+  # unconditional and precede this emit; G4 is the one exception and is described
+  # directly below. Guard fire-sites are deliberately NOT cited by line number —
+  # they move with every edit above them, and a stale cite reads as a fact.
   # guards_passed[] is no longer a jq LITERAL: it is the accumulator seeded + appended
   # above, so the array reports what this RUN evaluated rather than what the code
   # contains. G4 is the conditional member (it needs a resolvable vault root); when it
@@ -2351,7 +2353,8 @@ for p in sorted(paths):
 # vault-init/Vault Writers/_index.md); word-splitting on
 # IFS would shatter them into nonexistent tokens and silently skip them — the
 # exact cp -n silent-skip class this fix kills (mirrors apply_subtree_managed's
-# comment + memory feedback_awk_no_multiline_dash_v).
+# comment above; the same whitespace-mangling class as awk's -v, which cannot
+# carry a multi-line value — path data never rides a splitting seam).
 #
 # apply_subtree_legacy <abs-source-dir> <rel-prefix>
 #   <abs-source-dir> — the $SOURCE_REPO subtree root (e.g. $SOURCE_REPO/skills)
@@ -2515,9 +2518,10 @@ done
 # governance-action-log.jsonl init below still fires). The manifest.sqlite root
 # is the brain-stem state-tier path ($VAULT_WRITER_STATE_ROOT/manifest.sqlite).
 #
-# Env-var propagation: VAULT_WRITER_STATE_ROOT passed via inline-prefix (lib
-# auto-derives WRITER_MANIFEST_PATH = $VAULT_WRITER_STATE_ROOT/manifest.sqlite
-# per pillar 7).
+# Env-var propagation: VAULT_WRITER_STATE_ROOT is passed as an INLINE COMMAND
+# PREFIX, never left to an ambient export — an export set in one shell invocation
+# does not reach a separately-spawned child (lib auto-derives
+# WRITER_MANIFEST_PATH = $VAULT_WRITER_STATE_ROOT/manifest.sqlite per pillar 7).
 manifest_record_lib="$SOURCE_REPO/hooks/lib/manifest-record.sh"
 if [ -r "$manifest_record_lib" ]; then
   if ! VAULT_WRITER_STATE_ROOT="$VAULT_WRITER_STATE_ROOT" \

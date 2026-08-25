@@ -14,6 +14,17 @@
 #     1. Wikilink-mode (always): scan vault + plans for inbound
 #        [[<old_basename>]], [[<old_basename>|alias]], [[<old_basename>#heading]]
 #        (with or without .md suffix). Propose replacement to new_basename.
+#     1b. Markdown-link REWRITE (always): an inbound `[text](relative/target)`
+#        whose physical candidate matches the renamed old_path is rewritten to
+#        the SOURCE-FILE-RELATIVE path of new_path (emits
+#        `rename-cascade-mdlink`). The arithmetic is the load-bearing part:
+#        rename records carry REPO-ROOT-RELATIVE paths while a markdown link
+#        is source-file-relative, so the target is resolved against
+#        dirname(source), compared against join(root, old_path), and
+#        re-rendered as relpath(join(root, new_path), dirname(source)) — a
+#        naive substring replace mis-repairs at any depth. %-quoting and
+#        #anchor tails are preserved; fenced blocks and inline code spans are
+#        never rewritten (a link there is a quotation).
 #     2. Frontmatter-mode (--include-frontmatter): also scan .md frontmatter
 #        for path-valued keys (spec_path, handoff_path, ideation_brief_path,
 #        tasks_path) equal to old_path. Propose path update.
@@ -28,6 +39,13 @@
 #   --apply                         default is dry-run; writes files
 #   --include-frontmatter           enable frontmatter path-ref + parent_plan
 #   --scope <path>                  override scan root (repeatable)
+#   --from-history                  ALSO load rename records from the
+#                                   librarian-manifest rename_history[]
+#                                   (populated by rename-detect
+#                                   --persist-history at session close), so a
+#                                   move that left the detector's 24h git
+#                                   window is STILL repairable; merged with
+#                                   any stdin records, deduped
 #   --help
 #
 # Env:
@@ -51,6 +69,7 @@ fi
 
 APPLY="false"
 INCLUDE_FM="false"
+FROM_HISTORY="false"
 SCOPES=""
 
 while [[ $# -gt 0 ]]; do
@@ -58,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --apply) APPLY="true"; shift ;;
     --dry-run) shift ;;  # default; kept for CLI symmetry
     --include-frontmatter) INCLUDE_FM="true"; shift ;;
+    --from-history) FROM_HISTORY="true"; shift ;;
     --scope) SCOPES="${SCOPES}${SCOPES:+:}$2"; shift 2 ;;
     -h|--help)
       awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
@@ -131,10 +151,18 @@ if [ -r "$_VVW_LIB" ]; then
 fi
 export RC_WALK_LIST
 
-python3 - "$APPLY" "$INCLUDE_FM" "$SCOPES" "$PLANS_DIR" "$STDIN_CAPTURE" <<'PY'
-import json, os, re, sys
+# --from-history reads the librarian-manifest rename_history[] (same resolver
+# default as hooks/lib/manifest.sh; MANIFEST_PATH env overrides).
+RC_HISTORY_PATH=""
+if [[ "$FROM_HISTORY" == "true" ]]; then
+  RC_HISTORY_PATH="${MANIFEST_PATH:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/manifests/librarian-manifest.json}"
+fi
 
-apply_s, include_fm_s, scopes_csv, plans_dir, stdin_path = sys.argv[1:6]
+python3 - "$APPLY" "$INCLUDE_FM" "$SCOPES" "$PLANS_DIR" "$STDIN_CAPTURE" "$RC_HISTORY_PATH" <<'PY'
+import json, os, re, sys
+from urllib.parse import unquote, quote
+
+apply_s, include_fm_s, scopes_csv, plans_dir, stdin_path, history_path = sys.argv[1:7]
 apply = (apply_s == "true")
 include_fm = (include_fm_s == "true")
 scopes = [s for s in scopes_csv.split(":") if s]
@@ -177,6 +205,39 @@ for ln in stdin_lines:
         "commit": obj.get("commit_sha", ""),
         "at": obj.get("committed_at", ""),
     })
+
+# ---- merge rename_history[] rows (--from-history) ----
+# The librarian-manifest trail (populated by rename-detect --persist-history)
+# outlives the detector's 24h git window: a move persisted once is repairable
+# here at any later time. Rows are {from, to, at, commit, root, ...}; deduped
+# against stdin records on (commit, from, to).
+if history_path:
+    seen_keys = set((r["commit"], r["old_path"], r["new_path"]) for r in renames)
+    try:
+        hist = json.load(open(history_path)).get("rename_history", [])
+    except Exception:
+        hist = []
+    hist_rows = 0
+    for row in hist if isinstance(hist, list) else []:
+        if not isinstance(row, dict):
+            continue
+        frm, to = row.get("from", ""), row.get("to", "")
+        if not frm or not to:
+            continue
+        key = (row.get("commit", ""), frm, to)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        renames.append({
+            "old_path": frm,
+            "new_path": to,
+            "root": row.get("root", ""),
+            "commit": row.get("commit", ""),
+            "at": row.get("at", ""),
+        })
+        hist_rows += 1
+    emit({"finding": "rename-cascade-history-loaded",
+          "rows": hist_rows, "store": history_path})
 
 if not renames:
     emit({"finding": "rename-cascade-noop", "note": "stdin empty; nothing to cascade"})
@@ -247,6 +308,7 @@ if not sources:
 proposed = 0
 applied = 0
 no_op = 0
+md_detected = 0
 
 # Precompute per-rename patterns to avoid re-compiling N*M times.
 rename_ops = []
@@ -258,17 +320,126 @@ for r in renames:
     # (case-sensitive, like Obsidian's default).
     # Pattern: \[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]
     # We'll iterate groups and rewrite in callback.
+    # Physical old-path forms for markdown-grammar detection (T-3):
+    # an md-link target resolves to a physical path, so a match against the
+    # renamed file compares candidate paths, not basenames. The old file no
+    # longer exists at cascade time, so both the raw-root and realpath-root
+    # joins are indexed textually.
+    old_abs = set()
+    root = r.get("root") or ""
+    if root:
+        old_abs.add(os.path.normpath(os.path.join(root, r["old_path"])))
+        old_abs.add(os.path.normpath(os.path.join(os.path.realpath(root), r["old_path"])))
     rename_ops.append({
         "old_path": r["old_path"],
         "new_path": r["new_path"],
         "old_base": old_base,
         "new_base": new_base,
+        "old_abs": old_abs,
         "root": r["root"],
         "commit": r["commit"],
         "at": r["at"],
     })
 
 WL = re.compile(r"\[\[([^\]\|#]+)(#[^\]\|]+)?(\|[^\]]+)?\]\]")
+
+# Markdown-link grammar: REWRITE pass (detection landed first; the rewrite
+# closes the loop). The kernel resolves each `[text](target)` against the
+# source file's PHYSICAL directory and compares against the renamed old_path;
+# a hit REWRITES the target to relpath(join(root, new_path), dirname(source))
+# and emits `rename-cascade-mdlink`. The arithmetic is the load-bearing part:
+# rename records carry repo-root-relative paths, a markdown link is
+# source-file-relative — a naive substring replace mis-repairs at any depth.
+# Full `[text](target)` shape required (deliberate kernel deviation): a bare
+# `](x)` in prose is not a link; a rewriter must not touch it.
+MD_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+_real_dir_cache = {}
+def _real_dirname(path_s):
+    d = os.path.dirname(path_s)
+    r = _real_dir_cache.get(d)
+    if r is None:
+        r = os.path.realpath(d)
+        _real_dir_cache[d] = r
+    return r
+
+def _strip_code(text):
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'~~~[\s\S]*?~~~', '', text)
+    text = re.sub(r'``[^`\n]+``', '', text)
+    text = re.sub(r'`[^`\n]+`', '', text)
+    return text
+
+def _code_span_ranges(ln):
+    ranges, start = [], None
+    for i, ch in enumerate(ln):
+        if ch == "`":
+            if start is None:
+                start = i
+            else:
+                ranges.append((start, i))
+                start = None
+    return ranges
+
+
+def rewrite_mdlinks(content, op, src_path):
+    """Rewrite markdown links whose physical candidate matches the renamed
+    old_path to the SOURCE-FILE-RELATIVE path of new_path. Returns
+    (new_content, hits). Fence- and inline-code-span-aware (a link inside a
+    code context is a quotation, not a link — never rewritten; the detection
+    predecessor got this via _strip_code, which a rewriter cannot use because
+    it destroys the content it must return). %-quoting and #anchor tails are
+    preserved on the rewritten target."""
+    hits = 0
+    out = []
+    in_fence = False
+    for ln in content.split("\n"):
+        s = ln.strip()
+        if s.startswith("```") or s.startswith("~~~"):
+            in_fence = not in_fence
+            out.append(ln)
+            continue
+        if in_fence:
+            out.append(ln)
+            continue
+        spans = _code_span_ranges(ln)
+
+        def sub(m):
+            nonlocal hits
+            if any(a < m.start() < b for a, b in spans):
+                return m.group(0)
+            raw = m.group(1)
+            t = raw.strip()
+            if not t or t.startswith(("/", "~", "#", "http://", "https://", "mailto:")):
+                return m.group(0)
+            if " " in t or "\t" in t:
+                return m.group(0)
+            path_part, sep, anchor = t.partition("#")
+            if not path_part:
+                return m.group(0)
+            dec = unquote(path_part)
+            cand = os.path.normpath(os.path.join(_real_dirname(src_path), dec.rstrip("/")))
+            matched = cand in op["old_abs"] or (
+                not op["old_abs"] and cand.endswith("/" + op["old_path"]))
+            if not matched:
+                return m.group(0)
+            hits += 1
+            root = op.get("root") or ""
+            if root:
+                new_abs = os.path.normpath(
+                    os.path.join(os.path.realpath(root), op["new_path"]))
+            else:
+                # rootless record (endswith fallback): swap the old_path tail
+                # for new_path on the resolved candidate
+                new_abs = cand[: -len(op["old_path"])] + op["new_path"]
+            new_rel = os.path.relpath(new_abs, _real_dirname(src_path))
+            new_target = quote(new_rel, safe="/") + (sep + anchor if sep else "")
+            full = m.group(0)
+            # the target group is the trailing "(...)"; rebuild around it
+            return full[: -(len(raw) + 2)] + "(" + new_target + ")"
+
+        out.append(MD_RE.sub(sub, ln))
+    return "\n".join(out), hits
 
 # Frontmatter path-ref keys (scoped to --include-frontmatter).
 # expanded beyond the original 4-key tuple to the research_path
@@ -383,6 +554,28 @@ for path in sources:
                 })
                 proposed += hits
 
+    # Markdown-link REWRITE pass: the second grammar is repaired like the
+    # first — source-relative target arithmetic, not substring replace. This
+    # was the last name-coupled surface (frontmatter + JSON passes below are
+    # already exact-path).
+    if path.endswith(".md") and "](" in content:
+        for op in rename_ops:
+            new_content, md_hits = rewrite_mdlinks(content, op, path)
+            if md_hits:
+                content = new_content
+                per_file_hits += md_hits
+                md_detected += md_hits
+                emit({
+                    "finding": "rename-cascade-mdlink",
+                    "file": path,
+                    "old_path": op["old_path"],
+                    "new_path": op["new_path"],
+                    "hits": md_hits,
+                    "commit": op["commit"],
+                    "mode": "apply" if apply else "dry-run",
+                })
+                proposed += md_hits
+
     # Frontmatter pass (scope-guarded by flag).
     if include_fm and content.startswith("---\n"):
         # Determine scope: parent_plan only activates for ops under PLANS_DIR.
@@ -445,7 +638,7 @@ for path in sources:
                   "file": path,
                   "error": str(ex)})
 
-if proposed == 0:
+if proposed == 0 and md_detected == 0:
     emit({"finding": "rename-cascade-noop",
           "note": "no inbound references found for %d rename(s)" % len(renames)})
 
@@ -453,6 +646,7 @@ emit({"finding": "rename-cascade-summary",
       "renames_consumed": len(renames),
       "proposals": proposed,
       "applied": applied,
+      "mdlink_hits": md_detected,
       "mode": "apply" if apply else "dry-run"})
 PY
 

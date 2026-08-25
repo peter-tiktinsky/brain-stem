@@ -105,6 +105,23 @@
       "source": "governance/plans-rules.json :: _rules (SoT; sub-peer-isolation)",
       "rule_text": "Sub-peer-isolation: a sub-plan manifest MUST NOT carry a dependencies edge to a sibling sub-plan — route through the master manifest (the orchestrator-worker invariant: workers report only to the orchestrator, never to each other). Surfaced as a librarian reconciler drift finding (advisory).",
       "failure_mode": "A sub declares a direct dependency on a sibling sub, recreating the agent-teams peer model the orchestrator-worker model deliberately rejects (MAST coordination-failure class). Advisory drift finding at session-close."
+    },
+    {
+      "id": "R-65",
+      "home": "plans",
+      "category": "C3",
+      "surface": "plan-governance",
+      "tier": "deny",
+      "enforcement_layer": [
+        "pre-write-guard.sh plan-artifact frontmatter gate (write-time DENY on the 4 canonical basenames; marker R65_PROMOTED)",
+        "schemas/plans-schema.json (the filename-to-type map + per-type required[] cohort the gate reads)"
+      ],
+      "status": "active",
+      "source": "governance/plans-rules.json :: _rules (SoT; home plans, category C3)",
+      "failure_mode": "A canonical plan artifact (spec.md / tasks.md / handoff.md / 00-ideation-brief.md) written with a missing or non-canonical type: field is invisible or mis-routed to every type-keyed consumer (renderers, validators, index walkers). Promoted from advisory to write-time DENY once the corpus floor measured clean (3 named historical stragglers corpus-wide at promotion).",
+      "rule_text": "The 4 canonical Markdown plan artifacts must carry the canonical type: for their basename (spec.md -> spec, tasks.md -> tasks, handoff.md -> handoff, 00-ideation-brief.md -> ideation-brief) per schemas/plans-schema.json. Missing or mismatched type: DENIES the write; the deny message carries the canonical frontmatter stub (DERIVE: no status: in artifact frontmatter). Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades the gate to the legacy advisory for that write. All other arms of the plan-frontmatter block (status-line enum, library/binder reach) remain advisory.",
+      "legacy_label_note": "The guard block's emitted advisory strings historically carry the '[R-40 PLAN FRONTMATTER]' (and sibling [R-40 LIBRARY/BINDER]) prefixes and are kept byte-stable for fixture/sentinel continuity — but the bare R-40 id is owned by the frontmatter pillar's provides-canonicality rule. This entry (R-65) is the registered id of the promoted type gate; deny messages name the mechanism and R-65, never the legacy label.",
+      "rollback": "R65_ALLOW_OVERRIDE=1 (env, per-write) downgrades to the legacy advisory; a durable rollback is a substance change to this entry's tier + the guard emission branch, one commit, master rebuild + manifest regen coupled."
     }
   ],
   "root_files": {
@@ -152,7 +169,7 @@
           "_projects",
           "_library"
         ],
-        "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). ENFORCEMENT-MAP.md is deliberately NOT an enumerated surface — the governance JSON pillar is the live rule source of truth; the historical map is not a durable root registry."
+        "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). Historical registry documents are deliberately NOT enumerated surfaces — the governance JSON pillar is the live rule source of truth, and a historical map file is not a durable root registry."
       },
       "dot_entries": {
         "kind": "any",
@@ -161,9 +178,7 @@
         "_description": "Leading-dot entries (.git, .gitignore, .DS_Store, .active-plan, dotfiles) are class-exempt so the closed namespace does not fight VCS/OS/pointer machinery."
       }
     },
-    "grandfathered": [
-      "ENFORCEMENT-MAP.md"
-    ],
+    "grandfathered": [],
     "rollout": "deny"
   },
   "plan_folder_quartet": {
@@ -265,7 +280,7 @@
         "Project Dir",
         "Settled"
       ],
-      "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — graduated items joined from plan manifests' promoted_from plus in-place inbox notes carrying a terminal resolution; never hand-kept."
+      "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — THREE sources: graduated items joined from plan manifests' promoted_from, absorption joins from plan manifests' absorbed_notes[] (one row per listed note, landing plan named; a note-side row for the same note takes precedence), and inbox notes carrying a terminal resolution (flat or in the settled home); never hand-kept."
     },
     "status_enum": [
       "new",
@@ -290,6 +305,7 @@
     "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (hooks/lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
     "dir": "_inbox/",
     "note_glob": "_inbox/*.md",
+    "settled_dir": "_inbox/_settled/",
     "writers_allowed": [
       "any"
     ],
@@ -324,7 +340,9 @@
       "promoted",
       "absorbed",
       "resolved",
-      "dropped"
+      "dropped",
+      "superseded",
+      "discharged"
     ],
     "index_file": "_inbox/_index.md",
     "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation"

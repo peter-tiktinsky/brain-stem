@@ -14,7 +14,7 @@
 #   (2) PROJECT-DIR OWNERSHIP CELL: the per-row Project Dir cell carries the
 #       registry-resolved project-home directory (anchored-spoke-registry
 #       cwd_anchors, resolved from the manifest/note project: key); the
-#       Initiative [[wikilink]] is the plan pointer. (The retired
+#       Initiative markdown dir-link is the plan pointer. (The retired
 #       /<slug>.md satellite stays retired.)
 #       The Notes cell is carried forward verbatim (the row sentinel pattern).
 #
@@ -23,14 +23,20 @@
 #     <plans-root>/_backlog.md — TWO sentinel-bounded regions: the ACTIVE table
 #       (backlog:start/end — 7 cols: Project Dir | Initiative | Status | Disposition |
 #       Target | Updated | Notes) and the SETTLED ledger (backlog-settled:start/end —
-#       Item | Resolution | Landed In | Project Dir | Settled). Operator narrative
-#       outside both regions + per-row Notes carry-forward preserved byte-for-byte.
+#       Item | Resolution | Landed In | Project Dir | Settled; THREE sources: manifest
+#       promoted_from graduations, manifest absorbed_notes[] N:1 absorption joins, and
+#       terminally-resolved inbox notes — note-side wins over a join for the same slug).
+#       Operator narrative outside both regions + per-row Notes carry-forward preserved
+#       byte-for-byte.
 #     <plans-root>/_inbox/_index.md — machine-written (generated: true) inbox roster
 #       (active + settled) + a remediation-highlights block derived from this run's own
 #       findings. Excluded from the note walk (the _-prefix skip below).
 #     <plans-root>/_inbox/<slug>.md — the closure loop restamps a terminal resolution:
 #       write-IF-CHANGED (a settled note is byte-untouched on re-run) on notes whose
 #       promoted_to/absorbed_into target plan has reached lifecycle.terminal_status.
+#     <plans-root>/_inbox/_settled/<slug>.md — the stamp EVENT relocates the note to
+#       the settled home in the same run (forward-only: already-settled flat notes are
+#       never moved; the _settled/ walk is render-only + misfile advisory).
 #   Project Dir cell (standard): the Claude project-home directory resolved
 #     from the row's project: key via anchored-spoke-registry.json (graceful empty on
 #     absent/unresolvable/home) — NOT a plans-folder link.
@@ -43,6 +49,7 @@
 #   backlog-row-missing-disposition | manifest-status-orphan | slug-violation
 #   | backlog-manifest-schema-invalid | backlog-regenerated (event)
 #   | inbox-note-settled (event) | inbox-target-unresolvable | inbox-absorb-target-missing
+#   | inbox-resolution-out-of-enum | inbox-settled-misfiled | inbox-settled-move-conflict
 #
 # CLI:
 #   backlog-index.sh                 # regenerate _backlog.md + _inbox/_index.md + emit findings
@@ -158,6 +165,7 @@ spoke_registry_assert_coherent "$SPOKE_REG" "$BACKLOG_FILE" "backlog-index" || e
 python3 - "$PLANS_ROOT" "$DRY_RUN" "$RULES_PATH" "$SCHEMA_PATH" "$BACKLOG_FILE" "$SPOKE_REG" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date
+from urllib.parse import quote as _urlquote, unquote as _urlunquote
 
 plans_root = sys.argv[1]
 dry_run = sys.argv[2] == "true"
@@ -189,7 +197,15 @@ inbox_cfg = rules.get("inbox", {})
 inbox_funnel = inbox_cfg.get("funnel_status_enum", ["new", "triaged", "briefed"])
 inbox_type = inbox_cfg.get("note_frontmatter", {}).get("type_value", "idea")
 resolution_enum = inbox_cfg.get("resolution_enum",
-                                ["promoted", "absorbed", "resolved", "dropped"])
+                                ["promoted", "absorbed", "resolved", "dropped",
+                                 "superseded", "discharged"])
+# Settled home (plans-root-relative). A settlement EVENT (the closure-loop stamp,
+# or the inbox-settle capability) relocates the note here; already-settled notes
+# sitting flat are NEVER moved by this renderer (forward-only separation).
+settled_rel = inbox_cfg.get("settled_dir", "_inbox/_settled/").strip("/")
+# index-relative link prefix: the inbox index lives IN _inbox/, so a settled
+# sibling links as _settled/<slug>.md from there
+settled_idx_prefix = settled_rel.split("/", 1)[1] if "/" in settled_rel else settled_rel
 # Terminal plan-status set for the closure loop (single-SoT: read the pillar,
 # fall back to the post-[completed, superseded] 2-state terminal set).
 terminal_status = rules.get("lifecycle", {}).get("terminal_status",
@@ -250,6 +266,28 @@ def emit(d):
 def cell(value):
     s = "" if value is None else str(value)
     return s.replace("\r", " ").replace("\n", " ").replace("|", "\\|").strip()
+
+# --- ruled link grammar (relative markdown links, never wikilinks) ----------
+# _backlog.md lives at the plans root and _inbox/_index.md lives inside _inbox/,
+# so the SAME logical reference needs a DIFFERENT relative target per writing
+# surface (a wikilink was location-independent; a markdown link is not). Cells
+# that carry links are therefore rendered per-surface at append time — never
+# shared verbatim between the two files.
+
+def _mdq(target):
+    # %-quote the path portion (spaces etc.); keep / as the separator
+    return _urlquote(target, safe="/")
+
+def md_plan_link(key, rel=""):
+    # plan-DIR link (trailing slash), plans-root-relative; `rel` is the
+    # traversal prefix from the writing file's own directory ('' from the
+    # plans root, '../' from inside _inbox/)
+    return "[%s](%s%s/)" % (key, rel, _mdq(key))
+
+def md_note_link(label, target):
+    # inbox-note FILE link; label and target are chosen per writing surface
+    # (same-directory-first: the inbox index links its own siblings bare)
+    return "[%s](%s.md)" % (label, _mdq(target))
 
 # A1 inbox-walk: minimal line-oriented frontmatter parser for the
 # _inbox/<slug>.md idea notes (ported adapted from the backlog-index.sh).
@@ -416,9 +454,22 @@ if os.path.isfile(backlog_file):
                 continue
             if len(cols) <= idx_init or len(cols) <= idx_notes:
                 continue
+            # BOTH-grammar read-back: rows regenerated before the markdown-link
+            # conversion carry [[entry]]; converted rows carry [entry](entry/).
+            # Parsing both means a wikilink-era row's Notes survive the regen
+            # that converges the row onto the ruled grammar.
             m = re.search(r"\[\[([^\]]+)\]\]", cols[idx_init])
             if m:
                 prior_notes[m.group(1)] = cols[idx_notes]
+            else:
+                m = re.search(r"\[[^\]]*\]\(([^)]+)\)", cols[idx_init])
+                if m:
+                    key = _urlunquote(m.group(1))
+                    # plan rows target the dir (entry/); note rows target the
+                    # file (_inbox/<slug>.md) — the notes key is the bare ref
+                    key = key[:-1] if key.endswith("/") else \
+                        (key[:-3] if key.endswith(".md") else key)
+                    prior_notes[key] = cols[idx_notes]
     else:
         preface = existing
         if preface and not preface.endswith("\n"):
@@ -427,12 +478,16 @@ if not sentinel_existed and not preface:
     preface = "# Backlog\n\nManifest-derived read-replica (librarian:backlog-index owns this file).\n\n"
 
 rows = []
-settled_rows = []          # (settled_date, sort_key, [5 cells]) for the settled ledger
+settled_rows = []          # (settled_date, sort_key, [5 cells for _backlog.md],
+                           #  [5 cells for _inbox/_index.md]) — link cells are rendered
+                           # per-surface because relative targets differ by writing home
 active_note_roster = []    # {slug,title,status,disposition,project,target} for _inbox/_index.md
 highlights = {             # remediation categories for _inbox/_index.md (this run's own walk)
     "malformed_frontmatter": [], "missing_project": [], "non_enum_status": [],
-    "absorb_no_target": [], "unresolvable_target": []}
+    "absorb_no_target": [], "unresolvable_target": [], "resolution_out_of_enum": [],
+    "settled_misfiled": []}
 settled_note_count = 0
+moved_this_run = set()  # filenames the closure loop relocated THIS run (settled-walk dedup)
 rendered = 0
 # telemetry split: by-design skips (out-of-funnel status / non-idea inbox files) are
 # counted separately from defect skips (unparseable / schema-invalid / status-orphan).
@@ -485,10 +540,37 @@ for entry in sorted(os.listdir(plans_root)):
         g_projdir = resolve_project_dir(manifest.get("project"))
         g_settled = str(manifest.get("completed_at") or manifest.get("updated")
                         or manifest.get("phase_2_scaffolded_at") or "")
-        g_landed = "[[%s]] (%s)" % (entry, status or "?")
+        g_landed_b = "%s (%s)" % (md_plan_link(entry), status or "?")
+        g_landed_i = "%s (%s)" % (md_plan_link(entry, rel="../"), status or "?")
         settled_rows.append((g_settled, "1graduated:" + g_slug,
-                             [cell(g_slug), cell("promoted"), cell(g_landed),
+                             [cell(g_slug), cell("promoted"), cell(g_landed_b),
+                              cell(g_projdir), cell(g_settled)],
+                             [cell(g_slug), cell("promoted"), cell(g_landed_i),
                               cell(g_projdir), cell(g_settled)]))
+
+    # Settled ledger: manifest-side ABSORPTION joins — absorbed_notes[] is the plan-side
+    # record of an N:1 absorption (several notes into one plan), which no single note-side
+    # absorbed_into: can express from the plan's perspective. One row PER listed note,
+    # sourced from the manifest alone (the note may be tombstoned, settled, or still
+    # sitting flat); a note-side settled row for the same slug takes precedence (deduped
+    # after the walks — the note-side row is richer: linked and dated by resolved_at).
+    an = manifest.get("absorbed_notes")
+    if isinstance(an, list):
+        for _ref in an:
+            _ref = str(_ref).strip()
+            if not _ref:
+                continue
+            a_slug = re.sub(r"\.md$", "", re.sub(r"^_inbox/", "", _ref))
+            a_projdir = resolve_project_dir(manifest.get("project"))
+            a_settled = str(manifest.get("completed_at") or manifest.get("updated")
+                            or manifest.get("phase_2_scaffolded_at") or "")
+            a_landed_b = "%s (%s)" % (md_plan_link(entry), status or "?")
+            a_landed_i = "%s (%s)" % (md_plan_link(entry, rel="../"), status or "?")
+            settled_rows.append((a_settled, "2absorbed:" + a_slug,
+                                 [cell(a_slug), cell("absorbed"), cell(a_landed_b),
+                                  cell(a_projdir), cell(a_settled)],
+                                 [cell(a_slug), cell("absorbed"), cell(a_landed_i),
+                                  cell(a_projdir), cell(a_settled)]))
 
     if status not in IN_BACKLOG:
         out_of_funnel += 1
@@ -513,13 +595,13 @@ for entry in sorted(os.listdir(plans_root)):
     # status display is the master's own status; the per-sub rows are NOT
     # rendered (the master carries the rollup). Plain plans render normally.
     is_master = (manifest.get("type") == "master") or isinstance(manifest.get("sub_plans"), list)
-    initiative = "[[%s]] %s" % (entry, title)
+    initiative = "%s %s" % (md_plan_link(entry), title)
     if is_master and isinstance(manifest.get("sub_plans"), list):
         initiative += " (master · %d subs)" % len(manifest["sub_plans"])
 
     # Project Dir cell: the Claude project-home directory resolved
     # from the manifest `project:` spoke key — NOT the old <plan>/handoff.md plans-folder
-    # link (the Initiative [[wikilink]] already reaches the plan dir). The table now
+    # link (the Initiative markdown dir-link already reaches the plan dir). The table now
     # groups by owning project. Target is empty for plan rows (promoted_to/absorbed_into
     # are inbox-note disposition targets, not plan-manifest fields).
     project_dir = resolve_project_dir(manifest.get("project"))
@@ -549,7 +631,8 @@ if os.path.isdir(inbox_dir):
         if not os.path.isfile(full):
             continue
         slug = entry[:-3]
-        wikilink = "_inbox/%s" % slug
+        note_ref = "_inbox/%s" % slug
+        idx_target = slug  # same-directory sibling from _inbox/_index.md (rebased on move)
         try:
             with open(full, encoding="utf-8") as fh:
                 content = fh.read()
@@ -593,23 +676,65 @@ if os.path.isdir(inbox_dir):
                     new_note = apply_fm_updates(content, [
                         ("resolution", res_kind), ("resolved_at", today), ("updated", today)])
                     if new_note != content:
+                        # Settle-time move (forward-only): the stamp EVENT relocates the
+                        # note to the settled home in the same run. Never clobbers — a
+                        # destination collision leaves the note flat with an advisory.
+                        dest_dir = os.path.join(plans_root, *settled_rel.split("/"))
+                        dest = os.path.join(dest_dir, entry)
+                        move_ok = not os.path.exists(dest)
                         emit({"finding": "inbox-note-settled", "file": entry, "inbox_slug": slug,
                               "resolution": res_kind, "target": target, "target_key": plan_key,
-                              "resolved_at": today, "detected_at": today})
+                              "resolved_at": today, "detected_at": today,
+                              "settled_path": ("%s/%s" % (settled_rel, entry)) if move_ok
+                                              else ("_inbox/%s" % entry)})
                         if not dry_run:
                             atomic_write(full, new_note)
+                            if move_ok:
+                                os.makedirs(dest_dir, exist_ok=True)
+                                os.replace(full, dest)
+                                moved_this_run.add(entry)
+                                full = dest
+                                note_ref = "%s/%s" % (settled_rel, slug)
+                                idx_target = "%s/%s" % (settled_idx_prefix, slug)
+                            else:
+                                emit({"finding": "inbox-settled-move-conflict", "file": entry,
+                                      "inbox_slug": slug, "dest": "%s/%s" % (settled_rel, entry),
+                                      "detected_at": today, "first_seen": today})
                         content = new_note
                         resolution = res_kind  # reflect post-stamp for classification
 
         # --- classify: settled note -> settled ledger; else active table / residue ----
-        if resolution in resolution_enum:
+        # Precedence: terminal-resolution EVIDENCE wins over funnel status. A note
+        # settles when `resolution` is in the canonical enum, OR when a non-empty
+        # out-of-enum `resolution` is corroborated by `resolved_at` or `superseded_by`
+        # (operator-judgment settlement — an enum cannot enumerate free judgment; the
+        # evidence gate keeps a bare typo from silently settling a note). The evidence
+        # path emits an advisory so vocabulary drift stays visible, instead of
+        # ACTIVE-rendering the note (in-funnel status) or dropping it from both tables
+        # (non-funnel status).
+        resolution_evidence = bool(fm.get("resolved_at", "").strip()
+                                   or fm.get("superseded_by", "").strip())
+        if resolution in resolution_enum or (resolution and resolution_evidence):
+            if resolution not in resolution_enum:
+                emit({"finding": "inbox-resolution-out-of-enum", "file": entry,
+                      "inbox_slug": slug, "resolution": resolution,
+                      "superseded_by": fm.get("superseded_by", "").strip(),
+                      "detected_at": today, "first_seen": today})
+                highlights["resolution_out_of_enum"].append(slug)
             settled_note_count += 1
             _pdir, _pk = resolve_plan_dir(target) if target else (None, "")
-            landed = "[[%s]]" % _pk if (_pdir is not None) else (target or "—")
+            landed_b = md_plan_link(_pk) if (_pdir is not None) else (target or "—")
+            landed_i = md_plan_link(_pk, rel="../") if (_pdir is not None) else (target or "—")
             s_date = fm.get("resolved_at", "").strip() or fm.get("updated", "").strip() or today
+            # Item cell: from the plans root the note is _inbox/<slug>.md; from
+            # inside _inbox/ it is a same-directory sibling (<slug>.md)
             settled_rows.append((s_date, "0note:" + slug,
-                                 [cell("[[%s]]" % wikilink), cell(resolution), cell(landed),
-                                  cell(resolve_project_dir(project)), cell(s_date)]))
+                                 [cell(md_note_link(note_ref, note_ref)), cell(resolution),
+                                  cell(landed_b), cell(resolve_project_dir(project)),
+                                  cell(s_date)],
+                                 [cell(md_note_link(note_ref, idx_target)), cell(resolution),
+                                  cell(landed_i), cell(resolve_project_dir(project)),
+                                  cell(s_date)]))
             continue
 
         status = fm.get("status", "").strip() or "new"
@@ -624,15 +749,60 @@ if os.path.isdir(inbox_dir):
         updated = fm.get("updated", "") or fm.get("created", "")
         disp_cell = disposition or "MISSING"
         project_dir = resolve_project_dir(project)
-        notes = prior_notes.get(wikilink, "")
+        notes = prior_notes.get(note_ref, "")
         row = "| %s | %s | %s | %s | %s | %s | %s |" % (
-            cell(project_dir), cell("[[%s]] %s" % (wikilink, title)),
+            cell(project_dir), cell("%s %s" % (md_note_link(note_ref, note_ref), title)),
             cell(status), cell(disp_cell), cell(target), cell(updated), cell(notes))
         rows.append((cell(project_dir).lower(), updated, row))
         rendered += 1
         active_note_roster.append({
             "slug": slug, "title": title, "status": status,
             "disposition": disp_cell, "project": project, "target": target})
+
+# --- settled-home walk (RENDER-ONLY): notes in the settled subfolder always render
+# in the settled ledger — folder placement is operator intent. No stamping and no
+# moving happens here; a resident lacking settlement evidence (not in the enum AND
+# not evidence-corroborated) emits the inbox-settled-misfiled advisory so it gets
+# remediated by hand instead of silently normalizing.
+settled_abs = os.path.join(plans_root, *settled_rel.split("/"))
+if os.path.isdir(settled_abs):
+    for entry in sorted(os.listdir(settled_abs)):
+        if not entry.endswith(".md") or entry.startswith("_"):
+            continue
+        if entry in moved_this_run:
+            continue  # the flat loop already rendered the note it just relocated
+        full = os.path.join(settled_abs, entry)
+        if not os.path.isfile(full):
+            continue
+        slug = entry[:-3]
+        note_ref = "%s/%s" % (settled_rel, slug)
+        idx_target = "%s/%s" % (settled_idx_prefix, slug)
+        fm = parse_frontmatter(full)
+        if fm is None or fm.get("type", "").strip() != inbox_type:
+            highlights["malformed_frontmatter"].append(note_ref)
+            continue
+        resolution = fm.get("resolution", "").strip()
+        _evidence = bool(fm.get("resolved_at", "").strip()
+                         or fm.get("superseded_by", "").strip())
+        if not (resolution in resolution_enum or (resolution and _evidence)):
+            emit({"finding": "inbox-settled-misfiled", "file": note_ref + ".md",
+                  "inbox_slug": slug, "resolution": resolution,
+                  "detected_at": today, "first_seen": today})
+            highlights["settled_misfiled"].append(slug)
+        target = fm.get("absorbed_into", "").strip() or fm.get("promoted_to", "").strip()
+        project = fm.get("project", "").strip()
+        settled_note_count += 1
+        _pdir, _pk = resolve_plan_dir(target) if target else (None, "")
+        landed_b = md_plan_link(_pk) if (_pdir is not None) else (target or "—")
+        landed_i = md_plan_link(_pk, rel="../") if (_pdir is not None) else (target or "—")
+        s_date = fm.get("resolved_at", "").strip() or fm.get("updated", "").strip() or today
+        settled_rows.append((s_date, "0note:" + slug,
+                             [cell(md_note_link(note_ref, note_ref)), cell(resolution or "—"),
+                              cell(landed_b), cell(resolve_project_dir(project)),
+                              cell(s_date)],
+                             [cell(md_note_link(note_ref, idx_target)), cell(resolution or "—"),
+                              cell(landed_i), cell(resolve_project_dir(project)),
+                              cell(s_date)]))
 
 rows.sort(key=lambda r: r[1], reverse=True)
 rows.sort(key=lambda r: r[0])
@@ -642,12 +812,20 @@ active_lines = ["| Project Dir | Initiative | Status | Disposition | Target | Up
 active_lines.extend(r[2] for r in rows)
 active_block = SENTINEL_START + "\n\n" + "\n".join(active_lines) + "\n\n" + SENTINEL_END
 
-# Settled ledger: graduated rows (manifest promoted_from) + in-place resolved
-# notes. Newest-settled first, then a stable secondary key so the render is deterministic.
+# Settled ledger: graduated rows (manifest promoted_from) + absorption-join rows
+# (manifest absorbed_notes[]) + resolved notes (flat or settled-home). A note-side
+# row wins over a manifest-side absorption join for the same slug — the note-side
+# row is linked and dated by resolved_at; the join row is the fallback record for a
+# note that no longer renders note-side (tombstoned or never stamped).
+_note_slugs = {r[1][len("0note:"):] for r in settled_rows if r[1].startswith("0note:")}
+settled_rows = [r for r in settled_rows
+                if not (r[1].startswith("2absorbed:")
+                        and r[1][len("2absorbed:"):] in _note_slugs)]
+# Newest-settled first, then a stable secondary key so the render is deterministic.
 settled_rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
 settled_lines = ["| Item | Resolution | Landed In | Project Dir | Settled |",
                  "|---|---|---|---|---|"]
-settled_lines.extend("| %s |" % " | ".join(c) for _, _, c in settled_rows)
+settled_lines.extend("| %s |" % " | ".join(r[2]) for r in settled_rows)
 settled_block = SETTLED_START + "\n\n" + "\n".join(settled_lines) + "\n\n" + SETTLED_END
 
 # Assemble the two sentinel regions. Prose OUTSIDE both regions is preserved
@@ -683,21 +861,27 @@ if os.path.isdir(inbox_dir):
            "## Active notes (%d)" % len(active_note_roster), "",
            "| Slug | Title | Status | Disposition | Project | Target |",
            "|---|---|---|---|---|---|"]
+    # Slug cell is a same-directory file-link (<slug>.md) — the index lives IN _inbox/,
+    # so the note is a sibling; mirrors the _backlog.md active-row md_note_link shape.
     for n in sorted(active_note_roster, key=lambda x: x["slug"]):
         idx.append("| %s | %s | %s | %s | %s | %s |" % (
-            cell(n["slug"]), cell(n["title"]), cell(n["status"]),
+            cell(md_note_link(n["slug"], n["slug"])), cell(n["title"]), cell(n["status"]),
             cell(n["disposition"]), cell(n["project"]), cell(n["target"])))
     idx += ["", "## Settled (%d)" % len(settled_rows), "",
             "| Item | Resolution | Landed In | Project Dir | Settled |",
             "|---|---|---|---|---|"]
-    for _, _, c in settled_rows:
-        idx.append("| %s |" % " | ".join(c))
+    for r in settled_rows:
+        idx.append("| %s |" % " | ".join(r[3]))
     idx += ["", "## Remediation highlights", ""]
     _cats = [("malformed_frontmatter", "Missing / malformed frontmatter"),
              ("missing_project", "Missing project:"),
              ("non_enum_status", "Non-enum status (outside the funnel vocabulary)"),
              ("absorb_no_target", "ABSORB without a resolvable target"),
-             ("unresolvable_target", "Unresolvable disposition target")]
+             ("unresolvable_target", "Unresolvable disposition target"),
+             ("resolution_out_of_enum",
+              "Out-of-enum resolution settled on evidence (normalize the vocabulary)"),
+             ("settled_misfiled",
+              "Settled-home resident without settlement evidence (misfiled; move back or stamp)")]
     _cap = 50
     _any = False
     for key, label in _cats:

@@ -21,7 +21,10 @@
     prefix, not a separate retrieval type).
 
   When a fact spans axes, file under the dominant retrieval type (`type:`
-  frontmatter wins) and link from other sections via [[wikilinks]].
+  frontmatter wins) and link from other sections via [[wikilink]]
+  cross-references — the memory tier is EXEMPT from the corpus link-grammar conversion
+  (a [[name]] here resolves against the enumerated memory namespace, not the
+  vault walk).
 
   Entry shape (≤200 chars/line):
   - [filename](memory/filename.md) — one-line retrieval hook starting with the

@@ -1117,7 +1117,10 @@ step2b_rename_cascade() {
   # findings — so it must stay on stdout; setting FINDINGS_OUTPUT routes its
   # findings (if any) to the sink and keeps the data channel clean.
   local tmp_nd="${TMPDIR:-/tmp}/session-close-rename-$$.ndjson"
-  if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rd" --since "24 hours ago" > "$tmp_nd" 2>/dev/null; then
+  # --persist-history: each detected rename is ALSO appended (deduped) to the
+  # librarian-manifest rename_history[] so a move detected at THIS close stays
+  # repairable after the 24h git window closes (rename-cascade --from-history).
+  if FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$rd" --since "24 hours ago" --persist-history > "$tmp_nd" 2>/dev/null; then
     record_capability "rename-detect" "ok" "$(wc -l < "$tmp_nd" | tr -d ' ') record(s)"
   else
     record_capability "rename-detect" "error" "exit $?"

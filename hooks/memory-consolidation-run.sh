@@ -54,10 +54,22 @@ EXPIRED_DAYS="${EXPIRED_DAYS:-360}"
 # (the repo-only pillar is absent on an adopter, so the old read fell back to
 # the baked-in defaults). Routes through hooks/lib/foundation-overlay-load.sh
 # (the same R-52 loader the read-layer fix uses); falls back to the
-# documented defaults when the bundle is unreachable (fail-open per).
+# documented defaults when the bundle is unreachable (fail-open per —
+# preserved DELIBERATELY: the consolidation layer must keep running, so a
+# config-load failure never hard-stops the run; it degrades and SAYS SO).
+# The three fallback constants below are a DUPLICATE of the foundation's
+# declared _memory_md_cap.thresholds, held in lockstep by a maintainer-tree
+# parity fixture that reads both sides at test time and goes RED when either
+# changes alone — they are NOT an independent default. The duplication is
+# irreducible: the fallback exists precisely for when the bundle is
+# unreachable, so it cannot be derived from the bundle. A degraded run is
+# reported visibly (log + stderr) below rather than silently applying stale
+# caps.
 CAP_LINES=200
 CAP_BYTES=25600
 CAP_CHAR_LINE=200
+CAP_SOURCE="fallback"
+CAP_DEGRADE_CAUSE="loader unavailable (hooks/lib/foundation-overlay-load.sh missing or jq absent)"
 _OVERLAY_LOAD="$SCRIPT_DIR/lib/foundation-overlay-load.sh"
 _CAP_QUERY='.mandatory_files.mandates._memory_md_cap.thresholds'
 if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
@@ -69,7 +81,18 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
     [[ -n "$_l" ]] && CAP_LINES="$_l"
     [[ -n "$_b" ]] && CAP_BYTES="$_b"
     [[ -n "$_c" ]] && CAP_CHAR_LINE="$_c"
+    if [[ -n "$_l" || -n "$_b" || -n "$_c" ]]; then
+      CAP_SOURCE="bundle"
+    else
+      CAP_DEGRADE_CAUSE="loader query succeeded but the bundle slot ${_CAP_QUERY} is missing or empty"
+    fi
+  else
+    CAP_DEGRADE_CAUSE="loader query failed or returned empty (R-52 deny, unreadable bundle, or parse error)"
   fi
+fi
+if [[ "$CAP_SOURCE" != "bundle" ]]; then
+  printf 'memory-consolidation-run.sh: cap-config DEGRADED — fallback caps %sL/%sB/%sC in effect; %s\n' \
+    "$CAP_LINES" "$CAP_BYTES" "$CAP_CHAR_LINE" "$CAP_DEGRADE_CAUSE" >&2
 fi
 
 # toggle: short-circuit when user opted out via /onboard.
@@ -389,6 +412,14 @@ cat >> "$LOG_FILE" <<EOF
 - Budget status: ${BUDGET_STATUS} (raw ${LINE_COUNT}L / stripped ${STRIPPED_LINE_COUNT}L / ${BYTE_COUNT}B; caps ${CAP_LINES}L/${CAP_BYTES}B; long-lines ${LONG_LINES})
 - Duration: ${DURATION_MS}ms
 EOF
+
+# Visible degradation (fail-open preserved): when the declared foundation
+# thresholds were NOT applied this run, say so in the durable log — a silent
+# fallback reads as a healthy run and hides a stale-caps divergence.
+if [[ "$CAP_SOURCE" != "bundle" ]]; then
+  printf -- '- Cap-config DEGRADED: fallback caps %sL/%sB/%sC applied — %s. The declared foundation thresholds (mandatory_files.mandates._memory_md_cap.thresholds) were not applied this run.\n' \
+    "$CAP_LINES" "$CAP_BYTES" "$CAP_CHAR_LINE" "$CAP_DEGRADE_CAUSE" >> "$LOG_FILE"
+fi
 
 # --- Update state ---
 jq \

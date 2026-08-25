@@ -324,3 +324,76 @@ with open(lockfile, 'a') as lf:
     os.replace(tmp, manifest_path)
 PY
 }
+
+# manifest_append_rename_history <ndjson-file>
+# The NAMED POPULATOR write-half for the librarian-manifest top-level
+# rename_history[] root (schemas/librarian-manifest-schema.json declares the
+# root; manifest_ensure_skeleton seeds it empty). Consumes a file of
+# rename-detect NDJSON records ({root, old_path, new_path, commit_sha,
+# committed_at, similarity}) and appends each as a durable history row
+# {from, to, at, commit, root, similarity} — the row shape the
+# doc-dependencies registry documents for rename_history audit trails.
+# Deduplicated on (commit, from, to), so re-running detection over an
+# overlapping git window never double-appends. Append-only: rows are never
+# rewritten or pruned here. This is what lets a rename outlive the detector's
+# 24-hour git-log window: detection persists the move once, and a consumer
+# (rename-cascade --from-history) can repair inbound references at ANY later
+# time instead of only while the git window still surfaces the rename.
+manifest_append_rename_history() {
+  local ndjson_file="$1"
+  [ -s "$ndjson_file" ] || return 0
+  manifest_ensure_skeleton   # converge the required roots BEFORE the first write
+  local tmp="${MANIFEST_PATH}.tmp.$$"
+  local lockfile="$COORD_DIR/manifest.lock"
+  mkdir -p "$(dirname "$lockfile")" "$(dirname "$MANIFEST_PATH")" 2>/dev/null || true
+  python3 - "$MANIFEST_PATH" "$ndjson_file" "$tmp" "$lockfile" <<'PY'
+import json, sys, os, fcntl
+manifest_path, ndjson_file, tmp, lockfile = sys.argv[1:5]
+with open(lockfile, 'a') as lf:
+    fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+    try:
+        with open(manifest_path) as f:
+            doc = json.load(f)
+    except Exception:
+        doc = {}
+    hist = doc.setdefault("rename_history", [])
+    if not isinstance(hist, list):
+        hist = []
+        doc["rename_history"] = hist
+    seen = set()
+    for row in hist:
+        if isinstance(row, dict):
+            seen.add((row.get("commit", ""), row.get("from", ""), row.get("to", "")))
+    added = 0
+    for ln in open(ndjson_file):
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        frm, to = rec.get("old_path", ""), rec.get("new_path", "")
+        if not frm or not to:
+            continue
+        key = (rec.get("commit_sha", ""), frm, to)
+        if key in seen:
+            continue
+        seen.add(key)
+        hist.append({
+            "from": frm,
+            "to": to,
+            "at": rec.get("committed_at", ""),
+            "commit": rec.get("commit_sha", ""),
+            "root": rec.get("root", ""),
+            "similarity": rec.get("similarity", None),
+        })
+        added += 1
+    if added:
+        with open(tmp, 'w') as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, manifest_path)
+PY
+}

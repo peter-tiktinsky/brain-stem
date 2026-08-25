@@ -50,7 +50,7 @@
       "required": true,
       "level": 1,
       "match_rule": "the H1 is the concept name (one concept per file)",
-      "rationale": "The single top-level heading names the durable concept the article carries; bare-wikilink cross-references resolve against the basename, which mirrors this concept name."
+      "rationale": "The single top-level heading names the durable concept the article carries; the file basename mirrors this concept name, so a cross-reference in either grammar (a markdown link's visible text, or a bare wikilink resolving by basename) reads as the concept."
     },
     "leading_section_index": {
       "forbidden": true,
@@ -63,10 +63,10 @@
       "rationale": "An in-doc table of contents is permitted only when the article exceeds the soft budget and is not decomposable, and it is authored by hand, never auto-generated."
     },
     "sibling_wikilinks_at_foot": {
-      "form": "bare",
-      "value_pattern": "^\\[\\[[^\\[\\]|]+\\]\\]$",
+      "form": "bare wikilink or relative markdown link",
+      "value_pattern": "^(\\[\\[[^\\[\\]|]+\\]\\]|\\[[^\\]]+\\]\\([^)]+\\))$",
       "placement": "at the foot of the body",
-      "rationale": "Sibling articles are cross-referenced with bare wikilinks at the foot for backlink-graph value; basename uniqueness backs the bare form, and the basename-collision scan guards it."
+      "rationale": "Sibling articles are cross-referenced at the foot for backlink-graph value. The corpus addressing convention rules relative-path markdown links the target grammar (a real path resolves for an agent with no basename index); the bare-wikilink form remains accepted during the corpus conversion, backed by basename uniqueness and the basename-collision scan."
     },
     "synthesized_body": {
       "rationale": "The body is synthesized at promotion and scrubbed of all plan/project-specific detail (task IDs, plan slugs, engagement names, decision dates); it is regenerated content, not hand-maintained prose, so per-article changelogs are replaced by the single global library log."

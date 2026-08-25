@@ -373,10 +373,14 @@ def enum_rows(dirpath):
                 entries.append((os.path.relpath(full, dirpath), full))
     except Exception:
         return None
+    def md_target(t):
+        # minimal percent-quoting so a markdown link target survives spaces/parens
+        return t.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+
     rows = []
     for rel, full in sorted(entries):
         disp = rel[:-3] if rel.endswith(".md") else rel
-        rows.append("| [[%s]] | %d | %s | |" % (disp, line_count(full), file_type(full) or "—"))
+        rows.append("| [%s](%s) | %d | %s | |" % (disp, md_target(rel), line_count(full), file_type(full) or "—"))
     return rows
 
 
@@ -515,16 +519,18 @@ for spoke in target_spokes:
               "reason": "spoke-dir-absent", "detected_at": today})
         skipped += 1
         continue
-    # Top-level deliverables/+reference/ — present on a FLAT spoke (parent_folder = spoke).
+    # Top-level deliverables/+reference/ — present on a FLAT spoke
+    # (parent_folder = Work/<spoke>, the vault-relative parent per the _index.md contract).
     top_deliv = os.path.join(spoke_dir, "deliverables")
     top_ref = os.path.join(spoke_dir, "reference")
     if os.path.isdir(top_deliv):
-        process_dir(top_deliv, spoke, spoke)
+        process_dir(top_deliv, spoke, "Work/%s" % spoke)
     if os.path.isdir(top_ref):
-        process_dir(top_ref, spoke, spoke)
+        process_dir(top_ref, spoke, "Work/%s" % spoke)
     # Per-sub-project deliverables/+reference/ — present on a MASTER spoke. Each
     # sub-project is a DIRECT child dir of the master (no literal sub-projects/ dir);
-    # index its own deliverables/+reference/ (parent_folder = sub name). Only true
+    # index its own deliverables/+reference/ (parent_folder = Work/<spoke>/<sub>,
+    # the vault-relative parent per the _index.md contract). Only true
     # sub-projects (owning deliverables/ or reference/) are descended — the shared
     # shape predicate (work-spoke-layout.sh) via the manifest, so a plain non-sub
     # folder (e.g. People/) is never descended and mints no _index.md.
@@ -534,19 +540,20 @@ for spoke in target_spokes:
         sub_deliv = os.path.join(sub_dir, "deliverables")
         sub_ref = os.path.join(sub_dir, "reference")
         if os.path.isdir(sub_deliv):
-            process_dir(sub_deliv, spoke, sub)
+            process_dir(sub_deliv, spoke, "Work/%s/%s" % (spoke, sub))
         if os.path.isdir(sub_ref):
-            process_dir(sub_ref, spoke, sub)
+            process_dir(sub_ref, spoke, "Work/%s/%s" % (spoke, sub))
     # mint/refresh an _index.md for a DE-EXEMPTED plain folder
     # (People/, Meetings/, ...) — a WSL_OTHER_DIRS folder whose vault-view path
     # Work/<spoke>/<folder> matches an overlay path_routing de-exemption glob. Derived from
     # the mandate SoT (NOT a hardcoded People/ list); the shipped empty overlay yields NO
     # matches (zero new targets — preserves the _g4_park invariant). An adopter's registered
-    # glob de-exempts its folder. parent_folder = spoke (a top-level folder under the spoke).
+    # glob de-exempts its folder. parent_folder = Work/<spoke> (the vault-relative
+    # parent of a top-level folder under the spoke, per the _index.md contract).
     for other in sorted(OTHERS.get(spoke, [])):
         rel = "Work/%s/%s" % (spoke, other)
         if _deexempt_match(rel):
-            process_dir(os.path.join(spoke_dir, other), spoke, spoke)
+            process_dir(os.path.join(spoke_dir, other), spoke, "Work/%s" % spoke)
 
 print("work-index-maintain: written=%d skipped=%d dry_run=%s"
       % (written, skipped, dry_run), file=sys.stderr)

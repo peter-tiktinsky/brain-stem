@@ -4,6 +4,38 @@ All notable changes to brain-stem are documented here. The format follows [Keep 
 
 For longer release narratives, see `docs/release-notes-v<version>.md`.
 
+## [v1.16.0]
+
+Minor release with four threads: **links that resolve** (every machine-written reference across the backlog, indexes, and binder surfaces converts from wiki-style and directory-style references to plain relative markdown links that any viewer or agent can follow — with automatic repair when files move), **an honest idea funnel** (settled inbox notes move into their own folder, manual settlement gets a sanctioned command, and settlement history becomes a complete provenance-linked ledger), **status truth** (the drift reconciler reads the status source of truth instead of a rendered copy, and replica staleness is itself detected), and **enforcement that matches the written contract** (vault-root files, generated replicas, and frontmatter across the work and plans surfaces get the write-time coverage the contracts already claimed). **No new migrations ship in this release:** upgrading is a file sync and needs nothing from you by hand. See the [v1.16.0 release notes](docs/release-notes-v1.16.0.md).
+
+### Added
+
+- **Settled inbox notes get their own folder — and a sanctioned way to get there.** When an idea note reaches a terminal resolution, it now moves to `_inbox/_settled/` in the same run that stamps it, so the inbox folder holds only live ideas. A new librarian capability, `inbox-settle`, closes a long-standing gap: a note with no plan target previously could be settled by no code path at all. It stamps and moves under an explicit apply flag (dry-run by default), enforces the strict resolution vocabulary, and refuses collisions instead of overwriting history. Notes settled before this release stay where they are — every ledger and index links both populations at their real locations.
+- **Plans can record which notes they absorbed.** The plan manifest schema now declares both provenance keys: the long-standing promotion pointer, and a new list of absorbed notes — the record a note-side pointer cannot express when several notes fold into one plan. The settled ledger derives from three sources (graduations, absorption joins, and terminally-resolved notes), and a note's own richer record wins when both exist.
+- **A conversion capability for link grammar.** The house pattern for converting wiki-style links to relative markdown links — independently re-derived five times in live remediation work, at its largest run covering 158 files — is now a shipped librarian capability instead of a recipe each session rebuilds.
+- **A declared home for the task-status vocabulary.** The per-task status values are now machine-readably declared in the plan manifest schema, so every consumer reads one declaration instead of restating the list.
+- **A thin universal note type.** Registered at the soft-warn tier — capturing a note is never blocked by governance; lineage fields are optional.
+
+### Fixed
+
+- **Machine-written links resolve.** The backlog, the plans index, the inbox indexes, the library root, decision logs, and research indexes emitted wiki-style or directory-style references that plain markdown rendering could not follow — including one class of dead binder links measured at 62 live occurrences. Every machine emitter now writes relative markdown links in one ruled grammar; the rename watchers understand the new grammar; automatic repair rewrites markdown links when files move, and rename history now persists, so repair no longer silently expires after 24 hours; shipped templates stop seeding the old grammar into every new file.
+- **The status drift reconciler reads the source of truth.** Both parsers that measured plan-status drift read the human-readable task ledger — a rendered copy — rather than the manifest that owns status, so the instrument could disagree with the thing it measured. Both now read the manifest directly, and a stale rendered ledger is itself a detected finding instead of a silent hazard.
+- **The vault's front-door files are governed.** Files at the vault root previously fell through the schema gate entirely. Existing root files now route to the standard three-tier gate, with creation-time advice scoped to genuine creation.
+- **Overlay collision checking matches its contract.** Registry-sourced entries are recognized as such, an empty container is no longer reported as a shadowing collision, and a false lockout on the overlay master clears with no configuration change.
+- **Rendered task-ledger regions are protected at write time.** A hand edit that would silently diverge the machine-rendered region of a plan's task ledger is refused — with an explicit escape hatch for the renderer itself — while narrative edits pass untouched.
+- **A checkpoint write can no longer hang forever.** The checkpoint guard's byte sink bounds its read at the first byte, so a caller that inherits an open input stream no longer drains it indefinitely.
+- **A corpus census cannot be silently truncated.** Every shipped walker is screened against ignore-file-respecting search wrappers, so an ignore file in the corpus can no longer silently hide files from an integrity pass.
+- **Index and binder writers emit what their contracts declare.** One parent-folder shape across all index writers; a bounded heal of existing index frontmatter (only what the staleness flags name); writer-owned indexes in exempt paths are recognized instead of flagged; binder roots are now walked by placement validation (a retired hub file had re-minted twice with no finding); research indexes emit canonical routes only, and the unreachable legacy route is retired.
+- **Self-descriptions state current fact.** A retired write-time line cap is no longer asserted; the transitional grandfather list is emptied now that its last member relocated; stale citation comments across the installer and governance surfaces are reworded to durable facts.
+
+### Changed
+
+- **The plans index is one table.** The plan-tree index renders as a single flat ledger — plan, status, project directory, sub-plans — replacing the duplicated by-status and by-project views. Every row now carries its status and project directory; previously a whole class of rows silently dropped both. Archival semantics are unchanged.
+- **Plan markdown artifacts stop carrying a status line.** Status lives in the manifest — the single source of truth — so the four plan markdown artifact types no longer require a status field of their own.
+- **Machine-generated files heal at their writer, not at your edit.** A file whose frontmatter names its generating writer is writer-owned: the gate stops denying your edits to it, and nonconformance heals the next time the writer runs.
+- **Work reference folders are a free-form zone.** The tagging mandate is exempted there by the governance-sourced list, so captured reference material is not nagged into a taxonomy.
+- **One address for the plans tree.** Vault-view symlink spellings of the plans path canonicalize to the physical path, so governance applies identically at both addresses.
+
 ## [v1.15.0]
 
 Minor release with four threads: **session-boundary reliability** (the close-out chain now dedupes, orders, and routes itself correctly — and validates clean), **path portability** (the install stops guessing or inventing locations it does not own), **truthful self-description** (schemas, guards, and health banners now describe what the system actually does), and a substantial hardening of the release pipeline that produces this public tree. **No new migrations ship in this release:** upgrading is a file sync and needs nothing from you by hand. See the [v1.15.0 release notes](docs/release-notes-v1.15.0.md).

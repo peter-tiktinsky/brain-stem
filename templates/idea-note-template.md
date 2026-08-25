@@ -26,8 +26,10 @@ tags: []
        promoted_to:  NN-<slug>                          # a graduated idea's landing plan
        absorbed_into: NN-<slug>[/SS-<subslug>][ :: T-N] # an ABSORB's owning plan/sub-plan/task
        resolution:   promoted | absorbed | resolved | dropped   # terminal; stamped by the
-       resolved_at:  YYYY-MM-DD                          # backlog-index closure loop when the
-                                                         # target plan reaches a terminal status
+                     | superseded | discharged           # backlog-index closure loop (targeted
+       resolved_at:  YYYY-MM-DD                          # notes) or inbox-settle (operator
+                                                         # judgment); the settlement event moves
+                                                         # the note to _inbox/_settled/
      A target key must resolve against the plan roster (an existing NN-<slug> or
      NN-<slug>/SS-<subslug> dir); an artifact pointer is not a valid target. -->
 

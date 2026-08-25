@@ -1,12 +1,8 @@
 # cascade-waiver.sh — Canonical writer for $HOOKS_STATE/cascade-waivers.json.
 #
-# Home: hooks/cascade-waiver.sh (FORK-C:2 roster +.1 line 89 authoring
-# authority). NOTE the 3-way source discrepancy flagged at:.4
-# says hooks/lib/cascade-waiver.sh; the source is lib/cascade-waiver.sh;
-# BUILD-CHARTER-06 lists it under lib/. The2 roster (the authoring
-# authority when a roster and an as-is port disagree on ownership) places it at
-# hooks/ top-level, so the install-time lib/→hooks/lib/ translation does NOT
-# apply here.
+# Home: hooks/cascade-waiver.sh — top-level under hooks/, deliberately NOT under
+# hooks/lib/. The install-time lib/ → hooks/lib/ path translation therefore does
+# NOT apply to this file; source it at the top-level path shown in Usage below.
 #
 # Single forward-looking writer for cascade-rule waivers. Every agent / skill /
 # hook that files a waiver must source this file and call `cascade_waiver_write`.

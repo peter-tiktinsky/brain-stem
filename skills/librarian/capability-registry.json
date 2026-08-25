@@ -123,8 +123,8 @@
           "--dry-run findings + would-be writes/links, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving relative-path link chosen by declared home — a _research/ path keeps the research/<plan-slug>/ farm route with the full remainder, any other declared home (decisions/, target-state/, deliverables/, legacy research/, plan-root) links binder-relative to the plan file; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
-          "{plans_root}/_projects/<spoke>/research/<plan-slug>/ directory symlinks -> each contributing plan's <plan>/_research/ (generated + pruned each run; the LINK only, never the target)",
+          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving binder-relative link STRAIGHT TO THE PLAN FILE for every declared home — the CANONICAL route only per the ruled viewer contract; the research/<plan-slug>/ farm is never emitted as a link route; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
+          "{plans_root}/_projects/<spoke>/research/<plan-slug>/ directory symlinks -> each contributing plan's <plan>/_research/ (generated + pruned each run; the LINK only, never the target; _research/-only BY DESIGN under the ruled viewer contract — research-index rows carry resolving links for every declared home, the farm serves filesystem consumers and deliberately stays out of the vault viewer's index)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the one-sided-edge DETECTOR findings (detect + report, never repair-write)"
         ],
         "schema": null,
@@ -503,7 +503,8 @@
     "tasks-render": {
       "tier": "mechanical",
       "invocation_modes": [
-        "ad-hoc"
+        "ad-hoc",
+        "delegated:trinity-drift-detect"
       ],
       "cron_block": "skip-non-interactive",
       "dependencies": [
@@ -522,7 +523,7 @@
           "{PLANS_ROOT}/<slug>/tasks.md (tasks sentinel region; manifest read-only)"
         ],
         "schema": "governance/file-type-contracts/tasks.md.json",
-        "validation": "manifest validated against schemas/plan-manifest-schema.json before render; --check parity mode",
+        "validation": "manifest validated against schemas/plan-manifest-schema.json before render; --check parity mode; --check --drift-only is the delegated check-only lane (invoked per plan by trinity-drift-detect's replica-freshness axis): emits ONLY tasks-md-drift (with remedy), suppresses the in-parity info-event, never writes",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -592,7 +593,8 @@
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
-        "schemas/plan-manifest-schema.json"
+        "schemas/plan-manifest-schema.json",
+        "capabilities/tasks-render.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
@@ -603,10 +605,10 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT); read-only"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract)",
-        "validation": "master<->sub axis enforces R-61 (aggregation-integrity, reconciler) + R-62 (sub-publishes-upward, reconciler) + R-63 (sub-peer-isolation, advisory); reconciler-only, never write-time",
+        "validation": "master<->sub axis enforces R-61 (aggregation-integrity, reconciler) + R-62 (sub-publishes-upward, reconciler) + R-63 (sub-peer-isolation, advisory); reconciler-only, never write-time; replica-freshness axis delegates per plan (non-empty manifest.tasks[]) to tasks-render.sh --check --drift-only — compare + tasks-md-drift emission live in tasks-render.sh only, loud-skip if the sibling script is missing, skipped under --dry-run",
         "failure_mode": "block-and-log"
       },
-      "derive_disposition": "DERIVE (manifest is the sole status SoT): the two artifact-frontmatter sub-axes — spec-manifest-divergence + header-trinity-divergence — read spec.md/tasks.md status: frontmatter that no longer exists after the strip, so they are RETIRED (no longer emit). trinity-task-ledger-lag (manifest status + per-task ledger **Status:** lines) and the master<->sub aggregation axis (R-61/62/63, manifest-only) are PRESERVED.",
+      "derive_disposition": "DERIVE (manifest is the sole status SoT): the two artifact-frontmatter sub-axes — spec-manifest-divergence + header-trinity-divergence — read spec.md/tasks.md status: frontmatter that no longer exists after the strip, so they are RETIRED (no longer emit). trinity-task-ledger-lag (manifest status vs manifest.tasks[] — the ledger reads the manifest DIRECTLY; tasks.md is a rendered read-replica and never a data source) and the master<->sub aggregation axis (R-61/62/63, manifest-only) are PRESERVED.",
       "implementation_status": "shipped",
       "script": "capabilities/trinity-drift-detect.sh"
     },
@@ -660,10 +662,10 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{PLANS_ROOT}/_index.md (status-grouped navigation index)"
+          "{PLANS_ROOT}/_index.md (single-table plan ledger: | Plan | Status | Project dir | Subs | rows, by-status counts line, collapsed Archived age view-filter)"
         ],
         "schema": "plan-index.md contract (governed by THIS registry output_contract; no governance/librarian-capabilities/plan-index.md, no _index.json pillar-8 entry)",
-        "validation": "reader cap — READS the master sub_plans[] aggregate (coarse-bucket rollup); >0-plan-root + group-count assertions before write",
+        "validation": "reader cap — READS the master sub_plans[] aggregate (coarse-bucket rollup, the Subs cell); Status and Project dir first-class cells on every row (— = loud empty); >0-plan-root + group-count assertions before write",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -691,14 +693,42 @@
         "writes": [
           "{PLANS_ROOT}/_backlog.md (backlog + backlog-settled sentinel regions)",
           "{PLANS_ROOT}/_inbox/_index.md (machine-written inbox index: rosters + remediation highlights)",
-          "{PLANS_ROOT}/_inbox/<slug>.md (write-if-changed terminal-resolution restamps by the closure loop)"
+          "{PLANS_ROOT}/_inbox/<slug>.md (write-if-changed terminal-resolution restamps by the closure loop)",
+          "{PLANS_ROOT}/_inbox/_settled/<slug>.md (the stamp EVENT relocates the note to the settled home in the same run; forward-only — already-settled flat notes are never moved)"
         ],
         "schema": "schemas/plan-manifest-schema.json",
-        "validation": "reader cap for plan rows (master-row-only; READS sub_plans[] aggregate); Project Dir cells resolved from the project: spoke key via governance/anchored-spoke-registry.json; closure loop stamps resolution: only when the target plan reaches lifecycle.terminal_status — settled notes byte-stable on re-run",
+        "validation": "reader cap for plan rows (master-row-only; READS sub_plans[] aggregate); Project Dir cells resolved from the project: spoke key via governance/anchored-spoke-registry.json; closure loop stamps resolution: only when the target plan reaches lifecycle.terminal_status — settled notes byte-stable on re-run; settlement classifies on terminal-resolution EVIDENCE (out-of-enum + resolved_at/superseded_by settles with the inbox-resolution-out-of-enum advisory); the _settled/ walk is render-only (misfile advisory, never auto-moved)",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
       "script": "capabilities/backlog-index.sh"
+    },
+    "inbox-settle": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "governance/plans-rules.json"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{PLANS_ROOT}/_inbox/<slug>.md frontmatter stamp (only with --apply)",
+          "{PLANS_ROOT}/_inbox/_settled/<slug>.md (the stamped note's new home; only with --apply)"
+        ],
+        "schema": null,
+        "validation": "STRICT resolution vocabulary — --resolution must be a member of the governance resolution_enum (the sanctioned channel never mints vocabulary drift; the renderer's evidence rule covers hand-stamped history); superseded requires --superseded-by; refuses an already-settled note and a destination collision; default run is dry (writes only with --apply)",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/inbox-settle.sh"
     },
     "capability-registry-parity": {
       "tier": "mechanical",
@@ -916,7 +946,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "schemas/librarian-manifest-schema.json (xref_graph subtree)",
-        "validation": "cross-reference graph computed; manifest write is atomic temp+rename",
+        "validation": "cross-reference graph computed (wikilink + markdown-link grammars); manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1275,7 +1305,7 @@
           "{vault.root}/**/*.md wikilink fixups (after --dry-run review)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "rename-aware wikilink resolution; dry-run-by-default; atomic per-file rewrite",
+        "validation": "rename-aware wikilink resolution + markdown-link detection (broken-mdlink, detection-only); dry-run-by-default; atomic per-file rewrite",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1301,7 +1331,8 @@
       "output_contract": {
         "writes": [
           "librarian-manifest drift_findings.rename_detected (manifest_append_finding, only with --register)",
-          "rename NDJSON to stdout (or $FINDINGS_OUTPUT)"
+          "rename NDJSON to stdout (or $FINDINGS_OUTPUT)",
+          "librarian-manifest rename_history[] (--persist-history; named populator manifest_append_rename_history, dedup on commit+from+to; the durable trail behind rename-cascade --from-history)"
         ],
         "schema": "schemas/librarian-manifest-schema.json (drift_findings.rename_detected subtree, --register only)",
         "validation": "git log --diff-filter=R across vault+plans roots; --register late-sources hooks/lib/manifest.sh",
@@ -1330,10 +1361,10 @@
       "requires_confirmation": false,
       "output_contract": {
         "writes": [
-          "{vault.root}/**/*.md wikilink updates (after --dry-run review)"
+          "{vault.root}/**/*.md wikilink AND markdown-link updates (after --dry-run review)"
         ],
         "schema": "governance/foundation-master.json",
-        "validation": "consumes rename-detect NDJSON; dry-run-by-default; cascades wikilink updates downstream",
+        "validation": "consumes rename-detect NDJSON; dry-run-by-default; cascades wikilink updates downstream; markdown-link inbound REWRITE (source-file-relative target arithmetic; fence/code-span aware; %-quoting and #anchor preserved); --from-history loads the librarian-manifest rename_history[] trail so a move outside the 24h detection window stays repairable",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1469,6 +1500,34 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/library-log-rotate.sh"
+    },
+    "link-grammar-convert": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/vault-view-walk.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{state}/link-grammar-convert/register.md (conversion register: file/rep table, invariant verdicts incl. resolution-set equality, judgment rows, blank approval line)",
+          "{vault.root}/**/*.md.lgcnew dry-run siblings (default mode writes ONLY siblings + register)",
+          "{vault.root}/**/*.md wikilink->markdown-link grammar conversion (--apply only, approval-gated; write-once .pre-lgc pre-image sidecar per file; per-batch git commit when the root is a repo)"
+        ],
+        "schema": "governance/foundation-master.json",
+        "validation": "structural-fresh seed from the vault-view walk; live prose only (fences and code spans untouched); memory namespace hard-excluded by enumerated-roots stem match; alias and #anchor preserved; ambiguity routed to the judgment register, never guessed; six per-file invariants incl. RESOLUTION-SET EQUALITY (logical AND physical frames) hard-block apply; --apply refuses on blank approval, scheduled-pipeline fire band, editor running, dirty target tree, register-vs-derivation drift, any invariant failure, or a non-interactive shell",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/link-grammar-convert.sh"
     },
     "memory-globalize": {
       "tier": "judgment",

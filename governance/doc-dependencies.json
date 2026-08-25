@@ -24,9 +24,9 @@
         "hook"
       ],
       "status": "active",
-      "source": "governance/doc-dependencies.json :: _rules (SoT). R-48 is the broken-wikilink Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
-      "rule_text": "A file written with wikilink reference(s) [[target]] / [[target|alias]] to a non-existent target SHOULD surface a write-time advisory naming the broken target(s). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability. R-48 is the broken-wikilink write-time advisory (Tier 1).",
-      "failure_mode": "A wikilink to a non-existent target lands silently; the vault navigation graph carries a dangling edge that the reader only discovers on click. Advisory: write proceeds; operator told the broken target(s) + pointed at wikilink-repair or to create the target file if intended."
+      "source": "governance/doc-dependencies.json :: _rules (SoT). R-48 is the broken-link Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
+      "rule_text": "A file written with a link reference to a non-existent target SHOULD surface a write-time advisory naming the broken target(s), in BOTH grammars: wikilinks [[target]] / [[target|alias]] (vault-index resolution) and markdown links [text](relative-target) (resolved relative to the file being written; absolute/URL/anchor-only targets are out of scope). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability, whose detection also covers both grammars. R-48 is the broken-link write-time advisory (Tier 1); each grammar gets its own advisory line.",
+      "failure_mode": "A link to a non-existent target lands silently; the navigation graph carries a dangling edge that the reader only discovers on click — or an agent discovers on a failed file read. Advisory: write proceeds; operator told the broken target(s) per grammar + pointed at wikilink-repair (detection covers both grammars; repair proposals are wikilink-only) or to create the target file if intended."
     },
     {
       "id": "R-54",

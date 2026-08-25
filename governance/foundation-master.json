@@ -461,17 +461,17 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-08-09T01:50:35Z",
-    "bundle_version": "85c3cddc93c46fee217337872bdd55aa3a67decd01273d66859604bcb992399e",
+    "built_at": "2026-08-14T13:36:56Z",
+    "bundle_version": "eadea803c3742dea729e7c03fce9751a979331585231f13bacfc76f00dc4d3cd",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
       "governance/_index.json": "2026-08-09T01:50:35Z",
       "governance/doc-dependencies.json": "2026-06-18T19:27:37Z",
       "governance/frontmatter-rules.json": "2026-08-09T01:50:35Z",
       "governance/mandatory-files-rules.json": "2026-08-03T04:06:57Z",
-      "governance/naming-rules.json": "2026-08-03T04:06:57Z",
+      "governance/naming-rules.json": "2026-08-14T13:36:56Z",
       "governance/plans-rules.json": "2026-08-03T04:06:57Z",
-      "governance/tagging-rules.json": "2026-08-03T04:06:57Z",
+      "governance/tagging-rules.json": "2026-08-14T13:36:56Z",
       "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
     },
     "source_files_count": 8
@@ -492,11 +492,11 @@
         "enforcement_layer": [
           "hook"
         ],
-        "failure_mode": "A wikilink to a non-existent target lands silently; the vault navigation graph carries a dangling edge that the reader only discovers on click. Advisory: write proceeds; operator told the broken target(s) + pointed at wikilink-repair or to create the target file if intended.",
+        "failure_mode": "A link to a non-existent target lands silently; the navigation graph carries a dangling edge that the reader only discovers on click — or an agent discovers on a failed file read. Advisory: write proceeds; operator told the broken target(s) per grammar + pointed at wikilink-repair (detection covers both grammars; repair proposals are wikilink-only) or to create the target file if intended.",
         "home": "doc-dependencies",
         "id": "R-48",
-        "rule_text": "A file written with wikilink reference(s) [[target]] / [[target|alias]] to a non-existent target SHOULD surface a write-time advisory naming the broken target(s). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability. R-48 is the broken-wikilink write-time advisory (Tier 1).",
-        "source": "governance/doc-dependencies.json :: _rules (SoT). R-48 is the broken-wikilink Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
+        "rule_text": "A file written with a link reference to a non-existent target SHOULD surface a write-time advisory naming the broken target(s), in BOTH grammars: wikilinks [[target]] / [[target|alias]] (vault-index resolution) and markdown links [text](relative-target) (resolved relative to the file being written; absolute/URL/anchor-only targets are out of scope). ADVISORY — never blocks the write; complements the post-hoc wikilink-repair capability, whose detection also covers both grammars. R-48 is the broken-link write-time advisory (Tier 1); each grammar gets its own advisory line.",
+        "source": "governance/doc-dependencies.json :: _rules (SoT). R-48 is the broken-link Tier-1 advisory enforced at hooks/pre-write-guard.sh; declared here so it is visible to the rules-index.",
         "status": "active",
         "surface": "wikilink-integrity",
         "tier": "advisory"
@@ -648,11 +648,11 @@
         "contents_enum_table": {
           "columns": [
             {
-              "derivation": "filename of the child .md file rendered as Obsidian wikilink",
+              "derivation": "filename of the child .md file rendered as a relative markdown link [<label>](<relative-path>) — one link grammar across every index writer; library article cells carry a .md-suffixed label, nested articles link their subdir-relative path, and vault-root surface rows link the child directory (see root_surfaces_adaptation)",
               "name": "File",
               "position": 1,
-              "value_pattern": "^\\[\\[[^\\[\\]]+\\.md\\]\\]$",
-              "value_type": "wikilink"
+              "value_pattern": "^\\[[^\\]]+\\]\\([^)]+\\)$",
+              "value_type": "markdown-link"
             },
             {
               "derivation": "wc -l on the referenced file at maintenance time; rendered with leading ~ when approximated",
@@ -704,12 +704,18 @@
             ]
           },
           "required": true,
+          "root_surfaces_adaptation": {
+            "applies_to": "the vault-root _index.md only",
+            "rationale": "a symlink-hub root that tables only its direct .md files hides the hubs that ARE the root's content; surface rows make the root render navigable",
+            "row_shape": "one row per direct child directory, ordered before the file rows: File = [<name>](<name>/), Lines = —, Type = surface, Description = → <resolved target> for a symlinked dir (re-resolved on every splice) or (directory) for a plain dir"
+          },
           "sentinel_markers": {
             "end": "<!-- contents-enum:end -->",
             "rationale": "Tier 1 + Tier 2 maintenance touches only content between markers; preserves hand-authored prose outside the block",
             "start": "<!-- contents-enum:start -->"
           },
-          "separator_row": "|---|---|---|---|"
+          "separator_row": "|---|---|---|---|",
+          "zero_byte_exclusion": "zero-byte .md children are excluded from enumeration — non-authored placeholders enter the table when they gain content"
         },
         "folder_context_paragraph": {
           "auto_generation_policy": "bootstrap emits a placeholder string `*[Folder context paragraph: 2-4 sentences describing what lives here, what doesn't, why the folder exists. Pedagogical.]*` for adopter fill-in; subsequent maintenance passes preserve hand-authored content via survivorship pattern",
@@ -729,10 +735,10 @@
           "applies_to": "the library-root _index.md only (the topic-roster index), NOT a per-topic folder _index.md",
           "columns": [
             {
-              "derivation": "the topic directory name rendered as an Obsidian wikilink to that topic's _index.md",
+              "derivation": "the topic directory name rendered as a relative markdown link to that topic's _index.md ([<topic>](<topic>/_index.md))",
               "name": "Topic",
               "position": 1,
-              "value_type": "wikilink"
+              "value_type": "markdown-link"
             },
             {
               "derivation": "count of member article .md files in the topic folder",
@@ -783,7 +789,7 @@
       "frontmatter": {
         "conditional_required": {
           "parent_folder": {
-            "auto_populate_source": "post-write-verify.sh bootstrap step 2 — derived from $FILE_PATH dirname relative to $VAULT_ROOT",
+            "auto_populate_source": "post-write-verify.sh bootstrap — the PARENT of $FILE_PATH's dirname, expressed relative to $VAULT_ROOT",
             "condition": "path_depth >= 2",
             "condition_semantics": "path_depth = number of segments between vault root and the _index.md file; depth 1 = `<cluster>/_index.md` (parent_folder omitted); depth >= 2 = `<cluster>/<instance>/_index.md` or deeper (parent_folder mandatory)."
           }
@@ -808,8 +814,8 @@
             "type": "string"
           },
           "parent_folder": {
-            "pattern": "^[A-Za-z][A-Za-z0-9 /._-]+$",
-            "rationale": "Vault-relative path naming the parent folder of this _index.md",
+            "pattern": "^[A-Za-z_][A-Za-z0-9 /._-]+$",
+            "rationale": "Root-relative path naming the PARENT of the folder this _index.md describes (vault-relative for vault-governed indexes; plans-root-relative for plans-tree indexes, whose canonical address family is the physical one). At depth 2 the value coincides with the parent's basename; at depth >= 3 it is path-qualified (e.g. Work/<spoke>). Resolved by a single root join — never sibling-relative.",
             "type": "string"
           },
           "provides": {
@@ -859,7 +865,7 @@
           "trigger": "PostToolUse hook fires on Edit/Write tool calls",
           "writes": [
             "auto-bootstrap (if _index.md missing AND folder non-exempt): create with frontmatter stub + H1 + placeholder folder-context paragraph + empty contents-enum table wrapped in sentinel markers",
-            "reconcile entry for written file (append/update/refresh row by wikilink)",
+            "reconcile entry for written file (append/update/refresh row keyed by display label — markdown-link rows and retired-grammar wikilink rows both parse; emission is markdown-link only)",
             "bump _index.md frontmatter `updated:` to today"
           ]
         },
@@ -1292,7 +1298,7 @@
         "h1": {
           "level": 1,
           "match_rule": "the H1 is the concept name (one concept per file)",
-          "rationale": "The single top-level heading names the durable concept the article carries; bare-wikilink cross-references resolve against the basename, which mirrors this concept name.",
+          "rationale": "The single top-level heading names the durable concept the article carries; the file basename mirrors this concept name, so a cross-reference in either grammar (a markdown link's visible text, or a bare wikilink resolving by basename) reads as the concept.",
           "required": true
         },
         "in_document_toc": {
@@ -1306,10 +1312,10 @@
           "rationale": "A leading in-document section index is forbidden; the article is short enough that a reader scans the body directly, and an auto-generated index drifts from hand-edited prose."
         },
         "sibling_wikilinks_at_foot": {
-          "form": "bare",
+          "form": "bare wikilink or relative markdown link",
           "placement": "at the foot of the body",
-          "rationale": "Sibling articles are cross-referenced with bare wikilinks at the foot for backlink-graph value; basename uniqueness backs the bare form, and the basename-collision scan guards it.",
-          "value_pattern": "^\\[\\[[^\\[\\]|]+\\]\\]$"
+          "rationale": "Sibling articles are cross-referenced at the foot for backlink-graph value. The corpus addressing convention rules relative-path markdown links the target grammar (a real path resolves for an agent with no basename index); the bare-wikilink form remains accepted during the corpus conversion, backed by basename uniqueness and the basename-collision scan.",
+          "value_pattern": "^(\\[\\[[^\\[\\]|]+\\]\\]|\\[[^\\]]+\\]\\([^)]+\\))$"
         },
         "synthesized_body": {
           "rationale": "The body is synthesized at promotion and scrubbed of all plan/project-specific detail (task IDs, plan slugs, engagement names, decision dates); it is regenerated content, not hand-maintained prose, so per-article changelogs are replaced by the single global library log."
@@ -1730,12 +1736,12 @@
         "enforcement_layer": [
           "librarian frontmatter-coverage-audit (`provides-canonicality-drift` finding category)",
           "drift-allowlist override at hooks/drift-allowlist.json (`provides_overlap[]` for deliberate co-canonical pairs)",
-          "manifest mirror at librarian-manifest.json `drift_findings.provides_canonicality`"
+          "manifest mirror at librarian-manifest.json `drift_findings.frontmatter.provides_canonicality`"
         ],
         "failure_mode": "Two or more canonical-scope files claiming the same `provides:` capability fragment authority. A consumer routing to the capability does not know which file to read; updates to one canonical do not propagate to the other; the two files drift into mutually-contradictory statements within months. Without an audit, the drift is invisible — `grep provides:` returns both files and the consumer picks one by accident. The librarian-audit finding surfaces the collision and asks the operator to either consolidate, archive one source, or register the overlap as deliberate in the drift-allowlist.",
         "home": "frontmatter",
         "id": "R-40",
-        "manifest_mirror_path": "librarian-manifest.json drift_findings.provides_canonicality",
+        "manifest_mirror_path": "librarian-manifest.json drift_findings.frontmatter.provides_canonicality",
         "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
         "scope_exemptions": [
           "Daily/** — daily notes are temporally-scoped (foundation-shipped folder)"
@@ -1995,7 +2001,9 @@
           }
         },
         "optional": [
-          "provides"
+          "provides",
+          "project",
+          "workstream"
         ],
         "required": [
           "type",
@@ -2011,7 +2019,9 @@
       "log": {
         "canonical_scope": false,
         "optional": [
-          "tags"
+          "tags",
+          "project",
+          "workstream"
         ],
         "required": [
           "type",
@@ -2021,8 +2031,27 @@
         ],
         "tier": "strict"
       },
+      "note": {
+        "_description": "Thin universal raw-note type for durable hand- or machine-captured notes (work-spoke reference/ material and vault notes). Standard tier: user-authored capture is never DENY-gated — missing or partial frontmatter on a hand-written note draws at most a soft warning. The project-workspace scaffolder's --note mint stamps the full cohort plus the path_routing lineage fields (project, workstream) so machine-minted notes are conformant from birth; ephemeral scratch (daily/inbox/fleeting) stays out of scope by location.",
+        "canonical_scope": false,
+        "optional": [
+          "title",
+          "project",
+          "workstream"
+        ],
+        "required": [
+          "type",
+          "description",
+          "created",
+          "updated",
+          "tags",
+          "id",
+          "schema_version"
+        ],
+        "tier": "standard"
+      },
       "reference": {
-        "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime; the only write-time line-count enforcement is the navigational hub-file max-lines guard (R-03). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template.",
+        "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime, and the runtime ships NO synchronous write-time line-count cap at all (the former navigational hub-file max-lines guard, R-03, is RETIRED: its block was removed rather than re-pointed; declared size limits are audit-time checks). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template.",
         "_description": "Durable universal-knowledge library articles at _library/<topic>/<article>.md — one concept per file, synthesized by the librarian at promotion and scrubbed of all plan/project-specific detail. Frontmatter is the activation surface index generators read to route a reader to the article.",
         "canonical_scope": false,
         "expected_path": [
@@ -2157,7 +2186,8 @@
         ],
         "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
         "exemption_categories": [
-          "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)"
+          "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)",
+          "plans-tree machine indexes owned by registered librarian writers (Plans/ — the plan navigation index, the inbox funnel index, the library topic/root indexes): librarian-generated, not mandate-bootstrapped, and not exemption conflicts"
         ],
         "exemption_paths": [
           "Work/**",
@@ -2166,7 +2196,7 @@
           "Wiki/**",
           "Skills/**"
         ],
-        "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check.",
+        "exemption_semantics": "positive-list — unenumerated user-facing folders default to the mandate firing. Adding a new exemption requires R-37 documentary lockstep updating this entry + hooks/post-write-verify.sh exemption-check + skills/librarian/capabilities/index-maintain.sh exemption-check. Exempt-from-mandate is NOT forbidden-to-exist: an _index.md at an exempt path that matches another capability's declared writes[] target (skills/librarian/capability-registry.json :: output_contract.writes[]) is writer-owned — nonconformance heals at that writer — and the index-maintain exemption-conflict arm skips it; genuinely stray exempt-path indexes still flag. The skip set derives from the registry at run time, never a hardcoded path list.",
         "file_pattern": "**/_index.md",
         "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
         "rule_id": "R-44",
@@ -2205,7 +2235,7 @@
           ],
           "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is a single pointer line to the append-only episodic-chronicle.md and is not cold-spilled."
         },
-        "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md referenced via [[wikilinks]]. The byte cap is the governing trigger (bites at ~110 entries before the line cap).",
+        "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md reached via index-entry links and [[wikilink]] cross-references — the memory/rules pointer tier is EXEMPT from the corpus link-grammar conversion (its links resolve against the enumerated memory namespace, not the vault walk). The byte cap is the governing trigger (bites at ~110 entries before the line cap).",
         "rule_id": "R-59",
         "scope": "MEMORY.md under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented load contract: first 200 lines OR first 25KB (whichever first) loaded at session start; entries past the cap silently drop. Per-line <= 200 chars (drift signal).",
         "thresholds": {
@@ -2371,7 +2401,8 @@
         "applies_to_depth": ">= 3 under {plans_root}/",
         "category": "C3",
         "enforcement_layer": [
-          "librarian plan-parent-resolve capability (read-time / reconciler drift finding)",
+          "pre-write-guard.sh parent_plan write-time gate (DENY on depth>=3 sub-plan ROOT artifacts: spec.md / tasks.md / 00-ideation-brief.md; marker R28_DENY)",
+          "librarian plan-parent-resolve capability (read-time / reconciler drift finding — the broad sub-task-file population stays at this lane)",
           "librarian plan-index --parent <slug> flag",
           "librarian frontmatter shared helper"
         ],
@@ -2381,22 +2412,23 @@
           "Files under tests/ (synthetic fixtures, not plan state)",
           "Files under _orchestrator/ (orchestrator runtime, not plan state)"
         ],
-        "failure_mode": "Sub-plan files at depth >= 3 without `parent_plan:` frontmatter are invisible to plan-tree walkers — librarian cannot resolve ancestry. Advisory: drift surfaced as a librarian reconciler finding, NOT a write-time block.",
+        "failure_mode": "Sub-plan files at depth >= 3 without parent_plan: frontmatter are invisible to plan-tree walkers — librarian cannot resolve ancestry. PROMOTED: the sub-plan ROOT artifacts (spec.md / tasks.md / 00-ideation-brief.md) DENY at write time; the broad sub-task-file population (research notes, packets) stays a read-time reconciler drift finding, never a write block.",
         "field_value_format": "top-level plan slug (no path, no extension)",
         "home": "naming",
         "id": "R-28",
         "rollout": {
           "_description": "Keep advisory at v1.0.0; promote post-v1.0.0 after 30+ days of advisory-fire data.",
           "observation_window": ">= 30 days post-v1.0.0; librarian reconciler logs every R-28 advisory fire as a drift finding.",
+          "promoted": "Write-time DENY live on the sub-plan ROOT scope. Trigger verified at promotion: build-time census found 446 depth>=3 sub-plan-root artifacts with ZERO missing parent_plan (scaffolder-emitted, correct-by-construction) and 21 broad-population strays (historical deep files), which is why the DENY scope is the ROOTS population — the strays stay advisory at the reconciler lane. Promotion mechanism used: guard substance change + this enforcement_layer/tier edit, one commit, no superseding ADR (per promotion_mechanism).",
           "promotion_mechanism": "A substance change to pre-write-guard.sh or to this rule's enforcement_layer field; does NOT require a superseding ADR (the advisory-then-promote rollout idiom is part of the rule itself).",
           "promotion_trigger": "When advisory-fire data shows empirically low FP-rate (the scaffolder-emitted parent_plan correct-by-construction property), R-28 promotes to write-time DENY.",
           "v1_0_0": "ADVISORY at write-time (surfaces drift via librarian reconciler drift finding; no write-block)."
         },
-        "rule_text": "Sub-task files at depth >= 3 under `{plans_root}/` must carry `parent_plan: <top-level-slug>` frontmatter. Value is the top-level plan slug (no path, no extension). Plan-root files at depth 2, handoff.md at any depth, files under tests/, and files under _orchestrator/ are EXEMPT. R-28 is the COMPLEMENT to R-27: R-27 governs the sub-plan's OWN status; R-28 governs the sub-plan's POINTER TO ITS MASTER. Both fire on depth-3 sub-plan roots, independently. ADVISORY at v1.0.0 — librarian-audit only; pre-write-guard does NOT DENY on missing parent_plan: at depth >= 3.",
+        "rule_text": "Sub-task files at depth >= 3 under `{plans_root}/` must carry `parent_plan: <top-level-slug>` frontmatter. Value is the top-level plan slug (no path, no extension). Plan-root files at depth 2, handoff.md at any depth, files under tests/, and files under _orchestrator/ are EXEMPT. R-28 is the COMPLEMENT to R-27: R-27 governs the sub-plan's OWN status; R-28 governs the sub-plan's POINTER TO ITS MASTER. Both fire on depth-3 sub-plan roots, independently. PROMOTED per this rule's own rollout.promotion_mechanism: pre-write-guard DENIES a depth>=3 sub-plan ROOT artifact (spec.md / tasks.md / 00-ideation-brief.md) missing parent_plan:; escape hatch R28_ALLOW_OVERRIDE=1; the broader population remains librarian-audit advisory.",
         "source": "governance/naming-rules.json :: _rules (SoT; home naming, category C3)",
         "status": "active",
         "surface": "plan-governance",
-        "tier": "informational"
+        "tier": "deny"
       },
       {
         "category": "C1",
@@ -2520,6 +2552,23 @@
         "status": "active",
         "surface": "plan-governance",
         "tier": "advisory"
+      },
+      {
+        "category": "C3",
+        "enforcement_layer": [
+          "pre-write-guard.sh plan-artifact frontmatter gate (write-time DENY on the 4 canonical basenames; marker R65_PROMOTED)",
+          "schemas/plans-schema.json (the filename-to-type map + per-type required[] cohort the gate reads)"
+        ],
+        "failure_mode": "A canonical plan artifact (spec.md / tasks.md / handoff.md / 00-ideation-brief.md) written with a missing or non-canonical type: field is invisible or mis-routed to every type-keyed consumer (renderers, validators, index walkers). Promoted from advisory to write-time DENY once the corpus floor measured clean (3 named historical stragglers corpus-wide at promotion).",
+        "home": "plans",
+        "id": "R-65",
+        "legacy_label_note": "The guard block's emitted advisory strings historically carry the '[R-40 PLAN FRONTMATTER]' (and sibling [R-40 LIBRARY/BINDER]) prefixes and are kept byte-stable for fixture/sentinel continuity — but the bare R-40 id is owned by the frontmatter pillar's provides-canonicality rule. This entry (R-65) is the registered id of the promoted type gate; deny messages name the mechanism and R-65, never the legacy label.",
+        "rollback": "R65_ALLOW_OVERRIDE=1 (env, per-write) downgrades to the legacy advisory; a durable rollback is a substance change to this entry's tier + the guard emission branch, one commit, master rebuild + manifest regen coupled.",
+        "rule_text": "The 4 canonical Markdown plan artifacts must carry the canonical type: for their basename (spec.md -> spec, tasks.md -> tasks, handoff.md -> handoff, 00-ideation-brief.md -> ideation-brief) per schemas/plans-schema.json. Missing or mismatched type: DENIES the write; the deny message carries the canonical frontmatter stub (DERIVE: no status: in artifact frontmatter). Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades the gate to the legacy advisory for that write. All other arms of the plan-frontmatter block (status-line enum, library/binder reach) remain advisory.",
+        "source": "governance/plans-rules.json :: _rules (SoT; home plans, category C3)",
+        "status": "active",
+        "surface": "plan-governance",
+        "tier": "deny"
       }
     ],
     "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 6-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 6-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
@@ -2541,7 +2590,7 @@
         "Notes"
       ],
       "settled_section": {
-        "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — graduated items joined from plan manifests' promoted_from plus in-place inbox notes carrying a terminal resolution; never hand-kept.",
+        "_note": "Derived settled ledger rendered below the active table by librarian:backlog-index — THREE sources: graduated items joined from plan manifests' promoted_from, absorption joins from plan manifests' absorbed_notes[] (one row per listed note, landing plan named; a note-side row for the same note takes precedence), and inbox notes carrying a terminal resolution (flat or in the settled home); never hand-kept.",
         "required_fields": [
           "Item",
           "Resolution",
@@ -2632,8 +2681,11 @@
         "promoted",
         "absorbed",
         "resolved",
-        "dropped"
+        "dropped",
+        "superseded",
+        "discharged"
       ],
+      "settled_dir": "_inbox/_settled/",
       "slug_pattern": "^[a-z][a-z0-9-]+$",
       "writers_allowed": [
         "any"
@@ -2706,7 +2758,7 @@
           "match": "leading-dot"
         },
         "funnel_registry_surfaces": {
-          "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). ENFORCEMENT-MAP.md is deliberately NOT an enumerated surface — the governance JSON pillar is the live rule source of truth; the historical map is not a durable root registry.",
+          "_description": "Enumerated funnel + registry directories: _inbox (pre-plan idea capture), _projects (per-spoke binder registry), _library (universal-only cross-project library). Historical registry documents are deliberately NOT enumerated surfaces — the governance JSON pillar is the live rule source of truth, and a historical map file is not a durable root registry.",
           "kind": "dir",
           "members": [
             "_inbox",
@@ -2734,9 +2786,7 @@
         }
       },
       "closed": true,
-      "grandfathered": [
-        "ENFORCEMENT-MAP.md"
-      ],
+      "grandfathered": [],
       "rollout": "deny"
     },
     "schema_version": "2.0.0",
@@ -2815,7 +2865,8 @@
   "r47_exempt_paths_composed": [
     ".claude/**",
     ".claude/hooks/lib/**",
-    "Archive/**"
+    "Archive/**",
+    "Work/*/reference/**"
   ],
   "r47_tag_cap": 25,
   "schema_version": "1.2.0",
@@ -2860,7 +2911,8 @@
         "r47_exempt_paths": [
           "Archive/**",
           ".claude/**",
-          ".claude/hooks/lib/**"
+          ".claude/hooks/lib/**",
+          "Work/*/reference/**"
         ],
         "rule_text": "Every non-exempt vault write MUST carry a non-empty `tags:` array in its frontmatter. Pre-write-guard emits a Tier 1 advisory ([R-47 TAG PRESENCE]) when the field is missing or empty (tags: []). Distinguishes 'missing' (no tags: line) vs 'empty' (line present, no items). Exempt paths are enumerated in this rule's `r47_exempt_paths` array — they cover archive surfaces, ideation-brief symlinks, machine-emitted scratch/build zones, and system infrastructure paths whose tag-absence is structurally legitimate. The librarian tag-coverage-audit walks the vault at audit time and surfaces longer-running orphans + near-miss patterns (#scope/decisions vs #scope/decision — one is likely a typo) as advisory findings the operator triages.",
         "seed_taxonomy_exempt_paths": [

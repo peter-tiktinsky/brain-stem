@@ -56,13 +56,53 @@ checkpoint_is_rich() {
 #   rc 0  = written (any prior non-empty content rotated first)
 #   rc 10 = PRESERVED — the existing checkpoint outranks the candidate. A normal
 #           outcome, not an error; callers under `set -e` must guard the call.
+#   rc 11 = REFUSED — no candidate content arrived on stdin inside the bound. The
+#           target is left untouched and a line is written to stderr.
 #   rc 1  = staging or rename failed; the target is left untouched.
+#
+# THE STDIN READ IS BOUNDED, and the bound is structural rather than conventional:
+# the caller supplies the candidate on fd 0, and a caller that forgets to redirect
+# hands this function the fd 0 it inherited from its own parent. `[ ! -t 0 ]` cannot
+# make that safe — a heredoc, a pipe, a never-EOF fifo and a retained socket all
+# answer "not a terminal", and only the first two ever deliver EOF — so what is
+# bounded here is the WAIT, the same way every other stdin consumer in this tree
+# bounds it, through the same HOOKS_STDIN_WAIT knob (whole seconds; a zero or
+# non-numeric value falls back rather than reaching `read -t 0`, which on bash 3.2
+# arms no timer at all). A descriptor-TYPE probe was rejected: it is a proxy for the
+# wrong property (it would refuse a legitimate producer pipe and still accept a
+# never-EOF fifo).
+#
+# ONLY THE FIRST READ IS BOUNDED, deliberately, because this is a byte SINK — the
+# shape skills/librarian/capabilities/rename-cascade.sh already uses for a
+# stdin-to-file capture. Once one line proves the stream live, the `cat` tail runs
+# unbounded, so a slow producer is never truncated and the staged bytes are the
+# caller's bytes verbatim. A per-read bound would trade the wait for a silently
+# truncated candidate, and this file is renamed into place as-is: truncation here is
+# a corrupted handoff record, which is the worse failure.
+#
+# NOTHING ARRIVED => REFUSE, never stage. An fd 0 that is open but silent delivers
+# ZERO bytes, so it lands exactly here. Writing the empty candidate would rotate and
+# then blank the checkpoint — strictly worse than declining to write at all.
 checkpoint_guarded_write() {
-  local target="$1" dir tmp
+  local target="$1" dir tmp _cg_wait _cg_first
   [ -n "$target" ] || return 1
   dir=$(dirname "$target")
   tmp="$target.tmp.$$"
-  cat > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+
+  _cg_wait="${HOOKS_STDIN_WAIT:-5}"
+  case "$_cg_wait" in ''|0|*[!0-9]*) _cg_wait=5 ;; esac
+  _cg_first=""
+  if IFS= read -r -t "$_cg_wait" _cg_first; then
+    { printf '%s\n' "$_cg_first" > "$tmp" && cat >> "$tmp"; } 2>/dev/null \
+      || { rm -f "$tmp" 2>/dev/null; return 1; }
+  elif [ -n "$_cg_first" ]; then
+    # EOF on an unterminated final line: keep exactly the bytes that arrived.
+    printf '%s' "$_cg_first" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  else
+    printf 'checkpoint-guard: no candidate content on stdin within %ss — refusing to stage an empty checkpoint over %s\n' \
+      "$_cg_wait" "$target" >&2
+    return 11
+  fi
 
   if [ -f "$target" ] && [ -s "$target" ]; then
     if checkpoint_is_rich "$target"; then

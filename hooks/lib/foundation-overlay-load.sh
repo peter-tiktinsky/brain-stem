@@ -169,6 +169,52 @@ _entity_slots_for() {
 if [ "$FORCE_OVERRIDE" != "1" ]; then
   DENIED_KEYS=""
 
+  # Declared-union leaves are excluded from the collision domain: union means
+  # extend-not-shadow, so an overlay entry at a union leaf is an ADD by
+  # construction — foundation declares the shape, the adopter extends it — and
+  # no _override_reason is ever owed (R-52 operation_set.add). Sourced from the
+  # SAME registry the merge block below reads (never a second hardcoded leaf
+  # list): read + walk must agree or the walk denies what the merge sanctions.
+  #
+  # KNOWN RESIDUALS OF THIS WALK — dispositioned, deferred by ruling; none is
+  # silently unowned (each behaviour is pinned by a RED-first fixture in the
+  # maintainer tree's test bank, so it cannot drift silently):
+  #   (1) UNDER-FIRE, array-valued SLOTS: a slot whose VALUE is an array
+  #       (doc_dependencies.entries) is never collision-checked — `keys[]?`
+  #       yields integer indices, `startswith` errors, the 2>/dev/null below
+  #       swallows it. Closing this needs identity semantics for array entries
+  #       (what makes two entries "the same entity") — a rule-text + registry
+  #       change, not a predicate tweak.
+  #   (2) UNDER-FIRE, underscore-named ENTITIES: mandatory_files.mandates
+  #       declares real entity objects under underscore-prefixed names
+  #       (_index_md, _memory_md_cap); the blanket startswith("_") metadata
+  #       filter drops them before the null-check runs. The fix needs a way to
+  #       tell a metadata key from an underscore-named entity — a
+  #       naming-contract change.
+  #   (3) COMPLIANCE-IMPOSSIBLE on supersede: the _override_reason read below
+  #       is object-only (an array value cannot carry the key), and after the
+  #       union + empty-container exclusions six reachable non-union NON-EMPTY
+  #       array child keys remain in the shipped foundation:
+  #       plans.lifecycle.status_enum, plans.lifecycle.terminal_status,
+  #       plans.backlog_row.disposition_enum (the lower-confidence sibling of
+  #       the class), plans.backlog_row.required_fields,
+  #       plans.backlog_row.stale_advisory_days, plans.backlog_row.status_enum.
+  #       A supersede there DENIES with no per-entry compliance path except
+  #       --force-override. NOT moot — but changing it shares root cause (and
+  #       fix shape) with (1), so it rides the same deferred work.
+  #   All three WIDEN or change enforcement posture; none ships without an
+  #   explicit operator ruling. Do not "fix" one in passing.
+  #
+  # NO-FLAG CALL-SITE CONTRACT (re-swept at the 2026-08-23 build): exactly TWO
+  # shipped consumers invoke this loader WITHOUT --force-override —
+  # hooks/memory-consolidation-run.sh (documented fail-open; degrades
+  # visibly to its fixture-pinned fallback caps) and pre-write-guard.sh's R-52
+  # write-time probe (unflagged BY DESIGN: it exists to surface this walk's
+  # verdict). Every other hook/skill read passes the flag (hook reads are not
+  # overlay writes). A NEW no-flag consumer inherits this walk's DENY as a
+  # runtime failure mode and must handle exit 1 deliberately.
+  R52_UNION_PATHS=$(jq -r '(.strategies // {}) | to_entries[] | select(.value=="union") | .key' "$MERGE_REGISTRY" 2>/dev/null || true)
+
   # Iterate selected pillars (default = all 8; --collision-pillars narrows).
   IFS_SAVED="$IFS"
   IFS=','
@@ -187,18 +233,38 @@ if [ "$FORCE_OVERRIDE" != "1" ]; then
       # Special token: walk overlay top-level keys of the pillar object
       # directly (file_type_contracts shape: pillar value IS a dict of
       # contract entries; no intermediate slot key).
+      # Shadowing requires something to shadow: a key whose foundation value is
+      # an EMPTY array/object is a declared-shape placeholder ("this slot is
+      # yours to fill"), not a shadowed entity — the adopter's entry there is
+      # an ADD. Key-presence alone ([] != null, {} != null) is NOT collision.
       if [ "$SLOT" = "__top_level_keys__" ]; then
         COLLISIONS=$(printf '%s' "$OVERLAY_JSON" | jq -r --argjson f "$FOUNDATION_JSON" --arg p "$PILLAR" '
           (.[$p] // {}) | keys[]?
           | select(startswith("_") | not)
-          | select($f[$p][.] != null)
+          | select(
+              $f[$p][.] as $fv
+              | $fv != null
+                and (
+                  (($fv | type) == "array" or ($fv | type) == "object")
+                  and (($fv | length) == 0)
+                  | not
+                )
+            )
         ' 2>/dev/null)
         SLOT_PATH_PREFIX="${PILLAR}"
       else
         COLLISIONS=$(printf '%s' "$OVERLAY_JSON" | jq -r --argjson f "$FOUNDATION_JSON" --arg p "$PILLAR" --arg s "$SLOT" '
           (.[$p][$s] // {}) | keys[]?
           | select(startswith("_") | not)
-          | select($f[$p][$s][.] != null)
+          | select(
+              $f[$p][$s][.] as $fv
+              | $fv != null
+                and (
+                  (($fv | type) == "array" or ($fv | type) == "object")
+                  and (($fv | length) == 0)
+                  | not
+                )
+            )
         ' 2>/dev/null)
         SLOT_PATH_PREFIX="${PILLAR}.${SLOT}"
       fi
@@ -223,6 +289,9 @@ if [ "$FORCE_OVERRIDE" != "1" ]; then
             ) // null
             | . != null
           ' 2>/dev/null)
+        fi
+        if printf '%s\n' "$R52_UNION_PATHS" | command grep -Fxq "${SLOT_PATH_PREFIX}.${ck}"; then
+          continue
         fi
         if [ "$HAS_REASON" != "true" ]; then
           DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}.${ck}\n"

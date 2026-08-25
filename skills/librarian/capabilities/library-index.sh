@@ -12,8 +12,8 @@
 #
 # Re-derive discipline (C-IDX, mirrors index-maintain.sh's R-34 boundary):
 #   In-bounds (regenerated each run): the sentinel-bounded contents-enum table
-#     (rows: File wikilink / Lines wc-l / Type frontmatter / Description routing-
-#     first) and the `updated:` frontmatter date.
+#     (rows: File markdown-link / Lines wc-l / Type frontmatter / Description
+#     routing-first) and the `updated:` frontmatter date.
 #   Out-of-bounds (survivorship-preserved verbatim): ALL prose outside the
 #     sentinel markers — the H1, the 2-4-sentence folder-context paragraph, and
 #     any other hand-authored content. The generator NEVER overwrites it; on a
@@ -39,10 +39,12 @@
 #   library-basename-collision      two files share a basename (breaks bare-
 #     wikilink resolution; a load-bearing component of the library contract).
 #   library-duplicate-title         two articles carry near-duplicate H1/title
-#     (reconciliation signal).
+#     (needs reconciliation before bare-wikilink resolution is deterministic).
 #   library-broken-link             a dangling wikilink/path, OR a one-sided
-#     originating_plan/manifest library_refs edge — the crash-window
-#     DETECTOR role (detect + report; this capability NEVER repair-writes the edge).
+#     originating_plan/manifest library_refs edge — the promotion crash-window DETECTOR
+#     role: a promotion interrupted between the article write and the manifest-edge
+#     write leaves a one-sided edge; this capability detects + reports it and NEVER
+#     repair-writes the edge.
 #   library-article-body-shape      an article carries a leading in-document
 #     section index or an auto-generated TOC under the soft budget (the
 #     body-shape; advisory finding routed here per the owner-pick).
@@ -462,14 +464,19 @@ def has_inline_toc(text):
     anchor_links = re.findall(r"^\s*[-*]\s+\[[^\]]+\]\(#[^)]+\)", head, re.M)
     return len(anchor_links) >= 3
 
-def render_row(name, lines, ftype, desc):
-    # File cell: `.md`-suffixed wikilink form per the shipped _index.md.json File
-    # column value_pattern ^\[\[[^\[\]]+\.md\]\]$ (the C-IDX index contract's
-    # binding reconciliation note). `name` is the basename without .md.
+def md_target(t):
+    # minimal percent-quoting so a markdown link target survives spaces/parens
+    return t.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+
+def render_row(name, target, lines, ftype, desc):
+    # File cell: `.md`-suffixed label + relative markdown link per the shipped
+    # _index.md.json File column (value_type markdown-link; one link grammar).
+    # `name` is the basename without .md; `target` is the topic-relative path
+    # (nested articles link their subdir-relative path).
     ln = "~%d" % lines if isinstance(lines, str) else "%d" % lines
     if isinstance(lines, str):
         ln = lines
-    return "| [[%s.md]] | %s | %s | %s |" % (name, ln, ftype or "—", desc.replace("|", "\\|"))
+    return "| [%s.md](%s) | %s | %s | %s |" % (name, md_target(target), ln, ftype or "—", desc.replace("|", "\\|"))
 
 # --- topic scan -------------------------------------------------------------
 def topic_articles(topic_dir):
@@ -728,6 +735,10 @@ for topic in topic_dirs:
 
     # build topic index inner block
     folder_name = topic
+    # parent_folder (contract shape): the indexed folder's PARENT, root-relative in
+    # this walker's frame (the plans root — the plans tree's canonical address
+    # family is the physical one). The library root is top-level there, so its
+    # basename IS its root-relative path: this emission is already the ruled shape.
     parent_folder = os.path.basename(library)   # depth >= 2: <library>/<topic>/_index.md
     # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_topic = re.sub(r"[^a-z0-9-]", "-", topic.lower()).strip("-") or "topic"
@@ -739,7 +750,8 @@ for topic in topic_dirs:
         if arts:
             for name, p, fm, text in arts:
                 desc = derive_description(fm, text)
-                prose.append("- [[%s]] — %s" % (name, desc) if desc else "- [[%s]]" % name)
+                tgt = md_target(os.path.relpath(p, topic_dir))
+                prose.append("- [%s](%s) — %s" % (name, tgt, desc) if desc else "- [%s](%s)" % (name, tgt))
         else:
             prose.append("_No articles yet._")
         prose.append("")
@@ -753,7 +765,7 @@ for topic in topic_dirs:
             if ftype and type_enum and ftype not in type_enum:
                 ftype = ftype  # keep the declared value; enum is advisory for render
             desc = derive_description(fm, text)
-            rows.append(render_row(name, line_count(p), ftype, desc))
+            rows.append(render_row(name, os.path.relpath(p, topic_dir), line_count(p), ftype, desc))
         idx_inner = hdr + "\n" + ("\n".join(rows) if rows else "")
         light_prose = None
 
@@ -780,22 +792,24 @@ for base, paths in all_basenames.items():
               "issue": "bare-wikilink-resolution-ambiguous", "detected_at": today})
 for title, entries in all_titles.items():
     if len(entries) > 1:
+        # WHY this is a finding: duplicate titles need reconciliation before bare-
+        # wikilink resolution is deterministic. duplicate_paths names every colliding
+        # article so the operator can pick the survivor.
         emit({"finding": "library-duplicate-title", "file": entries[0][0],
               "title": entries[0][1], "duplicate_paths": ",".join(sorted(e[0] for e in entries)),
-              "count": len(entries), "reconciliation_signal": "",
-              "detected_at": today})
+              "count": len(entries), "detected_at": today})
 
 # --- root _index.md ---------------------------------------------------------
 # one row per topic; Description = aggregated member routing; each row
 # carries the topic's staleness date (empty when no log.md). Columns reuse the
-# C-IDX shape with the topic dir as the wikilink target.
+# C-IDX shape; the Topic cell is a markdown link to the topic's _index.md.
 root_hdr = "| Topic | Articles | Type | Description |\n|---|---|---|---|"
 root_table_rows = []
 for topic, n, stale, agg in sorted(root_rows):
     desc = agg
     if stale:
         desc = (desc + (" " if desc else "") + ("(updated %s)" % stale)).strip()[:200]
-    root_table_rows.append("| [[%s]] | %d | index | %s |" % (topic, n, desc.replace("|", "\\|")))
+    root_table_rows.append("| [%s](%s/_index.md) | %d | index | %s |" % (topic, md_target(topic), n, desc.replace("|", "\\|")))
 
 if not root_rows:
     # light-content root: no topics yet

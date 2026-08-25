@@ -149,7 +149,8 @@ info "provenance: $provenance_log"
 # only $2, truncating a space-bearing path (/Users/Foo Bar/.claude -> /Users/Foo)
 # so the != check below spuriously failed and a valid target was refused (exit
 # 10). Read everything after the exact 'CLAUDE_HOME: ' prefix (matches the
-# install-side writer's single-space format byte-for-byte; feedback_spec_code_alignment).
+# install-side writer's single-space format byte-for-byte — the reader is pinned to
+# what the writer actually emits, never to a spec's paraphrase of it).
 # Sanity-check vs env-supplied $CLAUDE_HOME — mismatch indicates corrupt log
 # or wrong target (refuse rather than guess).
 provenance_claude_home=""
@@ -348,7 +349,8 @@ for path in sorted(glob.glob(os.path.join(os.environ["BLDIR"], "foundation-manif
 # fingerprinted match cannot reach runtime/session state or an engine sidecar).
 # Returns 0 (true / must-preserve) for:
 # * hooks/state/** — session/checkpoint runtime state (invariant;
-#     feedback_test_isolation_for_hooks_state + the checkpoint contract)
+#     the same reason a fixture redirects this tree via HOOKS_STATE_OVERRIDE
+#     instead of writing the live one, plus the checkpoint contract)
 #   * logs/** — uninstall provenance destination (also top-level preserved)
 #   * **/.foundation-new and **/.foundation-local sidecars (upgrade-engine
 #     deferred-merge state the user has not yet reconciled)
@@ -414,7 +416,8 @@ info "backup complete: $backup_count entries → $backup_dir"
 # preserving the allowlist STRUCTURE (keys + array shape) so a restore round-trip
 # still resolves. The LIVE $CLAUDE_HOME/settings.local.json is NEVER touched
 # (restore fidelity preserved). python3 is a hard dep (checked above at :102);
-# the path is passed via argv (feedback_python_heredoc_argv). Non-JSON / parse
+# the path is passed via argv, never a piped stdin — a heredoc-fed python already
+# consumes stdin, so piped data would be silently ignored. Non-JSON / parse
 # failure is non-fatal: warn + leave the structure intact (never abort uninstall).
 #
 # Token catalog: kept in lockstep with backup.sh's SECRET_TOKEN_CATALOG
@@ -680,8 +683,9 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       # foundation-manifest.json carve-out above.
  #
  # The upgrade engine writes two MORE governance
-      # runtime-state sidecars at install (install.sh:590-591) that are likewise
-      # NOT in files[] — governance/.installed-state.json (the version stamp) and
+      # runtime-state sidecars at install that are likewise NOT in files[] (both
+      # named next; grep install.sh for the paths rather than trusting a line
+      # cite) — governance/.installed-state.json (the version stamp) and
       # governance/.installed-baseline-manifest.json (the frozen previous-release
       # floor). Same class as governance-action-log.jsonl: foundation-generated,
       # not user content. Without this carve-out they survive uninstall (the
