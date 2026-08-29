@@ -1628,7 +1628,7 @@ if [ "$APPLY_MODE" != "1" ]; then
   # claude_home_defaulted: 1 when CLAUDE_HOME was unset and
   # the dry-run defaulted it to $HOME/.claude; 0 when set
   # explicitly. Informational, not a gate.
- # DJ: every variable that carries user/path input is
+  # Every variable that carries user/path input is
   # passed through jq --arg so jq JSON-escapes it — a $CLAUDE_HOME / $SOURCE_REPO /
   # $BACKUP_DIR / $PLANS_HOME / state-root path containing ", \, or a control char
   # can no longer emit invalid JSON and break the documented `install.sh | jq` (G9)
@@ -1654,10 +1654,10 @@ if [ "$APPLY_MODE" != "1" ]; then
   # upgrade-diff preview. The upgrade posture emits the `mode` posture + the upgrade argv
   # flags; the rich diff body (from_version/to_version, version_delta_class,
   # changelog_slice[], enriched file_dispositions[], backup_required, requires_ack)
- # is layered onto this SAME jq-safe object by (the compute block
+  # is layered onto this SAME jq-safe object (by the compute block
   # just above this G9 gate). The semantic delta lands in version_delta_class;
   # the existing `version_delta` field stays the RAW delta (landed contract).
- # (convergence-not-version no-op semantics): the
+  # Convergence-not-version no-op semantics: the
   # write-free convergence-compute block above populated `migrations_to_run` and
   # `file_dispositions` (empty iff converged / empty-range). The two no-op claims
   # are DISTINCT: migrations_to_run==[] is VERSION-DELTA-gated (empty (installed,

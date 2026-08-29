@@ -103,7 +103,7 @@
     },
     "doc_dependencies": {
       "type": "object",
-      "description": "Full governance/doc-dependencies.json content (first-class authoring pillar per feedback_doc_deps_first_class).",
+      "description": "Full governance/doc-dependencies.json content (first-class authoring pillar).",
       "required": ["version", "entries"],
       "additionalProperties": true
     },
