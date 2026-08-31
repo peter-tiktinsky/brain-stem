@@ -1,8 +1,7 @@
 #!/bin/bash
 # plan-research-index — generate the per-spoke binder research surface:
-# <plans-root>/_projects/<spoke>/research-index.md plus the
-# research/<plan-slug>/ dir-symlink farm, re-derived from every plan
-# manifest's research_artifacts[] on every run; it also
+# <plans-root>/_projects/<spoke>/research-index.md,
+# re-derived from every plan manifest's research_artifacts[] on every run; it also
 # traces the one-sided-promotion-edge contract (this capability is a DETECTOR,
 # never a repair-writer — library-scrub owns the promotion write-orchestration).
 #
@@ -16,8 +15,15 @@
 # project: key matches the target spoke contribute rows. Within a spoke, rows are
 # grouped by parent_plan: lineage (a top-level plan heads its own lineage group;
 # nested plans group under their parent_plan slug). One row per declared
-# research_artifacts[] entry (declaration is the selectivity gate — undeclared
-# artifacts never earn a row).
+# research_artifacts[] entry of RESEARCH class (declaration is the selectivity
+# gate — undeclared artifacts never earn a row).
+#
+# PARTITION (kind-driven projection, operator-ruled): the artifact's resolved
+# KIND — a declared optional `type` wins, else the filename-stem inference —
+# routes the projection. Decision-class entries (kind decision|adr) project on
+# the DECISION LOG's "Decision artifacts" section, never here; this index emits
+# research-class rows only. The promotion-edge detector below still sweeps every
+# declared artifact regardless of kind.
 #
 # row schema: path / type / status (active|finalized|deferred) /
 # plan-origin / one-liner, PLUS a Library column populated from the entry's
@@ -39,39 +45,36 @@
 # as findings (an entry whose library_refs name an article that lacks the
 # originating_plan back-stamp, or vice versa) — DETECT + report, never repair-write.
 #
-# symlink farm: under the spoke binder home, research/<plan-slug>/ is a
-# DIRECTORY symlink -> each contributing plan's <plan>/_research/ dir. Generated
-# AND pruned each run: a farm symlink whose target plan/_research no longer exists
-# (or whose plan no longer belongs to the spoke) is removed. NEVER follows or
-# deletes through a symlink target — only the farm link itself is unlinked.
+# FARM RETIRED (operator-ruled): the former research/<plan-slug>/ dir-symlink
+# farm beside the index is RETIRED — it duplicated every _research/ tree under a
+# second path with no consumer (agent navigation resolves canonical paths from
+# the index rows; the vault viewer deliberately never indexed it). A TRANSITIONAL
+# prune-on-regen arm removes a leftover farm on sight: when <binder>/research/
+# exists, every SYMLINK entry inside it is unlinked (the LINK only — never
+# through a target) and the dir is removed once empty. A NON-symlink entry is a
+# stray placed in a binder interior: detect + report, never delete, and the dir
+# is left in place until the stray is re-homed.
 #
 # RULED VIEWER CONTRACT (operator-ruled):
-#   - The binder stays SYMLINK-based: the farm serves filesystem consumers; no
-#     file is ever duplicated into the binder, and the farm is never
-#     materialized as real per-plan copies.
 #   - Vault-viewer (Obsidian) navigation is carried by the research-index rows'
-#     CANONICAL links, not by the farm route: the farm subtree deliberately
-#     stays OUT of the viewer's index (dir-symlinks reached through a nested
-#     chain do not render there, and indexing the farm would double-index every
-#     research file — and later double-embed it).
-#   - The paired viewer ignore-filter narrowing (index the real binder pages
-#     while keeping the farm excluded) is an OPERATOR-side configuration step,
-#     never executed by this capability.
-#   - FARM SCOPE (ratified): the farm links _research/ ONLY, by design. The
-#     research-index rows carry resolving links for EVERY declared home
+#     CANONICAL links — the rows carry resolving links for EVERY declared home
 #     (decisions/, target-state/, deliverables/ included), so a decisions-only
-#     plan is fully navigable through its rows; a wider farm would add
-#     filesystem surface with no consumer. plan-research-declare's four
-#     sanctioned homes are a DECLARATION vocabulary, not a farm-coverage
-#     mandate.
+#     plan is fully navigable through its rows.
+#   - No file is ever duplicated into the binder; the index is the ONE
+#     projection of a plan's declared artifacts (a second filesystem alias of
+#     _research/ is a duplicate hit-plane, not a convenience).
+#   - The viewer ignore-filter configuration is an OPERATOR-side step, never
+#     executed by this capability.
 #
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - {PLANS_ROOT}/_projects/<spoke>/research-index.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a generated roll-up surface, no
 #         survivorship region).
-#     - {PLANS_ROOT}/_projects/<spoke>/research/<plan-slug>/  dir-symlinks
-#         (created/pruned; the link itself only — targets untouched).
+#     - TRANSITIONAL REMOVAL: {PLANS_ROOT}/_projects/<spoke>/research/ — a
+#         leftover retired farm dir is pruned on regen (symlink entries unlinked —
+#         the link only, never the target; dir removed when empty; a non-symlink
+#         stray blocks the rmdir and is reported, never deleted).
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder roll-up markdown;
 #     research-index.md is a generated human-readable projection — the row shape is
@@ -84,13 +87,13 @@
 #     - each manifest is read defensively; a malformed/missing field is treated as
 #       empty, never an error; a plan with zero matching research_artifacts[]
 #       contributes no rows (and an empty spoke renders a valid empty binder).
-#     - atomic temp-file + os.replace; the symlink farm is reconciled (create the
-#       missing, prune the stale) only after the index renders.
+#     - atomic temp-file + os.replace; the transitional farm prune runs only
+#       after the index renders.
 #   Failure mode: BLOCK-AND-LOG. A manifest that cannot be parsed emits a finding
 #     and is skipped; no partial/garbage write. Never write-and-hope.
-#   Maintainer-provenance: research-index.md + the research/ farm are
-#     librarian-maintained artifacts (maintainer=librarian);
-#     this capability is their sole originating writer. It NEVER writes
+#   Maintainer-provenance: research-index.md is a
+#     librarian-maintained artifact (maintainer=librarian);
+#     this capability is its sole originating writer. It NEVER writes
 #     decision-log.md, handoff-chronicle.md, plan manifests, or any plan _research/
 #     content, and NEVER repairs a one-sided promotion edge (it only detects it).
 #
@@ -105,7 +108,7 @@
 #   FINDINGS_OUTPUT         NDJSON sink (default: stdout)
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24. Read-only manifest
-# walk + atomic file write(s) + symlink-farm reconcile.
+# walk + atomic file write(s) + transitional farm prune.
 
 set -uo pipefail
 
@@ -299,9 +302,11 @@ def distilled_inline(ra, one_liner):
 
 
 def derive_type(ra, path):
-    """Row 'type' field. The shipped research_artifacts[] item has no required
-    'type', but additionalProperties:true permits one; prefer an explicit type,
-    else infer from the path stem, else 'research'."""
+    """Row 'type' field. The research_artifacts[] item schema carries an OPTIONAL
+    'type' (formalized; a declared type always wins); else infer from the path
+    stem, else 'research'. LOCKSTEP: plan-decision-log.sh duplicates this
+    function byte-for-byte so both projections resolve the same kind for the
+    same artifact — edit them together."""
     t = ra.get("type")
     if isinstance(t, str) and t.strip():
         return t.strip()
@@ -309,11 +314,21 @@ def derive_type(ra, path):
     if base.endswith(".md"):
         base = base[:-3]
     for kw, label in (("brief", "ideation-brief"), ("survey", "survey"),
-                      ("decision", "decision"), ("adr", "adr"),
+                      ("decision", "decision"), ("verdict", "decision"),
+                      ("adr", "adr"),
                       ("synthesis", "synthesis"), ("research", "research")):
         if kw in base:
             return label
     return "research"
+
+
+# PARTITION (kind-driven projection, operator-ruled): a declared artifact whose
+# RESOLVED kind is decision-class belongs to the decision log's projected
+# "Decision artifacts" section, not the research index. The index emits
+# research-class rows ONLY; the promotion-edge detector still sweeps EVERY
+# declared artifact (decision-class included) — the crash-window watch is
+# kind-agnostic.
+DECISION_KINDS = frozenset(("decision", "adr"))
 
 
 # --- assemble rows per spoke, grouped by parent_plan lineage ----------------
@@ -324,7 +339,6 @@ def lineage_of(man, slug):
 
 
 spokes = {}             # spoke -> { lineage -> [rows] }
-spoke_plan_dirs = {}    # spoke -> { plan-slug -> plan_dir } (for the symlink farm)
 
 for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
@@ -340,7 +354,6 @@ for plan_dir, man in manifests:
         continue
     lineage = lineage_of(man, slug)
     spokes.setdefault(spoke, {})
-    spoke_plan_dirs.setdefault(spoke, {})
     grp = spokes[spoke].setdefault(lineage, [])
     for ra in ras:
         if not isinstance(ra, dict):
@@ -356,9 +369,10 @@ for plan_dir, man in manifests:
             "one_liner": one_liner, "library_refs": lib_refs, "inline": inline,
             "plan_dir": plan_dir,
         }
-        grp.append(row)
-        # this plan contributes to the symlink farm (it declares artifacts)
-        spoke_plan_dirs[spoke][slug] = plan_dir
+        # PARTITION: decision-class rows are the decision log's projection —
+        # never emitted here. The detector below still runs for them.
+        if rtype not in DECISION_KINDS:
+            grp.append(row)
 
         # --- one-sided promotion-edge DETECTOR (detect + report only) ----
         for lr in lib_refs:
@@ -409,13 +423,13 @@ def render_library_cell(lib_refs):
 def resolve_pcell(path, plan, plan_dir, binder_home):
     # CANONICAL-ROUTE-ONLY emission (the ruled viewer contract — header block
     # above): EVERY Path cell links binder-relative straight to the plan file,
-    # the _research/ home included. The research/<plan-slug>/ farm is a
-    # filesystem surface and is NEVER emitted as a link route — a farm-routed
-    # link resolves only through the subtree the vault viewer deliberately keeps
-    # out of its index, so it dies for the human while the canonical route
-    # resolves for both the filesystem and the viewer. Links derive only from
-    # the manifest's DECLARED path, so a later move that repoints the
-    # declaration keeps the row resolving with no renderer change.
+    # the _research/ home included. A farm-shaped route (research/<plan-slug>/…)
+    # is NEVER emitted — the farm is retired, and even while it existed a
+    # farm-routed link resolved only through a viewer-excluded subtree, dying
+    # for the human while the canonical route resolves for both the filesystem
+    # and the viewer. Links derive only from the manifest's DECLARED path, so a
+    # later move that repoints the declaration keeps the row resolving with no
+    # renderer change.
     if not path or path == "—":
         return "—"
     if plan_dir:
@@ -456,11 +470,10 @@ HDR = "| Path | Type | Status | Plan-origin | One-liner | Library |"
 SEP = "|---|---|---|---|---|---|"
 
 spokes_written = 0
-links_created = 0
 links_pruned = 0
 
 # When a --spoke filter names a spoke with no contributing plans, still render an
-# empty binder for it (idempotent empty surface), so the farm prunes correctly.
+# empty binder for it (idempotent empty surface), so a leftover farm still prunes.
 target_spokes = sorted(spokes.keys())
 if spoke_filter and spoke_filter not in spokes:
     target_spokes = [spoke_filter] if not target_spokes else sorted(set(target_spokes) | {spoke_filter})
@@ -487,9 +500,11 @@ for spoke in target_spokes:
         "_Auto-generated by `librarian plan-research-index`. Do not hand-edit._",
         "",
         "Project-wide research surface: one row per declared "
-        "`research_artifacts[]` entry across every `%s`-spoke plan, grouped by "
-        "`parent_plan` lineage. Inline `> ` finding bodies appear only for "
-        "non-inferable finalized findings; all other rows point at the artifact." % spoke,
+        "`research_artifacts[]` entry of RESEARCH class across every `%s`-spoke "
+        "plan, grouped by `parent_plan` lineage. Decision-class artifacts "
+        "(resolved kind `decision`/`adr`) are projected on the decision log "
+        "instead. Inline `> ` finding bodies appear only for non-inferable "
+        "finalized findings; all other rows point at the artifact." % spoke,
         "",
     ]
 
@@ -542,96 +557,60 @@ for spoke in target_spokes:
             continue
     spokes_written += 1
 
-    # --- dir-symlink farm: generate + prune --------------------------
-    # Targets: each contributing plan's <plan>/_research/ dir. Generate the
-    # missing; prune the stale (a farm link whose target plan/_research no longer
-    # exists, or whose plan no longer contributes to this spoke). NEVER follow or
-    # delete THROUGH a target — only os.unlink the farm symlink itself.
-    want = {}   # plan-slug -> absolute target _research dir
-    for slug, plan_dir in spoke_plan_dirs.get(spoke, {}).items():
-        rdir = os.path.join(plan_dir, "_research")
-        want[slug] = rdir
-
-    if not dry_run:
-        try:
-            os.makedirs(farm_home, exist_ok=True)
-        except Exception as exc:
-            emit({"finding": "plan-research-index-blocked", "file": farm_home,
-                  "reason": "farm-mkdir-failed", "error": str(exc), "detected_at": today})
-            want = {}
-
-    # prune: anything in the farm that is a symlink and is not wanted (or whose
-    # target no longer resolves to an existing dir) is removed (the LINK only).
-    if os.path.isdir(farm_home):
+    # --- TRANSITIONAL farm prune (retirement clean-up) ------------------------
+    # The research/<plan-slug>/ dir-symlink farm is RETIRED (header block above).
+    # A leftover farm dir from a pre-retirement regen is pruned on sight: unlink
+    # every SYMLINK entry (the LINK only — NEVER follow or delete through a
+    # target), then remove the dir once empty. A NON-symlink entry is a stray
+    # placed in a binder interior — detect + report, never delete; the dir stays
+    # until the stray is re-homed.
+    if os.path.islink(farm_home):
+        # degenerate: the farm name itself is a symlink — remove the link only.
+        if dry_run:
+            links_pruned += 1
+        else:
+            try:
+                os.unlink(farm_home)
+                links_pruned += 1
+            except Exception as exc:
+                emit({"finding": "plan-research-index-blocked", "file": farm_home,
+                      "reason": "farm-prune-failed", "error": str(exc),
+                      "detected_at": today})
+    elif os.path.isdir(farm_home):
         try:
             existing = os.listdir(farm_home)
         except Exception:
             existing = []
+        strays = 0
         for name in existing:
             link = os.path.join(farm_home, name)
             if not os.path.islink(link):
-                # a real dir/file in the farm is NOT ours — never delete it. It is a
-                # stray placed inside the binder symlink farm: detect + report so a
-                # sweep can re-home it, but NEVER clobber/remove a non-symlink entry
-                # (the never-clobber posture; removal is not the generator's job).
+                strays += 1
                 emit({"finding": "farm-stray-regular-entry", "file": link,
                       "spoke": spoke, "name": name,
-                      "reason": "non-symlink entry inside the research/ symlink farm "
-                                "(a stray placed in a binder interior); re-home to its "
-                                "owning plan — never auto-deleted",
+                      "reason": "non-symlink entry inside the retired research/ "
+                                "farm dir (a stray placed in a binder interior); "
+                                "re-home to its owning plan — never auto-deleted",
                       "detected_at": today})
                 continue
-            target = want.get(name)
-            stale = (name not in want) or (target is not None and not os.path.isdir(target))
-            if stale:
-                if dry_run:
-                    links_pruned += 1
-                else:
-                    try:
-                        os.unlink(link)   # unlink the LINK; target untouched.
-                        links_pruned += 1
-                    except Exception as exc:
-                        emit({"finding": "plan-research-index-blocked", "file": link,
-                              "reason": "farm-prune-failed", "error": str(exc),
-                              "detected_at": today})
-
-    # generate: create the wanted links whose target dir exists.
-    for slug, target in sorted(want.items()):
-        if not os.path.isdir(target):
-            # the plan declares artifacts but has no _research/ dir yet; no link.
-            continue
-        link = os.path.join(farm_home, slug)
-        if os.path.islink(link):
-            # already present; refresh only if it points elsewhere.
-            try:
-                cur = os.readlink(link)
-            except Exception:
-                cur = ""
-            if os.path.abspath(os.path.join(farm_home, cur)) == os.path.abspath(target):
-                continue
-            if not dry_run:
+            if dry_run:
+                links_pruned += 1
+            else:
                 try:
-                    os.unlink(link)
-                except Exception:
-                    pass
-        elif os.path.exists(link):
-            # a real path squats the name — never clobber it; report and skip.
-            emit({"finding": "plan-research-index-blocked", "file": link,
-                  "reason": "farm-name-occupied-by-real-path", "detected_at": today})
-            continue
-        if dry_run:
-            links_created += 1
-        else:
+                    os.unlink(link)   # unlink the LINK; target untouched.
+                    links_pruned += 1
+                except Exception as exc:
+                    emit({"finding": "plan-research-index-blocked", "file": link,
+                          "reason": "farm-prune-failed", "error": str(exc),
+                          "detected_at": today})
+        if not dry_run and strays == 0:
             try:
-                os.symlink(target, link)
-                links_created += 1
-            except Exception as exc:
-                emit({"finding": "plan-research-index-blocked", "file": link,
-                      "reason": "farm-symlink-failed", "error": str(exc),
-                      "detected_at": today})
+                os.rmdir(farm_home)   # empty after the unlinks; rmdir never recurses.
+            except OSError:
+                pass   # non-empty (unlink failure) — left for the next regen.
 
-print("plan-research-index: spokes=%d rows-source-manifests=%d links_created=%d "
+print("plan-research-index: spokes=%d rows-source-manifests=%d "
       "links_pruned=%d dry_run=%s"
-      % (spokes_written, len(manifests), links_created, links_pruned, dry_run),
+      % (spokes_written, len(manifests), links_pruned, dry_run),
       file=sys.stderr)
 PY

@@ -14,10 +14,9 @@ SHAPE CONTRACT — the binder research-index contract.
 Maintainer: librarian (skills/librarian/capabilities/plan-research-index.sh).
 
 Viewer contract (operator-ruled): this page's rows are the binder's navigable
-front door — the research/<plan>/ symlink farm beside it serves filesystem
-consumers only and deliberately stays out of the vault viewer's index (no file
-duplication, no farm materialization; the paired viewer ignore-filter narrowing
-is an operator-side configuration step).
+front door — the ONE projection of every declared artifact (no file duplication
+into the binder; the former research/<plan>/ symlink farm beside it is RETIRED;
+the viewer ignore-filter configuration is an operator-side step).
 
 This template is the instantiation surface for the generated research surface; the
 live file is re-derived from every plan manifest's research_artifacts[] on each run.
@@ -30,10 +29,9 @@ Structure below MUST match the generator emission:
       Path        — a RESOLVING binder-relative markdown link straight to the plan
                     file, for EVERY declared home (_research/, decisions/,
                     target-state/ incl. canonical/, deliverables/, a plan-root file)
-                    — the CANONICAL route only, per the ruled viewer contract: the
-                    research/<plan>/ farm is never emitted as a link route (it
-                    resolves only through the viewer-excluded subtree, so a
-                    farm-routed link dies for the human). The link derives from the declared path,
+                    — the CANONICAL route only, per the ruled viewer contract; a
+                    farm-shaped research/<plan>/ route is never emitted (the farm
+                    is retired). The link derives from the declared path,
                     so it resolves regardless of home.
       Type        — explicit type, else inferred from the path stem, else "research".
       Status      — active | finalized | deferred.
@@ -55,7 +53,7 @@ at the artifact.
 
 | Path | Type | Status | Plan-origin | One-liner | Library |
 |---|---|---|---|---|---|
-| [<path>](./research/<plan>/<artifact>) | <type> | <status> | <plan> | <one-liner> | <topic>/<article> |
+| [<path>](../../<plan>/<path>) | <type> | <status> | <plan> | <one-liner> | <topic>/<article> |
 
 **<artifact-path>** — finalized finding:
 > <distilled non-inferable finding body, one collapsed line>

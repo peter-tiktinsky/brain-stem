@@ -52,11 +52,20 @@ EXPIRED_DAYS="${EXPIRED_DAYS:-360}"
 # bundle slot (.mandatory_files.mandates._memory_md_cap.thresholds.*), NOT the
 # repo-only pillar mandatory-files-rules.json — the bundle is what adopters get
 # (the repo-only pillar is absent on an adopter, so the old read fell back to
-# the baked-in defaults). Routes through hooks/lib/foundation-overlay-load.sh
-# (the same R-52 loader the read-layer fix uses); falls back to the
-# documented defaults when the bundle is unreachable (fail-open per —
-# preserved DELIBERATELY: the consolidation layer must keep running, so a
-# config-load failure never hard-stops the run; it degrades and SAYS SO).
+# the baked-in defaults). Routes through hooks/lib/foundation-overlay-load.sh,
+# WITH --force-override: this is a hook-side READ, not an overlay write, and
+# reads pass the flag per the loader's call-site contract. RE-ADJUDICATED at
+# the array-identity build (the walk's wider entity domain raises R-52 deny
+# frequency, and every deny was killing the adopter's declared cap override —
+# the exact mechanism this bundle read exists for, degraded for days under one
+# unrelated live collision): R-52 policy state no longer degrades this read;
+# R-52 DETECTION is owned by the purpose-built probes (pre-write-guard's
+# write-time probe, the install-lane apply-time probe), never by this runner.
+# The FAIL-OPEN posture stands for structural failures — missing loader/bundle,
+# jq absent, parse error — because the consolidation layer must keep running:
+# it degrades to the documented defaults and SAYS SO. (That availability
+# posture is this runner's own recorded design; — previously cited
+# here — governs registry.sh's hook-EMISSION validator, a different surface.)
 # The three fallback constants below are a DUPLICATE of the foundation's
 # declared _memory_md_cap.thresholds, held in lockstep by a maintainer-tree
 # parity fixture that reads both sides at test time and goes RED when either
@@ -73,7 +82,7 @@ CAP_DEGRADE_CAUSE="loader unavailable (hooks/lib/foundation-overlay-load.sh miss
 _OVERLAY_LOAD="$SCRIPT_DIR/lib/foundation-overlay-load.sh"
 _CAP_QUERY='.mandatory_files.mandates._memory_md_cap.thresholds'
 if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
-  _cap_json=$(bash "$_OVERLAY_LOAD" --query "$_CAP_QUERY" 2>/dev/null || true)
+  _cap_json=$(bash "$_OVERLAY_LOAD" --force-override --query "$_CAP_QUERY" 2>/dev/null || true)
   if [[ -n "$_cap_json" ]] && printf '%s' "$_cap_json" | jq empty >/dev/null 2>&1; then
     _l=$(printf '%s' "$_cap_json" | jq -r '.max_lines // empty' 2>/dev/null || true)
     _b=$(printf '%s' "$_cap_json" | jq -r '.max_bytes // empty' 2>/dev/null || true)
@@ -87,7 +96,7 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
       CAP_DEGRADE_CAUSE="loader query succeeded but the bundle slot ${_CAP_QUERY} is missing or empty"
     fi
   else
-    CAP_DEGRADE_CAUSE="loader query failed or returned empty (R-52 deny, unreadable bundle, or parse error)"
+    CAP_DEGRADE_CAUSE="loader query failed or returned empty (unreadable bundle or parse error; R-52 state cannot cause this — the read passes --force-override)"
   fi
 fi
 if [[ "$CAP_SOURCE" != "bundle" ]]; then

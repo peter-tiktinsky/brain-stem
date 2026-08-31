@@ -170,14 +170,19 @@ For every item, identify at least one alternative approach. Compare on implement
 
 The canonical (and only) location is `{paths.plans_root}/<NN>-<slug>/00-ideation-brief.md` — scaffolded by the helper in Step 1. The plan folder is the single source of truth; the brief is visible in the vault via the standing `Vault/Plans/` directory symlink (no per-brief symlink is created —).
 
-Write `00-ideation-brief.md` with canonical frontmatter:
+Write `00-ideation-brief.md` with canonical frontmatter — the full plans-schema
+cohort (`type,title,description,created,updated,id,schema_version`), no `status:`
+key (the plan's canonical status lives on `manifest.json :: status`; artifact
+frontmatter never carries one):
 ```yaml
 ---
 title: <Project Name> — Ideation Brief
 type: ideation-brief
-status: planned
+description: Ideation brief for <Project Name>.
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
+id: plans-<NN>-<slug>-ideation-brief
+schema_version: 1
 parent_plan: <plan slug>
 ---
 ```

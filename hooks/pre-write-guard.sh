@@ -2,7 +2,7 @@
 # Hook: PreToolUse (Edit|Write) — Guards and reminders for specific file patterns.
 #
 # Manifest edits:     BLOCKED (must use /librarian to regenerate)
-# Plan file writes:   R-40 frontmatter-type advisory on canonical plan artifacts
+# Plan file writes:   frontmatter-type advisory on canonical plan artifacts (type arm: R-65 DENY)
 # Skill file edits:   4-step change protocol checklist
 #
 # R-NN enforcement rules implemented here (rule ids resolve in the governance JSON
@@ -212,19 +212,19 @@ fi
 # === end remap prelude ======================================
 
 # === PLANS_ADDR_CONV: plans-tree address-convergence prelude ================
-# Ruling: EXEMPT-with-convergence. The plans tree is governed by the R-40
-# advisory lane (schemas/plans-schema.json) at BOTH of its addresses — the
+# Ruling: EXEMPT-with-convergence. The plans tree is governed by the
+# plan-frontmatter advisory lane (schemas/plans-schema.json) at BOTH of its addresses — the
 # physical plans-root path and the vault-view Plans/ symlink spelling. The
 # vault 3-tier schema gate does NOT apply to the plans tree at either address:
 # before this prelude, the SAME file hard-DENIED via its Plans/ vault spelling
-# while the physical spelling passed every schema arm (no remap; R-40 exits
-# allow first) — a guard whose verdict depends on the spelling of a path is
+# while the physical spelling passed every schema arm (no remap; the
+# plan-frontmatter block exits allow first) — a guard whose verdict depends on the spelling of a path is
 # not an enforcement layer.
 #
 # Mechanism (mirror-image of the Work remap above, opposite direction): when
 # the vault surfaces the plans root as a Plans/ SYMLINK, a vault-view spelling
 # canonicalizes to the physical plans path here, so every downstream consumer
-# — R-40, the plans-root namespace gate, the librarian registry-file screen,
+# — the plan-frontmatter block, the plans-root namespace gate, the librarian registry-file screen,
 # the tasks.md generated-replica screen — governs the write identically at
 # both spellings, and the vault-gate prefix test no longer matches. The
 # physical path is the canonical key of a plans file under the corpus's
@@ -260,9 +260,10 @@ fi
 # === R-52 write-time DENY (T-5, — per-entry shape) ==
 # Narrow gate: fires ONLY when $FILE_PATH = overlay-master.json AND the
 # pending-state overlay would shadow a foundation entry without per-entry
-# `_override_reason`. The SINGLE call site that fires foundation-overlay-load.sh
-# WITHOUT --force-override — every other hook-side read passes the flag
-# (hook reads are not overlay writes per).
+# `_override_reason`. One of exactly TWO by-design no-flag call sites for
+# foundation-overlay-load.sh (this write-time probe; install.sh's Step-13.9
+# apply-time probe) — probes exist to surface the walk's verdict, while every
+# hook-side READ passes the flag (hook reads are not overlay writes per
 #
 # Per: per-write `--force-override` bypass at the /govern register
 # layer; here, R52_FORCE_OVERRIDE=1 env var bypasses for direct-Edit/Write
@@ -412,6 +413,106 @@ PYEOF
   fi
 fi
 # === end claude-mem protection ===========================================
+
+# === Managed-surface live-fork arm =======================================
+# A live install's managed files are release-delivered; an in-session Edit/Write
+# to one is a fork the next upgrade reverts silently. Membership is mechanical:
+# the target's path relative to the live install root must appear in the live
+# foundation-manifest files[] (the same predicate class install.sh's
+# in_shipped_manifest() applies at delivery) — never a hand-kept path list. The
+# path is root-anchored BEFORE the membership lookup, so a foundation-repo path
+# sharing the same relative suffix stays silent. Positioned AFTER the deny arms
+# whose target sets overlap manifest members (merge-strategy bijection, R-52
+# overlay shadow, R-23 cron-wrapper, R-24) so a stricter deny always wins.
+# Posture is staged (dryrun->warn->deny convergence): MANAGED_SURFACE_PHASE=
+# 1-advisory (default) allows with a note; 2-blocking denies. Escape hatch
+# MANAGED_SURFACE_OK=1 covers the sanctioned temporary-test lane (edit live,
+# then port + clean); every hatch use appends to audit/hook-audit.log. Every
+# fire — hatched and dedup-suppressed included — appends one JSONL row to
+# $HOOKS_STATE/managed-surface-advisory-history.jsonl so advisory->blocking
+# promotion is data-gated on real traffic, and the hatch still allows under
+# 2-blocking (the temporary-test lane survives promotion). The advisory text
+# repeats at most once per file per session (alert-fatigue mitigation); an
+# absent/unreadable live manifest degrades OPEN (content guard, not access
+# control). Shell/cron writes structurally bypass PreToolUse (matcher is
+# Edit|Write) — the managed-surface-census capability is the closing layer
+# for that vector.
+MSF_LIVE_ROOT="${CLAUDE_HOME:-$HOME/.claude}"
+MSF_MANIFEST="${MSF_LIVE_ROOT}/governance/foundation-manifest.json"
+if [[ "$FILE_PATH" == "$MSF_LIVE_ROOT"/* ]] && [[ -f "$MSF_MANIFEST" ]]; then
+  MSF_REL="${FILE_PATH#"$MSF_LIVE_ROOT"/}"
+  MSF_MEMBER=$(jq -r --arg p "$MSF_REL" 'any(.files[]?; .path == $p)' "$MSF_MANIFEST" 2>/dev/null || echo "false")
+  if [[ "$MSF_MEMBER" == "true" ]]; then
+    MSF_PHASE="${MANAGED_SURFACE_PHASE:-1-advisory}"
+    MSF_SID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+    MSF_VERSION=$(jq -r '.version // "unknown"' "$MSF_MANIFEST" 2>/dev/null || echo "unknown")
+    MSF_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Once-per-file-per-session dedup marker (no session_id -> never suppress).
+    MSF_STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-}}"
+    MSF_SEEN_DIR="${MSF_STATE_DIR}/managed-surface-seen"
+    MSF_SUPPRESSED="false"
+    MSF_KEY=""
+    if [[ -n "$MSF_SID" ]] && [[ -n "$MSF_STATE_DIR" ]]; then
+      MSF_KEY=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:24])' "${MSF_SID}|${FILE_PATH}" 2>/dev/null || true)
+      [[ -n "$MSF_KEY" ]] && [[ -f "$MSF_SEEN_DIR/$MSF_KEY" ]] && MSF_SUPPRESSED="true"
+    fi
+
+    MSF_DECISION="advise"
+    if [[ "${MANAGED_SURFACE_OK:-0}" != "1" ]] && [[ "$MSF_PHASE" == "2-blocking" ]]; then
+      MSF_DECISION="deny"
+    fi
+
+    # Telemetry — EVERY fire writes a row (data via argv, never a piped stdin).
+    MSF_HATCH_USED="false"
+    [[ "${MANAGED_SURFACE_OK:-0}" == "1" ]] && MSF_HATCH_USED="true"
+    MSF_HISTORY="${MSF_STATE_DIR}/managed-surface-advisory-history.jsonl"
+    if [[ -n "$MSF_STATE_DIR" ]]; then
+      mkdir -p "$MSF_STATE_DIR" 2>/dev/null || true
+      MSF_ROW=$(python3 - "$MSF_TS" "$MSF_SID" "$TOOL_NAME" "$FILE_PATH" "$MSF_LIVE_ROOT" "$MSF_VERSION" "$MSF_HATCH_USED" "$MSF_SUPPRESSED" "$MSF_DECISION" <<'PYEOF' 2>/dev/null || true
+import json, sys
+a = sys.argv
+sys.stdout.write(json.dumps({
+    "ts": a[1],
+    "session_id": a[2],
+    "tool": a[3],
+    "file": a[4],
+    "live_root": a[5],
+    "manifest_version": a[6],
+    "hatch_used": a[7] == "true",
+    "suppressed_repeat": a[8] == "true",
+    "decision": a[9],
+}))
+PYEOF
+)
+      [[ -n "$MSF_ROW" ]] && printf '%s\n' "$MSF_ROW" >> "$MSF_HISTORY" 2>/dev/null || true
+    fi
+
+    if [[ "$MSF_HATCH_USED" == "true" ]]; then
+      { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | MANAGED_SURFACE_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
+      format_output_allow "PreToolUse" ""
+      exit 0
+    fi
+
+    if [[ "$MSF_DECISION" == "deny" ]]; then
+      format_output_deny "PreToolUse" "[MANAGED-SURFACE DENY] $FILE_PATH is a managed live file (foundation-manifest member '${MSF_REL}', install v${MSF_VERSION}) and MANAGED_SURFACE_PHASE=2-blocking. A live-only edit forks the managed tree; the next release delivery reverts it silently. Route the change through the foundation source repo and ship it via a release. Sanctioned temporary-test lane only: export MANAGED_SURFACE_OK=1 (every use audit-logged), then port + clean."
+      exit 0
+    fi
+
+    if [[ "$MSF_SUPPRESSED" == "true" ]]; then
+      format_output_allow "PreToolUse" ""
+      exit 0
+    fi
+    if [[ -n "$MSF_KEY" ]]; then
+      mkdir -p "$MSF_SEEN_DIR" 2>/dev/null || true
+      : > "$MSF_SEEN_DIR/$MSF_KEY" 2>/dev/null || true
+      find "$MSF_SEEN_DIR" -type f -mtime +7 -delete 2>/dev/null || true
+    fi
+    format_output_allow "PreToolUse" "[MANAGED-SURFACE ADVISORY] $FILE_PATH is a managed live file (foundation-manifest member '${MSF_REL}', install v${MSF_VERSION}). A live-only edit forks the managed tree: the next release delivery reverts it silently and the change is lost. Route the edit through the foundation source repo and ship it via a release. Sanctioned temporary-test lane only: export MANAGED_SURFACE_OK=1 (every use audit-logged), then port the change and clean the live fork. This note fires once per file per session; every write is still recorded for promotion telemetry, and shell-vector writes are watched by the managed-surface census."
+    exit 0
+  fi
+fi
+# === end managed-surface live-fork arm ===================================
 
 # === Branch #4: plans-tree-librarian-generated (T-7;..) ====
 # Enforces librarian-only
@@ -921,18 +1022,19 @@ if [[ "$FILE_PATH" == *"/.claude-plans/"*"/handoff.md" ]]; then
 fi
 # === end handoff.md section_schema DENY =============================
 
-# === Plan-artifact frontmatter advisory (R-40) ============================
-# R-40 plan-frontmatter type advisory
+# === Plan-artifact frontmatter advisory ===================================
+# Plan-frontmatter type advisory (label history: see LABEL NOTE below)
 # Tier 1 advisory per R-35 stage-gated promotion framework.
 #
 # Canonical filename-to-type map (mirrors plans-schema.json _filename_map):
-#   spec.md              → type: spec
-#   tasks.md             → type: tasks
-#   handoff.md           → type: handoff
-#   00-ideation-brief.md → type: ideation-brief
-#   manifest.json        → type: manifest (JSON, not frontmatter — skipped here)
+#   spec.md                 → type: spec
+#   tasks.md                → type: tasks
+#   handoff.md              → type: handoff
+#   00-ideation-brief.md    → type: ideation-brief
+#   traceability-matrix.md  → type: traceability-matrix
+#   manifest.json           → type: manifest (JSON, not frontmatter — skipped here)
 #
-# Scope: only emit R-40 advisory for the 4 canonical Markdown filenames.
+# Scope: only emit the plan-frontmatter advisory for the 5 canonical Markdown filenames.
 # Other .md under ~/.claude-plans/ (research notes, session logs, etc.) pass
 # silently through this block.
 #
@@ -946,7 +1048,7 @@ fi
 # PROMOTED POSTURE (R65_PROMOTED / R28_DENY): two arms of this block are now
 # write-time GATES; everything else stays advisory exit-0-allow.
 #   1. Canonical-type gate (registered rule id R-65, plans-rules.json :: _rules):
-#      a MISSING or NON-CANONICAL type: on the 4 canonical basenames DENIES the
+#      a MISSING or NON-CANONICAL type: on the 5 canonical basenames DENIES the
 #      write. The blocking mechanism is this block + schemas/plans-schema.json.
 #      Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades the
 #      gate to the legacy advisory for that write.
@@ -955,12 +1057,14 @@ fi
 #      (spec.md / tasks.md / 00-ideation-brief.md; handoff.md and tests/ /
 #      _orchestrator/ paths exempt per the rule) missing parent_plan: DENIES.
 #      Escape hatch: R28_ALLOW_OVERRIDE=1.
-# LABEL NOTE: the emitted advisory strings keep their historical
-# "[R-40 PLAN FRONTMATTER]" (and sibling [R-40 LIBRARY/BINDER]) prefixes for
-# fixture/sentinel continuity — but the REGISTERED id of the canonical-type
-# rule is R-65: the bare R-40 id belongs to the frontmatter pillar's
-# provides-canonicality rule, so DENY messages name the mechanism, never the
-# legacy label.
+# LABEL NOTE: the emitted advisory strings historically carried a retired
+# "R-40 " prefix; renamed to the neutral labels [PLAN FRONTMATTER] /
+# [LIBRARY INDEX] / [LIBRARY ARTICLE] / [BINDER] in one lockstep change with
+# every pinned fixture + the sentinel corpus (history recorded at
+# plans-rules.json :: _rules :: R-65.legacy_label_note). The bare id belongs
+# to the frontmatter pillar's provides-canonicality rule; the REGISTERED id
+# of the canonical-type gate is R-65, and DENY messages name the mechanism
+# and R-65, never an advisory label.
 if [[ "$FILE_PATH" == *"/.claude-plans/"*".md" ]]; then
   R40_ADVISORY=""
   R65_DENY_MSG=""
@@ -972,6 +1076,7 @@ if [[ "$FILE_PATH" == *"/.claude-plans/"*".md" ]]; then
     tasks.md) PL_EXPECTED_TYPE="tasks" ;;
     handoff.md) PL_EXPECTED_TYPE="handoff" ;;
     00-ideation-brief.md) PL_EXPECTED_TYPE="ideation-brief" ;;
+    traceability-matrix.md) PL_EXPECTED_TYPE="traceability-matrix" ;;
   esac
 
   if [[ -n "$PL_EXPECTED_TYPE" ]]; then
@@ -1003,10 +1108,10 @@ PYEOF
       PL_ACTUAL_TYPE=$(printf '%s\n' "$PL_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' 2>/dev/null | grep -E '^type:[[:space:]]*' 2>/dev/null | head -1 | sed -E 's/^type:[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//' 2>/dev/null || true)
 
       if [[ -z "$PL_ACTUAL_TYPE" ]]; then
-        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} is missing a canonical type: field in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json). Canonical frontmatter stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/description: ...(one line)/created: YYYY-MM-DD/updated: YYYY-MM-DD/id: ...(slug)/schema_version: 1/---. NOTE: no status: in artifact frontmatter — status is DERIVE, owned solely by manifest.json :: status."
+        R40_ADVISORY="[PLAN FRONTMATTER] ${PL_BASE} is missing a canonical type: field in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json). Canonical frontmatter stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/description: ...(one line)/created: YYYY-MM-DD/updated: YYYY-MM-DD/id: ...(slug)/schema_version: 1/---. NOTE: no status: in artifact frontmatter — status is DERIVE, owned solely by manifest.json :: status."
         R65_DENY_MSG="Write blocked — plan-artifact frontmatter gate (rule R-65; schemas/plans-schema.json): ${PL_BASE} is missing its canonical type: field. Add type: ${PL_EXPECTED_TYPE} to the YAML frontmatter and retry. Canonical stub: ---/title: ...(name)/type: ${PL_EXPECTED_TYPE}/description: ...(one line)/created: YYYY-MM-DD/updated: YYYY-MM-DD/id: ...(slug)/schema_version: 1/---. No status: in artifact frontmatter — status is DERIVE, owned solely by manifest.json :: status. Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades this gate to the legacy advisory."
       elif [[ "$PL_ACTUAL_TYPE" != "$PL_EXPECTED_TYPE" ]]; then
-        R40_ADVISORY="[R-40 PLAN FRONTMATTER] ${PL_BASE} has non-canonical type: '${PL_ACTUAL_TYPE}' in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json filename-to-type map). 5 canonical plan-artifact types: spec, tasks, handoff, ideation-brief, manifest."
+        R40_ADVISORY="[PLAN FRONTMATTER] ${PL_BASE} has non-canonical type: '${PL_ACTUAL_TYPE}' in YAML frontmatter. Expected: type: ${PL_EXPECTED_TYPE} (per ~/.claude/schemas/plans-schema.json filename-to-type map). 6 canonical plan-artifact types: spec, tasks, handoff, ideation-brief, traceability-matrix, manifest."
         R65_DENY_MSG="Write blocked — plan-artifact frontmatter gate (rule R-65; schemas/plans-schema.json): ${PL_BASE} carries non-canonical type: '${PL_ACTUAL_TYPE}'. Expected type: ${PL_EXPECTED_TYPE} (filename-to-type map). Fix the type: field and retry. Escape hatch for field over-fire: R65_ALLOW_OVERRIDE=1 downgrades this gate to the legacy advisory."
       fi
 
@@ -1099,11 +1204,11 @@ PYEOF
   # _index.md) and the 4 SURVIVING _projects/<spoke>/ binder files
   # (research-index/decision-log/handoff-chronicle/_situating; hub.md RETIRED by
   # ) live UNDER the plans root but OUTSIDE $VAULT_ROOT, so the 3-tier vault
-  # gate + Branch #1 never fire on them, and R-40's basename case-table (above) has
+  # gate + Branch #1 never fire on them, and the plan-frontmatter basename case-table (above) has
   # no arm for a library-article / type:index / binder basename — they reached this
   # hook UNVALIDATED. ADVISORY-FIRST (R-35, a data-driven promotion gate: NEVER a DENY
   # on a hand-authored library corpus or a librarian-generated binder; the block
-  # stays exit-0-allow like the R-40 emit). NO new file-type contract (that would
+  # stays exit-0-allow like the plan-frontmatter emit). NO new file-type contract (that would
   # force a master rebuild): the _library/_index.md check reuses the SHIPPED
   # type:index contract's core invariant (governance/file-type-contracts/_index.md.json
   # :: property_constraints.type.const == "index"); the binder check is shape-only
@@ -1144,12 +1249,12 @@ PYEOF
       if [[ -n "$S7_CONTENT" ]]; then
         if [[ "$S7_BASE" == "_index.md" ]]; then
           if [[ -z "$S7_TYPE" ]]; then
-            S7_REACH_ADVISORY="[R-40 LIBRARY INDEX] ${S7_BASE} under _library/ is missing a canonical type: field. Expected type: index (the SHIPPED type:index contract governance/file-type-contracts/_index.md.json). Advisory only — this write is allowed."
+            S7_REACH_ADVISORY="[LIBRARY INDEX] ${S7_BASE} under _library/ is missing a canonical type: field. Expected type: index (the SHIPPED type:index contract governance/file-type-contracts/_index.md.json). Advisory only — this write is allowed."
           elif [[ "$S7_TYPE" != "index" ]]; then
-            S7_REACH_ADVISORY="[R-40 LIBRARY INDEX] ${S7_BASE} under _library/ has non-canonical type: '${S7_TYPE}'. Expected type: index (the SHIPPED type:index contract). Advisory only — this write is allowed."
+            S7_REACH_ADVISORY="[LIBRARY INDEX] ${S7_BASE} under _library/ has non-canonical type: '${S7_TYPE}'. Expected type: index (the SHIPPED type:index contract). Advisory only — this write is allowed."
           fi
         elif [[ -z "$S7_TYPE" ]]; then
-          S7_REACH_ADVISORY="[R-40 LIBRARY ARTICLE] ${S7_BASE} under _library/ is missing a type: field in YAML frontmatter. A library article needs a canonical type: so the library index + pre-research coverage signal can route it. Advisory only — this write is allowed."
+          S7_REACH_ADVISORY="[LIBRARY ARTICLE] ${S7_BASE} under _library/ is missing a type: field in YAML frontmatter. A library article needs a canonical type: so the library index + pre-research coverage signal can route it. Advisory only — this write is allowed."
         fi
       fi
       ;;
@@ -1165,16 +1270,16 @@ PYEOF
       */.claude-plans/_projects/*/research-index.md|*/.claude-plans/_projects/*/decision-log.md|*/.claude-plans/_projects/*/handoff-chronicle.md|*/.claude-plans/_projects/*/_situating.md)
         if [[ -n "$S7_CONTENT" ]]; then
           if [[ "${S7_DELIMS:-0}" -lt 2 ]]; then
-            S7_REACH_ADVISORY="[R-40 BINDER] ${S7_BASE} (project binder) has no parseable leading YAML frontmatter block (--- ... ---). The 4 binder files carry a minimal typed frontmatter; add one. Advisory only — this write is allowed."
+            S7_REACH_ADVISORY="[BINDER] ${S7_BASE} (project binder) has no parseable leading YAML frontmatter block (--- ... ---). The 4 binder files carry a minimal typed frontmatter; add one. Advisory only — this write is allowed."
           elif [[ -z "$S7_TYPE" ]]; then
-            S7_REACH_ADVISORY="[R-40 BINDER] ${S7_BASE} (project binder) is missing a type: key in its frontmatter. Advisory only — this write is allowed."
+            S7_REACH_ADVISORY="[BINDER] ${S7_BASE} (project binder) is missing a type: key in its frontmatter. Advisory only — this write is allowed."
           fi
         fi
         ;;
     esac
   fi
 
-  # Fold the reach advisory into the R-40 emit below (advisory-first; never deny).
+  # Fold the reach advisory into the plan-frontmatter emit below (advisory-first; never deny).
   if [[ -n "$S7_REACH_ADVISORY" ]]; then
     if [[ -n "$R40_ADVISORY" ]]; then
       R40_ADVISORY="${R40_ADVISORY}\n\n${S7_REACH_ADVISORY}"
@@ -1185,7 +1290,7 @@ PYEOF
   # === end plans-tree library + project-binder =========================================
 
   # R-15 PLAN→BACKLOG reminder RETIRED 2026-05-22 per T-15 Tier B.
-  # See block header comment for rationale. Only R-40 advisory remains here.
+  # See block header comment for rationale. Only the plan-frontmatter advisory remains here.
 
   if [[ -z "$R40_ADVISORY" ]]; then
     # No advisory — pass through allow.: format_output_allow with empty
@@ -1200,7 +1305,7 @@ PYEOF
   fi
   exit 0
 fi
-# === end R-40 plan-artifact frontmatter advisory (type arm PROMOTED: R-65) =
+# === end plan-artifact frontmatter advisory (type arm PROMOTED: R-65) =====
 
 # --- REMINDER: Skill change protocol + Branch #1 Class D ---
 # Runtime skills only (${CLAUDE_HOME:-$HOME/.claude}/skills/<skill>/SKILL.md and
@@ -1313,7 +1418,7 @@ fi
 # branch (no governance/*.json pillar edit). ADVISORY-FIRST: rules + schemas are
 # hand-authored foundation surfaces — NEVER a DENY (promotion is data-driven).
 # Terminal per-surface branch (emit + exit 0), mirroring the SKILL.md block above;
-# DISJOINT from Branch #4 (plans-tree librarian block) + the R-40 plan-artifact block.
+# DISJOINT from Branch #4 (plans-tree librarian block) + the plan-artifact frontmatter block.
 case "$FILE_PATH" in
   "${CLAUDE_HOME:-$HOME/.claude}/rules/"*.md|"${FOUNDATION_REPO:-$HOME/Code/brain-stem}/rules/"*.md)
     RS_CONTENT=""
@@ -1492,7 +1597,7 @@ if [[ "$FILE_PATH" == *"/.claude/projects/"*"/memory/"*".md" ]] && \
   # -- Schema validation (Write + Edit operations) --
   # R-45 extends memory-schema coverage from Write-only to Edit ops by
   # reconstructing the post-Edit frontmatter via the python literal-replace
-  # pattern (mirrors R-27/R-40 Edit handling). Advisory-first — failed
+  # pattern (mirrors the R-27 + plan-frontmatter Edit handling). Advisory-first — failed
   # schema still ALLOWs the write, but emits an appended line to the audit
   # trail at $HOOKS_STATE/memory-schema-advisory-history.jsonl so promotion
   # from advisory→blocking has a FPR baseline.
@@ -2449,7 +2554,7 @@ print(content, end='')
         if [[ -n "$CONTENT" ]]; then
           R48_TMP=$(mktemp -t r48content.XXXXXX)
           printf '%s' "$CONTENT" > "$R48_TMP"
-          # argv 4 (T-3): the write's own path anchors source-relative
+          # argv 4 (markdown-link branch): the write's path anchors source-relative
           # markdown-link resolution. Appended AFTER the original argv so the
           # fixture extractions that pin this line's shape keep matching; the
           # python body treats a missing argv 4 as "markdown branch off".
@@ -2461,9 +2566,9 @@ vault_root = sys.argv[1]
 # live under the plans root and are reached from the vault only via the Plans/
 # symlink. os.walk(vault_root) uses the Python default followlinks=False, so it
 # does NOT descend the Plans/-symlinked tree (verified empirically). Rather than
-# enable followlinks=True vault-wide — which would chase EVERY symlink (the
-# _projects/<spoke>/research/<plan-slug>/ dir-symlink farm points back into the
-# plans tree; os.walk has no symlink-loop protection and would hang on a user
+# enable followlinks=True vault-wide — which would chase EVERY symlink (a
+# link-farm surface whose entries point back into an ancestor tree is a loop
+# hazard; os.walk has no symlink-loop protection and would hang on a user
 # vault) — index the two REAL surface homes DIRECTLY with followlinks=False. This
 # makes library articles + binder files resolvable to the wikilink-existence check
 # without unleashing the symlink-loop hazard. (Resolution (b).)
@@ -2536,7 +2641,7 @@ for t in sorted(targets):
 if broken:
     print(",".join(broken[:5]))  # cap at 5 for advisory brevity
 
-# --- markdown-link targets (T-3): the SECOND grammar, additive. ---
+# --- markdown-link targets: the SECOND grammar, additive. ------------------
 # `[text](target)` resolves SOURCE-RELATIVE, anchored at the file being
 # written (argv 4; absent argv 4 = branch off, so extracted-body fixtures
 # passing 3 argv are byte-compatible). The walk above already indexed EVERY
@@ -2584,7 +2689,7 @@ PYEOF
 )
           rm -f "$R48_TMP" 2>/dev/null || true
           if [[ -n "$R48_BROKEN" ]]; then
-            # Two grammars, two lines (T-3): the wikilink list is the
+            # Two grammars, two lines: the wikilink list is the
             # bare first line (byte-compatible with the original single-line
             # contract); markdown-link breakage arrives on an `MD:`-prefixed
             # line and gets its own advisory label.
@@ -2685,7 +2790,7 @@ PYEOF
         # mis-typed); this is the enforceable value-typing layer (the seeded
         # .obsidian/types.json is UX-only). Absent property_types (a pre-R1 master that
         # has not yet re-composed the pillar) → PROP_TYPES is empty and the loop body
-        # never runs (graceful no-op). Mirrors the R-40 Tier-1 advisory emitter shape.
+        # never runs (graceful no-op). Mirrors the plan-frontmatter Tier-1 advisory emitter shape.
         PROP_TYPES=$(jq -r '.frontmatter.property_types // {} | to_entries[]? | select((.key|startswith("_"))|not) | "\(.key)\t\(.value)"' <<<"$BUNDLE_JSON" 2>/dev/null)
         if [[ -n "$PROP_TYPES" ]]; then
           while IFS=$'\t' read -r pt_field pt_type; do
@@ -2756,14 +2861,14 @@ PYEOF
                 WIKILINK_CHECK_COUNT=$((WIKILINK_CHECK_COUNT + 1))
               done <<< "$LINKS"
             fi
-            # Markdown-grammar references in the same fields (T-3,
-            # additive): [text](target). External/absolute/anchor targets are
+            # Markdown-grammar references in the same fields (additive):
+            # [text](target). External/absolute/anchor targets are
             # skipped; a %-quoted or space-carrying target is skipped
             # (conservative — this bash arm cannot normalize those spellings
             # and must never DENY on one it cannot resolve). Resolution tries
             # vault-root-relative (parity with the wikilink check above) then
             # source-file-relative; shares the same per-write check cap.
-            MD_REFS=$(echo "$WVAL" | grep -oE '\[[^][]*\]\([^)]+\)' || true)  # errexit-crash-guard-ok: GUARDED — '|| true' is inside the substitution; a paren-blind scan ends the span at the ')' inside the bracket class of this regex literal and cannot see the guard
+            MD_REFS=$(echo "$WVAL" | grep -oE '\[[^][]*\]\([^)]+\)' || true)
             if [[ -n "$MD_REFS" ]]; then
               while IFS= read -r mref; do
                 [[ $WIKILINK_CHECK_COUNT -ge 10 ]] && break

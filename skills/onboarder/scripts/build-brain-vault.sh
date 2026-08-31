@@ -254,6 +254,9 @@ link_vault_root "$WORK_HOME"            "Work"     || exit 1   # real-dir-guarde
 # specimens, the polished deliverables/ payload stays visible). The Work entry is a
 # regex (spoke names are dynamic) — Obsidian treats /.../-wrapped filters as regex.
 # VISIBILITY suppression only — does NOT govern link resolution.
+# The Plans/_projects entry fences the WHOLE duplicate binder view-path (the
+# binder stays reachable via Projects/) — it deliberately survives the retirement
+# of the former binder research/ symlink farm, whose narrower fence it subsumes.
 # No-clobber: merge the entries into any existing app.json, preserving every
 # adopter-added filter; idempotent (entries added only when absent, via unique).
 OBSIDIAN_DIR="$VAULT_ROOT/.obsidian"

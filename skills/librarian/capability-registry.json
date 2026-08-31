@@ -118,17 +118,17 @@
       "requires_confirmation": false,
       "output_contract": {
         "modes": [
-          "(default) regenerate every spoke's binder research-index.md + research/ symlink farm",
+          "(default) regenerate every spoke's binder research-index.md",
           "--spoke <key> regenerate one spoke's binder only",
-          "--dry-run findings + would-be writes/links, NO file write"
+          "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's research_artifacts[]; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving binder-relative link STRAIGHT TO THE PLAN FILE for every declared home — the CANONICAL route only per the ruled viewer contract; the research/<plan-slug>/ farm is never emitted as a link route; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
-          "{plans_root}/_projects/<spoke>/research/<plan-slug>/ directory symlinks -> each contributing plan's <plan>/_research/ (generated + pruned each run; the LINK only, never the target; _research/-only BY DESIGN under the ruled viewer contract — research-index rows carry resolving links for every declared home, the farm serves filesystem consumers and deliberately stays out of the vault viewer's index)",
+          "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's RESEARCH-class research_artifacts[] — the kind-driven PARTITION: a decision-class entry (resolved kind decision|adr; declared type wins, else filename-stem inference) projects on the decision log instead, while the promotion-edge detector still sweeps every declared artifact; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving binder-relative link STRAIGHT TO THE PLAN FILE for every declared home — the CANONICAL route only per the ruled viewer contract; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
+          "TRANSITIONAL REMOVAL: {plans_root}/_projects/<spoke>/research/ — a leftover dir of the RETIRED research/<plan-slug>/ symlink farm is pruned on regen (symlink entries unlinked, the LINK only, never the target; dir removed when empty; a non-symlink stray is reported, never deleted)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the one-sided-edge DETECTOR findings (detect + report, never repair-write)"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; symlink farm reconciled only after the index renders; a real path squatting a farm name is never clobbered",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; the transitional farm prune runs only after the index renders and never deletes a non-symlink entry",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -143,10 +143,11 @@
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
         "schemas/plan-manifest-schema.json"
       ],
       "emits_findings": true,
-      "writes_manifest_subtree": null,
+      "writes_manifest_subtree": "drift_findings.research_declare_closed_scope",
       "default_flags": [],
       "requires_confirmation": false,
       "output_contract": {
@@ -157,7 +158,8 @@
         ],
         "writes": [
           "each contributing <plan>/manifest.json research_artifacts[] (APPEND-only reconcile from the plan's OWN _research/ + decisions/target-state/deliverables/; atomic temp+os.replace; NEVER _library, NEVER a vault path, NEVER library-scrub --apply)",
-          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)",
+          "librarian-manifest drift_findings.research_declare_closed_scope summary leaf (manifest_set, atomic; last_scan/scanned/findings_count/scope/open_entries — the closed-scope warn's durable surface, surfaced at SessionStart by hooks/session-start-placement-findings.sh; written on every non-dry-run scan so a 0-count refresh silences the reader; skipped under --dry-run; fail-open)"
         ],
         "schema": "schemas/plan-manifest-schema.json (research_artifacts[] item shape: required id/title/status/path; emitted entries seed status=active)",
         "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; author-curated entries preserved byte-for-byte (declaration by path is the idempotency key); atomic temp+os.replace",
@@ -192,7 +194,7 @@
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
-          "{plans_root}/_projects/<spoke>/decision-log.md (atomic temp+os.replace; full-file regenerate from every spoke plan's decision_records[]; one row per entry ADR-id/title/status/path/superseded-by/created/plan-origin; grouped by parent_plan lineage; append-immutable — superseded records forward-linked, never dropped; ADR bodies stay at the path, never copied inline)",
+          "{plans_root}/_projects/<spoke>/decision-log.md (atomic temp+os.replace; full-file regenerate from every spoke plan's decision_records[] PLUS its decision-class research_artifacts[] — the kind-driven PARTITION intake: resolved kind decision|adr projects a Decision-artifacts section in the research-index row shape, deduped per plan against the ADR ledger's declared paths; ADR rows one per entry ADR-id/title/status/path/superseded-by/created/plan-origin; grouped by parent_plan lineage; append-immutable — superseded records forward-linked, never dropped; ADR bodies stay at the path, never copied inline)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. superseded-without-forward-link + status-out-of-enum findings"
         ],
         "schema": null,
@@ -1035,6 +1037,29 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/sanctioned-schema-drift-detect.sh"
+    },
+    "managed-surface-census": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "managed-surface-fork / managed-surface-classified NDJSON finding lines (FINDINGS_OUTPUT or stdout) + a tripwire snapshot under $CLAUDE_STATE_ROOT/census/"
+        ],
+        "schema": null,
+        "validation": "sha256 of every live foundation-manifest files[] member vs its recorded sha; overlay-master.json and *.foundation-retired/-local sidecars classified, never flagged as forks; tripwire dedup vs the previous run's snapshot",
+        "failure_mode": "block-and-log (exit 1 while any fork divergence stands; absent manifest clean-skips rc 0)"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/managed-surface-census.sh"
     },
     "handoff-disposition-check": {
       "tier": "mechanical",

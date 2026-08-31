@@ -13,10 +13,17 @@
 # manifest, and the renderer (plan-research-index.sh) groups by the manifest `project:` key — the
 # true owner (139 verified), never the over-attributed brain-stem.
 #
-# Runs in session-close.sh step2_integrity BEFORE `run_capability plan-research-index --spoke`
-# (552) so the render reflects the just-declared artifacts. It is modeled on the drift-sweep
-# --plans --fix per-plan manifest read-replica writer (603): block-and-log, exit 0, idempotent,
-# single-writer, defensive.
+# Runs in session-close.sh step2_integrity immediately BEFORE the completed-at-stamp block
+# (the call at :690, the stamp block from :691 — the ordering ruling, TRUE-DEFECT
+# adjudicated 2026-08-25: that block marks
+# research_closed:true on the armed target's terminal transition, and the ANTI-SCOPE GATE below
+# suppresses would-be declarations once the flag is set, so declare-then-stamp within one close
+# is the ONLY order under which a same-close terminal plan's artifacts get DECLARED; the hoist
+# from after plan-index also cures the latent pair — declare no longer mutates plan manifests
+# after backlog-index/plan-index (1027-1028) have rendered) and thus well BEFORE
+# `run_capability plan-research-index --spoke` (1040) so the render reflects the just-declared
+# artifacts. It is modeled on the drift-sweep --plans --fix per-plan manifest read-replica
+# writer (1022): block-and-log, exit 0, idempotent, single-writer, defensive.
 #
 # DEFENSIVE / IDEMPOTENT / SINGLE-WRITER contract:
 #   - missing research_artifacts field == empty (never an error);
@@ -53,6 +60,10 @@
 #     - each contributing <plan>/manifest.json (research_artifacts[] APPEND-only reconcile;
 #         atomic temp+os.replace; never _library, never a vault path).
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
+#     - librarian-manifest drift_findings.research_declare_closed_scope summary leaf via
+#         manifest_set (last_scan/scanned/findings_count/scope/open_entries — the T-3
+#         durable surface for the closed-scope warn; surfaced at SessionStart by
+#         hooks/session-start-placement-findings.sh; skipped under --dry-run; fail-open).
 #   Schema: schemas/plan-manifest-schema.json (research_artifacts[] item shape: required
 #     id/title/status/path; status enum active|finalized|deferred). Emitted entries seed
 #     status=active; author edits to status/title/library_refs are preserved.
@@ -90,6 +101,12 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# manifest.sh provides manifest_set for the closed-scope durable-surface leaf (T-3;
+# the placement-validate precedent). Best-effort: an absent lib degrades the persist below
+# to the NDJSON-only channel, never the declare writer itself.
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/manifest.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/manifest.sh"; } \
+  || { [ -r "$_REPO_LIB/manifest.sh" ] && source "$_REPO_LIB/manifest.sh"; } || true
 
 DRY_RUN="false"
 SPOKE_FILTER=""
@@ -106,15 +123,23 @@ done
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 
+# Machine-readable closed-scope summary subtree the bash layer persists to the
+# librarian-manifest (drift_findings.research_declare_closed_scope) via manifest_set —
+# see the persist block below. Kept off stdout so the NDJSON findings stream is never
+# polluted (the MANIFEST_SUBTREE_OUT pattern placement-validate uses).
+RDCS_SUBTREE_OUT="$(mktemp -t research-declare-subtree-XXXXXX)"
+export RDCS_SUBTREE_OUT
+
 python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
 import json, os, re, sys, tempfile
-from datetime import date
+from datetime import date, datetime, timezone
 
 plans_root, dry_s, spoke_filter = sys.argv[1:4]
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
 out = os.environ.get("FINDINGS_OUTPUT", "")
+subtree_out = os.environ.get("RDCS_SUBTREE_OUT", "")
 
 # The sanctioned research homes scanned per plan (relative to the plan dir). _research/ is the
 # graduation home (A1 clause 4); decisions/ target-state/ deliverables/ are the structured
@@ -245,6 +270,7 @@ plans = walk_manifests(plans_root)
 plans_touched = 0
 entries_added = 0
 plans_scanned = 0
+closed_scope_entries = []   # plan-qualified "<plan>: <artifact relpath>" per closed-scope warn
 
 for plan_dir, mp, man in plans:
     spoke = str((man.get("project") or "")).strip()
@@ -268,9 +294,11 @@ for plan_dir, mp, man in plans:
         if research_closed:
             # Emit a finding for the misplaced/undeclared artifact instead of
             # appending it; the manifest stays byte-untouched (parity in dry-run).
+            plan_slug = os.path.basename(plan_dir.rstrip("/"))
             emit({"finding": "research-declare-closed-scope", "file": mp,
-                  "plan": os.path.basename(plan_dir.rstrip("/")), "spoke": spoke,
+                  "plan": plan_slug, "spoke": spoke,
                   "artifact_path": rel, "level": "warn", "detected_at": today})
+            closed_scope_entries.append("%s: %s" % (plan_slug, rel))
             continue
         have.add(rel)
         nid += 1
@@ -301,4 +329,39 @@ for plan_dir, mp, man in plans:
 
 print("plan-research-declare: plans_scanned=%d plans_touched=%d entries_added=%d dry_run=%s"
       % (plans_scanned, plans_touched, entries_added, dry_run), file=sys.stderr)
+
+# Closed-scope summary subtree for the bash persist layer (T-3). Written on EVERY
+# completed scan — a 0-count refresh is what silences the SessionStart reader once warns
+# are cured — mirroring the placement leaf shape (last_scan/scanned/findings_count/scope/
+# open_entries). Kept off stdout; the bash layer decides whether to persist (never in
+# dry-run).
+if subtree_out:
+    with open(subtree_out, "w", encoding="utf-8") as fh:
+        json.dump({
+            "last_scan": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+            "scanned": plans_scanned,
+            "findings_count": len(closed_scope_entries),
+            "scope": spoke_filter or "all-spokes",
+            "open_entries": closed_scope_entries,
+        }, fh)
 PY
+
+# Persist the closed-scope summary leaf to the librarian-manifest (T-3 durable warn
+# surface). The per-run NDJSON channel is TRANSIENT — session-close deletes its per-run
+# sink after the close log renders only a top-N category digest — so the
+# research-declare-closed-scope warn (the anti-scope gate's attended-adjudication channel)
+# otherwise reaches no human on a detached close. The leaf follows placement-validate's
+# .drift_findings.placement.<scope> precedent: each writer owns exactly ONE leaf and
+# manifest_set replaces only that leaf (sibling scopes never clobbered;
+# librarian-manifest-schema declares drift_findings additionalProperties:true — no schema
+# change). Read side: hooks/session-start-placement-findings.sh surfaces the leaf at next
+# SessionStart and silences at findings_count 0 (why the 0-count refresh above is written).
+# --dry-run makes NO durable write, so the persist is skipped (parity with the plan-manifest
+# NO-write contract). Fail-open: an absent manifest_set / unresolved state root degrades to
+# the NDJSON-only channel — never a declare failure (block-and-log, exit 0).
+if [[ -s "$RDCS_SUBTREE_OUT" && "$DRY_RUN" != "true" ]] \
+   && command -v manifest_set >/dev/null 2>&1 \
+   && [[ -n "${CLAUDE_STATE_ROOT:-}" && -n "${COORD_DIR:-}" ]]; then
+  manifest_set '.drift_findings.research_declare_closed_scope' "$(cat "$RDCS_SUBTREE_OUT")" || true
+fi
+rm -f "$RDCS_SUBTREE_OUT"

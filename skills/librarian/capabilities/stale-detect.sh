@@ -20,7 +20,8 @@
 #      Scope: plan-root files ONLY (flat *.md, */spec.md, */00-ideation-brief.md,
 #      */README.md, */manifest.json). Sub-task files (depth ≥ 2) excluded.
 #   8. Plan trinity lag — manifest.status is terminal-complete but any
-#      manifest.tasks[] row's status lags (outside DONE_SET). Read
+#      manifest.tasks[] row's status lags (outside DONE_SET — the CLOSED
+#      terminal vocabulary incl. `cut`, per the schema declaration). Read
 #      MANIFEST-DIRECT: manifest.tasks[] is the DERIVE status SoT; tasks.md is a
 #      rendered read-replica (tasks-render.sh owns it) and is never a data
 #      source here — replica freshness is a separate axis (tasks-render.sh
@@ -447,12 +448,14 @@ for dirpath, dirnames, filenames in os.walk(plans_scope):
 # manifest.tasks[] row's status is terminal (DONE_SET). If any lags, emit a
 # severity-warn finding listing which task IDs lag. MANIFEST-DIRECT: the ledger
 # comes from manifest.tasks[] — the DERIVE status SoT — never from tasks.md.
-# DONE_SET is deliberately byte-stable (vocabulary closure — the missing `cut`
-# class — is the consolidation plan's charter, keyed to the declared vocabulary
-# in schemas/plan-manifest-schema.json); membership tests normalize with
-# strip().lower(), matching trinity-drift-detect.sh's norm() so the two
-# capabilities' counts agree on the same corpus.
-DONE_SET = {"done", "complete", "completed", "implemented"}
+# DONE_SET carries the CLOSED terminal vocabulary: the declared terminal split
+# (done/cut) plus the frozen historical-tail synonyms, keyed to the
+# declared_vocabulary annotation in schemas/plan-manifest-schema.json;
+# membership tests normalize on the declared front-token chain (substring
+# before '(', stripped, lowered, underscores to hyphens), matching
+# trinity-drift-detect.sh's norm() so the two capabilities' counts agree on
+# the same corpus.
+DONE_SET = {"done", "complete", "completed", "implemented", "cut"}
 
 # KEPT-IN-STEP TWIN: the def block below is byte-identical to
 # trinity-drift-detect.sh's task_ledger_from_manifest — the two capabilities
@@ -516,13 +519,14 @@ for plan_dir in walk_plan_dirs(plans_scope):
         continue
     if not isinstance(mdata, dict):
         continue
-    mstatus = str(mdata.get("status", "")).strip().lower()
+    mstatus = str(mdata.get("status", "")).split("(")[0].strip().lower().replace("_", "-")
     if mstatus not in DONE_SET:
         continue
     ledger = task_ledger_from_manifest(mdata)
     if not ledger:
         continue
-    lagging = [x for x in ledger if x["status"].strip().lower() not in DONE_SET]
+    lagging = [x for x in ledger
+               if x["status"].split("(")[0].strip().lower().replace("_", "-") not in DONE_SET]
     if not lagging:
         continue
     rel = os.path.relpath(plan_dir, plans_scope)

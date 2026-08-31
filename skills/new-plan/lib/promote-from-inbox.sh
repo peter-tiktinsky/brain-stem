@@ -429,16 +429,36 @@ for entry in os.listdir(plans_root):
 # ---- build the ideation brief (lossless body migration) --------------------
 quoted = "\n".join(("> " + ln) if ln else ">" for ln in note_body.rstrip("\n").split("\n"))
 
+def cohort_base(pdir):
+    """Mint-time id base for the plans-schema frontmatter cohort, mirroring
+    librarian:tasks-render's _cohort_id grammar: 'plans-' + the slugified path
+    parts under the .claude-plans marker (basename fallback). Per-file id =
+    base + '-<suffix>', so mint and renderer upsert derive the SAME id."""
+    ap = os.path.abspath(pdir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p])
+
+
+cb = cohort_base(plan_dir)
+
+# This literal is its OWN mint surface: it discards the brief template's
+# frontmatter below and prepends this block, so the full cohort must be
+# emitted here in its own right — template conformance does not reach it.
 brief_frontmatter = (
     "---\n"
     "title: %s — Ideation Brief\n"
     "type: ideation-brief\n"
+    "description: Ideation brief for %s.\n"
     "created: %s\n"
     "updated: %s\n"
+    "id: %s-ideation-brief\n"
+    "schema_version: 1\n"
     "promoted_from: _inbox/%s.md\n"
     "promoted_at: %s\n"
     "---\n\n"
-) % (title, today, today, slug, today)
+) % (title, title, today, today, cb, slug, today)
 
 
 def tmpl(name):
@@ -454,7 +474,8 @@ def render(text):
             .replace("{{title}}", title)
             .replace("{{date}}", today)
             .replace("{{plan_dir}}", plan_dir)
-            .replace("{{slug}}", slug))
+            .replace("{{slug}}", slug)
+            .replace("{{cohort_base}}", cb))
 
 
 # brief body from the new-plan brief template; strip its own frontmatter (we prepend
@@ -477,20 +498,22 @@ if not brief_content.endswith("\n"):
 
 # ---- build the flat quartet (inline; the new-plan home owns no flat .tmpl) --
 spec_content = (
-    "---\ntitle: %s — Spec\ntype: spec\ncreated: %s\nupdated: %s\n---\n\n"
+    "---\ntitle: %s — Spec\ntype: spec\ndescription: Spec for %s.\n"
+    "created: %s\nupdated: %s\nid: %s-spec\nschema_version: 1\n---\n\n"
     "# %s — Spec\n\n"
     "**Goal:** {One sentence. When this ships, what is true that wasn't true before?}\n\n"
     "## Problem Statement\n\n{2-4 sentences — frozen at scaffold time.}\n\n"
     "## Constraints\n\n- {Hard constraint}\n- {Anti-scope lock}\n\n"
     "## Solution Approach\n\n{3-8 sentences. Post-Session-1 amendment blocks land here.}\n"
-) % (title, today, today, title)
+) % (title, title, today, today, cb, title)
 
 # RULING 2: ship frontmatter + preface + an EMPTY tasks:start/tasks:end sentinel
 # pair ONLY. The outside `## Tasks` + `### T-1` block is GONE — librarian:tasks-render (the
 # single writer of the region,/R-37) fills it from manifest.tasks[] via delegate_render()
 # after the graduation scaffold lands, so a graduated plan never carries a duplicate `## Tasks`.
 tasks_content = (
-    "---\ntitle: %s — Tasks\ntype: tasks\ncreated: %s\nupdated: %s\n---\n\n"
+    "---\ntitle: %s — Tasks\ntype: tasks\ndescription: Manifest-derived task replica for %s.\n"
+    "created: %s\nupdated: %s\nid: %s-tasks\nschema_version: 1\n---\n\n"
     "# %s — Tasks\n\n**Spec:** `%s/spec.md`\n**Last Updated:** %s\n\n"
     "## Status Key\n\n`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
     "<!-- ledger-at-top + per-task-at-bottom; the tasks:start/end sentinel pair bounds the "
@@ -498,14 +521,15 @@ tasks_content = (
     "ships an EMPTY pair and delegates the fill to tasks-render at scaffold time (RULING 2 / "
     ") — NEVER hand-author inside the sentinels; task-state SoT = manifest.tasks[]. -->\n\n"
     "<!-- tasks:start -->\n\n<!-- tasks:end -->\n"
-) % (title, today, today, title, plan_dir, today)
+) % (title, title, today, today, cb, title, plan_dir, today)
 
 handoff_content = (
-    "---\ntitle: %s — Handoff\ntype: handoff\ncreated: %s\nupdated: %s\n---\n\n"
+    "---\ntitle: %s — Handoff\ntype: handoff\ndescription: Append-only session handoff record for %s.\n"
+    "created: %s\nupdated: %s\nid: %s-handoff\nschema_version: 1\n---\n\n"
     "# %s — Handoff\n\nAppend-only session record. Newest entry at top.\n\n"
     "## Session 0 — scaffold (promoted from _inbox)\n\n**Date:** %s\n**Next session:** T-1 — Define spec\n\n"
     "### Scope\n{Graduated from _inbox/%s.md. Idea body migrated to 00-ideation-brief.md.}\n\n---\n"
-) % (title, today, today, title, today, slug)
+) % (title, title, today, today, cb, title, today, slug)
 
 manifest = {
     "schema_version": 1,

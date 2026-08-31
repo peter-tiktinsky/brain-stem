@@ -1,11 +1,12 @@
 {
   "schema_version": "1.1.0",
-  "_comment": "Canonical frontmatter schema for plan-artifact files under ${PLANS_DIR}. Enforced via R-40 in pre-write-guard.sh. ADDRESS CONVERGENCE: the plans tree is governed by this schema's R-40 advisory lane at BOTH of its addresses — the physical plans-root path and the vault-view Plans/ symlink spelling. The vault 3-tier schema gate does not apply to the plans tree at either address; the guard's PLANS_ADDR_CONV prelude canonicalizes a vault-view spelling to the physical path (the canonical addressing key), so no path spelling produces a different verdict for the same file.",
+  "_comment": "Canonical frontmatter schema for plan-artifact files under ${PLANS_DIR}. Enforced via the plan-frontmatter block in pre-write-guard.sh (type arm: the R-65 DENY gate; the remaining arms are the [PLAN FRONTMATTER]/[LIBRARY ...]/[BINDER] advisories). ADDRESS CONVERGENCE: the plans tree is governed by this schema's plan-frontmatter lane at BOTH of its addresses — the physical plans-root path and the vault-view Plans/ symlink spelling. The vault 3-tier schema gate does not apply to the plans tree at either address; the guard's PLANS_ADDR_CONV prelude canonicalizes a vault-view spelling to the physical path (the canonical addressing key), so no path spelling produces a different verdict for the same file.",
   "_filename_map": {
     "spec.md": "spec",
     "tasks.md": "tasks",
     "handoff.md": "handoff",
     "00-ideation-brief.md": "ideation-brief",
+    "traceability-matrix.md": "traceability-matrix",
     "manifest.json": "manifest"
   },
   "spec": {
@@ -64,8 +65,23 @@
       "parent_plan"
     ]
   },
+  "traceability-matrix": {
+    "_note": "Rendered read-replica (librarian:matrix-render owns the sentinel region). required[] equals the renderer's preface emit set exactly — the fresh-preface stamp plus the cohort upsert emit these seven keys and nothing else.",
+    "required": [
+      "type",
+      "title",
+      "description",
+      "created",
+      "updated",
+      "id",
+      "schema_version"
+    ],
+    "optional": [
+      "parent_plan"
+    ]
+  },
   "manifest": {
-    "_note": "manifest.json is JSON, not Markdown. Validated structurally at the top-level JSON keys rather than as YAML frontmatter. The R-40 advisory skips manifest.json files; existing validate-manifest.sh and /librarian plan-index Read-side parsing cover the JSON-structural checks.",
+    "_note": "manifest.json is JSON, not Markdown. Validated structurally at the top-level JSON keys rather than as YAML frontmatter. The plan-frontmatter advisory skips manifest.json files; existing validate-manifest.sh and /librarian plan-index Read-side parsing cover the JSON-structural checks.",
     "required": [
       "project",
       "spec_path",

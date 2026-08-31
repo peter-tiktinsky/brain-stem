@@ -265,10 +265,13 @@ def aggregate_status(statuses):
 
 
 # --- active-focus: the in-progress plan + its current task/blocker -----------
-# Current task = the first tasks[] entry whose status is NOT a terminal/done token
-# (the active edge of the plan). The schema does not constrain tasks[].status, so
-# read it defensively; treat done/closed/complete/verified/skipped as terminal.
-TERMINAL_TASK = {"done", "closed", "complete", "completed", "verified",
+# Current task = the first tasks[] entry whose status is NOT a terminal token
+# (the active edge of the plan). Keyed to the declared task-status vocabulary
+# (schemas/plan-manifest-schema.json declared_vocabulary): the canonical
+# terminal split (done/cut) plus the frozen historical-tail synonyms the live
+# corpus still carries; the reader normalizes on the declared front-token
+# chain so a narrated status ("done (verified)") classifies by its front token.
+TERMINAL_TASK = {"done", "cut", "closed", "complete", "completed", "verified",
                  "skipped", "cancelled", "canceled"}
 def current_task(man):
     tasks = man.get("tasks")
@@ -277,7 +280,7 @@ def current_task(man):
     for t in tasks:
         if not isinstance(t, dict):
             continue
-        tstatus = str(t.get("status") or "").strip().lower()
+        tstatus = str(t.get("status") or "").split("(")[0].strip().lower().replace("_", "-")
         if tstatus and tstatus in TERMINAL_TASK:
             continue
         tid = str(t.get("id") or "").strip()

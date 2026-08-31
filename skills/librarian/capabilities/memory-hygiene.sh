@@ -41,6 +41,10 @@
 #   STALENESS_THRESHOLD_DAYS (default: 30)
 #   FOUNDATION_TEST_MODE    Bypass non-interactive guard (test/CI runners).
 #
+# Manifest seam: system.memory_hygiene_exemptions[] (user-manifest) lists
+# exact file names the inventory walk skips; absent field = no exemptions.
+# Dot-led .md files are always skipped (a memory slug cannot begin with a dot).
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24.
 
 set -euo pipefail
@@ -72,6 +76,12 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/review-queue.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/review-queue.sh"; } \
   || { [ -r "$_REPO_LIB/review-queue.sh" ] && source "$_REPO_LIB/review-queue.sh"; } || true
+# user-manifest read API — powers the operator-exemption seam
+# (system.memory_hygiene_exemptions[]); an absent lib or field degrades to no
+# exemptions, so unconfigured installs behave exactly as before.
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
+  || { [ -r "$_REPO_LIB/user-manifest-read.sh" ] && source "$_REPO_LIB/user-manifest-read.sh"; } || true
 
 SCOPE=""
 DRY_RUN="false"
@@ -158,6 +168,14 @@ fi
 MEMORY_ENQUEUE_OUT="$(mktemp -t mh-enqueue-XXXXXX)"
 export MEMORY_ENQUEUE_OUT
 
+# Operator-exempted memory-file names (system.memory_hygiene_exemptions[] in
+# the user manifest, mirroring the vault.tag_audit_exemptions seam): exact-name
+# skips for the inventory walk, newline-separated for the python layer.
+MH_EXEMPT_NAMES=""
+command -v umr_get_array >/dev/null 2>&1 \
+  && MH_EXEMPT_NAMES="$(umr_get_array '.system.memory_hygiene_exemptions')"
+export MH_EXEMPT_NAMES
+
 python3 - "$MEMORY_DIR" "$MEMORY_INDEX_PATH" "$STALENESS_THRESHOLD_DAYS" "$DRY_RUN" <<'PY'
 import hashlib, json, os, re, sys, time
 from datetime import date
@@ -171,6 +189,7 @@ except ValueError:
 dry_run = (sys.argv[4] == "true")
 
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
+exempt_names = set(filter(None, os.environ.get("MH_EXEMPT_NAMES", "").splitlines()))
 now = time.time()
 today = date.today()
 
@@ -252,6 +271,15 @@ for fn in sorted(os.listdir(memory_dir)):
     if not fn.endswith(".md"):
         continue
     if fn == "MEMORY.md":
+        continue
+    # dot-led files are never memories: the memory-schema naming contract
+    # makes a file's name its slug, and a slug cannot begin with a dot — a
+    # dot-led .md in a memory dir is an operational/runtime artifact (own or
+    # third-party), so it is never orphan-eligible.
+    if fn.startswith("."):
+        continue
+    # operator-exempted exact names (the user-manifest seam above).
+    if fn in exempt_names:
         continue
     # exclude episodic-chronicle*.md from the hygiene inventory. It is
     # a runtime-generated append-only chronicle (type:episodic never decays), NOT a curated

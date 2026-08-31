@@ -296,16 +296,18 @@ MD_LINK_TARGET_RE = re.compile(r'\]\(([^)]+)\)')
 # is reported ADVISORY-SOFT (level=info, reason names it), never suppressed.
 EPHEMERAL_RE = re.compile(r'sessions/[^/]+/checkpoint\.md$|/checkpoint(-\d{8}-\d{6})?\.md$')
 
-# binder roll-up link classes. A bare relative roll-up token is a
-# `../`-traversal path (../../<plan>/handoff.md) or a `research/<plan>/<file>` symlink-farm
-# path; the negative lookbehind excludes a markdown-link `](target)` (those are extracted via
+# binder roll-up link classes. A bare relative roll-up token is a `../`-traversal
+# path (../../<plan>/handoff.md) — the ONE bare-relative class binder pages emit;
+# the former `research/<plan>/<file>` symlink-farm shape is RETIRED with the farm
+# (no generator ever emits it, and the route no longer exists on disk). The
+# negative lookbehind excludes a markdown-link `](target)` (those are extracted via
 # MD_LINK_TARGET_RE) and a preceding word char (so a wikilink/URL fragment is not matched).
 BINDER_BARE_REL_RE = re.compile(
-    r'(?<![\w`/(\[])((?:\.\./)+[^\s`"\'|)\]>]+|research/[^\s`"\'|)\]>]+)')
+    r'(?<![\w`/(\[])((?:\.\./)+[^\s`"\'|)\]>]+)')
 
 def binder_rel_targets(line):
     """Relative roll-up link targets in a binder read-replica line: relative markdown-link
-    targets + bare `../`/`research/` path tokens. Absolute/tilde (the pointer-currency class),
+    targets + bare `../`-traversal path tokens. Absolute/tilde (the pointer-currency class),
     anchors, and URLs are excluded; a trailing #anchor is stripped."""
     cands = [m.group(1) for m in MD_LINK_TARGET_RE.finditer(line)]
     cands += [m.group(1) for m in BINDER_BARE_REL_RE.finditer(line)]
@@ -348,11 +350,9 @@ for f in files:
         continue
     for lineno, raw in enumerate(lines, start=1):
         # binder roll-up link resolver — binder read-replicas ONLY.
-        # Resolve intra-binder RELATIVE roll-up links (research/<plan>/<file> symlink targets,
-        # decision-log ADR path cells, ../../<plan>/handoff.md, situating internal pointers)
-        # against the binder file's own dir. os.path.exists FOLLOWS symlinks, so a LIVE
-        # research/ symlink-farm link resolves (no false-flag on the generator's reconciled
-        # links) while a DANGLING symlink (pruned/renamed plan) emits binder-link.
+        # Resolve intra-binder RELATIVE roll-up links (decision-log ADR path cells,
+        # ../../<plan>/handoff.md, situating internal pointers) against the binder
+        # file's own dir. A target that does not exist emits binder-link.
         if source == "binder":
             for rel_tok in binder_rel_targets(raw):
                 tgt = os.path.normpath(os.path.join(os.path.dirname(f), rel_tok))

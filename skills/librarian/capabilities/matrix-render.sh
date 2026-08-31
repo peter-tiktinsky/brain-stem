@@ -300,6 +300,68 @@ if os.path.isfile(matrix_file):
         else:
             preface = existing
 
+def _yq(s):
+    s = " ".join(str(s).split())
+    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+    return s
+
+
+def _cohort_id(suffix):
+    ap = os.path.abspath(plan_dir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p] + [suffix])
+
+
+def upsert_fm_cohort(text):
+    """The replica preface carries the full frontmatter cohort plans-schema
+    requires (type,title,description,created,updated,id,schema_version).
+    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
+    'traceability-matrix'. Present values are never rewritten; status:/tags:
+    are never added (manifest owns status; tags are an authoring surface).
+    Idempotent."""
+    fl = text.split("\n")
+    if not fl or fl[0].strip() != "---":
+        return text
+    close = None
+    for i in range(1, len(fl)):
+        if fl[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    keys = {}
+    for i in range(1, close):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
+        if m:
+            keys[m.group(1)] = (i, m.group(2).strip())
+    add = []
+    if "type" in keys:
+        if keys["type"][1] != "traceability-matrix":
+            fl[keys["type"][0]] = "type: traceability-matrix"
+    else:
+        add.append("type: traceability-matrix")
+    fallback_title = "%s — Traceability Matrix" % title
+    if "title" not in keys:
+        add.append("title: %s" % _yq(fallback_title))
+    if "description" not in keys:
+        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
+        add.append("description: %s" % _yq(dv))
+    if "created" not in keys:
+        add.append("created: %s" % today)
+    if "updated" not in keys:
+        add.append("updated: %s" % today)
+    if "id" not in keys:
+        add.append("id: %s" % _cohort_id("matrix"))
+    if "schema_version" not in keys:
+        add.append("schema_version: 1")
+    if add:
+        fl[close:close] = add
+    return "\n".join(fl)
+
+
 if not preface.strip():
     preface = (
         "---\n"
@@ -314,6 +376,10 @@ if not preface.strip():
         "\"Build artifact\" + \"Independent verdict\" are downstream-filled (verifier) "
         "and preserved across re-renders.\n\n"
     ) % (title, today, today, title)
+
+# Every render upserts the required frontmatter cohort into the replica preface —
+# absent keys only; canonical type re-stamp; no status/tags (healer form).
+preface = upsert_fm_cohort(preface)
 
 lines = [MATRIX_HEADING, "", MATRIX_HEADER, MATRIX_DELIM]
 for t in tasks:

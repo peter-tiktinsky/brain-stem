@@ -114,7 +114,24 @@ REGISTER="${LINK_GRAMMAR_REGISTER:-$STATE_ROOT/link-grammar-convert/register.md}
 
 # Structural-fresh seed: the walk list re-derives on EVERY invocation.
 WALK_LIST="$(mktemp -t lgc-walk.XXXXXX)" || exit 1
-trap 'rm -f "${WALK_LIST:-}"' EXIT
+trap 'rm -f "${WALK_LIST:-}" "${SURFACE_ROSTER_FILE:-}"' EXIT
+
+# Surface roster (SSOT): exemption-tier roots (memory/rules/spoke corpora stay
+# wikilinks) + retired denylist. A pre-set SURFACE_ROSTER_FILE wins (test
+# isolation).
+if [ -z "${SURFACE_ROSTER_FILE:-}" ]; then
+  _SR_LIB="${SURFACE_ROSTER_LIB:-${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/surface-roster.sh}"
+  [ -r "$_SR_LIB" ] || _SR_LIB="$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)/hooks/lib/surface-roster.sh"
+  if [ -r "$_SR_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_SR_LIB"
+    if command -v surface_roster_json >/dev/null 2>&1; then
+      SURFACE_ROSTER_FILE="$(mktemp -t lgc-roster.XXXXXX)"
+      surface_roster_json > "$SURFACE_ROSTER_FILE" 2>/dev/null || true
+    fi
+  fi
+fi
+export SURFACE_ROSTER_FILE
 if command -v vault_view_walk >/dev/null 2>&1; then
   vault_view_walk "$VAULT_ROOT" > "$WALK_LIST" 2>/dev/null || true
 else
@@ -133,6 +150,27 @@ from urllib.parse import quote as urlquote, unquote as urlunquote
  mem_roots_raw, claude_home, fire_times_raw, out_lines) = sys.argv[1:10]
 apply_mode = apply_s == "true"
 force = force_s == "true"
+
+# ---------- surface roster (SSOT): namespace roots + retired denylist ----------
+# Loaded BEFORE the walk so retired surfaces never enter the conversion corpus.
+_ROSTER_NS_ROOTS, _ROSTER_RETIRED = [], []
+_sr_file = os.environ.get("SURFACE_ROSTER_FILE", "")
+if _sr_file and os.path.isfile(_sr_file):
+    try:
+        with open(_sr_file) as _sf:
+            _sr_doc = json.load(_sf)
+        _ROSTER_NS_ROOTS = [e.get("path") or "" for e in _sr_doc.get("live", [])
+                            if e.get("class") in ("memory-corpus", "rules-corpus", "spoke-corpus") and e.get("exists")]
+        _ROSTER_RETIRED = [os.path.realpath(r.get("path")) for r in _sr_doc.get("retired", []) if r.get("path")]
+    except Exception:
+        pass
+
+def _is_retired(path_s):
+    rp = os.path.realpath(path_s)
+    for r in _ROSTER_RETIRED:
+        if rp == r or rp.startswith(r + "/"):
+            return True
+    return False
 today = datetime.date.today().isoformat()
 findings = []
 
@@ -151,6 +189,9 @@ try:
         for line in fh:
             p = line.rstrip("\n")
             if p.endswith(".md") and os.path.isfile(p):
+                # retired-denylist surfaces never enter the conversion corpus
+                if _ROSTER_RETIRED and _is_retired(p):
+                    continue
                 all_paths.append(p)
 except OSError:
     pass
@@ -188,8 +229,15 @@ for key, r in relnoext_to_real.items():
         suffix_index["/".join(parts[i:]).lower()].add(r)
 
 # ---------- memory namespace: enumerated roots, hard exclusion ----------
+# Roots come from the surface roster (SSOT: memory-corpus + rules-corpus +
+# spoke-corpus classes, loaded above the walk); MEMORY_NS_ROOTS env override
+# wins; roster-unavailable floor keeps the layout-convention derive.
+# Retired-denylist roots never contribute (a retired corpus is not a live
+# exemption tier).
 if mem_roots_raw != "__UNSET__":
     mem_roots = [x for x in mem_roots_raw.split(os.pathsep) if x]
+elif _ROSTER_NS_ROOTS:
+    mem_roots = [x for x in _ROSTER_NS_ROOTS if x]
 else:
     mem_roots = [os.path.join(claude_home, "rules")]
     projects = os.path.join(claude_home, "projects")
@@ -199,7 +247,7 @@ else:
         pass
 mem_stems = set()
 for root in mem_roots:
-    if not os.path.isdir(root):
+    if not os.path.isdir(root) or _is_retired(root):
         continue
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if not d.startswith(".")]
@@ -630,10 +678,10 @@ if apply_mode:
     rc = apply_all()
 else:
     print("dry-run: %d files, %d replacements, %d judgment rows, "
-          "%d invariant-failing files"
+          "%d invariant-failing files (scope: vault view at %s; memory/rules/spoke corpora exempt)"
           % (len(rows), sum(len(r["reps"]) for r in rows),
              len({(j["target"], j["reason"]) for j in judgment}),
-             len(all_errs)))
+             len(all_errs), vault_root))
     rec("link-grammar-dry-run", files=len(rows),
         replacements=sum(len(r["reps"]) for r in rows),
         judgment_rows=len({(j["target"], j["reason"]) for j in judgment}),

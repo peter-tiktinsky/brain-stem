@@ -87,11 +87,40 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Surface roster (SSOT): scope roots + retired denylist. A pre-set
+# SURFACE_ROSTER_FILE wins (test isolation).
+if [ -z "${SURFACE_ROSTER_FILE:-}" ]; then
+  _SR_LIB="${SURFACE_ROSTER_LIB:-$CLAUDE_HOME_RES/hooks/lib/surface-roster.sh}"
+  [ -r "$_SR_LIB" ] || _SR_LIB="$_REPO_LIB/surface-roster.sh"
+  if [ -r "$_SR_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_SR_LIB"
+    if command -v surface_roster_json >/dev/null 2>&1; then
+      SURFACE_ROSTER_FILE="$(mktemp -t rc-roster.XXXXXX)"
+      # cleanup rides the STDIN_CAPTURE/RC_WALK_LIST traps below (a trap set
+      # here would be clobbered by those later assignments)
+      surface_roster_json > "$SURFACE_ROSTER_FILE" 2>/dev/null || true
+    fi
+  fi
+fi
+export SURFACE_ROSTER_FILE
+
 if [[ -z "$SCOPES" ]]; then
-  # +$WORK_HOME so a ~/work file's inbound [[ref]] is cascaded
-  # on a rename even for a work spoke NOT symlinked into the vault (a vault-surfaced
-  # spoke is already reached via the vault_view_walk Work/ symlink descent, :84-104).
-  SCOPES="${RENAME_CASCADE_SCOPES:-$VAULT_ROOT:$PLANS_DIR:${WORK_HOME:-}}"
+  # Default scope set = the roster's live roots (vault-root + memory/rules/
+  # spoke corpora; vault MOUNTS ride the vault_view_walk descent of the vault
+  # root, so they are not separate scopes) + the plans tree + $WORK_HOME (both
+  # SSOT-resolved by paths.sh — a ~/work file's inbound [[ref]] is cascaded on
+  # a rename even for a work spoke NOT symlinked into the vault). Falls back to
+  # the pre-roster triple when the roster is unavailable.
+  _RC_ROSTER=""
+  if [ -n "${SURFACE_ROSTER_FILE:-}" ] && [ -s "$SURFACE_ROSTER_FILE" ] && command -v jq >/dev/null 2>&1; then
+    _RC_ROSTER="$(jq -r '[.live[] | select(.exists and .class != "vault-mount") | .path] | join(":")' "$SURFACE_ROSTER_FILE" 2>/dev/null)"
+  fi
+  if [ -n "$_RC_ROSTER" ]; then
+    SCOPES="${RENAME_CASCADE_SCOPES:-$_RC_ROSTER:$PLANS_DIR:${WORK_HOME:-}}"
+  else
+    SCOPES="${RENAME_CASCADE_SCOPES:-$VAULT_ROOT:$PLANS_DIR:${WORK_HOME:-}}"
+  fi
 fi
 
 # Capture stdin to a tmp file so the python heredoc doesn't cannibalize
@@ -111,7 +140,7 @@ fi
 # non-numeric or zero value falls back to the default rather than reaching
 # `read -t 0`, which on bash 3.2 arms no timer and blocks forever.
 STDIN_CAPTURE=$(mktemp -t rename-cascade-stdin.XXXXXX)
-trap 'rm -f "$STDIN_CAPTURE"' EXIT
+trap 'rm -f "$STDIN_CAPTURE" "${SURFACE_ROSTER_FILE:-}"' EXIT
 STDIN_WAIT="${LIBRARIAN_STDIN_WAIT:-10}"
 case "$STDIN_WAIT" in ''|0|*[!0-9]*) STDIN_WAIT=10 ;; esac
 : > "$STDIN_CAPTURE"
@@ -137,7 +166,7 @@ if [ -r "$_VVW_LIB" ]; then
   . "$_VVW_LIB"
   if command -v vault_view_walk >/dev/null 2>&1; then
     RC_WALK_LIST="$(mktemp -t rc-walk.XXXXXX)"
-    trap 'rm -f "$STDIN_CAPTURE" "${RC_WALK_LIST:-}"' EXIT
+    trap 'rm -f "$STDIN_CAPTURE" "${RC_WALK_LIST:-}" "${SURFACE_ROSTER_FILE:-}"' EXIT
     _rc_oifs="$IFS"; IFS=':'
     for _rc_scope in $SCOPES; do
       IFS="$_rc_oifs"
@@ -289,6 +318,25 @@ if walk_list_path and os.path.isfile(walk_list_path):
             _walk_lines = _wf.read().split("\n")
     except Exception:
         _walk_lines = []
+
+# Retired denylist from the surface roster: a source routing into a retired
+# surface (still on disk, never live) is never rewritten and never counted.
+_ROSTER_RETIRED = []
+_sr_file = os.environ.get("SURFACE_ROSTER_FILE", "")
+if _sr_file and os.path.isfile(_sr_file):
+    try:
+        with open(_sr_file) as _sf:
+            _ROSTER_RETIRED = [os.path.realpath(r.get("path")) for r in json.load(_sf).get("retired", []) if r.get("path")]
+    except Exception:
+        _ROSTER_RETIRED = []
+
+def _is_retired(path_s):
+    rp = os.path.realpath(path_s)
+    for r in _ROSTER_RETIRED:
+        if rp == r or rp.startswith(r + "/"):
+            return True
+    return False
+
 for full in _walk_lines:
     # accept .json alongside .md (the walker emits every regular
     # file; the .md-only gate here previously dropped .json registries/schemas).
@@ -296,12 +344,16 @@ for full in _walk_lines:
         continue
     if any(ex in full + "/" for ex in EXEMPT_DIRS):
         continue
+    if _ROSTER_RETIRED and _is_retired(full):
+        continue
     sources.append(full)
 if not sources:
     for s in scopes:
-        if not os.path.isdir(s):
+        if not os.path.isdir(s) or (_ROSTER_RETIRED and _is_retired(s)):
             continue
         for f in walk_md(s):
+            if _ROSTER_RETIRED and _is_retired(f):
+                continue
             sources.append(f)
 
 # ---- per-rename cascade ----
@@ -320,7 +372,7 @@ for r in renames:
     # (case-sensitive, like Obsidian's default).
     # Pattern: \[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]
     # We'll iterate groups and rewrite in callback.
-    # Physical old-path forms for markdown-grammar detection (T-3):
+    # Physical old-path forms for markdown-grammar detection:
     # an md-link target resolves to a physical path, so a match against the
     # renamed file compares candidate paths, not basenames. The old file no
     # longer exists at cascade time, so both the raw-root and realpath-root
@@ -647,6 +699,8 @@ emit({"finding": "rename-cascade-summary",
       "proposals": proposed,
       "applied": applied,
       "mdlink_hits": md_detected,
+      "scopes_scanned": scopes,
+      "sources_scanned": len(sources),
       "mode": "apply" if apply else "dry-run"})
 PY
 

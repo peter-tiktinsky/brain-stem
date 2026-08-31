@@ -1,14 +1,27 @@
 #!/bin/bash
 # session-start-placement-findings.sh — SessionStart reader for OPEN plans-root placement
-# findings. The placement-validate plans-root-namespace sweep persists its findings to the
-# librarian-manifest (drift_findings.placement.plans_root — scope-keyed so the vault-scoped
-# sweep every graceful session close runs can never clobber it). That leaf carries two entry
-# classes: a non-allowlisted plans-root entry that a Bash write slipped past the write-time
-# closed-namespace arm, and a binder-farm stray (a non-symlink entry inside a spoke's research/
-# symlink farm) — either otherwise sits unnoticed. This hook surfaces the open count + entries
-# at session start so they cannot be forgotten (a farm entry is path-qualified so it is never
-# mislabeled as a plans-root entry), and silences itself when findings_count is 0. Mirrors
-# pending-investigations-reminder.sh.
+# findings AND for OPEN research-declare closed-scope findings (two independent
+# librarian-manifest drift_findings leaves; each check is self-gating, so one leaf's
+# silence never starves the other's banner).
+#
+# Leaf 1 — placement. The placement-validate plans-root-namespace sweep persists its
+# findings to drift_findings.placement.plans_root (scope-keyed so the vault-scoped sweep
+# every graceful session close runs can never clobber it). The leaf's entry class: a
+# non-allowlisted plans-root entry that a Bash write slipped past the write-time
+# closed-namespace arm (binder-root strays outside the registry-derived writer-owned
+# set land here too, path-qualified) — it otherwise sits unnoticed. This hook surfaces
+# the open count + entries at session start so they cannot be forgotten, and silences
+# itself when findings_count is 0. Mirrors pending-investigations-reminder.sh.
+#
+# Leaf 2 — research-declare closed scope (T-3). plan-research-declare's anti-scope
+# gate warns (never appends) when an undeclared research artifact is found under a
+# research_closed:true plan — a warn addressed to a HUMAN adjudicator, but its per-run
+# NDJSON channel is transient (session-close deletes the sink; the close log digests only
+# top categories). The declare writer therefore persists a summary leaf at
+# drift_findings.research_declare_closed_scope; this hook surfaces it at session start so a
+# detached close's warns still reach the operator, and silences at findings_count 0 (the
+# next close's sweep refreshes the count).
+#
 # Fail-open: any error / missing manifest exits 0 with no output.
 
 # Source the canonical path resolver so $CLAUDE_STATE_ROOT resolves to the real XDG
@@ -24,19 +37,28 @@ MANIFEST="${MANIFEST_PATH:-$CLAUDE_STATE_ROOT/manifests/librarian-manifest.json}
 command -v jq >/dev/null 2>&1 || exit 0
 
 CNT=$(jq -r '.drift_findings.placement.plans_root.findings_count // 0' "$MANIFEST" 2>/dev/null)
-case "$CNT" in ''|*[!0-9]*) exit 0 ;; esac
-[ "$CNT" -gt 0 ] || exit 0
+case "$CNT" in ''|*[!0-9]*) CNT=0 ;; esac
 
 # Only surface when the persisted scope is the plans-root sweep (vault runs also write here).
 SCOPE=$(jq -r '.drift_findings.placement.plans_root.scope // ""' "$MANIFEST" 2>/dev/null)
-[ "$SCOPE" = "plans-root-namespace" ] || exit 0
 
-ENTRIES=$(jq -r '(.drift_findings.placement.plans_root.open_entries // []) | join(", ")' "$MANIFEST" 2>/dev/null)
-# The persisted plans_root leaf carries TWO entry classes (both surfaced under this one
-# scope, so a farm finding is neither swallowed by the scope gate above nor mislabeled as
-# a plans-root entry): a non-allowlisted plans-root entry is a bare basename, a binder-farm
-# stray is PATH-QUALIFIED as _projects/<spoke>/research/<name>. The wording names both.
-cat <<EOF
-[OPEN PLACEMENT FINDINGS — $CNT] The plans-tree closed-namespace sweep (librarian placement-validate --scope <plans-root>) has $CNT open finding(s). Open entries (non-allowlisted plans-root entries, bare basenames; and/or binder-farm strays, path-qualified as _projects/<spoke>/research/<name>): ${ENTRIES:-<see manifest drift_findings.placement>}. Re-home each durable artifact to its owning context via the funnel (promote-from-inbox --capture <slug> then graduate) — a plans-root stray lands in <plan>/_research/; a binder-farm stray is re-homed to its owning plan and the farm regenerates — or adjudicate it. Re-run the sweep after re-homing — this reminder silences when findings_count is 0.
+if [ "$CNT" -gt 0 ] && [ "$SCOPE" = "plans-root-namespace" ]; then
+  ENTRIES=$(jq -r '(.drift_findings.placement.plans_root.open_entries // []) | join(", ")' "$MANIFEST" 2>/dev/null)
+  # The persisted plans_root leaf's entry class: a non-allowlisted plans-root entry is a
+  # bare basename; a binder-root stray is PATH-QUALIFIED as _projects/<spoke>/<name>.
+  cat <<EOF
+[OPEN PLACEMENT FINDINGS — $CNT] The plans-tree closed-namespace sweep (librarian placement-validate --scope <plans-root>) has $CNT open finding(s). Open entries (non-allowlisted plans-root entries, bare basenames; binder-root strays path-qualified as _projects/<spoke>/<name>): ${ENTRIES:-<see manifest drift_findings.placement>}. Re-home each durable artifact to its owning context via the funnel (promote-from-inbox --capture <slug> then graduate) — a plans-root stray lands in <plan>/_research/ — or adjudicate it. Re-run the sweep after re-homing — this reminder silences when findings_count is 0.
 EOF
+fi
+
+# Leaf 2 (T-3): research-declare closed-scope warns — same jq pattern, its own gate.
+RCNT=$(jq -r '.drift_findings.research_declare_closed_scope.findings_count // 0' "$MANIFEST" 2>/dev/null)
+case "$RCNT" in ''|*[!0-9]*) RCNT=0 ;; esac
+
+if [ "$RCNT" -gt 0 ]; then
+  RENTRIES=$(jq -r '(.drift_findings.research_declare_closed_scope.open_entries // []) | join(", ")' "$MANIFEST" 2>/dev/null)
+  cat <<EOF
+[OPEN RESEARCH-DECLARE FINDINGS — $RCNT] plan-research-declare found $RCNT undeclared research artifact(s) under research_closed:true plan(s) — the anti-scope gate warned INSTEAD of appending (post-closure drops need human adjudication). Entries (plan-qualified as <plan>: <artifact path>): ${RENTRIES:-<see manifest drift_findings.research_declare_closed_scope>}. Adjudicate each: hand-declare the artifact in that plan's manifest research_artifacts[] (append-only; the declare writer preserves hand-authored entries verbatim), or re-home/remove the file if it does not belong. The next session close re-runs the sweep — this reminder silences when findings_count is 0.
+EOF
+fi
 exit 0

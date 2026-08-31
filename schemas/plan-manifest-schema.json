@@ -867,7 +867,7 @@
     },
     "research_artifacts": {
       "type": "array",
-      "description": "PLAN-TREE FIELD. Pointer array to the plan's declared research SoT — one entry per durable research artifact a plan produces (landing under <plan>/_research/). Optional — absent on plans with no recorded research; existing manifests remain valid (not required; additionalProperties:true). This is the declared-artifact roster the project-wide research-index binder consumes: each entry projects to one research-index row (path / type / status / plan-origin / one-liner) plus a Library column derived from library_refs. Declaration is the selectivity gate — only declared artifacts earn a row. Body-structure contract: governance/file-type-contracts/library-article.md.json. Consumers MUST treat a missing field as empty, never an error (legacy manifests carry none).",
+      "description": "PLAN-TREE FIELD. Pointer array to the plan's declared research SoT — one entry per durable research artifact a plan produces (landing under <plan>/_research/). Optional — absent on plans with no recorded research; existing manifests remain valid (not required; additionalProperties:true). This is the declared-artifact roster the binder projections consume: a research-class entry projects to one research-index row (path / type / status / plan-origin / one-liner plus a Library column derived from library_refs); a decision-class entry (resolved kind decision|adr — declared `type` wins, else filename-stem inference) projects on the decision log's Decision-artifacts section instead, deduped against the same plan's decision_records[] paths. Declaration is the selectivity gate — only declared artifacts earn a row. Body-structure contract: governance/file-type-contracts/library-article.md.json. Consumers MUST treat a missing field as empty, never an error (legacy manifests carry none).",
       "items": {
         "type": "object",
         "required": [
@@ -897,6 +897,10 @@
           "path": {
             "type": "string",
             "description": "Plan-relative or absolute path to the research artifact (e.g., _research/memory-survey.md)."
+          },
+          "type": {
+            "type": "string",
+            "description": "Optional artifact KIND (kind-driven projection routing). A declared type always wins over the generators' filename-stem inference. Decision-class kinds (`decision`, `adr`) project on the binder decision-log's Decision-artifacts section; every other kind (e.g. `research`, `survey`, `synthesis`, `ideation-brief`) projects on the research index. Open vocabulary (free string, not an enum) — an unknown kind routes to the research index."
           },
           "session": {
             "type": [

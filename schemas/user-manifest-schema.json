@@ -61,7 +61,12 @@
         },
         "backups_dir": {
           "type": ["string", "null"],
-          "description": "Sets $BACKUPS_DIR — the backup destination root. NO install-convention default: when this key and the environment are both empty, $BACKUPS_DIR resolves EMPTY (same contract as paths.vault_root). Read by hooks/lib/paths.sh."
+          "description": "Sets $BACKUPS_DIR — the backup destination root. NO install-convention default: when this key and the environment are both empty, $BACKUPS_DIR resolves EMPTY (same contract as paths.vault_root). Consumers needing a destination call require_backups_dir (the loud empty-resolution seam) rather than reading the variable raw. Read by hooks/lib/paths.sh."
+        },
+        "retired_surface_roots": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Retired-surface DENYLIST for the librarian surface roster: absolute (or ~-prefixed) roots of corpus surfaces that may still resolve on disk but must NEVER count as live — e.g. a pre-migration vault location. Link-checkers and corpus walkers reading the roster treat anything under these roots as retired. No default (an install with no retired surfaces leaves it absent). Read by hooks/lib/surface-roster.sh; $SURFACE_ROSTER_RETIRED (colon-separated) overrides for test isolation."
         }
       }
     },
@@ -216,6 +221,11 @@
           "type": ["array", "null"],
           "items": { "type": "string" },
           "description": "Extra directories the librarian backup capability snapshots beyond the defaults. Read by skills/librarian/capabilities/backup.sh."
+        },
+        "memory_hygiene_exemptions": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Exact memory-file names memory-hygiene's inventory walk skips (never orphan-eligible; e.g. an operator-maintained companion file living beside MEMORY.md). Read by skills/librarian/capabilities/memory-hygiene.sh (umr_get_array); absence degrades to an empty list. Mirrors vault.tag_audit_exemptions."
         },
         "schema_version": {
           "const": "2.0.0",

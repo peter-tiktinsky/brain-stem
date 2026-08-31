@@ -6,8 +6,10 @@
 # shadowing entry carries _override_reason), emits deep-merged JSON to stdout
 # for hook consumption.
 #
-# This body lives at hooks/lib/foundation-overlay-load.sh, co-located with its
-# consumer hooks/pre-write-guard.sh (the R-52 single call-site at :91/:1081).
+# amendment: top-level lib/ does NOT exist in brain-stem — this
+# body lives at hooks/lib/foundation-overlay-load.sh, co-located with its
+# primary consumer hooks/pre-write-guard.sh (the R-52 write-time probe; the
+# no-flag consumer roster lives at the NO-FLAG CALL-SITE CONTRACT below).
 # Hook-portability: NO $HOME/.claude literal in resolution — the
 # defaults resolve via $CLAUDE_HOME (set by hooks/lib/paths.sh; falls back to
 # $HOME/.claude only as the install-convention base).
@@ -20,7 +22,7 @@
 #   bypasses DENY for a single write.
 #
 # Canonical shape: `_override_reason` is a PER-ENTRY field on the shadowing
-# overlay entry.
+# overlay entry (per verbatim).
 #
 # OVERLAY OPERATION SET — ADD + SUPERSEDE ONLY. There is no NULLIFY. An adopter
 # overlay may ADD a key foundation does not declare, or SUPERSEDE a key it does
@@ -28,6 +30,16 @@
 # delete a foundation entry from the merged view: foundation conventions are
 # immutable-by-design for adopters. A `null` overlay value is not a delete (the
 # merge primitive has no delete) — it is REJECTED at the union block below.
+# Array-of-object entity slots follow the R-52 ARRAY-ENTRY IDENTITY contract
+# (R-52 rule_text + merge-strategy-registry.json `entity_identity_keys`):
+# entries match on the slot's registry-declared identity key — unmatched = ADD;
+# matched-and-differing (compared with `_override_reason` removed) = per-entry
+# SUPERSEDE owing `_override_reason` on the entry; matched-and-identical =
+# benign restatement; an omitted foundation identity = attempted REMOVAL
+# (DENY — the merge primitive replaces arrays wholesale). An array-of-object
+# slot with NO declared identity key is FAIL-CLOSED. Underscore-named keys are
+# metadata UNLESS the slot's `underscore_entities` allowlist admits them as
+# real entities (then they are gated like any entity).
 # Retiring a foundation convention is a maintainer-side source edit; the
 # `frontmatter.retired_types` tombstone is foundation-authored and
 # overlay-extensible in the ADD direction only.
@@ -81,8 +93,8 @@ Args:
                         \$CLAUDE_HOME/governance/overlay-master.json.
   --query               Optional jq filter applied to union JSON before stdout
                         emission. Default: emit full union.
-  --force-override      Skip R-52 collision DENY for this invocation.
-                        No persistent disable; flag must be added per write.
+  --force-override      Skip R-52 collision DENY for this invocation. Per:
+                        no persistent disable; flag must be added per write.
   --collision-pillars   Comma-separated list of pillars to walk for R-52
                         collision detection. Default: all 8 (frontmatter,
                         tagging, naming, mandatory_files, doc_dependencies,
@@ -93,14 +105,15 @@ Exit codes:
   1  R-52 violation — overlay shadows foundation without _override_reason.
   2  Usage error.
   3  Foundation read/parse error.
-  5  Deep-merge failed (jq error).
+  5  jq failure (deep-merge, or R-52 collision-walk structural error — the
+     walk is fail-closed: a jq raise is never swallowed into "no collisions").
 
 Stderr:
   - R-52 DENY message (when exit 1)
   - Fail-closed warning (when overlay is invalid JSON; still exits 0)
   - Diagnostic messages
 
-R-52 canonical shape (per-entry only):
+R-52 canonical shape (per-entry only; verbatim):
   Shadowing overlay entries MUST carry \`_override_reason: "<text>"\` field
   directly on the entry, e.g. \$overlay.frontmatter.types.<slug>._override_reason.
   Absence DENIES (or fall-back to \`--force-override\` for per-write bypass).
@@ -166,8 +179,23 @@ _entity_slots_for() {
   esac
 }
 
+# Registry-declared R-52 entity metadata, shared by the collision walk AND the
+# null-scan (which runs regardless of --force-override): per-slot array-entry
+# identity keys, the underscore-entity allowlist, and the union-leaf roster.
+# Missing/empty registry degrades each to its empty shape — identity keys then
+# FAIL-CLOSED on any live array collision (by design: R-52 without its
+# declarations must not fail open), underscore admission degrades to
+# metadata-filter-everything (the pre-registry posture).
+IDK_JSON=$(jq -c '(.entity_identity_keys // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || IDK_JSON='{}'
+US_JSON=$(jq -c '(.underscore_entities // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || US_JSON='{}'
+UNION_JSON=$(jq -c '[(.strategies // {}) | to_entries[] | select(.value=="union") | .key]' "$MERGE_REGISTRY" 2>/dev/null) || UNION_JSON='[]'
+[ -z "$IDK_JSON" ] && IDK_JSON='{}'
+[ -z "$US_JSON" ] && US_JSON='{}'
+[ -z "$UNION_JSON" ] && UNION_JSON='[]'
+
 if [ "$FORCE_OVERRIDE" != "1" ]; then
   DENIED_KEYS=""
+  R52_TAB=$(printf '\t')
 
   # Declared-union leaves are excluded from the collision domain: union means
   # extend-not-shadow, so an overlay entry at a union leaf is an ADD by
@@ -176,43 +204,62 @@ if [ "$FORCE_OVERRIDE" != "1" ]; then
   # SAME registry the merge block below reads (never a second hardcoded leaf
   # list): read + walk must agree or the walk denies what the merge sanctions.
   #
-  # KNOWN RESIDUALS OF THIS WALK — dispositioned, deferred by ruling; none is
-  # silently unowned (each behaviour is pinned by a RED-first fixture in the
-  # maintainer tree's test bank, so it cannot drift silently):
-  #   (1) UNDER-FIRE, array-valued SLOTS: a slot whose VALUE is an array
-  #       (doc_dependencies.entries) is never collision-checked — `keys[]?`
-  #       yields integer indices, `startswith` errors, the 2>/dev/null below
-  #       swallows it. Closing this needs identity semantics for array entries
-  #       (what makes two entries "the same entity") — a rule-text + registry
-  #       change, not a predicate tweak.
-  #   (2) UNDER-FIRE, underscore-named ENTITIES: mandatory_files.mandates
-  #       declares real entity objects under underscore-prefixed names
-  #       (_index_md, _memory_md_cap); the blanket startswith("_") metadata
-  #       filter drops them before the null-check runs. The fix needs a way to
-  #       tell a metadata key from an underscore-named entity — a
-  #       naming-contract change.
-  #   (3) COMPLIANCE-IMPOSSIBLE on supersede: the _override_reason read below
-  #       is object-only (an array value cannot carry the key), and after the
-  #       union + empty-container exclusions six reachable non-union NON-EMPTY
-  #       array child keys remain in the shipped foundation:
-  #       plans.lifecycle.status_enum, plans.lifecycle.terminal_status,
-  #       plans.backlog_row.disposition_enum (the lower-confidence sibling of
-  #       the class), plans.backlog_row.required_fields,
-  #       plans.backlog_row.stale_advisory_days, plans.backlog_row.status_enum.
-  #       A supersede there DENIES with no per-entry compliance path except
-  #       --force-override. NOT moot — but changing it shares root cause (and
-  #       fix shape) with (1), so it rides the same deferred work.
-  #   All three WIDEN or change enforcement posture; none ships without an
-  #   explicit operator ruling. Do not "fix" one in passing.
+  # RESIDUAL LEDGER OF THIS WALK — (1) and (2) CLOSED by the array-identity
+  # build; (3) remains dispositioned-by-ruling. None is silently unowned (each
+  # behaviour is pinned by a RED-first fixture in the maintainer tree's test
+  # bank, so it cannot drift silently):
+  #   (1) CLOSED — array-valued SLOTS: the walk below dispatches on slot-node
+  #       shape. An array-of-object slot iterates ENTRIES by the slot's
+  #       registry-declared identity key (merge-strategy-registry.json
+  #       `entity_identity_keys`; never a field name hardcoded here):
+  #       unmatched = ADD; matched-and-differing (compared with
+  #       `_override_reason` removed) = per-entry SUPERSEDE owing
+  #       `_override_reason` on the entry; matched-and-identical = benign
+  #       restatement; omitted foundation identity = attempted REMOVAL (DENY
+  #       naming it — the merge primitive replaces arrays wholesale). A
+  #       non-empty non-union foundation array under an UNDECLARED slot is
+  #       FAIL-CLOSED (DENY at the slot naming the missing declaration), as is
+  #       an entry that is not an identity-bearing object, a duplicate overlay
+  #       identity, and a mixed-shape shadow (overlay array over a non-empty
+  #       foundation object or vice versa — wholesale replacement is neither
+  #       ADD nor per-entry SUPERSEDE; ruled fail-closed at this build).
+  #   (2) CLOSED — underscore-named ENTITIES: the metadata filter admits keys
+  #       the slot's `underscore_entities` registry allowlist declares as real
+  #       entities (mandatory_files.mandates: _index_md, _memory_md_cap;
+  #       file_type_contracts: _index.md), in the collision walk AND the
+  #       null-scan below. Every other underscore key stays metadata.
+  #   (3) COMPLIANCE-IMPOSSIBLE on supersede — RULED at the array-identity
+  #       build, each leaf explicitly, NONE in the identity domain. The six
+  #       reachable non-union NON-EMPTY array child keys in the shipped
+  #       foundation are all SCALAR-value arrays (no entity objects), so
+  #       identity-key matching cannot apply and per-entry _override_reason
+  #       has no object to live on — each is EXCLUDED from
+  #       entity_identity_keys with that reason:
+  #         plans.lifecycle.status_enum        (string enum)     — excluded
+  #         plans.lifecycle.terminal_status    (string enum)     — excluded
+  #         plans.backlog_row.disposition_enum (string enum)     — excluded
+  #         plans.backlog_row.required_fields  (string list)     — excluded
+  #         plans.backlog_row.stale_advisory_days (number list)  — excluded
+  #         plans.backlog_row.status_enum      (string enum)     — excluded
+  #       Each keeps whole-leaf collision semantics: a supersede DENIES with
+  #       --force-override as the only per-write path — posture UNCHANGED by
+  #       the array-identity fix. Widening or relaxing any of the six remains
+  #       an operator ruling, never a drive-by.
+  #   Posture changes still ship only with an explicit operator ruling. Do
+  #   not "fix" one in passing.
   #
-  # NO-FLAG CALL-SITE CONTRACT (re-swept at the 2026-08-23 build): exactly TWO
-  # shipped consumers invoke this loader WITHOUT --force-override —
-  # hooks/memory-consolidation-run.sh (documented fail-open; degrades
-  # visibly to its fixture-pinned fallback caps) and pre-write-guard.sh's R-52
-  # write-time probe (unflagged BY DESIGN: it exists to surface this walk's
-  # verdict). Every other hook/skill read passes the flag (hook reads are not
-  # overlay writes). A NEW no-flag consumer inherits this walk's DENY as a
-  # runtime failure mode and must handle exit 1 deliberately.
+  # NO-FLAG CALL-SITE CONTRACT (re-adjudicated at the array-identity build):
+  # exactly TWO shipped consumers invoke this loader WITHOUT --force-override,
+  # both purpose-built DETECTORS that exist to surface this walk's verdict —
+  # pre-write-guard.sh's R-52 write-time probe, and install.sh's Step-13.9
+  # apply-time probe (unflagged BY DESIGN in both). hooks/memory-
+  # consolidation-run.sh, formerly a no-flag site, was OVERTURNED to
+  # --force-override at that re-adjudication: the wider entity domain raises
+  # deny frequency, and a policy deny was degrading the runner's
+  # cap-governance READ — reads are not overlay writes, and R-52 detection
+  # belongs to those two probes, not to read-path side effects. Every other
+  # hook/skill read passes the flag. A NEW no-flag consumer inherits this
+  # walk's DENY as a runtime failure mode and must handle exit 1 deliberately.
   R52_UNION_PATHS=$(jq -r '(.strategies // {}) | to_entries[] | select(.value=="union") | .key' "$MERGE_REGISTRY" 2>/dev/null || true)
 
   # Iterate selected pillars (default = all 8; --collision-pillars narrows).
@@ -230,74 +277,140 @@ if [ "$FORCE_OVERRIDE" != "1" ]; then
     while IFS= read -r SLOT; do
       [ -z "$SLOT" ] && continue
 
-      # Special token: walk overlay top-level keys of the pillar object
-      # directly (file_type_contracts shape: pillar value IS a dict of
-      # contract entries; no intermediate slot key).
+      # Both FORMER walk arms — __top_level_keys__ (pillar value IS the dict
+      # of entries, e.g. file_type_contracts; no intermediate slot key) and
+      # normal-slot — share this ONE verdict program, so neither arm can be
+      # fixed without the other by construction. It dispatches on overlay
+      # slot-node SHAPE:
+      #   object → per-key collision walk (the metadata filter admits the
+      #            slot's underscore_entities allowlist entries as entities);
+      #            emits K<TAB>key<TAB>has_reason
+      #   array  → per-ENTRY walk on the registry-declared identity key;
+      #            emits AS (supersede without reason) / AR (foundation entry
+      #            omitted = removal) / AN (non-identity-bearing entry) /
+      #            AD (duplicate overlay identity) / AF (undeclared array
+      #            slot — FAIL-CLOSED)
+      #   mixed  → AM (wholesale shape shadow — neither ADD nor per-entry
+      #            SUPERSEDE; ruled fail-closed at the array-identity build)
       # Shadowing requires something to shadow: a key whose foundation value is
       # an EMPTY array/object is a declared-shape placeholder ("this slot is
       # yours to fill"), not a shadowed entity — the adopter's entry there is
       # an ADD. Key-presence alone ([] != null, {} != null) is NOT collision.
+      # NO stderr suppression on this jq: a raise is a STRUCTURAL error and
+      # exits 5 (fail-closed) — never silently an empty verdict set.
       if [ "$SLOT" = "__top_level_keys__" ]; then
-        COLLISIONS=$(printf '%s' "$OVERLAY_JSON" | jq -r --argjson f "$FOUNDATION_JSON" --arg p "$PILLAR" '
-          (.[$p] // {}) | keys[]?
-          | select(startswith("_") | not)
-          | select(
-              $f[$p][.] as $fv
-              | $fv != null
-                and (
-                  (($fv | type) == "array" or ($fv | type) == "object")
-                  and (($fv | length) == 0)
-                  | not
-                )
-            )
-        ' 2>/dev/null)
         SLOT_PATH_PREFIX="${PILLAR}"
       else
-        COLLISIONS=$(printf '%s' "$OVERLAY_JSON" | jq -r --argjson f "$FOUNDATION_JSON" --arg p "$PILLAR" --arg s "$SLOT" '
-          (.[$p][$s] // {}) | keys[]?
-          | select(startswith("_") | not)
-          | select(
-              $f[$p][$s][.] as $fv
-              | $fv != null
-                and (
-                  (($fv | type) == "array" or ($fv | type) == "object")
-                  and (($fv | length) == 0)
-                  | not
-                )
-            )
-        ' 2>/dev/null)
         SLOT_PATH_PREFIX="${PILLAR}.${SLOT}"
       fi
 
-      [ -z "$COLLISIONS" ] && continue
+      VERDICTS=$(printf '%s' "$OVERLAY_JSON" | jq -r \
+          --argjson f "$FOUNDATION_JSON" --argjson us "$US_JSON" \
+          --argjson idmap "$IDK_JSON" --argjson union "$UNION_JSON" \
+          --arg p "$PILLAR" --arg s "$SLOT" --arg sp "$SLOT_PATH_PREFIX" '
+        ( if $s == "__top_level_keys__" then (.[$p] // null)
+          else ((.[$p] // {}) | if type == "object" then (.[$s] // null) else null end)
+          end ) as $node
+        | ( if $s == "__top_level_keys__" then ($f[$p] // null)
+            else (($f[$p] // {}) | if type == "object" then (.[$s] // null) else null end)
+            end ) as $fnode
+        | (($us[$sp] // []) | if type == "array" then . else [] end) as $usallow
+        | (($idmap[$sp] // "") | if type == "string" then . else "" end) as $idk
+        | if $node == null then empty
+          elif ($fnode != null)
+               and (($fnode | type) == "array" or ($fnode | type) == "object")
+               and (($fnode | length) > 0)
+               and (($node | type) != ($fnode | type))
+               and (($union | index($sp)) == null)
+          then "AM\t" + ($node | type) + " over non-empty foundation " + ($fnode | type)
+          elif ($node | type) == "object" then
+            ( ($fnode | if type == "object" then . else {} end) as $fobj
+              | $node | keys[]
+              | . as $k
+              | select(((startswith("_")) | not) or (($usallow | index($k)) != null))
+              | ($fobj[$k] // null) as $fv
+              | select(
+                  $fv != null
+                  and (
+                    (($fv | type) == "array" or ($fv | type) == "object")
+                    and (($fv | length) == 0)
+                    | not
+                  )
+                )
+              | "K\t" + $k + "\t"
+                + (($node[$k] | if type == "object" then ((._override_reason // null) != null) else false end) | tostring)
+            )
+          elif ($node | type) == "array" then
+            ( if (($union | index($sp)) != null) then empty
+              else
+                ($fnode | if type == "array" then . else [] end) as $farr
+                | if ($farr | length) == 0 then empty
+                  elif $idk == "" then
+                    "AF\tno entity_identity_keys declaration for this array-of-object slot"
+                  else
+                    (
+                      ( $node | to_entries[]
+                        | select(((.value | type) != "object") or ((.value[$idk] // null) == null))
+                        | "AN\tindex " + (.key | tostring) + " (entry is not an identity-bearing object)"
+                      ),
+                      (
+                        [ $node[] | select(type == "object") | (.[$idk] // empty) | tostring ] as $oids
+                        | (
+                            ( $oids | group_by(.) | map(select(length > 1) | .[0]) | .[]
+                              | "AD\t" + $idk + "=" + .
+                            ),
+                            ( $node[] | select((type == "object") and ((.[$idk] // null) != null)) | . as $e
+                              | ($e[$idk] | tostring) as $eid
+                              | ( [ $farr[] | select((type == "object") and ((.[$idk] // null) != null)
+                                                    and ((.[$idk] | tostring) == $eid)) ]
+                                  | (.[0] // null) ) as $fe
+                              | select($fe != null)
+                              | select((($e | del(._override_reason)) == ($fe | del(._override_reason))) | not)
+                              | select(($e._override_reason // null) == null)
+                              | "AS\t" + $idk + "=" + $eid
+                            ),
+                            ( $farr[] | select((type == "object") and ((.[$idk] // null) != null))
+                              | (.[$idk] | tostring) as $fid
+                              | select(($oids | index($fid)) == null)
+                              | "AR\t" + $idk + "=" + $fid
+                            )
+                          )
+                      )
+                    )
+                  end
+              end
+            )
+          else empty
+          end
+      ') || {
+        printf 'foundation-overlay-load.sh: R-52 collision-walk jq failure at %s — fail-closed (structural error, not a policy DENY).\n' "$SLOT_PATH_PREFIX" >&2
+        exit 5
+      }
 
-      while IFS= read -r ck; do
-        [ -z "$ck" ] && continue
-        # Canonical shape: per-entry `_override_reason` on the shadowing
-        # overlay entry.
-        if [ "$SLOT" = "__top_level_keys__" ]; then
-          HAS_REASON=$(printf '%s' "$OVERLAY_JSON" | jq -r --arg p "$PILLAR" --arg k "$ck" '
-            (.[$p][$k]
-             | if type == "object" then ._override_reason else null end
-            ) // null
-            | . != null
-          ' 2>/dev/null)
-        else
-          HAS_REASON=$(printf '%s' "$OVERLAY_JSON" | jq -r --arg p "$PILLAR" --arg s "$SLOT" --arg k "$ck" '
-            (.[$p][$s][$k]
-             | if type == "object" then ._override_reason else null end
-            ) // null
-            | . != null
-          ' 2>/dev/null)
-        fi
-        if printf '%s\n' "$R52_UNION_PATHS" | command grep -Fxq "${SLOT_PATH_PREFIX}.${ck}"; then
-          continue
-        fi
-        if [ "$HAS_REASON" != "true" ]; then
-          DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}.${ck}\n"
-        fi
+      [ -z "$VERDICTS" ] && continue
+
+      while IFS="$R52_TAB" read -r TAG A B; do
+        [ -z "$TAG" ] && continue
+        case "$TAG" in
+          K)
+            # Declared-union leaf → ADD by construction. Kept in shell so the
+            # object path keeps its historical source (R52_UNION_PATHS).
+            if printf '%s\n' "$R52_UNION_PATHS" | command grep -Fxq "${SLOT_PATH_PREFIX}.${A}"; then
+              continue
+            fi
+            if [ "$B" != "true" ]; then
+              DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}.${A}\n"
+            fi
+            ;;
+          AS) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}[${A}] (array-entry SUPERSEDE without _override_reason)\n" ;;
+          AR) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}[${A}] (foundation entry omitted from overlay array — removal is not in the operation set; restate it)\n" ;;
+          AN) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}[${A}]\n" ;;
+          AD) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX}[${A}] (duplicate identity in overlay array)\n" ;;
+          AF) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX} (${A} — FAIL-CLOSED)\n" ;;
+          AM) DENIED_KEYS="${DENIED_KEYS}  - ${SLOT_PATH_PREFIX} (overlay ${A} — wholesale shape shadow is neither ADD nor per-entry SUPERSEDE)\n" ;;
+        esac
       done <<EOF
-$COLLISIONS
+$VERDICTS
 EOF
     done <<EOF2
 $SLOTS
@@ -309,8 +422,12 @@ EOF2
       printf 'foundation-overlay-load.sh: R-52 violation — overlay shadows foundation entries without _override_reason:\n'
       printf '%b' "$DENIED_KEYS"
       printf 'To resolve, either:\n'
-      printf '  (a) add per-entry _override_reason: "<text>" to the shadowing overlay entry, OR\n'
-      printf '  (b) pass --force-override for single-invocation bypass (per-write; no persistent disable).\n'
+      printf '  (a) add per-entry _override_reason: "<text>" to the shadowing overlay entry (per), OR\n'
+      printf '  (b) pass --force-override for single-invocation bypass (per-write; no persistent disable per).\n'
+      printf 'Array-of-object slots match entries on the registry-declared identity key\n'
+      printf '(merge-strategy-registry.json entity_identity_keys): unmatched = ADD; matched-and-differing =\n'
+      printf 'per-entry SUPERSEDE owing _override_reason ON the entry; an omitted foundation identity is a\n'
+      printf 'removal (not in the operation set) — restate the foundation entry to comply.\n'
     } >&2
     exit 1
   fi
@@ -329,7 +446,10 @@ fi
 # REJECTED here — reported LOUD on stderr naming each path, then DROPPED from
 # the overlay before the merge so the foundation entry stands. Well-formed
 # overlay entries are untouched, and the drop is scoped to the SAME entity
-# slots `_entity_slots_for` declares for the R-52 walk.
+# slots `_entity_slots_for` declares for the R-52 walk. Underscore-named keys a
+# slot's `underscore_entities` allowlist declares as real entities are
+# protected here too — entity classification is CONSISTENT with the collision
+# walk above; every other underscore key stays metadata (skipped).
 #
 # This runs REGARDLESS of --force-override: that flag bypasses the R-52
 # collision DENY (a policy decision), not structural corruption of the merged
@@ -359,10 +479,12 @@ NULL_SCAN_MAP="${NULL_SCAN_MAP}]"
 
 NULL_PATHS_JSON='[]'
 if [ "$NULL_SCAN_MAP" != "[]" ]; then
-  NULL_PATHS_JSON=$(printf '%s' "$OVERLAY_JSON" | jq -c --argjson map "$NULL_SCAN_MAP" '
+  NULL_PATHS_JSON=$(printf '%s' "$OVERLAY_JSON" | jq -c --argjson map "$NULL_SCAN_MAP" --argjson us "$US_JSON" '
     . as $o
     | [ $map[]
         | . as $m
+        | (if $m.s == "__top_level_keys__" then $m.p else ($m.p + "." + $m.s) end) as $sp
+        | (($us[$sp] // []) | if type == "array" then . else [] end) as $usallow
         | (($o[$m.p] // null) | if type == "object" then . else null end) as $pil
         | (if $m.s == "__top_level_keys__" then $pil
            elif $pil == null then null
@@ -370,8 +492,9 @@ if [ "$NULL_SCAN_MAP" != "[]" ]; then
         | ($node | if type == "object" then . else {} end)
         | to_entries[]
         | select(.value == null)
-        | select(.key | startswith("_") | not)
-        | if $m.s == "__top_level_keys__" then [$m.p, .key] else [$m.p, $m.s, .key] end
+        | .key as $ek
+        | select((($ek | startswith("_")) | not) or (($usallow | index($ek)) != null))
+        | if $m.s == "__top_level_keys__" then [$m.p, $ek] else [$m.p, $m.s, $ek] end
       ]
   ' 2>/dev/null) || NULL_PATHS_JSON='[]'
   [ -z "$NULL_PATHS_JSON" ] && NULL_PATHS_JSON='[]'

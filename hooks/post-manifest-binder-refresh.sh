@@ -25,7 +25,6 @@
 #   {PLANS_ROOT}/_projects/<spoke>/decision-log.md       (plan-decision-log)
 #   {PLANS_ROOT}/_projects/<spoke>/handoff-chronicle.md  (plan-handoff-index)
 #   {PLANS_ROOT}/_projects/<spoke>/_situating.md         (project-context-situating)
-#   {PLANS_ROOT}/_projects/<spoke>/research/ symlink farm (plan-research-index)
 #   audit log  $HOOKS_STATE/post-manifest-binder-refresh.log (append).
 # Schema gate: none here — the delegated capabilities own their own manifest read +
 #   block-and-log; this hook only resolves the spoke + dispatches.

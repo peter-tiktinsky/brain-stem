@@ -21,6 +21,15 @@
 # gate; no symlink farm, no inline-vs-pointer selectivity — those belong to the
 # research-index surface, not the decision log).
 #
+# PARTITION (kind-driven projection, operator-ruled): the decision log ALSO
+# projects the spoke's decision-class research_artifacts[] dossiers (resolved
+# kind decision|adr — a declared optional `type` wins, else filename-stem
+# inference) into a "## Decision artifacts" section after the ADR lineages,
+# in the research-index row shape (Library column carried). An artifact whose
+# normalized declared path duplicates a same-plan decision_records[] path is
+# not re-projected. The research index emits research-class rows only — one
+# artifact, one surface.
+#
 # row schema: ADR id (ADR-NN) / title / status
 # (proposed|accepted|rejected|deprecated|superseded) / path; plus optional
 # superseded_by and created columns when present. ADR BODIES, rationale, and
@@ -71,7 +80,8 @@
 #     artifact (maintainer=librarian); this capability is its sole
 #     originating writer. It NEVER writes research-index.md,
 #     handoff-chronicle.md, the research/ symlink farm, plan manifests, or any
-#     plan _research/ / decisions/ content. It reads decision_records[] and writes
+#     plan _research/ / decisions/ content. It reads decision_records[] plus the
+#     decision-class research_artifacts[] (the PARTITION intake) and writes
 #     ONLY decision-log.md.
 #
 # CLI:
@@ -201,6 +211,37 @@ def field(man, key, default=""):
     return v
 
 
+def derive_type(ra, path):
+    """Row 'type' field. The research_artifacts[] item schema carries an OPTIONAL
+    'type' (formalized; a declared type always wins); else infer from the path
+    stem, else 'research'. LOCKSTEP: plan-research-index.sh owns the original of
+    this function — this is a byte-for-byte duplicate so both projections
+    resolve the same kind for the same artifact; edit them together."""
+    t = ra.get("type")
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    base = os.path.basename(str(path or "")).lower()
+    if base.endswith(".md"):
+        base = base[:-3]
+    for kw, label in (("brief", "ideation-brief"), ("survey", "survey"),
+                      ("decision", "decision"), ("verdict", "decision"),
+                      ("adr", "adr"),
+                      ("synthesis", "synthesis"), ("research", "research")):
+        if kw in base:
+            return label
+    return "research"
+
+
+# PARTITION (kind-driven projection, operator-ruled): a declared
+# research_artifacts[] entry whose RESOLVED kind is decision-class projects
+# HERE — the decision log carries the spoke's whole decision surface: the ADR
+# ledger (decision_records[]) plus a projected "Decision artifacts" section
+# (research-index row shape). An artifact whose normalized path duplicates a
+# same-plan decision_records[] path is NOT re-projected (the ADR ledger row
+# already covers it). The research index emits research-class rows only.
+DECISION_KINDS = frozenset(("decision", "adr"))
+
+
 # --- assemble rows per spoke, grouped by parent_plan lineage ----------------
 # spoke -> lineage-group -> [row dicts], one row per decision_records[] entry.
 def lineage_of(man, slug):
@@ -213,11 +254,19 @@ def lineage_of(man, slug):
 # (defensive: never crash) but flagged.
 STATUS_ENUM = {"proposed", "accepted", "rejected", "deprecated", "superseded"}
 
-spokes = {}             # spoke -> { lineage -> [rows] }
+spokes = {}             # spoke -> { lineage -> [rows] }  (ADR ledger)
+spokes_da = {}          # spoke -> { lineage -> [rows] }  (projected decision artifacts)
 # ADR ordinals restart PER PLAN, so a forward-link ✓ qualifies against the ADR
 # ids of the row's OWN plan only — never a spoke-global union (a cross-plan
 # same-numbered ADR must not false-match). spoke -> { plan_slug -> set(adr ids) }.
 spoke_adr_ids = {}
+
+
+def norm_declared_path(p):
+    # dedup key: the declared plan-relative path, normalized (never resolved
+    # through the filesystem — declaration-vs-declaration comparison only).
+    return os.path.normpath(str(p or "").strip())
+
 
 for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
@@ -230,9 +279,40 @@ for plan_dir, man in manifests:
     slug = slug_of(plan_dir)
     drs = man.get("decision_records")
     # defensive default: missing/empty/malformed => EMPTY, never error.
-    if not isinstance(drs, list) or not drs:
+    if not isinstance(drs, list):
+        drs = []
+    # PARTITION intake: decision-class research_artifacts[] project here.
+    ras = man.get("research_artifacts")
+    if not isinstance(ras, list):
+        ras = []
+    dr_paths = {norm_declared_path(field(dr, "path"))
+                for dr in drs if isinstance(dr, dict) and str(field(dr, "path") or "").strip()}
+    da_rows = []
+    for ra in ras:
+        if not isinstance(ra, dict):
+            continue
+        path = str(field(ra, "path") or "").strip()
+        rtype = derive_type(ra, path)
+        if rtype not in DECISION_KINDS:
+            continue
+        if path and norm_declared_path(path) in dr_paths:
+            # same-plan path already on the ADR ledger — never a duplicate row.
+            continue
+        da_rows.append({
+            "plan_slug": slug, "path": path, "type": rtype,
+            "status": str(field(ra, "status") or "").strip(),
+            "one_liner": str(field(ra, "title") or "").strip(),
+            "library_refs": [str(x).strip() for x in (ra.get("library_refs") or [])
+                             if str(x).strip()],
+            "plan_dir": plan_dir,
+        })
+    if not drs and not da_rows:
         continue
     lineage = lineage_of(man, slug)
+    if da_rows:
+        spokes_da.setdefault(spoke, {}).setdefault(lineage, []).extend(da_rows)
+    if not drs:
+        continue
     spokes.setdefault(spoke, {})
     spoke_adr_ids.setdefault(spoke, {})
     grp = spokes[spoke].setdefault(lineage, [])
@@ -327,14 +407,38 @@ def write_atomic(dirpath, target, body):
 
 HDR = "| ADR | Title | Status | Path | Superseded-by | Created | Plan-origin |"
 SEP = "|---|---|---|---|---|---|---|"
+# projected "Decision artifacts" rows carry the research-index row shape
+# (Library column included) so a dossier reads the same on either surface.
+DA_HDR = "| Path | Type | Status | Plan-origin | One-liner | Library |"
+DA_SEP = "|---|---|---|---|---|---|"
+
+
+def render_da_row(row, binder_home):
+    path = row["path"]
+    if path:
+        target = os.path.normpath(os.path.join(row["plan_dir"], path))
+        pcell = md_link(path, os.path.relpath(target, binder_home))
+    else:
+        pcell = "—"
+    lib = ", ".join(row["library_refs"]) if row["library_refs"] else "—"
+    cells = [
+        pcell,
+        row["type"] or "—",
+        row["status"] or "—",
+        row["plan_slug"],
+        esc(row["one_liner"]) or "—",
+        esc(lib),
+    ]
+    return "| " + " | ".join(cells) + " |"
+
 
 spokes_written = 0
 
 # When a --spoke filter names a spoke with no contributing plans, still render an
 # empty decision log for it (idempotent empty surface).
-target_spokes = sorted(spokes.keys())
-if spoke_filter and spoke_filter not in spokes:
-    target_spokes = [spoke_filter] if not target_spokes else sorted(set(target_spokes) | {spoke_filter})
+target_spokes = sorted(set(spokes.keys()) | set(spokes_da.keys()))
+if spoke_filter and spoke_filter not in target_spokes:
+    target_spokes = sorted(set(target_spokes) | {spoke_filter})
 
 for spoke in target_spokes:
     lineages = spokes.get(spoke, {})
@@ -358,11 +462,13 @@ for spoke in target_spokes:
         "",
         "_Auto-generated by `librarian plan-decision-log`. Do not hand-edit._",
         "",
-        "Append-immutable cross-plan ADR roll-up: one row per declared "
-        "`decision_records[]` entry across every `%s`-spoke plan, grouped by "
-        "`parent_plan` lineage. ADR bodies, rationale, and option-tables stay at "
-        "the linked path. Superseded records are forward-linked (Superseded-by), "
-        "never deleted from the projection." % spoke,
+        "The spoke's decision surface: an append-immutable cross-plan ADR "
+        "roll-up (one row per declared `decision_records[]` entry across every "
+        "`%s`-spoke plan, grouped by `parent_plan` lineage), plus the projected "
+        "decision-class `research_artifacts[]` dossiers (kind `decision`/`adr`; "
+        "partitioned off the research index). ADR bodies, rationale, and "
+        "option-tables stay at the linked path. Superseded records are "
+        "forward-linked (Superseded-by), never deleted from the projection." % spoke,
         "",
     ]
 
@@ -382,7 +488,30 @@ for spoke in target_spokes:
             total_rows += 1
         body_lines.append("")
 
-    if total_rows == 0:
+    # --- projected "Decision artifacts" section (PARTITION) -------------------
+    # AFTER the ADR lineages: declared decision-class research_artifacts[]
+    # dossiers, research-index row shape, deduped per plan against the ADR
+    # ledger's declared paths at intake.
+    da_lineages = spokes_da.get(spoke, {})
+    da_total = 0
+    if da_lineages:
+        body_lines.append("## Decision artifacts")
+        body_lines.append("")
+        for lineage in sorted(da_lineages.keys()):
+            rows = da_lineages[lineage]
+            if not rows:
+                continue
+            body_lines.append("### Lineage: %s" % lineage)
+            body_lines.append("")
+            body_lines.append(DA_HDR)
+            body_lines.append(DA_SEP)
+            ordered = sorted(rows, key=lambda r: (r["plan_slug"], r["path"], r["one_liner"]))
+            for row in ordered:
+                body_lines.append(render_da_row(row, binder_home))
+                da_total += 1
+            body_lines.append("")
+
+    if total_rows == 0 and da_total == 0:
         body_lines.append("_No declared decision records in this spoke yet._")
         body_lines.append("")
 

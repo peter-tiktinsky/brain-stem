@@ -54,6 +54,15 @@
 #     render identically to the refreshers' output (guaranteed by the corrected
 #     Vault Writers/_index.md seed). drift-sweep --plans --fix finds no master
 #     plans on a virgin vault, so it writes nothing there either.
+#   - ordering ruling (TRUE-DEFECT, adjudicated 2026-08-25): step 2 runs
+#     plan-research-declare immediately BEFORE the completed-at-stamp block —
+#     declare-then-stamp within one close. The stamp marks research_closed:true
+#     on the armed target's terminal transition, and declare's read-only
+#     anti-scope gate suppresses would-be declarations once that flag is set,
+#     so the old order (declare after the stamp) silently suppressed a
+#     same-close terminal plan's would-be research_artifacts[] declarations.
+#     The hoist also cures the latent pair: declare no longer mutates plan
+#     manifests after backlog-index / plan-index have rendered.
 #   - Single aggregated write per run at <state>/logs/session-close-YYYYMMDD-HHMMSS.md.
 #     Individual capabilities may write their own sub-logs per their contracts.
 #
@@ -361,10 +370,10 @@ TODAY=$(date +%Y-%m-%d)
 FINDINGS_COUNT=0
 ERRORS_COUNT=0
 # T-4 (B-1 #3; closes the run_capability silent-skip class): count
-# capabilities whose BODY IS PRESENT ON DISK but is NON-EXEC (the dead-R-40
-# placement-validate class — public v1.1.1 shipped placement-validate.sh at
+# capabilities whose BODY IS PRESENT ON DISK but is NON-EXEC (the
+# dead-placement-validate class — public v1.1.1 shipped placement-validate.sh at
 # git-index 100644, so a real adopter session-close recorded `placement-validate:
-# skip — not-installed` rc=0 and R-40 governance placement validation was DEAD
+# skip — not-installed` rc=0 and governance placement validation was DEAD
 # while the orchestrator stayed GREEN). A present-but-non-exec cap is NOT
 # "not-installed" — it is an installation-mode defect that MUST surface, so the
 # orchestrator exits NON-ZERO when this count is > 0 (the advisory `exit 0 always`
@@ -414,15 +423,15 @@ run_capability() {
     return 0
   fi
   # T-4 (B-1 #3): distinguish body-present-but-non-exec from genuinely
-  # absent. A present-but-non-exec cap is a delivery-mode defect (the dead-R-40
-  # placement-validate class) — record `error` (which bumps ERRORS_COUNT) AND
+  # absent. A present-but-non-exec cap is a delivery-mode defect (the
+  # dead-placement-validate class) — record `error` (which bumps ERRORS_COUNT) AND
   # flag it so the orchestrator exits non-zero, instead of silently skipping it
   # as `not-installed` rc=0. `not-installed` (return 0) is RESERVED for a file
   # that does not exist on disk at all (a genuinely unshipped/optional cap).
   if [[ ! -x "$cap_path" ]]; then
     if [[ -e "$cap_path" ]]; then
       NONEXEC_REQUIRED_COUNT=$((NONEXEC_REQUIRED_COUNT + 1))
-      record_capability "$name" "error" "present-but-non-exec — capability body shipped NON-EXEC ($cap_path); cannot run (the dead-R-40/100644-delivery class)"
+      record_capability "$name" "error" "present-but-non-exec — capability body shipped NON-EXEC ($cap_path); cannot run (the dead-placement-validate/100644-delivery class)"
       return 0
     fi
     record_capability "$name" "skip" "not-installed"
@@ -657,6 +666,28 @@ step2_integrity() {
   # BEFORE plan-handoff-index's full re-derive (below), which de-dupes the appended
   # block idempotently (the re-derive owns the whole file; the append is absorbed).
   run_capability binder-handoff-append-wrapper --spoke "$active_spoke"
+  # The SINGLE research
+  # declaration surface. plan-research-declare DERIVES research_artifacts[] into each active-spoke
+  # plan's OWN manifest from that plan's OWN _research/ (+ decisions/target-state/deliverables/),
+  # routed to the OWNING spoke via the manifest project: key (true owner). NEVER writes
+  # _library (universal-only) and NEVER invokes library-scrub --apply (the manual PROMOTION path).
+  # run_capability-compatible (block-and-log, exit 0, idempotent, single-writer, atomic os.replace;
+  # never clobbers an author-curated entry). The declare writer touches only plan manifests, so it
+  # sits OUTSIDE the is_build_dogfood boundary (the governance-parity-audit branch far below).
+  #
+  # DECLARE-BEFORE-STAMP ORDER (ruled TRUE-DEFECT 2026-08-25). This call MUST precede the
+  # completed-at-stamp block directly below: that block marks research_closed:true on the armed
+  # target's terminal transition, and declare's read-only anti-scope gate suppresses every
+  # would-be declaration once the flag is set — so with declare AFTER the stamp (the old order,
+  # an accident of two subs landing gate and stamp separately), a plan reaching terminal
+  # status at the same close that would first declare its _research/ artifacts got them
+  # SUPPRESSED, not declared (observed live at's close 2026-08-24). Declare-then-stamp
+  # within one close cures it; the post-closure-drop protection is untouched (the gate still
+  # fires at every close after the stamping one). The hoist (from after plan-index) also cures
+  # the latent order pair: declare no longer mutates plan manifests after backlog-index /
+  # plan-index have rendered. It still runs BEFORE plan-research-index so the render reflects
+  # the just-declared artifacts.
+  run_capability plan-research-declare --spoke "$active_spoke"
   # completed_at stamp + no-verdict soft-surface. The archival display view-filter
   # needs a per-plan completion date the manifest does not otherwise carry. Stamp
   # `completed_at` (date-only) ONLY on the plan(s) the closing session was anchored to
@@ -666,7 +697,10 @@ step2_integrity() {
   # keeps falling back to `updated` (schema-documented). The SAME transition-scoped
   # block also marks `research_closed: true` on the armed target when it reaches a
   # TERMINAL status {completed, superseded} without the flag (the plan-research-declare
-  # reader consumes it to stop ratifying undeclared research artifacts). Also
+  # reader consumes it to stop ratifying undeclared research artifacts — which is why
+  # plan-research-declare runs immediately ABOVE this block: declare-then-stamp,
+  # rationale on that call; a same-close terminal plan's artifacts are declared before
+  # the flag lands). Also
   # advisory-surface a just-completed plan carrying no harness_validated[] verdict-pass
   # (the receipt lives in that field, not a status). Block-and-log, atomic os.replace,
   # findings to the per-run sink; session-close stays advisory.
@@ -944,7 +978,7 @@ $_tr_plans_root/$_tr_armed/$_tr_sp"
       # shipped-wrong defect the gate must observe; genuinely absent is a plain skip.
       if [[ -e "$_tr_cap" ]]; then
         NONEXEC_REQUIRED_COUNT=$((NONEXEC_REQUIRED_COUNT + 1))
-        record_capability "tasks-render" "error" "present-but-non-exec — capability body shipped NON-EXEC ($_tr_cap); cannot run (the dead-R-40/100644-delivery class)"
+        record_capability "tasks-render" "error" "present-but-non-exec — capability body shipped NON-EXEC ($_tr_cap); cannot run (the dead-placement-validate/100644-delivery class)"
       else
         record_capability "tasks-render" "skip" "not-installed"
       fi
@@ -999,16 +1033,10 @@ $_tr_plans_root/$_tr_armed/$_tr_sp"
   # exit 0, idempotent, atomic os.replace). plan-handoff-index's full re-derive
   # absorbs the append above idempotently.
   #
-  # The SINGLE research
-  # declaration surface. plan-research-declare DERIVES research_artifacts[] into each active-spoke
-  # plan's OWN manifest from that plan's OWN _research/ (+ decisions/target-state/deliverables/),
-  # routed to the OWNING spoke via the manifest project: key (true owner). It runs
-  # BEFORE plan-research-index so the render reflects the just-declared artifacts. NEVER writes
-  # _library (universal-only) and NEVER invokes library-scrub --apply (the manual PROMOTION path).
-  # run_capability-compatible (block-and-log, exit 0, idempotent, single-writer, atomic os.replace;
-  # never clobbers an author-curated entry). Inserted OUTSIDE the is_build_dogfood boundary below
-  # (605-607, permanently adjudicated no-touch); the declare writer touches only plan manifests.
-  run_capability plan-research-declare --spoke "$active_spoke"
+  # plan-research-declare — the SINGLE research declaration surface — is HOISTED ABOVE
+  # the completed-at-stamp block (declare-then-stamp; rationale rides its call
+  # comment there), so by this point research_artifacts[] is already reconciled and the
+  # render below reflects the just-declared artifacts.
   run_capability plan-research-index --spoke "$active_spoke"
   run_capability plan-decision-log   --spoke "$active_spoke"
   run_capability plan-handoff-index  --spoke "$active_spoke"
@@ -1331,7 +1359,7 @@ rm -f "$RUN_FINDINGS_NDJSON"
 # T-4 (B-1 #3): session-close stays advisory (Exit 0 always) for runtime
 # capability errors and benign environmental degradation — but a REQUIRED cap
 # whose body is PRESENT ON DISK yet NON-EXEC is a delivery-mode defect the gate
-# MUST observe (the dead-R-40 placement-validate class that shipped GREEN in
+# MUST observe (the dead-placement-validate class that shipped GREEN in
 # public v1.1.1). For that class ONLY, exit non-zero so the orchestrator /
 # clean-room smoke cannot read a non-exec required cap as skip-as-success.
 if [[ "$NONEXEC_REQUIRED_COUNT" -gt 0 ]]; then

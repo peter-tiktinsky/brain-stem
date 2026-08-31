@@ -113,36 +113,20 @@ if [[ "$PV_PLANS_MODE" == "1" ]]; then
       PV_FINDINGS=$((PV_FINDINGS + 1))
     fi
   done
-  # Binder-interior farm walk: the research/ symlink farm under each spoke binder holds
-  # ONLY generator-owned dir-symlinks, so a non-symlink entry (a regular file or a real
-  # dir) is a stray placed inside a binder interior — flag it path-qualified. Detect-and-
-  # report ONLY: this sweep never deletes a stray (removal is not its job), and live AND
-  # dangling symlinks belong to the generator and are never flagged. Binder-owned files
-  # that live at the binder ROOT (research-index.md, decision-log.md,
-  # handoff-chronicle.md, _situating.md) are the binder-ROOT arm's population below,
-  # not this farm walk's. Persisted into the SAME plans_root leaf
-  # as the root-namespace findings, so the SessionStart reader re-surfaces them. bash 3.2.
-  for _farm in "$SCOPE_ROOT"/_projects/*/research; do
-    [ -d "$_farm" ] || continue
-    _spoke="$(basename "$(dirname "$_farm")")"
-    for _fe in "$_farm"/*; do
-      [ -e "$_fe" ] || [ -L "$_fe" ] || continue
-      if [ -L "$_fe" ]; then continue; fi
-      _fname="$(basename "$_fe")"
-      _qual="_projects/$_spoke/research/$_fname"
-      _line=$(jq -nc --arg e "$_qual" --arg n "$_fname" --arg s "$_spoke" '{finding:"binder-farm-stray-entry", entry:$e, name:$n, spoke:$s, issue:"non-symlink entry inside the research/ symlink farm (a stray placed in a binder interior); re-home to its owning plan via the funnel — detect-and-report only, never auto-deleted", classification:"manual"}')
-      if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
-      PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $_qual"
-    done
-  done
+  # (The former binder-interior research/ symlink-farm walk is RETIRED with the
+  # farm itself: the generator no longer mints a research/ dir, and its
+  # transitional prune arm removes leftovers — a stray inside a leftover farm is
+  # reported by that prune, and a re-minted research/ entry at the binder root is
+  # the binder-ROOT arm's population below.)
   # Binder-ROOT walk: each spoke binder root (_projects/<spoke>/) holds ONLY the
   # writer-owned surfaces the capability registry declares. The allowlist DERIVES
   # at run time from capability-registry.json output_contract.writes[] tokens of
   # the shape {plans_root}/_projects/<spoke>/<entry> (first segment after <spoke>:
-  # research-index.md, decision-log.md, handoff-chronicle.md, _situating.md, and
-  # the research/ farm dir) — the parity-checked SoT, never a second hand-kept
+  # research-index.md, decision-log.md, handoff-chronicle.md, _situating.md) —
+  # the parity-checked SoT, never a second hand-kept
   # list. A root entry outside the derived set is a stray (e.g. a re-minted
-  # retired file) — detect-and-report only, never auto-deleted. A missing or
+  # retired file, or a leftover dir of the retired research/ symlink farm
+  # awaiting its transitional prune) — detect-and-report only, never auto-deleted. A missing or
   # unreadable registry yields an empty allowlist and the arm SKIPS (fail-quiet:
   # a broken registry must not flag every legitimate surface).
   _PV_REG="${CAPABILITY_REGISTRY:-$(cd "$(dirname "$0")/.." && pwd)/capability-registry.json}"

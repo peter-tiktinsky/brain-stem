@@ -225,6 +225,19 @@ def render(text, **kw):
     return text
 
 
+def cohort_base(pdir):
+    """Mint-time id base for the plans-schema frontmatter cohort, mirroring
+    librarian:tasks-render's _cohort_id grammar: 'plans-' + the slugified path
+    parts under the .claude-plans marker (basename fallback). The per-file id
+    is this base + '-<suffix>' (spec/tasks/handoff/ideation-brief), so a mint
+    and a later renderer upsert derive the SAME id for the same file."""
+    ap = os.path.abspath(pdir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p])
+
+
 def write_atomic(plan_dir, files):
     """Block-and-log batch write with rollback. files = {relpath: content}."""
     created_root = None
@@ -275,12 +288,16 @@ def delegate_render(target_dir):
 # master/sub .tmpl + the brief template; the flat quartet is emitted inline here,
 # mirroring the live /new-plan inline-manifest pattern). type:plan, no parent_plan.
 def flat_files(title, plan_dir):
+    cb = cohort_base(plan_dir)
     spec = (
         "---\n"
         "title: %s — Spec\n"
         "type: spec\n"
+        "description: Spec for %s.\n"
         "created: %s\n"
         "updated: %s\n"
+        "id: %s-spec\n"
+        "schema_version: 1\n"
         "---\n\n"
         "# %s — Spec\n\n"
         "**Goal:** {One sentence. When this ships, what is true that wasn't true before?}\n\n"
@@ -304,7 +321,7 @@ def flat_files(title, plan_dir):
         "| Metric | Target | How to Measure |\n"
         "|--------|--------|---------------|\n"
         "| {metric} | {target} | {how} |\n"
-    ) % (title, today, today, title)
+    ) % (title, title, today, today, cb, title)
 
     # RULING 2: ship frontmatter + preface + an EMPTY tasks:start/tasks:end
     # sentinel pair ONLY. The outside `## Tasks` + `### T-1` block is GONE — the renderer
@@ -315,8 +332,11 @@ def flat_files(title, plan_dir):
         "---\n"
         "title: %s — Tasks\n"
         "type: tasks\n"
+        "description: Manifest-derived task replica for %s.\n"
         "created: %s\n"
         "updated: %s\n"
+        "id: %s-tasks\n"
+        "schema_version: 1\n"
         "---\n\n"
         "# %s — Tasks\n\n"
         "**Spec:** `%s/spec.md`\n"
@@ -329,14 +349,17 @@ def flat_files(title, plan_dir):
         "— NEVER hand-author inside the sentinels; task-state SoT = manifest.tasks[]. -->\n\n"
         "<!-- tasks:start -->\n\n"
         "<!-- tasks:end -->\n"
-    ) % (title, today, today, title, plan_dir, today)
+    ) % (title, title, today, today, cb, title, plan_dir, today)
 
     handoff = (
         "---\n"
         "title: %s — Handoff\n"
         "type: handoff\n"
+        "description: Append-only session handoff record for %s.\n"
         "created: %s\n"
         "updated: %s\n"
+        "id: %s-handoff\n"
+        "schema_version: 1\n"
         "---\n\n"
         "# %s — Handoff\n\n"
         "Append-only session record. Newest entry at top.\n\n"
@@ -352,7 +375,7 @@ def flat_files(title, plan_dir):
         "|------|--------|\n"
         "| `%s/` | created (quartet + placeholder brief) |\n\n"
         "---\n"
-    ) % (title, today, today, title, today, plan_dir)
+    ) % (title, title, today, today, cb, title, today, plan_dir)
 
     manifest = {
         "schema_version": 1,
@@ -394,7 +417,7 @@ def flat_files(title, plan_dir):
     }
 
     brief = render(tmpl("00-ideation-brief.md.tmpl"), title=title, date=today,
-                   plan_dir=plan_dir, slug=slug)
+                   plan_dir=plan_dir, slug=slug, cohort_base=cb)
 
     return {
         "spec.md": spec,
@@ -408,7 +431,8 @@ def flat_files(title, plan_dir):
 def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief):
     """Render the sub-plan quartet from templates/sub-*.tmpl into plan_dir-relative files."""
     kw = dict(title=title, date=today, plan_dir=plan_dir, spoke_key=spoke_key,
-              parent_plan=parent_plan, sub_plan_id=sub_plan_id, slug=sub_slug)
+              parent_plan=parent_plan, sub_plan_id=sub_plan_id, slug=sub_slug,
+              cohort_base=cohort_base(plan_dir))
     files = {
         "spec.md": render(tmpl("sub-spec.md.tmpl"), **kw),
         "tasks.md": render(tmpl("sub-tasks.md.tmpl"), **kw),
@@ -466,7 +490,7 @@ elif mode == "master":
     s_title = sub_title_override.strip() or title_case(sub_slug)
 
     m_kw = dict(title=m_title, date=today, plan_dir=master_dir, spoke_key=spoke_key,
-                first_sub_slug=sub_slug, slug=slug)
+                first_sub_slug=sub_slug, slug=slug, cohort_base=cohort_base(master_dir))
     master_files = {
         "spec.md": render(tmpl("master-spec.md.tmpl"), **m_kw),
         "tasks.md": render(tmpl("master-tasks.md.tmpl"), **m_kw),

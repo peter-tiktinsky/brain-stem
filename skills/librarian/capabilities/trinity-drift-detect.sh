@@ -4,6 +4,10 @@
 # extension) between a master's sub_plans[] read-replica and the subs' real
 # published status (the master<->sub aggregation axis).
 #
+# plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as
+# the declared_vocabulary.normalization home in the norm() comment (manifests are read with plain
+# json.loads); no Draft202012Validator is constructed, so there is no schema-gate degrade path.
+#
 # Librarian reconciler (1.1 line 129). Ported from the
 # trinity-drift-detect.sh. The trinity axis
 # is PARTIALLY RETIRED under DERIVE (manifest is the sole status SoT): the
@@ -170,16 +174,19 @@ def task_ledger_from_manifest(d):
     return out
 
 def norm(s):
-    return (s or "").strip().lower()
+    # The declared front-token chain (schemas/plan-manifest-schema.json
+    # declared_vocabulary.normalization): substring before '(', stripped,
+    # lowered, underscores to hyphens — a narrated status classifies by its
+    # front token. Matches stale-detect.sh's membership normalization so the
+    # two capabilities' counts agree on the same corpus.
+    return (s or "").split("(")[0].strip().lower().replace("_", "-")
 
-COMPLETE_SET = {"complete", "completed", "done", "implemented"}
-PENDING_SET = {"not-started", "not started", "pending", "planned", "todo"}
+# CLOSED terminal vocabulary: the declared terminal split (done/cut) plus the
+# frozen historical-tail synonyms, keyed to the schema declared_vocabulary.
+COMPLETE_SET = {"complete", "completed", "done", "implemented", "cut"}
 
 def is_complete(s):
     return norm(s) in COMPLETE_SET
-
-def is_pending(s):
-    return norm(s) in PENDING_SET
 
 counts = {"trinity-task-ledger-lag": 0, "parse-failure": 0,
           "master-sub-aggregation-drift": 0, "sub-publishes-upward-gap": 0,

@@ -12,6 +12,7 @@
 #
 # Consumers (at ship time):
 #   - capabilities/backup.sh             (system.backup_targets[])
+#   - capabilities/memory-hygiene.sh     (system.memory_hygiene_exemptions[])
 #   - capabilities/tag-coverage-audit.sh (vault.tag_audit_exemptions[])
 #   - capabilities/placement-validate.sh (vault.logs_whitelist_subdirs[])
 #   - capabilities/stale-detect.sh       (vault.logs_whitelist_subdirs[])

@@ -31,6 +31,15 @@
         "auto_populate_source": "post-write-verify.sh bootstrap — the PARENT of $FILE_PATH's dirname, expressed relative to $VAULT_ROOT"
       }
     },
+    "generated_exemption": {
+      "exempt_fields": [
+        "description",
+        "created",
+        "id",
+        "schema_version"
+      ],
+      "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list."
+    },
     "optional": [
       "provides"
     ],

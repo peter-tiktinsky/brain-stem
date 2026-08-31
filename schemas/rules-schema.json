@@ -109,6 +109,7 @@
     }
   ],
 
+  "$comment": "examples[] RULING (T-5, blind-verifiable): the promoted-from-memory example's source_memory value is a memory-corpus-style slug BY DESIGN and is KEPT — source_memory is definitionally an adopter-local memory slug (the field records which memory a promoted rule came from), so a slug-shaped value is the only faithful example of the field; the feedback_ prefix is product vocabulary (the memory-corpus naming contract), not a dangling cite into any private corpus. Audits: do not re-flag this slug.",
   "examples": [
     {
       "description": "TypeScript style: 2-space indent, no default exports, explicit return types on exported functions.",

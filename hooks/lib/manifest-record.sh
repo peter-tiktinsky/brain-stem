@@ -205,7 +205,9 @@ if [ "$SUBCOMMAND" = "init" ]; then
     fi
   fi
 
-  if ! sqlite3 "$WRITER_MANIFEST_PATH" < "$MIGRATE_SQL" 2>/dev/null; then
+  # stdout silenced: PRAGMA results (journal_mode=WAL prints "wal") are not
+  # caller-facing output — they leaked as a naked line in install transcripts.
+  if ! sqlite3 "$WRITER_MANIFEST_PATH" < "$MIGRATE_SQL" >/dev/null 2>&1; then
     printf 'manifest-record.sh: init failed applying migration: %s\n' "$MIGRATE_SQL" >&2
     exit 5
   fi

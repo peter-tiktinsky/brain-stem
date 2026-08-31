@@ -120,6 +120,28 @@ if [ -r "$_VVW_LIB" ]; then
 fi
 export XREF_WALK_LIST
 
+# Surface roster (SSOT): the machine-readable roster of live corpus surfaces +
+# the retired-surface denylist (hooks/lib/surface-roster.sh). The python block
+# reads it for (a) the vault-mount set (enumerated from disk by the roster —
+# never a hand-coded name list), (b) the resolution-namespace roots (memory /
+# rules / spoke corpora), and (c) the retired denylist (surfaces that may still
+# resolve on disk but must never count as live). A pre-set SURFACE_ROSTER_FILE
+# wins (test isolation).
+if [ -z "${SURFACE_ROSTER_FILE:-}" ]; then
+  _SR_LIB="${SURFACE_ROSTER_LIB:-$CLAUDE_HOME_RES/hooks/lib/surface-roster.sh}"
+  [ -r "$_SR_LIB" ] || _SR_LIB="$_REPO_LIB/surface-roster.sh"
+  if [ -r "$_SR_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_SR_LIB"
+    if command -v surface_roster_json >/dev/null 2>&1; then
+      SURFACE_ROSTER_FILE="$(mktemp -t xref-roster.XXXXXX)"
+      trap 'rm -f "${XREF_WALK_LIST:-}" "${SURFACE_ROSTER_FILE:-}"' EXIT
+      surface_roster_json > "$SURFACE_ROSTER_FILE" 2>/dev/null || true
+    fi
+  fi
+fi
+export SURFACE_ROSTER_FILE
+
 # The resolved CLAUDE_HOME the memory-namespace enumeration keys off, exported so the
 # python block never has to re-derive it (an unset CLAUDE_HOME would silently make the
 # namespace empty and quietly restore the noise floor).
@@ -174,16 +196,61 @@ BROKEN_LINK_SOURCE_EXEMPT_PREFIXES = (
     "Logs/xref-",
 )
 
-# Plans/Projects/Skills/Wiki/Work are top-level symlink SURFACES the walker
-# descends for link RESOLUTION only — their files STAY in target_map, so a
-# vault-proper link pointing at a target that lives on one of these surfaces
-# still resolves and is not falsely reported broken. They are NOT the vault-proper
-# surface this cap governs, so emitting broken-link / orphan findings against a
-# SOURCE that lives ON them is pure over-reach (0 true positives there). Exclude
-# those surfaces from EMISSION only; keep them in the graph. Match the top-level
-# path part (these are top-level mount points) so a genuinely-broken link in a
-# vault-proper file is never wrongly suppressed.
-SYMLINK_SURFACE_EXCLUDE = {"Plans", "Projects", "Skills", "Wiki", "Work"}
+# --- surface roster (SSOT): mounts + namespace roots + retired denylist -----
+# Read from $SURFACE_ROSTER_FILE (built by the shell wrapper from
+# hooks/lib/surface-roster.sh). Mount names come from the roster's vault-mount
+# entries when the roster's vault-root IS the scan root; under a scan-root
+# override (VAULT_ROOT_OVERRIDE / test sandboxes) the SAME rule is applied to
+# the effective root directly — mounts are the root's top-level symlinks,
+# enumerated from disk. Either way the set is never a hand-coded name list.
+def _roster_load(scan_root):
+    ns_roots, retired, mounts = [], [], set()
+    roster_vault = ""
+    p = os.environ.get("SURFACE_ROSTER_FILE", "")
+    if p and os.path.isfile(p):
+        try:
+            with open(p) as f:
+                doc = json.load(f)
+            for e in doc.get("live", []):
+                cls = e.get("class")
+                pth = e.get("path") or ""
+                if cls == "vault-root":
+                    roster_vault = pth
+                elif cls == "vault-mount":
+                    mounts.add(os.path.basename(pth))
+                elif cls in ("memory-corpus", "rules-corpus", "spoke-corpus") and e.get("exists"):
+                    ns_roots.append(pth)
+            retired = [os.path.realpath(r.get("path")) for r in doc.get("retired", []) if r.get("path")]
+        except Exception:
+            pass
+    if not roster_vault or os.path.realpath(roster_vault) != os.path.realpath(scan_root):
+        mounts = set()
+        try:
+            for _e in os.listdir(scan_root):
+                if os.path.islink(os.path.join(scan_root, _e)):
+                    mounts.add(_e)
+        except OSError:
+            pass
+    return mounts, ns_roots, retired
+
+_ROSTER_MOUNTS, _ROSTER_NS_ROOTS, _ROSTER_RETIRED = _roster_load(str(vault))
+
+def _is_retired(path_s):
+    rp = os.path.realpath(path_s)
+    for r in _ROSTER_RETIRED:
+        if rp == r or rp.startswith(r + "/"):
+            return True
+    return False
+
+# The top-level symlink SURFACES (vault mounts) are descended for link
+# RESOLUTION only — their files STAY in target_map, so a vault-proper link
+# pointing at a target that lives on one of these surfaces still resolves and
+# is not falsely reported broken. They are NOT the vault-proper surface this
+# cap governs, so broken-link / orphan findings are not EMITTED against a
+# SOURCE that lives on them (documented-deliberate narrowing; the report
+# headline names this scope). The set derives from the roster / from disk
+# above — never a fixed name list.
+SYMLINK_SURFACE_EXCLUDE = _ROSTER_MOUNTS
 
 def on_symlink_surface(rel_parts):
     return bool(rel_parts) and rel_parts[0] in SYMLINK_SURFACE_EXCLUDE
@@ -197,7 +264,13 @@ def memory_namespace_stems():
     raw = os.environ.get("MEMORY_NS_ROOTS")
     if raw is not None:
         roots = [r for r in raw.split(os.pathsep) if r]
+    elif _ROSTER_NS_ROOTS:
+        # The roster is the root SSOT: memory-corpus + rules-corpus +
+        # spoke-corpus classes (so registered note-spoke corpora resolve too).
+        roots = list(_ROSTER_NS_ROOTS)
     else:
+        # Roster-unavailable floor (no jq / no roster file): the memory-corpus
+        # layout convention, derived from the resolved CLAUDE_HOME.
         home = os.environ.get("MEMORY_NS_HOME") or os.path.join(os.path.expanduser("~"), ".claude")
         roots = [os.path.join(home, "rules"), os.path.join(home, "memory")]
         try:
@@ -207,7 +280,7 @@ def memory_namespace_stems():
             pass
     stems = set()
     for root in roots:
-        if not os.path.isdir(root):
+        if not os.path.isdir(root) or _is_retired(root):
             continue
         for dp, dns, fns in os.walk(root):
             dns[:] = [d for d in dns if not d.startswith(".")]
@@ -257,7 +330,7 @@ if walk_list_path and os.path.isfile(walk_list_path):
             _walk_lines = _wf.read().split("\n")
     except Exception:
         _walk_lines = []
-# --- markdown-link resolution index (T-3) --------------------------
+# --- markdown-link resolution index (second link grammar, additive) ---------
 # Markdown targets are SOURCE-RELATIVE paths, resolved against the PHYSICAL
 # directory of the source file (that is how every markdown consumer — an agent
 # on disk, an editor, Obsidian — resolves them, and it is what makes a
@@ -318,11 +391,17 @@ def _mdlink_resolve(cand, is_dir):
         return True
     if os.path.realpath(cand) in md_real_files:
         return True
-    return os.path.exists(cand)
+    # existence fallback: a path under a retired root never counts as live
+    return os.path.exists(cand) and not _is_retired(cand)
 
 _used_walker = False
 for line in _walk_lines:
     if not line:
+        continue
+    # Retired-denylist surfaces never count as live: a walked path routing into
+    # a retired root (e.g. a stale symlink into a pre-migration vault) is
+    # dropped before it can resolve anything or join the graph.
+    if _ROSTER_RETIRED and _is_retired(line):
         continue
     _md_index_add(line, None)
     if not line.endswith(".md"):
@@ -341,6 +420,9 @@ for line in _walk_lines:
 if not _used_walker:
     for root, dirs, files in os.walk(vault):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
+        if _ROSTER_RETIRED and _is_retired(root):
+            dirs[:] = []
+            continue
         for fn in files:
             full = os.path.join(root, fn)
             _md_index_add(full, None)
@@ -393,6 +475,15 @@ for src in scoped_files:
         key = base_fn.lower()
         hits = target_map.get(key, [])
         if hits:
+            # Obsidian suffix semantics for a path-qualified target: prefer the
+            # candidates whose path actually ends with the qualified suffix
+            # ("shortest path when possible"), so inbound credit lands on the
+            # file the link resolves to, not on every basename twin.
+            if "/" in base:
+                _sfx = "/" + (base + ".md").lower()
+                _s_hits = [h for h in hits if str(h).lower().endswith(_sfx)]
+                if _s_hits:
+                    hits = _s_hits
             for h in hits:
                 inbound[h] = inbound.get(h, 0) + 1
         elif key in MEMORY_NS:
@@ -412,7 +503,7 @@ for src in scoped_files:
             })
             broken += 1
 
-    # Markdown-link branch (T-3, additive): resolve `[text](target)`
+    # Markdown-link branch (additive): resolve `[text](target)`
     # against the pre-built physical index. Resolved .md targets join the SAME
     # inbound graph (an md-link is an inbound edge for orphan detection);
     # broken ones emit xref-broken-mdlink under the SAME source exemptions and
@@ -445,7 +536,7 @@ for p in all_files:
     if "/People/" in str(p) and p.stem != "_index":
         people_by_name[p.stem.lower()] = p
 
-# Physical-path join for markdown-grammar People references (T-3):
+# Physical-path join for markdown-grammar People references:
 # an md-link target resolves to a physical path, so the People membership test
 # for that grammar is keyed on the file's physical path, not its stem.
 people_real = {}
@@ -523,10 +614,14 @@ for p in scoped_files:
         })
         orphan += 1
 
-# Emit summary.
+# Emit summary. mount_sources = scoped sources living on a mount surface —
+# resolution-only, excluded from emission — so the headline can name its scope.
+mount_sources = sum(1 for p in scoped_files if on_symlink_surface(p.relative_to(vault).parts))
 out = {
     "total_files": len(all_files),
     "scoped_files": len(scoped_files),
+    "mount_sources": mount_sources,
+    "mount_names": sorted(SYMLINK_SURFACE_EXCLUDE),
     "broken": broken,
     "broken_mdlink": broken_mdlink,
     "people_oneway": people_oneway,
@@ -573,6 +668,7 @@ print(doc["total_files"])
 print(doc["scoped_files"])
 print(json.dumps(subtree))
 print(doc.get("broken_mdlink", 0))   # appended AFTER the original six lines so their sed addresses stay stable
+print(doc.get("mount_sources", 0))   # line 8: mount-resident (resolution-only) source count for the scope-honest headline
 PY
 )
 BROKEN=$(echo "$SUMMARY" | sed -n '1p')
@@ -582,14 +678,18 @@ TOTAL=$(echo "$SUMMARY" | sed -n '4p')
 SCOPED=$(echo "$SUMMARY" | sed -n '5p')
 SUBTREE=$(echo "$SUMMARY" | sed -n '6p')
 BROKEN_MD=$(echo "$SUMMARY" | sed -n '7p')
+MOUNT_SRC=$(echo "$SUMMARY" | sed -n '8p')
 
 manifest_set '.xref_graph' "$SUBTREE"
 
-# Report.
+# Report — every count names its scanned scope (a corpus-wide-reading headline
+# over a narrowed emission set is the misrepresentation class this block fixes;
+# the narrowing itself is documented-deliberate, the headline now says so).
 ISSUES=$((BROKEN + ${BROKEN_MD:-0} + PEOPLE))
-printf "## Cross-References (%d issues)\n\n" "$ISSUES"
-printf -- "- Files scanned: %d / %d total\n" "$SCOPED" "$TOTAL"
-printf -- "- Broken wikilinks: %d\n" "$BROKEN"
-printf -- "- Broken markdown links: %d\n" "${BROKEN_MD:-0}"
+printf "## Cross-References (%d issues) — scope: vault-proper sources\n\n" "$ISSUES"
+printf -- "- Files scanned: %d / %d total in the walked view\n" "$SCOPED" "$TOTAL"
+printf -- "- Mount-resident sources in scope: %d (resolution-only — findings against mount surfaces are NOT emitted here; scan the mount's own tree for those)\n" "${MOUNT_SRC:-0}"
+printf -- "- Broken wikilinks (vault-proper sources): %d\n" "$BROKEN"
+printf -- "- Broken markdown links (vault-proper sources): %d\n" "${BROKEN_MD:-0}"
 printf -- "- People one-way refs: %d\n" "$PEOPLE"
-printf -- "- Orphans (info): %d\n" "$ORPHAN"
+printf -- "- Orphans (info, vault-proper sources): %d\n" "$ORPHAN"

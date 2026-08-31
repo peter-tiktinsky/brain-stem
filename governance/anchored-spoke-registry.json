@@ -5,7 +5,8 @@
     "consumer": "skills/new-plan/new-plan.sh + skills/new-plan/lib/promote-from-inbox.sh (write-time `project:` stamp); skills/librarian/capabilities/plan-parent-resolve.sh (project-identity-drift re-validation)",
     "resolution": "A spoke key is resolved by matching the session cwd against each entry's `cwd_anchors[]` (longest-anchor-wins). A cwd matching no anchor falls back to the literal `home` identity — the anchorless catch-all, NOT a sanctioned launch anchor (`home` declares no `cwd_anchors`, so the home directory is never registered as a launch surface). Two distinct cwd anchors MUST NOT resolve to the same spoke key — a collision blocks plan creation with a diagnostic naming both anchors and the shared key (collision-safe resolver).",
     "override": "Plan creation accepts a `--project <spoke-key>` override for a deliberate cross-project continuation; the value MUST resolve to an existing entry below, else creation blocks listing the valid keys (no silent fallback).",
-    "binder_home": "Each spoke key keys a project binder at ~/.claude-plans/_projects/<spoke-key>/."
+    "binder_home": "Each spoke key keys a project binder at ~/.claude-plans/_projects/<spoke-key>/.",
+    "corpus_surface": "OPT-IN per entry: `\"corpus_surface\": true` marks the entry's cwd_anchors[] as live NOTE-CORPUS surfaces for the librarian surface roster (hooks/lib/surface-roster.sh) — link-checkers and corpus walkers then include those trees. Leave the field absent for code/work spokes whose content is not a notes corpus (the vault's Work/ mount already covers deliverable trees)."
   },
   "spokes": [
     {

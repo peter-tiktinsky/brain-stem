@@ -503,7 +503,12 @@ def infer_tags(rel):
             # Fall back to slugifying the directory name.
             eng_slug = re.sub(r"[^a-z0-9]+", "-", eng_lc).strip("-")
         if eng_slug:
-            inferred.append(f"#engagement/{eng_slug}")
+            # The engagement-level container tag emits on the #project/
+            # dimension: `engagement` is not a foundation-tier tag dimension
+            # (the foundation taxonomy's container dimension is #project/,
+            # and the work-index writer emits the same prefix), so any other
+            # prefix would land off the registered-union allowlist.
+            inferred.append(f"#project/{eng_slug}")
     return inferred
 
 # ---------- scope assembly ----------

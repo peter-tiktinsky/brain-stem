@@ -342,6 +342,28 @@ def strike(text, struck):
     return s
 
 
+# An acceptance criterion is PROSE, but a wikilink-shaped token ([[...]]) inside it
+# renders as a LIVE link once the replica sits in the vault view — every such AC
+# becomes graph noise (inbound edges to targets that are vocabulary, not notes).
+# Quote the shape in backticks at the emit site. Code spans are left untouched, so
+# an author's own `[[x]]` never double-wraps and re-rendering is byte-stable.
+WIKILINK_SHAPE_RE = re.compile(r"\[\[[^\]]+\]\]")
+CODE_SPAN_RE = re.compile(r"`[^`]*`")
+
+
+def quote_wikilink_shapes(text):
+    def _q(seg):
+        return WIKILINK_SHAPE_RE.sub(lambda m: "`%s`" % m.group(0), seg)
+    parts = []
+    last = 0
+    for m in CODE_SPAN_RE.finditer(text):
+        parts.append(_q(text[last:m.start()]))
+        parts.append(m.group(0))
+        last = m.end()
+    parts.append(_q(text[last:]))
+    return "".join(parts)
+
+
 marker_done = scan_handoff_done_markers(plan_dir)
 
 preface, footer = "", ""
@@ -417,6 +439,67 @@ def strip_fm_status(text):
     return "\n".join(kept)
 
 
+def _yq(s):
+    s = " ".join(str(s).split())
+    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+    return s
+
+
+def _cohort_id(suffix):
+    ap = os.path.abspath(plan_dir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p] + [suffix])
+
+
+def upsert_fm_cohort(text):
+    """The replica preface carries the full frontmatter cohort plans-schema
+    requires (type,title,description,created,updated,id,schema_version).
+    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
+    'tasks'. Present values are never rewritten; status:/tags: are never added
+    (manifest owns status; tags are an authoring surface). Idempotent."""
+    fl = text.split("\n")
+    if not fl or fl[0].strip() != "---":
+        return text
+    close = None
+    for i in range(1, len(fl)):
+        if fl[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    keys = {}
+    for i in range(1, close):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
+        if m:
+            keys[m.group(1)] = (i, m.group(2).strip())
+    add = []
+    if "type" in keys:
+        if keys["type"][1] != "tasks":
+            fl[keys["type"][0]] = "type: tasks"
+    else:
+        add.append("type: tasks")
+    fallback_title = "%s — Tasks" % title
+    if "title" not in keys:
+        add.append("title: %s" % _yq(fallback_title))
+    if "description" not in keys:
+        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
+        add.append("description: %s" % _yq(dv))
+    if "created" not in keys:
+        add.append("created: %s" % today)
+    if "updated" not in keys:
+        add.append("updated: %s" % today)
+    if "id" not in keys:
+        add.append("id: %s" % _cohort_id("tasks"))
+    if "schema_version" not in keys:
+        add.append("schema_version: 1")
+    if add:
+        fl[close:close] = add
+    return "\n".join(fl)
+
+
 if not preface.strip():
     # DERIVE (manifest is the sole status SoT): tasks.md is a manifest-derived
     # read-replica and no longer carries its OWN status: frontmatter. The fresh
@@ -441,6 +524,10 @@ else:
     # first frontmatter block (idempotent; body/Status-Key/ledger content untouched),
     # so a manifest flip cannot leave the tasks.md preface stale.
     preface = strip_fm_status(preface)
+
+# Every render upserts the required frontmatter cohort into the replica preface —
+# absent keys only; canonical type re-stamp; no status/tags (healer form).
+preface = upsert_fm_cohort(preface)
 
 lines = [
     LEDGER_HEADING,
@@ -501,7 +588,7 @@ for t in tasks:
     acs = t.get("acceptance_criteria") or []
     if acs:
         for a in acs:
-            lines.append("- [ ] %s" % a)
+            lines.append("- [ ] %s" % quote_wikilink_shapes(str(a)))
     else:
         lines.append("- [ ] —")
     lines.append("")

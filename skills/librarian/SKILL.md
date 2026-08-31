@@ -52,14 +52,14 @@ deterministic close-time cadence gate is the automatic trigger.
 
 `full` is the audit-set sweep: it runs every capability whose `capability-registry.json`
 `invocation_modes` includes `librarian-full`. The **registry is the authoritative roster**
-(contract-of-record); the set below is a snapshot of the current release (40
+(contract-of-record); the set below is a snapshot of the current release (41
 capabilities) — consult `invocation_modes` for the live membership:
 
 > `governance-parity-audit`, `index-maintain`, `log-subtype-canonical`, `rules-index`,
 > `writers-index-refresh`, `writers-overlap-refresh`, `writers-health-audit`, `plan-index`,
 > `plan-parent-resolve`, `drift-sweep`, `trinity-drift-detect`, `frontmatter-enforce`,
 > `placement-validate`, `xref-check`, `stale-detect`, `handoff-disposition-check`,
-> `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `capability-registry-parity`, `librarian-manifest-validate`,
+> `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `managed-surface-census`, `capability-registry-parity`, `librarian-manifest-validate`,
 > `skill-parity`, `waiver-audit`, `log-archive`,
 > `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`,
 > `plan-research-index`, `plan-decision-log`, `plan-handoff-index`, `project-context-situating`,
@@ -354,6 +354,22 @@ between the foundation-repo source and the live `~/.claude/schemas/` install;
 exit 1 on drift. Self-contained (no lib source). Ported as-is.
 Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
 
+## Capability: managed-surface-census
+
+Hashes every live foundation-manifest `files[]` member against its recorded
+sha256 and emits a `managed-surface-fork` finding for any divergence — the
+closing layer for live-only forks the write-time guard arm cannot see (shell,
+cron and capability writes bypass PreToolUse by ruled design). Needs no
+foundation repo (live bytes vs the live manifest's recorded sha), so it runs
+identically on an adopter install — the "live-hash vs manifest-recorded-hash"
+slot `sanctioned-schema-drift-detect` names out of its own scope.
+Detect-never-autofix; tripwire-deduped against the previous run's snapshot
+(`$CLAUDE_STATE_ROOT/census/`); `governance/overlay-master.json` (the sole
+runtime-written member — the locked mutation path owns it) and
+`*.foundation-retired`/`*.foundation-local` sidecars are classified, never
+flagged. Exit 1 while any fork divergence stands; absent manifest clean-skips.
+Runtime: `capabilities/managed-surface-census.sh`.
+
 ## Capability: handoff-disposition-check
 
 Checks every close-out follow-up carries one of the 3 dispositions (FIX NOW /
@@ -517,33 +533,37 @@ Runtime: `capabilities/link-grammar-convert.sh`.
 ## Capability: plan-research-index
 
 Generates the per-spoke binder research surface
-`_projects/<spoke>/research-index.md` plus the
-`research/<plan-slug>/` directory-symlink farm, re-derived from every
+`_projects/<spoke>/research-index.md`, re-derived from every
 plan manifest's `research_artifacts[]` on every run. The binder is per-spoke: only
 plans whose manifest `project:` matches the target spoke contribute rows, and rows
 are grouped by `parent_plan:` lineage. One row per declared
-`research_artifacts[]` entry (declaration is the selectivity gate): `| Path | Type
+`research_artifacts[]` entry of RESEARCH class (declaration is the selectivity
+gate; the kind-driven PARTITION routes decision-class entries — resolved kind
+`decision`/`adr`, a declared optional `type` winning over filename-stem
+inference — onto the decision log instead, while the promotion-edge detector
+still sweeps every declared artifact): `| Path | Type
 | Status | Plan-origin | One-liner | Library |`, the Library column derived from
-`library_refs`. Each Path cell is a RESOLVING relative-path link chosen by the
-artifact's declared home (two routes): an artifact under `_research/` keeps the
-`research/<plan-slug>/` farm route with the full path-remainder (so nested subdirs
-resolve); any other sanctioned declare home (`decisions/`, `target-state/` incl.
-`canonical/`, `deliverables/`, a legacy `research/` dir, a plan-root file) links by a
+`library_refs`. Each Path cell is a RESOLVING relative-path link — the CANONICAL
+route only: EVERY sanctioned declare home (`_research/`, `decisions/`,
+`target-state/` incl. `canonical/`, `deliverables/`, a plan-root file) links by a
 binder-relative path straight to the plan file — the link derives from the declared
-path, so it resolves regardless of home and stays green through a later repoint-at-move.
+path, so it resolves regardless of home and stays green through a later
+repoint-at-move. (The former `research/<plan-slug>/` directory-symlink farm beside
+the index is RETIRED — it duplicated every `_research/` tree with no consumer; a
+transitional prune-on-regen arm removes a leftover farm dir on sight.)
 Row-content selectivity (02:179): a finalized finding body is
 copied inline as a `> ` distilled blockquote ONLY when it is non-inferable — when
 status is `finalized`, an explicit distilled field (`finding`/`distilled`/`summary`)
 is present, and that text is not already inferable from the one-liner; every other
-entry emits a path pointer, never the full body. The `research/` farm is generated
-AND pruned each run — a symlink whose target plan `_research/` no longer exists, or
-whose plan no longer belongs to the spoke, is unlinked (the link only; the target
-is never followed or deleted). Re-derive surfaces one-sided edges
+entry emits a path pointer, never the full body. A leftover dir of the retired
+`research/` farm is pruned on regen — every symlink entry is unlinked (the link
+only; the target is never followed or deleted) and the dir removed once empty; a
+non-symlink stray is reported, never deleted. Re-derive surfaces one-sided edges
 (a manifest `library_ref` without the article back-stamp, or vice versa) as
 findings — DETECT + report, never repair-write (library-scrub owns the promotion
 write-orchestration). Missing manifest fields render empty, never error
 (never an error). `--spoke <key>` scopes to one spoke; `--dry-run` reports findings +
-would-be writes/links without writing.
+would-be writes without writing.
 Runtime: `capabilities/plan-research-index.sh`.
 
 ## Capability: plan-research-declare
@@ -573,10 +593,14 @@ re-derived from each plan manifest on every run. Distinct from the shipped
 `handoff-disposition-check` close-out checker (this is a binder generator, not a
 chronicle checker). The log is per-spoke: only plans whose manifest `project:`
 matches the target spoke contribute rows, grouped by `parent_plan:` lineage. One
-row per declared `decision_records[]` entry — a PURE projection, no symlink farm
-and no inline-vs-pointer selectivity: `| ADR | Title | Status | Path |
+row per declared `decision_records[]` entry — a PURE projection with
+no inline-vs-pointer selectivity: `| ADR | Title | Status | Path |
 Superseded-by | Created | Plan-origin |`. ADR bodies, rationale, and option-tables
-STAY at the linked path; the projection never copies them inline. Append-immutable
+STAY at the linked path; the projection never copies them inline. The kind-driven
+PARTITION also projects the spoke's decision-class `research_artifacts[]` dossiers
+(resolved kind `decision`/`adr`) into a `## Decision artifacts` section after the
+ADR lineages, in the research-index row shape (Library column carried), deduped
+per plan against the ADR ledger's declared paths — one artifact, one surface. Append-immutable
 per the append-immutability contract: a record whose status is `superseded` is forward-linked via its
 `superseded_by` ADR ordinal (cross-referenced to the in-projection row when that
 ADR is present) and is NEVER dropped from the log. A `superseded` record missing

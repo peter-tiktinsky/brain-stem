@@ -133,6 +133,24 @@ if [ -r "$_VVW_LIB" ]; then
 fi
 export WLR_WALK_LIST
 
+# Surface roster (SSOT): resolution-namespace roots (memory / rules / spoke
+# corpora) + the retired-surface denylist, from hooks/lib/surface-roster.sh.
+# A pre-set SURFACE_ROSTER_FILE wins (test isolation).
+if [ -z "${SURFACE_ROSTER_FILE:-}" ]; then
+  _SR_LIB="${SURFACE_ROSTER_LIB:-$CLAUDE_HOME_RES/hooks/lib/surface-roster.sh}"
+  [ -r "$_SR_LIB" ] || _SR_LIB="$_REPO_LIB/surface-roster.sh"
+  if [ -r "$_SR_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_SR_LIB"
+    if command -v surface_roster_json >/dev/null 2>&1; then
+      SURFACE_ROSTER_FILE="$(mktemp -t wlr-roster.XXXXXX)"
+      trap 'rm -f "${WLR_WALK_LIST:-}" "${_UNION:-}" "${SURFACE_ROSTER_FILE:-}"' EXIT
+      surface_roster_json > "$SURFACE_ROSTER_FILE" 2>/dev/null || true
+    fi
+  fi
+fi
+export SURFACE_ROSTER_FILE
+
 # The resolved CLAUDE_HOME the memory-namespace enumeration keys off, exported so the
 # python block never re-derives it (an unset CLAUDE_HOME would silently empty the
 # namespace and quietly restore the noise floor).
@@ -201,7 +219,35 @@ if walk_list_path and os.path.isfile(walk_list_path):
             _walk_lines = _wf.read().split("\n")
     except Exception:
         _walk_lines = []
-# --- markdown-link resolution index (T-3) --------------------------
+
+# --- surface roster (SSOT): namespace roots + retired denylist -----------------
+# Built by the shell wrapper from hooks/lib/surface-roster.sh. Namespace roots
+# feed the resolution namespace below; the retired denylist drops any walked or
+# resolved path that routes into a retired surface (still on disk, never live).
+def _roster_load():
+    ns_roots, retired = [], []
+    p = os.environ.get("SURFACE_ROSTER_FILE", "")
+    if p and os.path.isfile(p):
+        try:
+            with open(p) as f:
+                doc = json.load(f)
+            for e in doc.get("live", []):
+                if e.get("class") in ("memory-corpus", "rules-corpus", "spoke-corpus") and e.get("exists"):
+                    ns_roots.append(e.get("path") or "")
+            retired = [os.path.realpath(r.get("path")) for r in doc.get("retired", []) if r.get("path")]
+        except Exception:
+            pass
+    return [x for x in ns_roots if x], retired
+
+_ROSTER_NS_ROOTS, _ROSTER_RETIRED = _roster_load()
+
+def _is_retired(path_s):
+    rp = os.path.realpath(path_s)
+    for r in _ROSTER_RETIRED:
+        if rp == r or rp.startswith(r + "/"):
+            return True
+    return False
+# --- markdown-link resolution index (second link grammar, additive) ---------
 # The SECOND grammar: `[text](relative/path)`. Targets are source-relative and
 # resolve against the PHYSICAL directory of the source file, so the index keys
 # on physical paths — every regular file the walker emitted (all extensions:
@@ -257,7 +303,8 @@ def _mdlink_resolve(cand, is_dir):
         return True
     if os.path.realpath(cand) in md_real_files:
         return True
-    return os.path.exists(cand)
+    # existence fallback: a path under a retired root never counts as live
+    return os.path.exists(cand) and not _is_retired(cand)
 
 # Full `[text](target)` shape required (deliberate kernel deviation): a bare
 # `](x)` in prose is not a link; a finder must not flag it.
@@ -268,6 +315,8 @@ for full in _walk_lines:
     if not full:
         continue
     if any(ex in full + "/" for ex in EXEMPT_DIRS):
+        continue
+    if _ROSTER_RETIRED and _is_retired(full):
         continue
     _md_index_add(full)
     if not full.endswith(".md"):
@@ -282,6 +331,9 @@ if not _used_walker:
         # prune hidden and exempt
         dirnames[:] = [d for d in dirnames if not d.startswith('.')]
         if any(ex in dirpath + "/" for ex in EXEMPT_DIRS):
+            continue
+        if _ROSTER_RETIRED and _is_retired(dirpath):
+            dirnames[:] = []
             continue
         for fn in filenames:
             _md_index_add(os.path.join(dirpath, fn))
@@ -300,7 +352,11 @@ def memory_namespace_stems():
     raw = os.environ.get("MEMORY_NS_ROOTS")
     if raw is not None:
         roots = [r for r in raw.split(os.pathsep) if r]
+    elif _ROSTER_NS_ROOTS:
+        # Roster is the root SSOT: memory + rules + registered note-spoke corpora.
+        roots = list(_ROSTER_NS_ROOTS)
     else:
+        # Roster-unavailable floor: the memory-corpus layout convention.
         home = os.environ.get("MEMORY_NS_HOME") or os.path.join(os.path.expanduser("~"), ".claude")
         roots = [os.path.join(home, "rules"), os.path.join(home, "memory")]
         try:
@@ -310,7 +366,7 @@ def memory_namespace_stems():
             pass
     stems = set()
     for root in roots:
-        if not os.path.isdir(root):
+        if not os.path.isdir(root) or _is_retired(root):
             continue
         for dp, dns, fns in os.walk(root):
             dns[:] = [d for d in dns if not d.startswith(".")]
@@ -336,8 +392,8 @@ for path in md_files:
         content = open(path).read()
     except Exception:
         continue
-    # Skip if no links in either grammar (T-3 widened the wikilink-only
-    # gate — a file carrying ONLY markdown links must be scanned too).
+    # Skip if no links in either grammar (widened from the wikilink-only gate —
+    # a file carrying ONLY markdown links must be scanned too).
     if "[[" not in content and "](" not in content:
         continue
     # Strip fenced code blocks and inline code spans — wikilinks inside code
@@ -349,7 +405,7 @@ for path in md_files:
 
     rel_path = os.path.relpath(path, scope_real)   # scope_real: match the walker root norm
 
-    # Markdown-link branch (T-3, additive): scans the SAME code-stripped
+    # Markdown-link branch (additive): scans the SAME code-stripped
     # content. Detection only — a broken target emits `broken-mdlink` for manual
     # triage; nothing here seeds a rewrite.
     for m in MDLINK_RE.finditer(content):
@@ -405,6 +461,19 @@ for path in md_files:
             tgt_rel = target if target.endswith(".md") else target + ".md"
             if any(c == tgt_rel for c in candidates):
                 continue
+            # Obsidian SUFFIX resolution ("shortest path when possible"): a
+            # path-qualified target resolves when exactly ONE candidate's path
+            # ends with the qualified suffix — the folder qualifier IS the
+            # disambiguator, so basename twins elsewhere in the vault do not
+            # make it ambiguous. (This was the measured over-report class:
+            # suffix-resolvable links flagged ambiguous by bare basename
+            # cardinality.) Two-plus suffix matches fall through to the
+            # ambiguity branch below on the narrowed set.
+            _sfx_hits = {c for c in candidates if c.lower().endswith("/" + tgt_rel.lower())}
+            if len(_sfx_hits) == 1:
+                continue
+            if len(_sfx_hits) >= 2:
+                candidates = _sfx_hits
 
         if len(candidates) == 1:
             # Basename resolves to exactly one vault file -> Obsidian resolves it.
@@ -476,8 +545,12 @@ if apply and per_file_rewrites:
             f.write(content)
         os.replace(tmp, path)
 
-print("wikilink-repair: scanned=%d broken=%d broken_mdlinks=%d proposed_repairs=%d applied=%d unresolved=%d" % (
-    len(md_files), broken_count, broken_md, proposed, applied, unresolved), file=sys.stderr)
+# Scope-honest summary: scanned= counts the walked view under scope_root only;
+# the resolution namespace (memory/rules/spoke corpora) resolves targets but is
+# not scanned for sources. Keep the scanned= token shape stable (parsed
+# downstream).
+print("wikilink-repair: scanned=%d broken=%d broken_mdlinks=%d proposed_repairs=%d applied=%d unresolved=%d scope=%s (sources: walked view only; memory/rules/spoke corpora are resolution-only)" % (
+    len(md_files), broken_count, broken_md, proposed, applied, unresolved, scope_root), file=sys.stderr)
 
 if report_path:
     # self-stamp the COMPLETE log contract so the audit report is findable
@@ -496,6 +569,7 @@ if report_path:
     lines.append("")
     lines.append("# Wikilink Repair Report")
     lines.append("")
+    lines.append("- Scope scanned: %s (walked view; memory/rules/spoke corpora resolution-only)" % scope_root)
     lines.append("- Files scanned: %d" % len(md_files))
     lines.append("- Broken wikilinks: %d" % broken_count)
     lines.append("- Broken markdown links (detection only): %d" % broken_md)

@@ -155,8 +155,18 @@ else
 fi
 export WORK_CONFIGURED
 
+# VAULT_LOGS is a LEGACY READ-AND-MIGRATE export, not a live write target: the
+# in-vault Logs/ folder is de-blessed (no longer a foundation folder), nothing
+# in the shipped tree writes or creates it, and every shipped error/log channel
+# routes to $CLAUDE_LOG_DIR instead. The export resolves non-empty ONLY when
+# the legacy directory actually exists on disk (a pre-migration install), so a
+# consumer can never be handed a nonexistent directory as if it were a usable
+# path — the silent-write-failure class. VAULT_LOGS="" is the load-bearing
+# graceful-degrade contract every consumer already honors; do NOT use its
+# non-emptiness as a vault-configured proxy (that is VAULT_CONFIGURED) or as a
+# paths.sh-sourced sentinel (key on CLAUDE_STATE_ROOT, always non-empty).
 if [ -z "${VAULT_LOGS:-}" ]; then
-  if [ -n "$VAULT_ROOT" ]; then VAULT_LOGS="$VAULT_ROOT/Logs"; else VAULT_LOGS=""; fi
+  if [ -n "$VAULT_ROOT" ] && [ -d "$VAULT_ROOT/Logs" ]; then VAULT_LOGS="$VAULT_ROOT/Logs"; else VAULT_LOGS=""; fi
 fi
 export VAULT_LOGS
 
@@ -193,6 +203,22 @@ if [ -z "${BACKUPS_DIR:-}" ]; then
   BACKUPS_DIR="$(_manifest_get .paths.backups_dir)"
 fi
 export BACKUPS_DIR
+
+# require_backups_dir — the LOUD empty-resolution seam for BACKUPS_DIR.
+# The export above stays silently empty by contract (sourcing must never spam
+# a hook), so the loudness lives at the point of USE: a consumer that needs a
+# backup destination calls this instead of reading $BACKUPS_DIR directly.
+# Prints the resolved dir and returns 0; on empty resolution prints a stderr
+# diagnostic naming the manifest key and returns 1 — loud, not fatal (the
+# caller decides whether missing backups aborts its run).
+require_backups_dir() {
+  if [ -n "${BACKUPS_DIR:-}" ]; then
+    printf '%s\n' "$BACKUPS_DIR"
+    return 0
+  fi
+  printf 'paths.sh: BACKUPS_DIR resolved EMPTY — set paths.backups_dir in %s (or export BACKUPS_DIR). Refusing to guess a backup destination.\n' "$_USER_MANIFEST" >&2
+  return 1
+}
 
 # resolve_memory_dir — absolute auto-memory dir for the current session,
 # mirroring Claude Code's own resolver. Resolution order:
