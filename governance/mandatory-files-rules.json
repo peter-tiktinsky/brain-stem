@@ -46,11 +46,11 @@
     },
     "_memory_md_cap": {
       "rule_id": "R-59",
-      "scope": "MEMORY.md under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented load contract: first 200 lines OR first 25KB (whichever first) loaded at session start; entries past the cap silently drop. Per-line <= 200 chars (drift signal).",
+      "scope": "MEMORY.md under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented load contract: first 200 lines OR first 25,000 UTF-16 code units of the trimmed, frontmatter- and comment-stripped text (whichever first) loaded at session start; entries past the cap are dropped and the harness appends a model-visible WARNING footer to what it did load, so the loss is announced in-session rather than hidden. Per-line <= 200 chars (drift signal).",
       "file_pattern": "**/.claude/projects/*/memory/MEMORY.md",
       "thresholds": {
         "max_lines": 200,
-        "max_bytes": 25600,
+        "max_bytes": 25000,
         "max_chars_per_line": 200,
         "governing_trigger": "bytes",
         "_governing_trigger_note": "The BYTE cap is the governing trigger — it bites first (at ~110 entries) before the line cap. R-59 consumers gate on the byte ratio primarily; the line + char-line caps are secondary drift signals."
@@ -86,7 +86,57 @@
         "hooks/pre-write-guard.sh (PreToolUse Edit|Write advisory at write-time)",
         "hooks/memory-consolidation-run.sh (Check 8 budget monitor: byte-first, both-raw-and-stripped-gate-on-larger)"
       ],
-      "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded at the start of every conversation. Entries past the cap silently drop. Advisory makes the truncation risk visible at write-time. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md reached via index-entry links and [[wikilink]] cross-references — the memory/rules pointer tier is EXEMPT from the corpus link-grammar conversion (its links resolve against the enumerated memory namespace, not the vault walk). The byte cap is the governing trigger (bites at ~110 entries before the line cap)."
+      "rationale": "Anthropic-documented at code.claude.com/docs/en/memory: the first 200 lines of MEMORY.md, or the first 25,000 UTF-16 code units of the trimmed, frontmatter- and comment-stripped text, whichever comes first, are loaded at the start of every conversation. Entries past the cap are dropped and the harness announces it, appending a model-visible WARNING footer naming the overflow to the content it did load. The advisory makes the same risk visible one step earlier, at write-time, before the index is saved. MEMORY.md = index/read-replica; per-topic detail lives in memory/<file>.md reached via index-entry links and [[wikilink]] cross-references — the memory/rules pointer tier is EXEMPT from the corpus link-grammar conversion (its links resolve against the enumerated memory namespace, not the vault walk). The byte cap is the governing trigger (bites at ~110 entries before the line cap)."
+    },
+    "_always_on_context_budget": {
+      "rule_id": "R-66",
+      "scope": "The ALWAYS-ON file surfaces — every rules/ file that loads for the cwd, the CLAUDE.md chain (global + project), and MEMORY.md — are re-sent with every request of every session and are re-created for every subagent. Unlike MEMORY.md they carry NO platform cap, so this slot declares the convention: no always-on surface is bigger than the platform's own auto-memory cap (one unit), and the three of them together are no bigger than three units.",
+      "unit_bytes": {
+        "derived_from": "mandates._memory_md_cap.thresholds.max_bytes",
+        "_note": "ONE unit, ONE literal. Every threshold below is expressed in UNITS and multiplied by the value READ from the cited slot at render time — there is deliberately no second byte number here, so a correction to the auto-memory cap propagates to this budget with no edit to this slot."
+      },
+      "bands": {
+        "yellow_pct": 75,
+        "red_pct": 90,
+        "_note": "The same bands the auto-memory budget monitor uses, so one reader learns one scale."
+      },
+      "rules_unscoped_aggregate": {
+        "max_units": 1,
+        "scope": "every rule that loads for the cwd: all user-scope *.md + project-scope *.md without paths:",
+        "render": "contributor list (files by bytes, cumulative %) — no per-file threshold"
+      },
+      "claude_md": {
+        "max_lines": 200,
+        "line_bands": [
+          150,
+          180
+        ],
+        "max_units_per_file": 1,
+        "max_units_per_chain": 1,
+        "_note": "CLAUDE.md loads in full with no platform cap and the hierarchy is concatenated, so the byte unit applies to EACH file and to the CONCATENATED chain. The line cap is the documented ~200-line authoring convention and applies per file; line_bands are its absolute yellow/red line counts."
+      },
+      "total_always_on_files": {
+        "max_units": 3,
+        "components": [
+          "rules aggregate",
+          "CLAUDE.md chain",
+          "MEMORY.md (read from the existing auto-memory budget monitor, not re-measured)"
+        ],
+        "_note": "MEMORY.md is governed by _memory_md_cap and monitored after every session by hooks/memory-consolidation-run.sh Check 8; this slot REFERENCES that verdict rather than measuring the file a third time. When the monitor has not run, the total is reported PARTIAL rather than silently under-counted."
+      },
+      "hook_spill": {
+        "any_spill_is_red": true,
+        "_note": "Hook output over the harness additionalContext cap is written to a tool-results spill file and replaced in context by a preview plus a path. Any spill file in a session means a hook is emitting more than the harness will deliver inline, so one spill is enough for RED."
+      },
+      "template_residue": {
+        "yellow_min_bytes": 500,
+        "method": "type-2 HTML-block parser (harness-equivalent), never a fingerprint"
+      },
+      "enforcement_mechanism": "advisory — skills/librarian/capabilities/context-budget-index.sh renders a read-replica and emits one finding per non-GREEN row; it never blocks a write and never modifies a measured file.",
+      "consumers": [
+        "skills/librarian/capabilities/context-budget-index.sh"
+      ],
+      "rationale": "CLAUDE.md and rules/ have no platform cap, so any threshold here is a convention rather than a documented limit; the initial operating points are CALIBRATION-PENDING and are expected to move once the index has measured real corpora. They are anchored on the one always-on number the platform does rule on (the auto-memory cap) so the convention is derived rather than invented."
     }
   },
   "_rules": [
@@ -116,8 +166,8 @@
       ],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap",
-      "failure_mode": "Adopter writes MEMORY.md entries past the documented 200-line/25KB cap; harness silently truncates at load-time; bottom entries never reach the model. Without the advisory, the adopter has no write-time signal that part of their index will be invisible.",
-      "rule_text": "MEMORY.md files under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented harness load contract: first 200 lines OR first 25KB (whichever first) loaded at session start. Per-line maximum 200 characters (drift signal). When any threshold is exceeded, hooks/pre-write-guard.sh MUST emit an additionalContext advisory at write-time naming the breached threshold(s) + actual value(s) + a remediation pointer. ADVISORY — the write always proceeds.",
+      "failure_mode": "Adopter writes MEMORY.md entries past the documented 200-line/25,000-unit cap; the harness truncates at load-time and appends a WARNING footer saying so, but only from the next session onward, and the bottom entries never reach the model. Without the advisory, the adopter has no write-time signal that part of their index will be invisible.",
+      "rule_text": "MEMORY.md files under ~/.claude/projects/<slug>/memory/ MUST stay within the Anthropic-documented harness load contract: first 200 lines OR first 25,000 UTF-16 code units of the trimmed, frontmatter- and comment-stripped text (whichever first) loaded at session start. Per-line maximum 200 characters (drift signal). When any threshold is exceeded, hooks/pre-write-guard.sh MUST emit an additionalContext advisory at write-time naming the breached threshold(s) + actual value(s) + a remediation pointer. ADVISORY — the write always proceeds.",
       "matcher_path": "mandates._memory_md_cap",
       "thresholds_source": "mandates._memory_md_cap.thresholds"
     },
@@ -144,6 +194,21 @@
       "frontmatter_contract": "governance/frontmatter-rules.json#types.index",
       "exemption_paths_source": "mandates._index_md.exemption_paths",
       "self_healing_capability": "skills/librarian/capabilities/index-maintain.sh (R-34 self-healing boundary — mutations bounded to mechanically-derivable values; semantic content flagged for review, never auto-overwritten)"
+    },
+    {
+      "id": "R-66",
+      "home": "mandatory-files",
+      "category": "C5",
+      "tier": "mandate",
+      "enforcement_layer": [
+        "skills/librarian/capabilities/context-budget-index.sh (after-session read-replica + one finding per non-GREEN row; never blocks)"
+      ],
+      "status": "active",
+      "source": "governance/mandatory-files-rules.json :: mandates._always_on_context_budget",
+      "failure_mode": "The always-on file surfaces grow unmeasured: they are re-sent with every request and re-created for every subagent, so growth is paid on every turn of every session and nothing reports it. Without the index, a rules/ corpus or a CLAUDE.md chain past the convention is invisible until someone reads a context report by hand.",
+      "rule_text": "The always-on file surfaces MUST stay within the declared unit budget: the rules that load for the cwd within one unit in AGGREGATE, each CLAUDE.md and the concatenated CLAUDE.md chain within one unit (and each file within the ~200-line authoring convention), and the three surfaces together within three units, where a unit is READ from mandates._memory_md_cap.thresholds.max_bytes. Any hook additionalContext spill file in a session is RED. MEMORY.md is NOT re-measured here — its verdict is read from the existing R-59 monitor. ADVISORY — findings only, never a block.",
+      "matcher_path": "mandates._always_on_context_budget",
+      "thresholds_source": "mandates._always_on_context_budget (units) + mandates._memory_md_cap.thresholds.max_bytes (the unit)"
     }
   ]
 }

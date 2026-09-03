@@ -7,6 +7,16 @@
 # pointer chain resolves fresh each prompt; the sentinel dedupes repeats) and
 # (b) cross-plan prompt disambiguation in UNARMED sessions only. This body handles
 # plan-execution context, not session orchestration.
+#
+# LAUNCH-SPOKE KEYED. The plan injected is the one armed in THIS session's launch
+# spoke and no other. The payload `.cwd` is resolved to a spoke key through the shared
+# cwd->spoke resolver (skills/new-plan/lib/spoke-resolve.sh — the same resolver the
+# situating card keys on), and the arm pointer is read for that spoke
+# (hooks/lib/active-plan-resolve.sh). A plan armed for another spoke is never injected
+# here, and the unarmed fallbacks below are scoped to the same spoke. A launch dir
+# under no registered anchor is the `home` catch-all, which reads the plan corpus
+# unfiltered — a single-spoke install sees no behaviour change.
+#
 # Behavior: master/sub plans are first-class (the master-spec payload is
 # load-bearing); the canonical status vocabulary gates firing; agent-reload
 # loads non-superseded decision_records[].
@@ -27,9 +37,10 @@
 # Injected text is FACTUAL, not imperative ("The authoritative spec for the active
 # plan is <path>. ...") per + Anthropic hooks prompt-injection guidance.
 #
-# Fail-open: silent on any error; never blocks. Size-capped below the hook-output
-# validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (portable;
-# NO literal $HOME/.claude path in the body).
+# Fail-open: silent on any error; never blocks — including every step of the spoke
+# resolution, which degrades to `home` rather than erroring. Size-capped below the
+# hook-output validator bound. Bash 3.2 clean (R-23). $SCRIPT_DIR/lib sourcing (
+# portable; NO literal $HOME/.claude path in the body).
 
 set -euo pipefail
 
@@ -39,7 +50,7 @@ source "$SCRIPT_DIR/lib/registry.sh"
 
 PLANS_DIR="${PLANS_DIR:-$HOME/.claude-plans}"
 
-# Read the payload (hook_event_name + session_id).
+# Read the payload (hook_event_name + session_id + cwd).
 # BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
 # EOF" — an inherited socket/fifo answers "not a tty" and NEVER EOFs, so the bare
 # `cat` this replaces sleeps forever and the hook hangs with zero output. The timeout
@@ -68,6 +79,9 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 SOURCE=$(echo "$INPUT" | jq -r '.source // "startup"')
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""')
+# The launch dir, present on BOTH events. Guarded: an unreadable payload field is a
+# `home` resolution below, never a non-zero exit.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || printf '')
 
 [[ -z "$SESSION_ID" ]] && exit 0
 [[ ! -d "$PLANS_DIR" ]] && exit 0
@@ -77,19 +91,54 @@ if [[ -z "$EVENT" ]]; then
   if [[ -n "$PROMPT" ]]; then EVENT="UserPromptSubmit"; else EVENT="SessionStart"; fi
 fi
 
+# Launch spoke — the session identity every resolution below is keyed to
+# The shared cwd->spoke resolver maps the launch dir to a registry spoke key. The
+# repo-local copy is sourced first (dev/test), then the live install — the same
+# two-candidate loop the situating-card hook uses. EVERY failure mode (no `.cwd`, no
+# resolver on disk, a registry collision, an empty result) degrades to the `home`
+# catch-all, which reads the corpus exactly as an un-migrated single-spoke install
+# does. This hook never blocks, so an unresolvable spoke must never be an error.
+for _sr in "$SCRIPT_DIR/../skills/new-plan/lib/spoke-resolve.sh" \
+           "${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/spoke-resolve.sh"; do
+  if [[ -r "$_sr" ]]; then
+    # shellcheck source=/dev/null
+    source "$_sr" 2>/dev/null || true
+    break
+  fi
+done
+unset _sr
+
+SPOKE="home"
+if [[ -n "$CWD" ]] && command -v spoke_resolve_from_cwd >/dev/null 2>&1; then
+  SPOKE=$(spoke_resolve_from_cwd "$CWD" 2>/dev/null || printf '')
+  [[ -n "$SPOKE" ]] || SPOKE="home"
+fi
+
+# The per-spoke arm-pointer resolver, from the same lib dir registry.sh came from.
+# Guarded on both source and call: an install without it resolves nothing as armed and
+# the spoke-scoped unarmed fallbacks below carry the hook.
+if [[ -r "$SCRIPT_DIR/lib/active-plan-resolve.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/lib/active-plan-resolve.sh" 2>/dev/null || true
+fi
+
 # Plan resolution
 # A "plan target" is a plan-tree directory: either a flat/master plan dir
 # (NN-slug) or a sub-plan dir (NN-slug/NN-subslug | NN-slug/SP-NN-subslug).
-# Resolution is arm-pointer-FIRST on BOTH events: the
-# arming chain ($PLANS_DIR/.active-plan -> <plan>/.active-sp) is the SoT for
-# "the active plan"; when it resolves, it wins. The heuristics survive ONLY as
-# the unarmed fallback:
-#   SessionStart:     discover the single in-progress plan (goal-anchor).
-#   UserPromptSubmit: fire for a plan explicitly referenced in the prompt
-#                     (cross-plan disambiguation).
+# Resolution is arm-pointer-FIRST on BOTH events, and the pointer is
+# THIS SPOKE'S: the arming chain ($PLANS_DIR/_projects/$SPOKE/.active-plan ->
+# <plan>/.active-sp, with the corpus-wide legacy pointer as the read-only fallback
+# described in hooks/lib/active-plan-resolve.sh) is the SoT for "the active plan";
+# when it resolves, it wins. The heuristics survive ONLY as the unarmed fallback, and
+# they are scoped to the same spoke:
+#   SessionStart:     discover the single in-progress plan OF THIS SPOKE (goal-anchor).
+#   UserPromptSubmit: fire for a plan explicitly referenced in the prompt, and only
+#                     when that plan belongs to this spoke (cross-plan disambiguation).
 # A prompt that merely REFERENCES a different plan must never be injected as
 # "the active plan" over an armed one — that is the wrong-framing vector
-# (bystander plan Y's spec labeled authoritative while armed mid-build on X).
+# (bystander plan Y's spec labeled authoritative while armed mid-build on X). A plan
+# belonging to ANOTHER spoke is not this session's active plan at all, whichever leg
+# surfaces it. For the `home` catch-all every leg reads the corpus unfiltered.
 
 PLAN_REL=""   # path relative to $HOME, e.g. .claude-plans/93-foo OR .claude-plans/93-foo/-bar
 
@@ -133,46 +182,55 @@ manifest_status() {
   jq -r '.status // ""' "$mf" 2>/dev/null || printf ''
 }
 
-# Resolve the ARMED plan target from the arm-pointer chain:
-# $PLANS_DIR/.active-plan names the armed plan; <plan>/.active-sp names the
-# armed sub ('.' = the plan's own root manifest). Prints the rel target, or
-# empty when unarmed. A dangling .active-plan (no such dir) degrades to
-# unarmed; a dangling/absent .active-sp degrades to the plan ROOT — the plan
-# pointer is still meaningful, and falling back to a heuristic there would
-# reopen the bystander vector this function exists to close.
-resolve_from_arm_pointers() {
-  local ap="$PLANS_DIR/.active-plan" plan sp rel
-  [[ -f "$ap" ]] || { printf ''; return; }
-  plan=$(tr -d '[:space:]' < "$ap" 2>/dev/null || true)
-  if [[ -z "$plan" || ! -d "$PLANS_DIR/$plan" ]]; then printf ''; return; fi
-  rel=".claude-plans/$plan"
-  if [[ -f "$PLANS_DIR/$plan/.active-sp" ]]; then
-    sp=$(tr -d '[:space:]' < "$PLANS_DIR/$plan/.active-sp" 2>/dev/null || true)
-    if [[ -n "$sp" && "$sp" != "." && -d "$PLANS_DIR/$plan/$sp" ]]; then
-      rel=".claude-plans/$plan/$sp"
-    fi
-  fi
-  printf '%s' "$rel"
+# manifest project (owning spoke key) reader (fail-open empty).
+manifest_project() {
+  local mf="$1"
+  [[ -f "$mf" ]] || { printf ''; return; }
+  jq -r '.project // ""' "$mf" 2>/dev/null || printf ''
 }
 
-# Discover the single in-progress plan target. Prefers a sub-plan over its master
-# when the sub is the in-progress one (most-specific active scope). Returns the
-# first match; if multiple in-progress plans exist, SessionStart stays silent (the
-# UPS disambiguation slot handles the ambiguous case on the next prompt).
+# Does a plan owned by <project> belong to this session's spoke? The `home` catch-all
+# takes every plan (legacy, corpus-wide); a registered spoke takes only its own.
+spoke_matches_project() {
+  if [[ "$SPOKE" == "home" ]]; then return 0; fi
+  if [[ "$1" == "$SPOKE" ]]; then return 0; fi
+  return 1
+}
+
+# Same question for a resolved rel target: a sub-plan with no `project` of its own
+# inherits its master's.
+spoke_owns_target() {
+  local rel="$1" abs proj
+  if [[ "$SPOKE" == "home" ]]; then return 0; fi
+  abs="$PLANS_DIR/${rel#.claude-plans/}"
+  proj=$(manifest_project "$abs/manifest.json")
+  [[ -n "$proj" ]] || proj=$(manifest_project "$(dirname "$abs")/manifest.json")
+  spoke_matches_project "$proj"
+}
+
+# Discover the single in-progress plan target OF THIS SPOKE. Prefers a sub-plan over
+# its master when the sub is the in-progress one (most-specific active scope). Returns
+# the first match; if multiple in-progress plans exist in the spoke, SessionStart stays
+# silent (the UPS disambiguation slot handles the ambiguous case on the next prompt).
 discover_in_progress() {
-  local hits=0 found="" plan_dir sp_dir st
+  local hits=0 found="" plan_dir sp_dir st master_proj proj
   for plan_dir in "$PLANS_DIR"/[0-9]*-*; do
     [[ -d "$plan_dir" ]] || continue
+    master_proj=$(manifest_project "$plan_dir/manifest.json")
     # sub-plan dirs first (most specific)
     for sp_dir in "$plan_dir"/[0-9]*-* "$plan_dir"/SP-[0-9]*-*; do
       [[ -d "$sp_dir" ]] || continue
       st=$(manifest_status "$sp_dir/manifest.json")
       if [[ "$st" == "in-progress" ]]; then
-        hits=$((hits + 1)); found=".claude-plans/$(basename "$plan_dir")/$(basename "$sp_dir")"
+        proj=$(manifest_project "$sp_dir/manifest.json")
+        [[ -n "$proj" ]] || proj="$master_proj"
+        if spoke_matches_project "$proj"; then
+          hits=$((hits + 1)); found=".claude-plans/$(basename "$plan_dir")/$(basename "$sp_dir")"
+        fi
       fi
     done
     st=$(manifest_status "$plan_dir/manifest.json")
-    if [[ "$st" == "in-progress" ]]; then
+    if [[ "$st" == "in-progress" ]] && spoke_matches_project "$master_proj"; then
       hits=$((hits + 1)); found=".claude-plans/$(basename "$plan_dir")"
     fi
   done
@@ -180,13 +238,20 @@ discover_in_progress() {
   if [[ "$hits" -eq 1 ]]; then printf '%s' "$found"; fi
 }
 
-# Pointer-first on BOTH events: an armed chain wins; the per-event
+# Pointer-first on BOTH events: this spoke's armed chain wins; the per-event
 # heuristics below fire only when the chain does not resolve (unarmed).
-ARMED_REL=$(resolve_from_arm_pointers)
+ARMED_REL=""
+if command -v resolve_active_target_for_spoke >/dev/null 2>&1; then
+  ARMED_REL=$(resolve_active_target_for_spoke "$PLANS_DIR" "$SPOKE")
+fi
 if [[ "$EVENT" == "UserPromptSubmit" ]]; then
   [[ -z "$PROMPT" ]] && exit 0
   PLAN_REL="$ARMED_REL"
-  [[ -z "$PLAN_REL" ]] && PLAN_REL=$(resolve_from_prompt)
+  if [[ -z "$PLAN_REL" ]]; then
+    PLAN_REL=$(resolve_from_prompt)
+    # A prompt-referenced plan is this session's active plan only when this spoke owns it.
+    if [[ -n "$PLAN_REL" ]] && ! spoke_owns_target "$PLAN_REL"; then PLAN_REL=""; fi
+  fi
   [[ -z "$PLAN_REL" ]] && exit 0
 else
   # SessionStart (+ source:compact, resume, startup)

@@ -150,6 +150,56 @@ recommend() {
 EOF
 }
 
+# --- claude-mem context-injection guidance (advisory copy; no state, no gating) ---
+# claude-mem's SessionStart hook injects a "recent context" index into the model's
+# context on every new session. On any store with real history that index runs past the
+# harness's cap of 10,000 characters on hook output, so the harness spills the payload to a
+# file and hands the model a short preview instead — the tokens are spent, the recall is
+# not delivered. The knobs that size it live in the PLUGIN's own settings file, which is
+# adopter-owned third-party configuration: this gate prints the recipe and never writes
+# it. Emitted for every claude-mem disposition (already-present / will-set-up / skipped)
+# so an adopter who installs claude-mem later still has the recipe. Advisory only — it
+# records nothing, changes no disposition, and cannot affect the exit code.
+claude_mem_context_note() {
+  cat >&2 <<'CMNOTE'
+
+  ── claude-mem — recommended context settings ───────────
+  If claude-mem is set up (now or later), turn OFF the context index it injects at
+  session start. Edit ~/.claude-mem/settings.json — or use the plugin's Context
+  Settings modal at http://localhost:37777 — and set:
+
+        CLAUDE_MEM_CONTEXT_OBSERVATIONS=0
+        CLAUDE_MEM_CONTEXT_SESSION_COUNT=0
+        CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY=false
+        CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE=false
+        CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS=false
+        CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS=false
+        CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT=false
+        CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT=false
+        CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT=false
+
+  (both counts to 0, and every CLAUDE_MEM_CONTEXT_SHOW_* flag to false.)
+
+  Why: hook output is capped at 10,000 characters, and once you have real history
+  that index runs well past it. Past the cap the harness writes the whole payload to
+  a hook-*-additionalContext.txt file in the session directory and gives the model a
+  short preview instead — and the top of the payload, which is exactly what the
+  preview shows, is legend and column-key boilerplate. You pay for the injection
+  every session and almost nothing usable arrives.
+
+  The trap: do NOT shrink the payload to sit just under 10,000 characters. Under the
+  cap nothing is spilled, so the WHOLE payload is delivered in full, which costs far
+  more per session than the preview does today. Take it to zero, or leave the
+  defaults alone; "just under" is the worst of the three.
+
+  What this does not change: claude-mem keeps capturing exactly as before — its
+  PostToolUse, Stop and SessionEnd hooks are untouched — and brain-stem's own
+  SessionEnd memory hook (memory-consolidation-check.sh) is untouched. Only the
+  session-start injection is silenced. Recall stays available on demand through
+  claude-mem's MCP search tools and its mem-search skill.
+CMNOTE
+}
+
 # --- post-acceptance reconcile (kill sticky-pending) ---
 reconcile_accept() {
   # $1=tool-key $2=probe-fn — re-probe after the user accepts so an accepted
@@ -195,6 +245,10 @@ printf '\n=== External setup — recommended for the full experience ===\n' >&2
 gate_tool claude-mem probe_claude_mem "claude-mem (memory)" \
   "brain-stem's curated memory works standalone; claude-mem adds automatic wide-net recall on top. It's an optional, recommended marketplace plugin — your memory system is fully functional without it." \
   "Run: npx claude-mem install   (optional — skip and your curated memory still works)."
+
+# The recipe for claude-mem's session-start context injection. Printed after the
+# disposition is recorded, so it never interleaves with the accept/skip prompt.
+claude_mem_context_note
 
 gate_tool github probe_github "GitHub (backup)" \
   "To back up your vault (full version history) and protect your Claude setup — recover from any mistake, sync across machines." \

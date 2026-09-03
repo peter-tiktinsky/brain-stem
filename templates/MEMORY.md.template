@@ -1,14 +1,21 @@
 # Memory Index
 
+Schema: memory files carry `type: semantic | procedural | episodic` per `schemas/memory-schema.json`;
+the filename prefix carries provenance (`user_`, `feedback_`, `project_`, `reference_`, `episode_`).
+This contract wins over the harness's default memory template.
+
 <!--
   Anthropic load contract: the harness loads only the first 200 lines OR the
-  first 25KB of this file (whichever comes first). Entries past either cap are
-  silently dropped from the model's context at session start. The byte cap is
+  first 25,000 UTF-16 code units of this file, measured on the trimmed,
+  frontmatter- and comment-stripped text (whichever comes first). Entries past
+  either cap are dropped from the model's context at session start, and the
+  harness announces it: it appends a visible WARNING footer to the part it did
+  load, so you find out the session AFTER the index outgrew the cap. The byte cap is
   the governing trigger (bites at ~110 entries). Keep each line ≤200 characters;
   cap total entries at ≤200; move detail into the topic file this index points
   to. The R-59 load guard (governance/mandatory-files-rules.json) counts both
   the raw line count AND the comment-stripped count and gates on the LARGER —
-  these <!-- --> comment blocks do not buy unlimited headroom.
+  these HTML comment blocks do not buy unlimited headroom.
   Placement: pointer entries MUST sit above line 200 / 25KB or they load
   invisibly — the G1 placement guard (R-59 ordinal_position_check) warns.
 
@@ -73,8 +80,7 @@
      The pointer is a vault-pointer (bare absolute path + imperative Read +
      why), so the G1 placement guard keeps it above the fold. Live shape
      (<user>/<slug> runtime-substituted by resolve_memory_dir; emitted between
-     the start/end sentinels at the TOP of this section):
-     <!-- episodic-chronicle-pointer:start -->
+     two HTML-comment sentinel lines named episodic-chronicle-pointer:start and
+     episodic-chronicle-pointer:end, at the TOP of this section):
      /Users/<user>/.claude/projects/<slug>/memory/episodic-chronicle.md — Read this append-only newest-first session chronicle for the last N sessions' anchors, Next-session lines, and resume pointers.
-     <!-- episodic-chronicle-pointer:end -->
 -->

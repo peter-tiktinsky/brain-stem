@@ -605,14 +605,6 @@ user_edited_paths_log="$(mktemp -t uninstall-edited.XXXXXX 2>/dev/null)" || {
   exit 11
 }
 
-# Capture the rules/README.md seed baseline sha BEFORE the foundation walk
-# removes templates/ (the seed template is templates/claude-home-rules-readme-template.md;
-# it is processed/removed inside the loop below). Compared against the on-disk README after
-# the walk to decide remove-if-unmodified vs preserve-if-user-edited.
-rules_seed_template="$CLAUDE_HOME/templates/claude-home-rules-readme-template.md"
-rules_seed_sha=""
-[ -f "$rules_seed_template" ] && rules_seed_sha="$(shasum -a 256 "$rules_seed_template" 2>/dev/null | awk '{print $1}')"
-
 for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
   [ -e "$entry" ] || continue
   base="${entry##*/}"
@@ -837,43 +829,6 @@ EOF
     fi
   fi
 done
-
-# --- rules/README.md seed-baseline removal ----------
-# rules/README.md is INSTALL-SEEDED from templates/claude-home-rules-readme-template.md
-# (install.sh Step 11.7) -> it is a
-# FOUNDATION artifact. But `rules` is intentionally NOT in foundation_known_entries, because
-# rules/ also hosts USER-authored .claude/rules/*.md (the documented Anthropic scale-beyond
-# primitive) -> the whole rules/ dir is preserved as non-foundation, so the foundation-seeded
-# README would survive uninstall (residue). sha256 rm-or-preserve
-# posture: remove rules/README.md ONLY if its sha matches the shipped seed baseline (the
-# template = the unmodified foundation seed); preserve a user-MODIFIED README (or any user rule
-# files). Then prune rules/ if it becomes empty. No new unconditional rm of a user-content path.
-rules_readme="$CLAUDE_HOME/rules/README.md"
-if [ -f "$rules_readme" ]; then
-  rules_readme_sha="$(shasum -a 256 "$rules_readme" 2>/dev/null | awk '{print $1}')"
-  if [ -n "$rules_seed_sha" ] && [ "$rules_readme_sha" = "$rules_seed_sha" ]; then
-    if rm -f "$rules_readme" 2>/dev/null; then
-      info "removed foundation-seeded rules/README.md (sha matches the install seed baseline)"
-      removed_count=$((removed_count + 1))
-    else
-      warn "rm failed: $rules_readme"
-    fi
-  elif [ "$FORCE_RM_EDITED" = "1" ]; then
-    if rm -f "$rules_readme" 2>/dev/null; then
-      warn "user-edited rules/README.md removed (--force-rm-edited)"
-      removed_count=$((removed_count + 1))
-    else
-      warn "rm failed: $rules_readme"
-    fi
-  else
-    warn "user-edited rules/README.md preserved: rules/README.md (sha differs from the install seed baseline; rm with --force-rm-edited if intentional)"
-    printf '%s\n' "rules/README.md" >> "$user_edited_paths_log"
-    user_edited_foundation_count=$((user_edited_foundation_count + 1))
-    preserved_count=$((preserved_count + 1))
-  fi
-  # Prune rules/ if it is now empty (no user rule files remain).
-  rmdir "$CLAUDE_HOME/rules" 2>/dev/null || true
-fi
 
 info "rm complete: removed=$removed_count stale_pristine_removed=$stale_pristine_removed_count preserved=$preserved_count user_edited=$user_edited_foundation_count"
 

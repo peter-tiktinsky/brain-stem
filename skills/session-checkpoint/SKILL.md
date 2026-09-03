@@ -1,6 +1,6 @@
 ---
 name: session-checkpoint
-description: Write current session state to $CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md in the Session Continuity Block schema. Atomic; idempotent; blocks until written. Invoked manually via /session-checkpoint or by context-pressure enforcement (R-26) at the warn and mandate thresholds. Use when context pressure approaches limit, before long tool chains, or when user requests a handoff snapshot.
+description: Write the current session state to the per-session checkpoint.md in the Session Continuity Block schema (atomic, idempotent, blocks until written). Invoked via /session-checkpoint or by context-pressure enforcement (R-26) at the warn and mandate thresholds. Use when context pressure approaches limit, before long tool chains, or when the user requests a handoff snapshot.
 disable-model-invocation: false
 argument-hint: "[optional: explicit blocker or context note to include]"
 ---

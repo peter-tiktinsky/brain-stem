@@ -1,6 +1,9 @@
 ---
 name: mem-promote
-description: Pre-promotion pipeline that proposes promoting claude-mem (System B) observations into curated file-memory (System A). Gather (Jaccard prefilter + LLM semantic read) → MECE reshape (A.U.D.N.+NARROW) → semantic conflict routing → propose-then-confirm. NEVER auto-writes.
+description: >
+  Propose promotions of claude-mem (System B) observations into the curated file-memory corpus
+  (System A): gather, MECE-reshape, route semantic conflicts, then propose-then-confirm
+  through the memory review queue. NEVER auto-writes. Use for "/mem-promote" or "mem-promote".
 type: skill
 ---
 

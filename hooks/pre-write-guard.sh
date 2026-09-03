@@ -1413,33 +1413,46 @@ fi
 
 # === rules-corpus + schemas write-time advisory ===========
 # MISSING-OWNER gap: no branch gated ${CLAUDE_HOME}/rules/*.md ('paths:' glob
-# frontmatter, per ~/.claude/rules/README.md) or ${CLAUDE_HOME}/schemas/*.json (JSON
+# frontmatter, per ~/.claude/templates/claude-home-rules-readme-template.md) or ${CLAUDE_HOME}/schemas/*.json (JSON
 # well-formedness) at write time, so rules-corpus + schema drift was unguarded. NEW
 # branch (no governance/*.json pillar edit). ADVISORY-FIRST: rules + schemas are
 # hand-authored foundation surfaces — NEVER a DENY (promotion is data-driven).
+# The rules predicate covers BOTH corpora the harness loads: the user-scope
+# rules dir under CLAUDE_HOME, and every project-scope <repo>/.claude/rules/.
 # Terminal per-surface branch (emit + exit 0), mirroring the SKILL.md block above;
 # DISJOINT from Branch #4 (plans-tree librarian block) + the plan-artifact frontmatter block.
 case "$FILE_PATH" in
-  "${CLAUDE_HOME:-$HOME/.claude}/rules/"*.md|"${FOUNDATION_REPO:-$HOME/Code/brain-stem}/rules/"*.md)
+  "${CLAUDE_HOME:-$HOME/.claude}/rules/"*.md|*/.claude/rules/*.md)
     RS_CONTENT=""
     if [[ "$TOOL_NAME" == "Write" ]]; then
       RS_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
     elif [[ "$TOOL_NAME" == "Edit" ]] && [[ -f "$FILE_PATH" ]]; then
       RS_CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
     fi
+    # Which rules corpus is this? The two alternatives above OVERLAP whenever
+    # CLAUDE_HOME is the conventional ~/.claude, so the scope is decided by the
+    # path prefix, not by which glob matched. It decides the advisory's claim:
+    # the harness IGNORES a 'paths:' glob at user scope and HONORS it at
+    # project scope, so one hardcoded sentence would misinform half the writes.
+    case "$FILE_PATH" in
+      "${CLAUDE_HOME:-$HOME/.claude}/rules/"*)
+        RS_SCOPE_NOTE="(Note: user-scope ${CLAUDE_HOME:-$HOME/.claude}/rules/ IGNORES 'paths:' globs — an always-on rule should omit the frontmatter entirely.)" ;;
+      *)
+        RS_SCOPE_NOTE="(Note: this is a PROJECT-scope rules dir, where 'paths:' IS honored — the rule loads only in sessions that read a matching file.)" ;;
+    esac
     RS_ADVISORY=""
     if [[ -n "$RS_CONTENT" ]]; then
       # A rule MAY be unscoped (NO frontmatter = always-on) OR glob-scoped (a
-      # 'description:' + 'paths:' frontmatter block per ~/.claude/rules/README.md).
+      # 'description:' + 'paths:' frontmatter block per ~/.claude/templates/claude-home-rules-readme-template.md).
       # Flag ONLY a PRESENT-but-broken frontmatter shape (never an absent one).
       case "$RS_CONTENT" in
         ---*)
           RS_DELIMS=$(printf '%s\n' "$RS_CONTENT" | awk '/^---[[:space:]]*$/{n++} END{print n+0}' 2>/dev/null || echo 0)
           RS_FM=$(printf '%s\n' "$RS_CONTENT" | awk '/^---[[:space:]]*$/{n++; next} n==1{print} n>=2{exit}' 2>/dev/null || true)
           if [[ "${RS_DELIMS:-0}" -lt 2 ]]; then
-            RS_ADVISORY="[RULES FRONTMATTER] $(basename "$FILE_PATH") opens a YAML frontmatter block that is never closed (missing the second '---'). A glob-scoped rule needs a well-formed 'description:' + 'paths:' block (see ~/.claude/rules/README.md); an always-on rule needs NO frontmatter. Advisory only — this write is allowed."
+            RS_ADVISORY="[RULES FRONTMATTER] $(basename "$FILE_PATH") opens a YAML frontmatter block that is never closed (missing the second '---'). A glob-scoped rule needs a well-formed 'description:' + 'paths:' block (see ~/.claude/templates/claude-home-rules-readme-template.md); an always-on rule needs NO frontmatter. ${RS_SCOPE_NOTE} Advisory only — this write is allowed."
           elif printf '%s\n' "$RS_FM" | grep -qE '^paths:' && ! printf '%s\n' "$RS_FM" | grep -qE '^description:'; then
-            RS_ADVISORY="[RULES FRONTMATTER] $(basename "$FILE_PATH") declares a 'paths:' glob without a 'description:' retrieval hook. The ~/.claude/rules/README.md frontmatter shape pairs 'paths:' with a one-line 'description:'. (Note: user-scope ~/.claude/rules/ silently IGNORES 'paths:' globs — an always-on rule should omit the frontmatter entirely.) Advisory only — this write is allowed."
+            RS_ADVISORY="[RULES FRONTMATTER] $(basename "$FILE_PATH") declares a 'paths:' glob without a 'description:' retrieval hook. The ~/.claude/templates/claude-home-rules-readme-template.md frontmatter shape pairs 'paths:' with a one-line 'description:'. ${RS_SCOPE_NOTE} Advisory only — this write is allowed."
           fi
           ;;
       esac
@@ -1469,8 +1482,14 @@ esac
 
 # --- ADVISORY: MEMORY.md cap rule (T-4 R-59) ---
 # Enforces the Anthropic-documented load contract for MEMORY.md: first 200
-# lines OR first 25KB loaded at session start; entries past the cap silently
-# drop. Per-line >200 chars = drift signal. Advisory only at MVP per
+# lines OR first 25,000 UTF-16 code units of the trimmed, frontmatter- and
+# comment-stripped text loaded at session start; entries past the cap are
+# dropped, and the harness appends a model-visible WARNING footer to what it
+# did load — so the loss is announced from the NEXT session onward, while this
+# advisory names it at write-time, before the index is saved. Counting raw
+# bytes here is the conservative stand-in for the unit: bytes over-count
+# multi-byte characters, so the advisory trips early, never late.
+# Per-line >200 chars = drift signal. Advisory only at MVP per
 # default ADVISORY (a volume-driven, never calendar-gated
 # gate; promotion to BLOCK gated on 30d adoption data).
 # Schema source: governance/mandatory-files-rules.json#mandates._memory_md_cap.
@@ -1502,14 +1521,16 @@ PYEOF
     MEM_LONG_LINES=$(printf '%s\n' "$MEM_CONTENT" | awk 'length > 200 {c++} END{print c+0}')
     # R-59 byte cap from the SHIPPED foundation-master.json slot
     # (.mandatory_files.mandates._memory_md_cap.thresholds.max_bytes) via
-    # ${CLAUDE_HOME:-$HOME/.claude} — single-source on adopters. Hardcoded 25600
-    # is the fallback only when the slot is absent (harmless: slot value == pillar).
-    MEM_BYTE_CAP=25600
+    # ${CLAUDE_HOME:-$HOME/.claude} — single-source on adopters. The hardcoded
+    # constant is the fallback only when the slot is absent, and is held in
+    # lockstep with the pillar by a maintainer-tree parity fixture reading both
+    # sides at test time (harmless: slot value == pillar).
+    MEM_BYTE_CAP=25000
     MEM_R59_FOUNDATION="${FOUNDATION_MASTER_PATH:-${CLAUDE_HOME:-$HOME/.claude}/governance/foundation-master.json}"
     if [[ -f "$MEM_R59_FOUNDATION" ]]; then
       MEM_R59_SLOT=$(jq -r '.mandatory_files.mandates._memory_md_cap.thresholds.max_bytes // empty' "$MEM_R59_FOUNDATION" 2>/dev/null || true)
       case "$MEM_R59_SLOT" in
-        ''|*[!0-9]*) : ;;  # absent / non-numeric → keep 25600 fallback
+        ''|*[!0-9]*) : ;;  # absent / non-numeric → keep the fallback
         *) MEM_BYTE_CAP="$MEM_R59_SLOT" ;;
       esac
     fi
@@ -1518,7 +1539,7 @@ PYEOF
       MEM_BREACHES="${MEM_BREACHES}\n- ${MEM_LINES} lines exceeds 200-line cap"
     fi
     if [[ "$MEM_BYTES" -gt "$MEM_BYTE_CAP" ]]; then
-      MEM_BREACHES="${MEM_BREACHES}\n- ${MEM_BYTES} bytes exceeds 25KB cap"
+      MEM_BREACHES="${MEM_BREACHES}\n- ${MEM_BYTES} bytes exceeds the ${MEM_BYTE_CAP}-unit cap"
     fi
     if [[ "$MEM_LONG_LINES" -gt 0 ]]; then
       MEM_BREACHES="${MEM_BREACHES}\n- ${MEM_LONG_LINES} line(s) exceed 200-char limit"
@@ -1562,7 +1583,7 @@ PYEOF
       MEM_BREACHES="${MEM_BREACHES}\n- a vault-pointer entry starts at line ${MEM_G1_LINE}, past the 200-line/${MEM_BYTE_CAP}-byte fold [POINTER PLACEMENT ADVISORY — G1/R-59]: it loads invisibly — move it above the fold (the TOP of its section)"
     fi
     if [[ -n "$MEM_BREACHES" ]]; then
-      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25KB (whichever first) of MEMORY.md at session start (documented at code.claude.com/docs/en/memory). Entries past the cap silently drop from context — the bottom of your index never reaches the model. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
+      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25,000 UTF-16 code units (whichever first) of MEMORY.md at session start, measured on the trimmed, frontmatter- and comment-stripped text (documented at code.claude.com/docs/en/memory). Entries past the cap drop from context — the bottom of your index never reaches the model — and from the next session on the harness says so, appending a visible WARNING footer to the part it did load. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
       exit 0
     fi
   fi
@@ -2607,22 +2628,49 @@ if not targets:
 # (also followlinks=False) so library/binder wikilink targets resolve.
 existing_basenames = set()
 existing_paths = set()
-def _index(walk_root, rel_base):
+def _index(walk_root, rel_base, rel_prefix=""):
     for dirpath, dirnames, filenames in os.walk(walk_root):
         dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in ('_test',)]
         for fn in filenames:
+            # Index EVERY file's basename, not only Markdown. Obsidian resolves a bare
+            # [[name.ext]] wikilink across the whole vault for any file type, so an
+            # .md-only index made a legitimate [[lecture-deck.pdf]] link report as
+            # broken. Note the extension is still
+            # required for a non-.md target -- [[foo]] does NOT resolve to foo.pdf,
+            # here or in Obsidian -- because only .md gets the stripped variant.
+            existing_basenames.add(fn.lower())
             if fn.endswith('.md'):
                 existing_basenames.add(fn[:-3].lower())
-                existing_basenames.add(fn.lower())
             rel = os.path.relpath(os.path.join(dirpath, fn), rel_base)
+            if rel_prefix:
+                rel = os.path.join(rel_prefix, rel)
             existing_paths.add(rel.lower())
             if rel.endswith('.md'):
                 existing_paths.add(rel[:-3].lower())
 _index(vault_root, vault_root)
+# The vault root's directory entries are SYMLINKS to real surface homes (Work ->
+# ~/work, Skills -> ~/.claude/skills, Plans -> ~/.claude-plans, ...), and the walk
+# above -- followlinks=False, deliberately -- descends none of them. Measured
+# 2026-08-31: that walk reaches FIVE files. Every wikilink into a work spoke, a
+# skill or a plan was therefore reported broken, an entire false-positive class
+# that the two hand-listed extra_roots below only papered over for _library and
+# _projects. Index each symlink target directly, under its vault-relative link
+# name, still followlinks=False inside so the symlink-loop hazard stays closed.
+# Whole-corpus cost measured at ~29 ms for 5.9k files -- affordable per write.
+try:
+    for entry in sorted(os.listdir(vault_root)):
+        if entry.startswith('.'):
+            continue
+        p = os.path.join(vault_root, entry)
+        if os.path.islink(p) and os.path.isdir(p):
+            real = os.path.realpath(p)
+            _index(real, real, entry)
+except OSError:
+    pass
 for r in extra_roots:
-    # rel paths are computed against the surface home's PARENT so wikilink forms
-    # like [[_library/topic/article]] resolve against the indexed rel path.
-    _index(r, os.path.dirname(r))
+    # ALSO indexed under the bare surface name: existing corpus wikilinks are
+    # written [[_library/topic/article]], not [[Wiki/topic/article]].
+    _index(r, r, os.path.basename(r))
 
 broken = []
 for t in sorted(targets):

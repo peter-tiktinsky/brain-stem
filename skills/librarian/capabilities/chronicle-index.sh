@@ -257,16 +257,28 @@ if new_text != text:
 # re-derive — never clobber hand-curation outside the sentinels). Idempotent.
 PTR_START = "<!-- episodic-chronicle-pointer:start -->"
 PTR_END = "<!-- episodic-chronicle-pointer:end -->"
+# Locate each sentinel as a WHOLE LINE — MULTILINE, anchored at line start, with
+# optional trailing whitespace/CR:
+#   ^<!-- episodic-chronicle-pointer:start -->[ \t\r]*$
+# This is the SAME predicate the SessionEnd producer uses to decide what a live
+# sentinel is, so the two surfaces can never disagree. A substring search (str.find)
+# also matches an INDENTED copy inside an HTML comment, and the `last N sessions`
+# rewrite below would then edit documentation text instead of a live pointer.
+# Leading whitespace is deliberately NOT tolerated for exactly that reason.
+PTR_START_RE = re.compile(r"^" + re.escape(PTR_START) + r"[ \t\r]*$", re.M)
+PTR_END_RE = re.compile(r"^" + re.escape(PTR_END) + r"[ \t\r]*$", re.M)
 if os.path.isfile(index_file):
     try:
         with open(index_file, encoding="utf-8") as fh:
             itext = fh.read()
     except Exception:
         sys.exit(0)
-    s = itext.find(PTR_START)
-    e = itext.find(PTR_END)
+    m_s = PTR_START_RE.search(itext)
+    m_e = PTR_END_RE.search(itext)
+    s = m_s.end() if m_s else -1
+    e = m_e.start() if m_e else -1
     if s >= 0 and e > s:
-        block = itext[s + len(PTR_START):e]
+        block = itext[s:e]
         live_n = len(rows)            # post-rotation live row count
         # Replace the `last N sessions` count token (the producer writes the
         # literal `last N sessions`; subsequent refreshes carry a number). Never
@@ -276,7 +288,7 @@ if os.path.isfile(index_file):
             lambda m: m.group(1) + str(live_n) + m.group(3),
             block, count=1)
         if nsub and new_block != block:
-            new_itext = itext[:s + len(PTR_START)] + new_block + itext[e:]
+            new_itext = itext[:s] + new_block + itext[e:]
             atomic_write(index_file, new_itext)
 
 sys.exit(0)

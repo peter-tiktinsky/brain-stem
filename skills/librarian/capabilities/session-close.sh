@@ -141,6 +141,22 @@ if [[ -r "$_SC_CADENCE_LIB" ]]; then
   fi
 fi
 
+# Shared per-spoke armed-plan resolver (hooks/lib/active-plan-resolve.sh). The two
+# TRANSITION-SCOPED blocks below — the completed_at/research_closed stamp and the
+# tasks.md re-render — resolve "the plan this session had armed" through it, keyed to
+# the spoke this close is anchored to, so a close in one spoke never stamps or renders
+# a plan armed in another. Sourced ONCE here; guarded, because a minimal install tree
+# without hooks/lib must still close: both blocks fall back to the inline legacy
+# corpus-wide pointer read when the resolver is unavailable.
+_SC_ACTIVE_PLAN_LIB="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/active-plan-resolve.sh"
+if [[ ! -r "$_SC_ACTIVE_PLAN_LIB" ]]; then
+  _SC_ACTIVE_PLAN_LIB="$(cd "$CAPS_DIR/../../../hooks/lib" 2>/dev/null && pwd)/active-plan-resolve.sh"
+fi
+if [[ -r "$_SC_ACTIVE_PLAN_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$_SC_ACTIVE_PLAN_LIB" 2>/dev/null || true
+fi
+
 LOG_DIR="${SESSION_CLOSE_LOG_DIR:-$CLAUDE_STATE_ROOT/logs}"
 
 # ---- args -------------------------------------------------------------------
@@ -691,7 +707,9 @@ step2_integrity() {
   # completed_at stamp + no-verdict soft-surface. The archival display view-filter
   # needs a per-plan completion date the manifest does not otherwise carry. Stamp
   # `completed_at` (date-only) ONLY on the plan(s) the closing session was anchored to
-  # (the arm-pointer chain: $PLANS_DIR/.active-plan -> <plan>/.active-sp) when
+  # (the arm-pointer chain for THIS session's spoke:
+  # $PLANS_DIR/_projects/<spoke>/.active-plan -> <plan>/.active-sp, with the legacy
+  # corpus-wide pointer as the read-only fallback) when
   # that target has transitioned to `completed` without the field — TRANSITION-SCOPED,
   # never a whole-tree walk. A legacy `completed` manifest that is NOT the armed target
   # keeps falling back to `updated` (schema-documented). The SAME transition-scoped
@@ -726,17 +744,42 @@ step2_integrity() {
     record_capability "completed-at-stamp" "dry-run" "would stamp completed_at on the armed plan if it reached completed"
   else
     _ca_plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+    # The armed target OF THIS SPOKE, resolved in bash and passed to the stamp as argv
+    # (the python body only stamps — it reads no pointer). `active_spoke` is the one
+    # resolved once above for this close; no second spoke resolution happens anywhere.
+    _ca_plan=""
+    _ca_sp=""
+    if command -v resolve_active_target_for_spoke >/dev/null 2>&1; then
+      _ca_rel="$(resolve_active_target_for_spoke "$_ca_plans_root" "$active_spoke" 2>/dev/null)"
+      _ca_rel="${_ca_rel#.claude-plans/}"
+      if [[ -n "$_ca_rel" ]]; then
+        _ca_plan="${_ca_rel%%/*}"
+        [[ "$_ca_rel" == */* ]] && _ca_sp="${_ca_rel#*/}"
+      fi
+    else
+      # Legacy fallback (resolver unavailable): the corpus-wide chain, read inline —
+      # $PLANS_DIR/.active-plan -> <plan>/.active-sp, byte-for-byte the pre-per-spoke
+      # behaviour, so a stripped install tree still closes.
+      if [[ -r "$_ca_plans_root/.active-plan" ]]; then
+        _ca_plan="$(tr -d '[:space:]' < "$_ca_plans_root/.active-plan" 2>/dev/null)"
+      fi
+      if [[ -n "$_ca_plan" && -r "$_ca_plans_root/$_ca_plan/.active-sp" ]]; then
+        _ca_sp="$(tr -d '[:space:]' < "$_ca_plans_root/$_ca_plan/.active-sp" 2>/dev/null)"
+      fi
+    fi
     # Refusal channel for the ordering gate. The block's stdout is the stamped-count capture
     # and its stderr is suppressed (python tracebacks stay out of the close), so each refusal
     # is written here as exactly ONE line and replayed below to stderr + the capability chain.
     _ca_refusals="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.refusals"
     : > "$_ca_refusals"
-    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" "$_ca_refusals" 2>/dev/null <<'PY'
+    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" "$_ca_refusals" "$_ca_plan" "$_ca_sp" 2>/dev/null <<'PY'
 import json, os, sys, tempfile
 from datetime import date
 
 plans_root = sys.argv[1]
 refusal_path = sys.argv[2] if len(sys.argv) > 2 else ""
+armed_plan = sys.argv[3] if len(sys.argv) > 3 else ""
+armed_sp = sys.argv[4] if len(sys.argv) > 4 else ""
 today = os.environ.get("SESSION_CLOSE_TODAY") or date.today().isoformat()
 sink = os.environ.get("FINDINGS_OUTPUT", "")
 
@@ -791,25 +834,20 @@ def open_rows(m):
             rows.append((str(t.get("id") or "?"), st or "null"))
     return rows
 
-def read_pointer(path):
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return fh.read().strip()
-    except OSError:
-        return ""
-
-# Session-anchored (armed) plan target from the arm-pointer chain:
-# $PLANS_DIR/.active-plan names the armed plan; <plan>/.active-sp names the armed sub
-# (a dot value or an absent .active-sp means the plan root manifest itself). The stamp
-# is scoped to that target ONLY -- the plan this session worked, and thus the one that
-# could have transitioned to completed. No whole-tree walk over legacy completed
-# manifests.
+# Session-anchored (armed) plan target, resolved for the spoke of THIS session by the
+# caller and handed in as argv: the armed plan slug, and the armed sub (an empty value
+# or a dot means the plan root manifest itself). The stamp is scoped to that target
+# ONLY -- the plan this session worked, and thus the one that could have transitioned
+# to completed. No whole-tree walk over legacy completed manifests, and no pointer
+# read here: the spoke-keyed resolution belongs to one place, not two.
+# NOTE: this heredoc is nested inside a command substitution, so bash tracks quote
+# state through this body -- keep it free of unbalanced apostrophes.
 targets = []
-plan = read_pointer(os.path.join(plans_root, ".active-plan"))
+plan = armed_plan
 if plan and os.path.isdir(os.path.join(plans_root, plan)):
     plan_dir = os.path.join(plans_root, plan)
     targets.append(os.path.join(plan_dir, "manifest.json"))
-    sp = read_pointer(os.path.join(plan_dir, ".active-sp"))
+    sp = armed_sp
     if sp and sp != "." and os.path.isdir(os.path.join(plan_dir, sp)):
         targets.append(os.path.join(plan_dir, sp, "manifest.json"))
 
@@ -921,8 +959,9 @@ PY
   # human-facing file still saying `planned` while manifest.tasks[] (the task-state SoT)
   # said `done`. This is the missing CLOSE-TIME transition and nothing more.
   #
-  # SCOPE — TRANSITION-SCOPED to the armed target ONLY ($PLANS_DIR/.active-plan ->
-  # <plan>/.active-sp, the identical chain read above), never a whole-tree walk and never a
+  # SCOPE — TRANSITION-SCOPED to the armed target of THIS session's spoke ONLY
+  # ($PLANS_DIR/_projects/<spoke>/.active-plan -> <plan>/.active-sp, the identical
+  # spoke-keyed chain read above), never a whole-tree walk and never a
   # `--check` sweep. Both rejected explicitly: a read-only --check over 320 plan dirs
   # reports 115 completed plans drift=true, 51 of them whitespace-only and the substantive
   # remainder dominated by RENDERER-FORMAT EVOLUTION (on a sampled completed plan
@@ -957,20 +996,36 @@ PY
   else
     _tr_cap="$CAPS_DIR/tasks-render.sh"
     _tr_plans_root="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
-    _tr_armed=""
-    if [[ -r "$_tr_plans_root/.active-plan" ]]; then
-      _tr_armed="$(tr -d '[:space:]' < "$_tr_plans_root/.active-plan" 2>/dev/null)"
-    fi
     _tr_targets=""
-    if [[ -n "$_tr_armed" && -d "$_tr_plans_root/$_tr_armed" ]]; then
-      _tr_targets="$_tr_plans_root/$_tr_armed"
-      _tr_sp=""
-      if [[ -r "$_tr_plans_root/$_tr_armed/.active-sp" ]]; then
-        _tr_sp="$(tr -d '[:space:]' < "$_tr_plans_root/$_tr_armed/.active-sp" 2>/dev/null)"
+    if command -v resolve_active_target_for_spoke >/dev/null 2>&1; then
+      # Same helper, same `active_spoke`, same one-resolution-per-close discipline as
+      # the stamp block above: the target it returns already exists on disk.
+      _tr_rel="$(resolve_active_target_for_spoke "$_tr_plans_root" "$active_spoke" 2>/dev/null)"
+      _tr_rel="${_tr_rel#.claude-plans/}"
+      if [[ -n "$_tr_rel" ]]; then
+        _tr_targets="$_tr_plans_root/${_tr_rel%%/*}"
+        if [[ "$_tr_rel" == */* ]]; then
+          _tr_targets="$_tr_targets
+$_tr_plans_root/$_tr_rel"
+        fi
       fi
-      if [[ -n "$_tr_sp" && "$_tr_sp" != "." && -d "$_tr_plans_root/$_tr_armed/$_tr_sp" ]]; then
-        _tr_targets="$_tr_targets
+    else
+      # Legacy fallback (resolver unavailable): the corpus-wide chain, read inline —
+      # $PLANS_DIR/.active-plan -> <plan>/.active-sp, exactly as before.
+      _tr_armed=""
+      if [[ -r "$_tr_plans_root/.active-plan" ]]; then
+        _tr_armed="$(tr -d '[:space:]' < "$_tr_plans_root/.active-plan" 2>/dev/null)"
+      fi
+      if [[ -n "$_tr_armed" && -d "$_tr_plans_root/$_tr_armed" ]]; then
+        _tr_targets="$_tr_plans_root/$_tr_armed"
+        _tr_sp=""
+        if [[ -r "$_tr_plans_root/$_tr_armed/.active-sp" ]]; then
+          _tr_sp="$(tr -d '[:space:]' < "$_tr_plans_root/$_tr_armed/.active-sp" 2>/dev/null)"
+        fi
+        if [[ -n "$_tr_sp" && "$_tr_sp" != "." && -d "$_tr_plans_root/$_tr_armed/$_tr_sp" ]]; then
+          _tr_targets="$_tr_targets
 $_tr_plans_root/$_tr_armed/$_tr_sp"
+        fi
       fi
     fi
     if [[ ! -x "$_tr_cap" ]]; then
@@ -983,7 +1038,7 @@ $_tr_plans_root/$_tr_armed/$_tr_sp"
         record_capability "tasks-render" "skip" "not-installed"
       fi
     elif [[ -z "$_tr_targets" ]]; then
-      record_capability "tasks-render" "skip" "no armed plan target (.active-plan absent or unresolvable) — transition-scoped, nothing to re-derive"
+      record_capability "tasks-render" "skip" "no armed plan target for this spoke (no per-spoke or legacy arm pointer resolves) — transition-scoped, nothing to re-derive"
     else
       _tr_sink="${TMPDIR:-/tmp}/session-close-tasks-render-$$.ndjson"
       _tr_err="${TMPDIR:-/tmp}/session-close-tasks-render-$$.err"
@@ -1217,6 +1272,7 @@ step2e_cadence_roster() {
   sweep_due memory-hygiene        >/dev/null 2>&1 && run_capability memory-hygiene --all-projects
   sweep_due memory-staleness      >/dev/null 2>&1 && run_capability memory-staleness --all-projects
   sweep_due rules-hygiene         >/dev/null 2>&1 && run_capability rules-hygiene
+  sweep_due context-budget-index  >/dev/null 2>&1 && run_capability context-budget-index
 }
 
 # ---- (former Step 3: sync-check / Step 4c: architect-triage) ---------------

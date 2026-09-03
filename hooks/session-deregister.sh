@@ -165,4 +165,57 @@ if [ -f "$SESSION_CLOSE" ]; then
   fi
 fi
 
+# --- 4. Hook-spill count (context-budget telemetry) --------------------------
+# THE SEAM, stated: this EXISTING SessionEnd hook, not a new registration. The
+# count needs (a) a SessionEnd fire and (b) THIS session's id — both already
+# resolved above — so no fourth shipped surface (hook body + two settings
+# templates + manifest entry) is minted for a one-row diagnostic.
+#
+# WHAT IS COUNTED: hook output over the harness's additionalContext cap of
+# 10,000 characters is not delivered inline — it is written to
+# <projects-dir>/<session-id>/tool-results/hook-*-additionalContext.txt and
+# replaced in context by a short preview plus the file path. Each such file is
+# therefore one hook emission that overflowed. The session dir is the SIBLING of
+# the auto-memory dir under the project dir, so it derives from paths.sh's
+# resolve_memory_dir() rather than from a second hardcoded projects path.
+#
+# by_hook is NULL BY CONSTRUCTION: the filename is
+# hook-<invocation-uuid>-<index>-additionalContext.txt — it carries no hook
+# name, and nothing else on disk maps the uuid back to an emitter. The row says
+# so rather than inventing an attribution.
+#
+# ISOLATION FROM THE HOOK'S CONTRACT: the whole block runs in a subshell with
+# `|| true`, after every existing side effect, and touches no variable the
+# sections above read. It cannot change this hook's behaviour or exit code.
+# The state path expression is byte-identical to the one in
+# instructions-loaded-log.sh — the two writers share one log.
+(
+  command -v jq >/dev/null 2>&1 || exit 0
+  SPILL_STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
+  mkdir -p "$SPILL_STATE_DIR" 2>/dev/null || exit 0
+  command -v resolve_memory_dir >/dev/null 2>&1 || exit 0
+  SPILL_PROJECT_DIR="$(dirname "$(resolve_memory_dir)")"
+  SPILL_DIR="$SPILL_PROJECT_DIR/$SESSION_ID/tool-results"
+  SPILL_COUNT=0
+  SPILL_BYTES=0
+  if [ -d "$SPILL_DIR" ]; then
+    for _sf in "$SPILL_DIR"/hook-*-additionalContext.txt; do
+      [ -f "$_sf" ] || continue
+      SPILL_COUNT=$((SPILL_COUNT + 1))
+      _sb=$(wc -c < "$_sf" 2>/dev/null | tr -d ' ')
+      case "$_sb" in ''|*[!0-9]*) _sb=0 ;; esac
+      SPILL_BYTES=$((SPILL_BYTES + _sb))
+    done
+  fi
+  jq -cn \
+    --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" --arg sid "$SESSION_ID" \
+    --arg dir "$SPILL_DIR" --arg n "$SPILL_COUNT" --arg b "$SPILL_BYTES" \
+    '{ts: $ts, event: "hook-spill-count", session_id: $sid,
+      count: ($n | tonumber), bytes: ($b | tonumber),
+      by_hook: null,
+      by_hook_unavailable: "spill filenames carry hook-<invocation-uuid>-<index>, not the emitting hook name",
+      tool_results_dir: $dir}' \
+    >> "$SPILL_STATE_DIR/instructions-loaded.ndjson" 2>/dev/null || true
+) >/dev/null 2>&1 || true
+
 exit 0

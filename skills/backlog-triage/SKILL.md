@@ -1,11 +1,10 @@
 ---
 name: backlog-triage
 description: >
-  Capture a pre-plan idea into the inbox and auto-classify it as NOVEL, DUPLICATE,
-  OVERLAP, or DEFERRED. Use when a new idea is captured or when the user asks to
-  triage an existing inbox note. Trigger on: "triage this idea", "backlog triage",
-  "/backlog-triage", or any request to classify a system project idea against the
-  existing backlog.
+  Capture a pre-plan idea into the inbox and classify it NOVEL, DUPLICATE, OVERLAP or DEFERRED
+  against the existing backlog. Use when a new idea is captured or an existing inbox note
+  needs triage. Trigger on: "triage this idea", "backlog triage", "/backlog-triage", or any
+  request to classify a system project idea against the existing backlog.
 disable-model-invocation: false
 argument-hint: "<idea description> [--item <inbox-slug>]"
 ---

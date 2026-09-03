@@ -25,6 +25,11 @@
 #   3. the written memory is `scope: global` AND not already `promoted_to:`
 #   4. fire memory-globalize.sh --scope <dir> --apply with MEMORY_GLOBALIZE_AUTO=1
 #
+# This hook is USER-SCOPE ONLY and is deliberately NOT extended to the
+# capability's `--target project` destination: choosing to bind a rule to one
+# project (and to the `paths:` globs that activate it there) is a judgment call
+# that belongs behind the confirm gate, never on an automatic write path.
+#
 # Re-entrancy: the capability's writes (the rules/ file + the `promoted_to:`
 # stamp on the source memory) are subprocess filesystem writes, NOT Edit/Write
 # tool calls — they do not re-trigger PostToolUse. The `promoted_to:` gate makes

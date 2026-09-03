@@ -26,6 +26,8 @@
 # Output Contract (per CLAUDE.md skill-creation rule):
 #   Files written (ONLY in --apply mode; propose mode writes nothing):
 #     1. $RULES_DIR/<rule-name>.md            — the promoted rule (atomic temp+rename)
+#        (with --target project: <git root of $PWD>/.claude/rules/<rule-name>.md;
+#         only `.claude/rules/` is created — NEVER `.claude/skills/`)
 #     2. <source-memory>.md frontmatter        — stamped with `promoted_to:` (atomic)
 #   Schema gated by: schemas/rules-schema.json (Draft-07). The transformed rule
 #     frontmatter is validated as an object BEFORE any write (jsonschema when
@@ -35,6 +37,10 @@
 #     - transformed frontmatter must validate against rules-schema.json.
 #     - target rule path must not already belong to a DIFFERENT source memory
 #       (name-collision guard).
+#     - with --target project: the project must OWN the memory being scanned.
+#       resolve_memory_dir() evaluated for the destination git root must equal
+#       the memory dir under scan; otherwise the whole dir is blocked with no
+#       write, so a memory can never leak into a project it did not come from.
 #   Failure mode: BLOCK-AND-LOG. A candidate that fails validation or collides
 #     emits a `promotion-blocked` finding and is skipped; no partial write.
 #     Never write-and-hope.
@@ -63,6 +69,17 @@
 #   memory-globalize.sh --include-default-scope  # also treat absent-scope as candidate
 #   memory-globalize.sh --dry-run                # summary counts only; no findings/writes
 #   memory-globalize.sh --help                   # usage
+#   memory-globalize.sh --target user|project    # WHERE the rule lands (default user)
+#   memory-globalize.sh --paths '<glob>[,<glob>]'  # glob activation on the written rule
+#
+# --scope and --target are ORTHOGONAL and both may be given: --scope selects the
+# SOURCE memory dir to sweep FROM; --target selects WHERE the promoted rule is
+# written TO. --target user is the default and is byte-for-byte the historical
+# behaviour. --target project writes <git root of $PWD>/.claude/rules/<name>.md
+# and REQUIRES --paths (a project rule with no `paths:` is always-on for that
+# project, which is the user-scope decision wearing a project path — if that is
+# what you want, promote to user scope). Project scope is where `paths:` is
+# honored; at user scope the harness ignores it.
 #
 # Env overrides:
 #   MEMORY_DIR              Single memory dir (sibling convention; else sweep
@@ -97,6 +114,8 @@ APPLY="false"
 SCOPE=""
 DRY_RUN="false"
 INCLUDE_DEFAULT="false"
+TARGET="user"
+PATHS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -104,10 +123,21 @@ while [[ $# -gt 0 ]]; do
     --scope) SCOPE="$2"; shift 2 ;;
     --include-default-scope) INCLUDE_DEFAULT="true"; shift ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,77p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --target) TARGET="$2"; shift 2 ;;
+    --paths) PATHS="$2"; shift 2 ;;
+    -h|--help) sed -n '2,99p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "memory-globalize: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
+
+case "$TARGET" in
+  user|project) ;;
+  *) echo "memory-globalize: --target must be 'user' or 'project' (got '$TARGET')" >&2; exit 2 ;;
+esac
+if [[ "$TARGET" == "project" ]] && [[ -z "$PATHS" ]]; then
+  echo "memory-globalize: --target project requires --paths '<glob>[,<glob>]' — a project rule with no 'paths:' is always-on for that project" >&2
+  exit 2
+fi
 
 # Judgment-tier non-interactive guard. Two distinct bypasses, kept separate so
 # prod-auto and test-mode never alias (T-7):
@@ -144,6 +174,24 @@ fi
 
 RULES_DIR="${RULES_DIR:-$CLAUDE_HOME_RESOLVED/rules}"
 
+# --- --target project: destination + ownership guard -------------------------
+# Destination is the git root of $PWD, and ONLY `.claude/rules/` is ever created
+# under it (never `.claude/skills/`). PROJECT_MEM_DIR is resolve_memory_dir()
+# evaluated FOR THAT ROOT (the env single-dir override is dropped inside the
+# subshell so the guard reads the root's real memory dir, not the caller's
+# selector); the python loop below refuses any memory dir that is not it.
+PROJECT_ROOT=""
+PROJECT_MEM_DIR=""
+if [[ "$TARGET" == "project" ]]; then
+  PROJECT_ROOT="$(git -C "$(pwd -P 2>/dev/null || pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$PROJECT_ROOT" ]] && command -v resolve_memory_dir >/dev/null 2>&1; then
+    PROJECT_MEM_DIR="$( cd "$PROJECT_ROOT" && unset MEMORY_DIR && resolve_memory_dir 2>/dev/null || true )"
+  fi
+  if [[ -n "$PROJECT_ROOT" ]]; then
+    RULES_DIR="$PROJECT_ROOT/.claude/rules"
+  fi
+fi
+
 # Resolve rules-schema.json (foundation-repo -> live install).
 SCHEMA_PATH="${RULES_SCHEMA_PATH:-}"
 if [[ -z "$SCHEMA_PATH" ]]; then
@@ -153,7 +201,8 @@ if [[ -z "$SCHEMA_PATH" ]]; then
   done
 fi
 
-python3 - "$MEM_DIRS" "$RULES_DIR" "$SCHEMA_PATH" "$APPLY" "$DRY_RUN" "$INCLUDE_DEFAULT" <<'PY'
+python3 - "$MEM_DIRS" "$RULES_DIR" "$SCHEMA_PATH" "$APPLY" "$DRY_RUN" "$INCLUDE_DEFAULT" \
+         "$TARGET" "$PATHS" "$PROJECT_ROOT" "$PROJECT_MEM_DIR" <<'PY'
 import json
 import os
 import re
@@ -167,6 +216,12 @@ schema_path = sys.argv[3]
 apply_mode = sys.argv[4] == "true"
 dry_run = sys.argv[5] == "true"
 include_default = sys.argv[6] == "true"
+target_scope = sys.argv[7]
+paths_csv = sys.argv[8]
+project_root = sys.argv[9]
+project_mem_dir = sys.argv[10]
+
+rule_paths = [p.strip() for p in paths_csv.split(",") if p.strip()] or None
 
 today = date.today().isoformat()
 
@@ -283,6 +338,9 @@ def write_rule_file(target, fm, body):
     if fm.get("tags") is not None:
         items = ", ".join(yaml_str(t) for t in fm["tags"])
         lines.append("tags: [%s]" % items)
+    if fm.get("paths"):
+        items = ", ".join(yaml_str(p) for p in fm["paths"])
+        lines.append("paths: [%s]" % items)
     lines.append("---")
     out = "\n".join(lines) + "\n" + body
     if not out.endswith("\n"):
@@ -345,6 +403,29 @@ counts = {
 for memory_dir in mem_dirs:
     if not os.path.isdir(memory_dir):
         continue
+
+    # --target project ownership guard: the destination project must OWN this
+    # memory dir. Block-and-log the whole dir; nothing is written.
+    if target_scope == "project":
+        if not project_root:
+            counts["blocked"] += 1
+            if not dry_run:
+                emit({"finding": "memory-globalize", "file": memory_dir,
+                      "category": "promotion-blocked",
+                      "reason": "--target project: no git root for the working "
+                                "directory, so there is no project to scope to",
+                      "valid": False, "memory_dir": memory_dir})
+            continue
+        if os.path.realpath(memory_dir) != os.path.realpath(project_mem_dir or ""):
+            counts["blocked"] += 1
+            if not dry_run:
+                emit({"finding": "memory-globalize", "file": memory_dir,
+                      "category": "promotion-blocked",
+                      "reason": "--target project: %s does not own this memory dir "
+                                "(its memory dir is %s)" % (
+                                    project_root, project_mem_dir or "<unresolved>"),
+                      "valid": False, "memory_dir": memory_dir})
+            continue
     for entry in sorted(os.listdir(memory_dir)):
         if not entry.endswith(".md") or entry == "MEMORY.md":
             continue
@@ -389,6 +470,8 @@ for memory_dir in mem_dirs:
         tags = parse_inline_tags(fm.get("tags", ""))
         if tags is not None:
             rule_fm["tags"] = tags
+        if target_scope == "project" and rule_paths:
+            rule_fm["paths"] = rule_paths
 
         ok, reason = validate_rule(rule_fm)
         if not ok:
@@ -424,21 +507,29 @@ for memory_dir in mem_dirs:
             stamp_promoted_to(full, rname)
             counts["promoted"] += 1
             if not dry_run:
-                emit({
+                payload = {
                     "finding": "memory-globalize", "file": entry,
                     "category": "promoted", "source_memory": src_slug,
                     "target_rule": rname + ".md", "written": target,
                     "memory_dir": memory_dir,
-                })
+                }
+                # The default (user) payload is byte-identical to the historical
+                # shape; the scope key appears only when it is not the default.
+                if target_scope == "project":
+                    payload["target"] = "project"
+                emit(payload)
         else:
             if not dry_run:
-                emit({
+                payload = {
                     "finding": "memory-globalize", "file": entry,
                     "category": "promotion-candidate", "source_memory": src_slug,
                     "target_rule": rname + ".md", "rules_dir": rules_dir,
                     "description": description, "scope": scope_label,
                     "valid": True, "memory_dir": memory_dir,
-                })
+                }
+                if target_scope == "project":
+                    payload["target"] = "project"
+                emit(payload)
 
 if dry_run:
     mode = "apply" if apply_mode else "propose"

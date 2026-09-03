@@ -4,12 +4,13 @@ brain-stem installs into the folder Claude Code reads from and gives an AI assis
 
 ## Scope of trust
 
-**brain-stem runs entirely on your own machine.** It is a set of shell scripts, JSON rule files, and markdown — no compiled binaries, no background service, no account, no server component. It makes **no automatic network calls**: nothing brain-stem does on its own initiative sends your files, your notes, or any usage data anywhere. There is no telemetry, no analytics, and no "phone home." The logs it writes are **local files** under the standard per-user state directory (`~/.local/state/brain-stem`); they never leave the machine.
+**brain-stem runs entirely on your own machine.** It is a set of shell scripts, JSON rule files, and markdown — no compiled binaries, no server component, no account. Its only background presence is two small launchd jobs (a writer-reconciler and a document-amender) that watch a local staging folder; out of the box neither touches anything beyond your machine — see the third item below. It makes **no automatic network calls**: nothing brain-stem does on its own initiative sends your files, your notes, or any usage data anywhere. There is no telemetry, no analytics, and no "phone home." The logs it writes are **local files** under the standard per-user state directory (`~/.local/state/brain-stem`); they never leave the machine.
 
 The only network activity is something **you** explicitly start, and only ever to a destination **you** control:
 
 - **`/librarian backup`** — a capability you run by hand, never automatically — commits your vault, `~/.claude`, and plans and `git push`es them to the git remote **you** configured. Your data goes to your own remote; never to the maintainer or any third party.
 - **Onboarding** checks whether the GitHub CLI (`gh`) is installed and signed in; if it is, it makes read-only calls to **your own** GitHub account — to confirm your sign-in (`gh auth status`) and read your profile (`gh api user`) for pre-filling your name and email. These read your own account; they send nothing about your files or notes.
+- **The document-amender job** is the one path by which brain-stem could ever call an AI model without a session open, and it does so only if **you** configure it to. The job is installed and loaded by default, but the shipped writer registry defines no writer for it to act on, so it composes nothing and makes no network call. Only if you add a writer fan-in entry with a prompt-guided amendment strategy and author its prompt asset does the job, when a packet for that writer lands, run the Claude Code command-line tool non-interactively (`claude -p`) to compose the amendment — that packet's content goes to the same Anthropic service, under the same account, that Claude Code itself already uses. The companion writer-reconciler job never calls a model.
 
 What brain-stem reads and writes is bounded to a small set of locations:
 

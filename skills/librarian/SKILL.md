@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: The vault/plan/governance librarian — a single skill with a flat, capability-name-keyed set of capabilities under capabilities/. Audits and reconciles governance pillars, plan-tree status, vault indices, and the Vault Writers ecosystem; renders manifest-derived read-replicas (tasks.md, _index.md, _backlog.md, rules-index). Routes to a capability by name; the capability bodies execute, they are not loaded inline.
+description: Audit and reconcile governance pillars, plan-tree status, vault indices and the Vault Writers ecosystem, and render the manifest-derived read-replicas (tasks.md, _index.md, _backlog.md, rules-index). One skill routed by capability name under capabilities/; bodies execute, they are not loaded inline. Use for "/librarian <capability>", "/librarian full", or "librarian <capability>" (e.g. librarian backlog-index).
 disable-model-invocation: false
 ---
 
@@ -59,7 +59,7 @@ capabilities) — consult `invocation_modes` for the live membership:
 > `writers-index-refresh`, `writers-overlap-refresh`, `writers-health-audit`, `plan-index`,
 > `plan-parent-resolve`, `drift-sweep`, `trinity-drift-detect`, `frontmatter-enforce`,
 > `placement-validate`, `xref-check`, `stale-detect`, `handoff-disposition-check`,
-> `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `managed-surface-census`, `capability-registry-parity`, `librarian-manifest-validate`,
+> `tag-coverage-audit`, `sanctioned-schema-drift-detect`, `managed-surface-census`, `context-budget-index`, `capability-registry-parity`, `librarian-manifest-validate`,
 > `skill-parity`, `waiver-audit`, `log-archive`,
 > `wikilink-repair`, `rename-detect`, `rename-cascade`, `rename-history-sync`,
 > `plan-research-index`, `plan-decision-log`, `plan-handoff-index`, `project-context-situating`,
@@ -369,6 +369,28 @@ runtime-written member — the locked mutation path owns it) and
 `*.foundation-retired`/`*.foundation-local` sidecars are classified, never
 flagged. Exit 1 while any fork divergence stands; absent manifest clean-skips.
 Runtime: `capabilities/managed-surface-census.sh`.
+
+## Capability: context-budget-index
+
+Measures the ALWAYS-ON file surfaces — every `rules/` file that loads for the
+cwd, each `CLAUDE.md` plus the concatenated chain, and the hook
+`additionalContext` spill files of the last session — and renders a
+GREEN/YELLOW/RED read-replica pair (`.md` + `.json`) under
+`$CLAUDE_STATE_ROOT/census/`, one finding per non-GREEN row. Thresholds come
+from the governance mandate `_always_on_context_budget`, expressed in UNITS of
+the auto-memory byte cap so there is one byte literal in the system; the
+`rules/` tier is capped in AGGREGATE only and rendered with a contributor list
+(bytes, cumulative %) rather than a second per-file number. MEMORY.md is
+REFERENCED, not re-measured — its verdict is read from the existing R-59
+after-session monitor, and the total row says PARTIAL when that monitor has not
+run. `load_reason` per file comes from the InstructionsLoaded telemetry log the
+shipped hook writes. Also carries a MEMORY.md template-residue row: an
+equivalent CommonMark type-2 HTML-block parser reproduces the harness comment
+strip (a block closes at the FIRST `-->`, so a nested comment's tail leaks) and
+compares it against a nesting-aware strip — a fixed byte fingerprint would fire
+on fixed files too, because an affected header's opening lines do not change.
+Detection only, advisory only: it writes nothing it measures and exits 0 always.
+Runtime: `capabilities/context-budget-index.sh`.
 
 ## Capability: handoff-disposition-check
 
@@ -754,6 +776,20 @@ Promotes a vault memory entry to a global `.claude/rules/<name>.md` rule (only
 with `--apply`; validates the candidate vs `schemas/rules-schema.json`;
 name-collision guard; requires confirmation). Ported as-is.
 Runtime: `capabilities/memory-globalize.sh`.
+
+## Capability: rules-compact
+
+Compacts a hook-backstopped rule: the operative instruction, the escape hatch
+and the one-line why stay always-on as a short stub, while the source moves
+byte-for-byte to `rules-rationale/` OUTSIDE the rules directory, where nothing
+loads it. A rule qualifies only when its `enforced_by:` frontmatter names a hook
+that is registered in `settings.json`, present on disk, and INLINE-BLOCKING per
+the allowlist the script declares — so a rule is never traded for a backstop
+that is not there. Pipeline-owned seed entries are refused unconditionally. The
+operator marks what survives with trailing `<!-- keep -->` / `<!-- why -->`
+markers; the stub plus the rationale reproduces the source losslessly. Refusals
+are block-and-log with a `reason`; `--apply` is the confirm gate.
+Runtime: `capabilities/rules-compact.sh`.
 
 ## Capability: memory-hygiene
 

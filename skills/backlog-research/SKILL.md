@@ -1,13 +1,11 @@
 ---
 name: backlog-research
 description: >
-  Deep research on a triaged inbox idea or an in-flight plan. Reads the vault, the
-  user's infrastructure, and external best practices, then writes an ideation brief
-  plus a draft plan directory. Also graduates a pre-plan idea note into a plan via
-  --promote (delegating to the shared mechanical helper). Use when a backlog item
-  needs research before planning. Trigger on: "research this backlog item", "backlog
-  research", "/backlog-research", or any request to investigate feasibility of a
-  system project idea.
+  Research a triaged inbox idea or an in-flight plan against the vault, the user's
+  infrastructure and external best practices, then write an ideation brief plus a draft plan
+  directory; --promote graduates an inbox note into a plan. Use when a backlog item needs
+  research before planning. Trigger on: "research this backlog item", "backlog research",
+  "/backlog-research", or any request to investigate feasibility of a system project idea.
 disable-model-invocation: false
 argument-hint: "<backlog-item-name> [--budget <dollars>] [--promote <inbox-slug>]"
 ---

@@ -2,6 +2,7 @@
 # Hook: PreToolUse (AskUserQuestion) — Session-decision-guard for option-shape
 # decisions. Matcher-split discipline:
 # AskUserQuestion lives here; Edit|Write lives in pre-write-guard.sh.
+#
 # Branches (modular composition per — each branch is an independent
 # function that emits a text fragment or empty; composer concatenates):
 #   decision_quality_branch()   — advisory + telemetry/
@@ -13,6 +14,7 @@
 #                                 option set is detected.
 #   compose_additional_context() — concatenates non-empty fragments into a
 #                                  single additionalContext payload.
+#
 # Phase 2 deny takes priority over fragment composition: when
 # decision_quality_branch() flips to deny under PRE_ASQ_GUARD_DQ_PHASE=2-blocking
 # (alias PRE_WRITE_GUARD_DQ_PHASE preserved for back-compat), the hook emits
@@ -20,6 +22,7 @@
 # transparency.
 set -euo pipefail
 
+# hook-portability — source lib via $SCRIPT_DIR, not a
 # hardcoded install-path literal ([DRIFT] 3; AC).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
@@ -74,6 +77,7 @@ HC_FRAGMENT=""
 #   - Phase 1 (1-advisory): substantive + no annotation → nudge
 #   - Phase 2 (2-blocking): substantive + no annotation → deny
 #   - JSONL telemetry row per fire to $DQ_EVENTS_PATH (fixture-overridable)
+#
 # Sets DQP_DECISION ∈ {allow, deny} + DQP_FRAGMENT (text or empty).
 decision_quality_branch() {
   local aq_input_file aq_telemetry_path aq_phase aq_decision aq_session_id
@@ -195,11 +199,11 @@ PYEOF
 3. Live-vault state — read current files; do not trust memory.
 4. +1 unconsidered option — generate one option NOT yet on the table; expand the option space.
 
-Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. Empirically, the user overrides the first-presented option ≈100% of the time without this pass. Source: ~/.claude/CLAUDE.md § Decision-Quality Protocol."
+Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. Empirically, the user overrides the first-presented option ≈100% of the time without this pass. If you keep a decision-quality entry in your ~/.claude/rules/, it carries the rationale; the four elements above are the operative instruction."
       DQP_DECISION="allow"
       ;;
     deny)
-      DQP_FRAGMENT="[Decision-Quality Protocol — Phase 2] This AskUserQuestion presents a substantive option set without a \`research_complete:\` annotation. Run the 4-element research pass (project goals, inter-project deps, live-vault state, +1 unconsidered option) and re-issue with \`research_complete: <one-line summary>\` prefixed to the question text or embedded in an option description. Source: ~/.claude/CLAUDE.md § Decision-Quality Protocol."
+      DQP_FRAGMENT="[Decision-Quality Protocol — Phase 2] This AskUserQuestion presents a substantive option set without a \`research_complete:\` annotation. Run the 4-element research pass (project goals, inter-project deps, live-vault state, +1 unconsidered option) and re-issue with \`research_complete: <one-line summary>\` prefixed to the question text or embedded in an option description. The four elements named here are the operative instruction; no other file is required."
       DQP_DECISION="deny"
       ;;
     allow-annotated|allow|*)
@@ -212,10 +216,12 @@ Then re-rank, recommend, and surface trade-offs. After running the pass, re-issu
 # === hard_constraints_branch() ============================================
 # Per +: emits Hard-Constraints-Override-Spec reminder when a
 # substantive option set is detected. Replaces the rule formerly stated in
-# the user's live global CLAUDE.md § "Hard Constraints Override Spec Text".
+# a rule the operator may keep as a rules/ entry; this hook is the enforcement.
+#
 # Reuses the substantive-shape detection logic (replicated, not shared,
 # per modular-independence principle). Fires regardless of annotation —
 # the constraint check is orthogonal to research-completeness.
+#
 # Sets HC_FRAGMENT (text or empty). Never denies.
 hard_constraints_branch() {
   local hc_input_file hc_substantive
@@ -257,7 +263,7 @@ PYEOF
   rm -f "$hc_input_file"
 
   if [[ "$hc_substantive" == "true" ]]; then
-    HC_FRAGMENT="[Hard Constraints Override Spec Text] When a stated constraint (no live mutations, no destructive ops without confirmation, etc.) conflicts with a spec, plan, or task description, the spec is treated as DEFECTIVE. Options that violate the constraint do NOT appear in option-comparison tables. The user does not get to 'choose between honoring or violating' their own rule — the constraint already settled the question. Flag the spec as defective and propose corrections. Source: ~/.claude/CLAUDE.md § Hard Constraints Override Spec Text."
+    HC_FRAGMENT="[Hard Constraints Override Spec Text] When a stated constraint (no live mutations, no destructive ops without confirmation, etc.) conflicts with a spec, plan, or task description, the spec is treated as DEFECTIVE. Options that violate the constraint do NOT appear in option-comparison tables. The user does not get to 'choose between honoring or violating' their own rule — the constraint already settled the question. Flag the spec as defective and propose corrections. If you keep a hard-constraints entry in your ~/.claude/rules/, it carries the rationale; the instruction above stands on its own."
   fi
 }
 

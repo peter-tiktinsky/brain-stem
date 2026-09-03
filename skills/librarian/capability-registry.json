@@ -1061,6 +1061,29 @@
       "implementation_status": "shipped",
       "script": "capabilities/managed-surface-census.sh"
     },
+    "context-budget-index": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "librarian-full"
+      ],
+      "cron_block": "daily",
+      "dependencies": [],
+      "emits_findings": true,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "context-budget NDJSON finding lines (FINDINGS_OUTPUT or stdout) + the context-budget-index.md / .json read-replica pair under $CLAUDE_STATE_ROOT/census/"
+        ],
+        "schema": null,
+        "validation": "every always-on surface measured against the governance mandate _always_on_context_budget, whose thresholds are expressed in units of the auto-memory byte cap read from _memory_md_cap.thresholds.max_bytes; rules/ capped in aggregate only (contributor list, no per-file threshold); MEMORY.md referenced from the R-59 after-session monitor, never re-measured; any hook additionalContext spill file is RED; MEMORY.md template residue derived by a harness-equivalent type-2 HTML-block parser, never a byte fingerprint",
+        "failure_mode": "advisory — detection only (writes nothing it measures); one finding per non-GREEN row; exit 0 on every path, so it can never block"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/context-budget-index.sh"
+    },
     "handoff-disposition-check": {
       "tier": "mechanical",
       "invocation_modes": [
@@ -1574,15 +1597,46 @@
       "output_contract": {
         "writes": [
           "{system.rules_dir}/<name>.md (only with --apply)",
+          "<git root of $PWD>/.claude/rules/<name>.md (only with --apply --target project --paths ...; only .claude/rules/ is created, never .claude/skills/)",
           "<source-memory>.md frontmatter promoted_to: (only with --apply)",
           "librarian-finding NDJSON candidates to stdout"
         ],
         "schema": "schemas/rules-schema.json",
-        "validation": "candidate rule validated vs schemas/rules-schema.json (resolved CLAUDE_HOME-first); name-collision guard; requires confirmation",
+        "validation": "candidate rule validated vs schemas/rules-schema.json (resolved CLAUDE_HOME-first); name-collision guard; requires confirmation; --target project additionally requires --paths and blocks unless resolve_memory_dir for the destination git root equals the memory dir being scanned",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
       "script": "capabilities/memory-globalize.sh"
+    },
+    "rules-compact": {
+      "tier": "judgment",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "skip-non-interactive",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "schemas/rules-schema.json"
+      ],
+      "emits_findings": true,
+      "emits_ndjson_candidates": true,
+      "synthesis_rubric_section": "SKILL.md#rules-compact",
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "writes": [
+          "{system.rules_dir}/<name>.md — the compacted stub, replacing the source (only with --apply)",
+          "$CLAUDE_HOME/rules-rationale/<name>.md — the source file byte-for-byte, outside the rules dir so nothing loads it (only with --apply)",
+          "librarian-finding NDJSON candidates / refusals to stdout"
+        ],
+        "schema": "schemas/rules-schema.json",
+        "validation": "a rule is compactable only when its `enforced_by:` names a hook that is registered in settings.json, present in the hooks dir, and inline-blocking per the allowlist declared in the script; a pipeline-owned seed entry (no frontmatter + installer naming) is refused unconditionally; the stub frontmatter is validated against rules-schema.json before either write",
+        "failure_mode": "block-and-log — a rule whose backstop does not resolve emits a rules-compact-refused finding carrying `reason` and is skipped with no partial write; a TARGETED refusal exits non-zero, a sweep survey exits 0"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/rules-compact.sh"
     },
     "memory-hygiene": {
       "tier": "judgment",

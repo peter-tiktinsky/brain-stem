@@ -75,7 +75,7 @@ EXPIRED_DAYS="${EXPIRED_DAYS:-360}"
 # reported visibly (log + stderr) below rather than silently applying stale
 # caps.
 CAP_LINES=200
-CAP_BYTES=25600
+CAP_BYTES=25000
 CAP_CHAR_LINE=200
 CAP_SOURCE="fallback"
 CAP_DEGRADE_CAUSE="loader unavailable (hooks/lib/foundation-overlay-load.sh missing or jq absent)"
@@ -240,6 +240,16 @@ if [[ -f "$INDEX_FILE" ]]; then
   for f in "$MEMORY_DIR"/*.md; do
     BASE=$(basename "$f")
     [[ "$BASE" == "MEMORY.md" ]] && continue
+    # Rotated chronicle archives are never index entries. The ## Episodic
+    # section is a SINGLE pointer line to the append-only episodic-chronicle.md
+    # (foundation-master.json .mandatory_files.mandates._memory_md_cap
+    # .overflow_routing.fixed_section_order_note) — it does not grow, and each
+    # rotation would otherwise add a permanent line. The archives are written
+    # with no `description:`, so every such line is a dead hook. The sibling
+    # reader skills/librarian/capabilities/memory-hygiene.sh already excludes
+    # the episodic-chronicle family from its orphan inventory; this keeps the
+    # writer from inserting what the reader refuses to flag.
+    case "$BASE" in episodic-chronicle-archive-*.md) continue ;; esac
     [[ ! -f "$f" ]] && continue
 
     if ! grep -q "$BASE" "$INDEX_FILE" 2>/dev/null; then

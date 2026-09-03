@@ -144,6 +144,7 @@ brain-stem ships a **comprehensive suite of capabilities, each wired into how Cl
 - [The memory model](https://peter-tiktinsky.github.io/brain-stem-docs/memory-model.html) — three kinds of memory, two scopes, and the hot index under a hard cap.
 - [What loads each session](https://peter-tiktinsky.github.io/brain-stem-docs/session-loading.html) — exactly what context assembles at session start, and what stays on-demand.
 - [Why: context & memory](https://peter-tiktinsky.github.io/brain-stem-docs/context-memory-rationale.html) — the rationale behind the memory split and the load tiers.
+- Running the optional `claude-mem` plugin? Turn off the context index it injects at session start: in `~/.claude-mem/settings.json` (or its Context Settings modal at `http://localhost:37777`) set `CLAUDE_MEM_CONTEXT_OBSERVATIONS=0`, `CLAUDE_MEM_CONTEXT_SESSION_COUNT=0` and every `CLAUDE_MEM_CONTEXT_SHOW_*` flag to `false` — including `CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY`, `CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE`, `CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS`, `CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS`, `CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT`, `CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT` and `CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT`. Hook output is capped at 10,000 characters and, once you have real history, that index runs well past it — so the harness spills it to a `hook-*-additionalContext.txt` file in the session directory and the model receives only a preview of legend and column-key boilerplate, meaning you pay for it every session and get almost nothing back. The trap: do not shrink it to sit just under 10,000 characters, because under the cap nothing is spilled and the whole payload is delivered in full, which costs far more than the preview does; go to zero or leave the defaults alone. Capture is untouched — the plugin's PostToolUse, Stop and SessionEnd hooks keep recording, and brain-stem's own SessionEnd memory hook is untouched — so recall stays available on demand through the plugin's MCP search tools and its mem-search skill.
 
 ### Project management
 
@@ -198,7 +199,7 @@ brain-stem is a personal project that may be useful to others. Bug reports, feed
 
 ## Security
 
-brain-stem runs entirely on your machine, writes only to folders it records, and makes no automatic network calls — the only network activity is something you trigger (the backup capability, or onboarding's read-only GitHub check), always to a destination you control. The trust boundary, the install/overwrite surface, and how to report a vulnerability are documented in **[SECURITY.md](SECURITY.md)**.
+brain-stem runs entirely on your machine, writes only to folders it records, and makes no automatic network calls — the only network activity is something you trigger or explicitly configure (the backup capability, onboarding's read-only GitHub check, or a writer you have routed to the assistant-mediated document amender), always to a destination you control or a service you already use. The trust boundary, the install/overwrite surface, and how to report a vulnerability are documented in **[SECURITY.md](SECURITY.md)**.
 
 ## License
 

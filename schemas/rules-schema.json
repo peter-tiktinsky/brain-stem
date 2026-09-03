@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://brain-stem.local/schemas/rules-schema.json",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "title": "Rule file frontmatter contract (user-scope and project-scope `.claude/rules/*.md`)",
   "description": "YAML frontmatter contract every Markdown file under a `.claude/rules/` directory MUST carry. `.claude/rules/` is the documented scale-beyond / global surface for instructions that load every session regardless of cwd (the USER-SCOPE `.claude/rules/`, at the install root) or every session within one project (a PROJECT-SCOPE `.claude/rules/`, at the project root). The harness reads `description` (scan hook) and `paths` (glob activation) directly; the STEM governance fields (`provenance`, `source_memory`, `promoted_at`, `tags`) are additive and ignored by the harness but consumed by the memory→RULES promotion (memory-globalize) + rules-hygiene. Schema validates the frontmatter block parsed as an object; additionalProperties is true so rule files may carry the harness-native shape unchanged. Sibling contract to schemas/memory-schema.json.",
 
@@ -23,7 +23,7 @@
     },
 
     "provenance_axis": {
-      "_description": "The `provenance` field distinguishes how a rule got here. Hand-authored rules are the common case (the README worked examples); promoted rules carry the source-memory lineage so a future auditor can trace a global rule back to the project memory that crystallized it, and so promotion is idempotent (re-running promotion finds the existing `source_memory` pointer and skips). Absent `provenance` defaults to `hand-authored` (additivity contract — the harness-native shape with only description+paths is valid and treated as hand-authored).",
+      "_description": "The `provenance` field distinguishes how a rule got here. Hand-authored rules are the common case (the worked examples in the rules README template); promoted rules carry the source-memory lineage so a future auditor can trace a global rule back to the project memory that crystallized it, and so promotion is idempotent (re-running promotion finds the existing `source_memory` pointer and skips). Absent `provenance` defaults to `hand-authored` (additivity contract — the harness-native shape with only description+paths is valid and treated as hand-authored).",
       "values": {
         "hand-authored": "Written directly by a human or a non-promotion skill. Default when `provenance` is absent.",
         "promoted-from-memory": "Elevated from a project memory carrying `scope: global` by the memory-globalize capability. REQUIRES `source_memory` (the slug of the originating memory; pairs with that memory's `promoted_to:` pointer)."
@@ -43,8 +43,10 @@
     "consumers": [
       "skills/librarian/capabilities/memory-globalize.sh (memory->RULES promotion — validates a candidate `scope: global` memory against THIS schema before writing to the user-scope `rules/` directory; block-and-log. Resolves the schema foundation-repo -> live install at lines 149-157; degrades to the structural fallback at lines 205-210 when absent)",
       "skills/librarian/capabilities/rules-hygiene.sh (frontmatter validity + size ceiling + dead-glob audit; propose-only NDJSON. Resolves the schema at lines 106-114; structural fallback when absent)",
+      "skills/librarian/capabilities/rules-compact.sh (reads `enforced_by` to SELECT which rules are compactable — the named hook must be registered, present and inline-blocking — and validates the stub frontmatter against THIS schema before either write; block-and-log)",
+      "skills/librarian/capabilities/context-budget-index.sh (renders the `enforced_by` column of the always-on rules budget, 'none' where the field is absent, so an always-on rule with no declared backstop is visible)",
       "templates/claude-home-rules-readme-template.md (adopter-facing authoring guidance; its worked examples validate against this schema)",
-      "internal/tests (regression — validates the README worked examples + a synthetic promoted rule)"
+      "internal/tests (regression — validates the rules README template's worked examples + a synthetic promoted rule)"
     ],
 
     "schema_version_policy": "SemVer. Additive field additions = minor bump. Required-field changes or enum reductions = major bump (R-37 atomic lockstep with consumers above)."
@@ -93,6 +95,12 @@
       "items": { "type": "string" },
       "minItems": 0,
       "description": "Optional free-form retrieval/hygiene tags. Ignored by the harness; consumed by rules-hygiene for corpus organization. May be empty []."
+    },
+
+    "enforced_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional BACKSTOP DECLARATION: the mechanism that enforces this rule regardless of model cooperation. Two forms. (1) A registered hook script basename, e.g. 'pre-write-guard.sh' or 'pre-asq-guard.sh' — the hook must be registered in settings.json, present in the install's hooks/ directory, and inline-blocking (only a PreToolUse hook can deny inside the tool call). A rule with a resolving backstop can be COMPACTED: the operative instruction, the escape hatch and the one-line why stay always-on while the narrative moves out of the loaded corpus. (2) The reserved 'probe:<name>' form, for a rule whose backstop is a deterministic transcript probe rather than a hook; no probe class is active yet, so a 'probe:' value resolves to no hook and is not compactable. Absent = no declared backstop, and the rule keeps its full text. Ignored by the harness."
     }
   },
 

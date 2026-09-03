@@ -1,13 +1,11 @@
 ---
 name: backlog-hygiene
 description: >
-  The GTD review loop over the manifest-derived backlog. Scans the pre-plan idea
-  inbox + the in-flight plan manifests for funnel/lifecycle staleness and missing
-  dispositions, enforces the R-29/30/31/56 lifecycle rules, and with --fix applies
-  safe auto-maintenance (auto-flag missing dispositions).
-  Delegates table regeneration to the librarian. Use as a scheduled maintenance task
-  or on demand. Trigger on: "backlog hygiene", "clean up backlog", "/backlog-hygiene",
-  "stale backlog items", or any request to audit backlog freshness.
+  Audit the manifest-derived backlog for staleness and missing dispositions across the idea
+  inbox and in-flight plan manifests, enforcing the R-29/30/31/56 lifecycle rules; --fix
+  applies safe auto-maintenance and table regeneration is delegated to the librarian. Runs
+  scheduled or on demand. Trigger on: "backlog hygiene", "clean up backlog",
+  "/backlog-hygiene", "stale backlog items", or any request to audit backlog freshness.
 disable-model-invocation: false
 argument-hint: "[--dry-run] [--fix]"
 ---

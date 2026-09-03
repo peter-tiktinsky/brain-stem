@@ -268,11 +268,11 @@ def aggregate_status(statuses):
 # Current task = the first tasks[] entry whose status is NOT a terminal token
 # (the active edge of the plan). Keyed to the declared task-status vocabulary
 # (schemas/plan-manifest-schema.json declared_vocabulary): the canonical
-# terminal split (done/cut) plus the frozen historical-tail synonyms the live
-# corpus still carries; the reader normalizes on the declared front-token
-# chain so a narrated status ("done (verified)") classifies by its front token.
-TERMINAL_TASK = {"done", "cut", "closed", "complete", "completed", "verified",
-                 "skipped", "cancelled", "canceled"}
+# terminal split (done/cut) declared at declared_vocabulary.terminal, onto which
+# the legacy synonyms were converged by migration 0009; the reader normalizes on
+# the declared front-token chain so a narrated status ("done (verified)")
+# classifies by its front token.
+TERMINAL_TASK = {"done", "cut"}
 def current_task(man):
     tasks = man.get("tasks")
     if not isinstance(tasks, list):

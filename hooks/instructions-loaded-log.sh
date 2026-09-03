@@ -54,6 +54,42 @@ TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Append one diagnostic row: timestamp + event + session id. The presence of a
 # row is the memory-reaching-model signal (instructions were loaded this fire).
+# UNCHANGED and load-bearing: a consumer parses this row's trailing `session=<id>`
+# field, so the tab log keeps its exact shape and stays the last-line surface.
 printf '%s\tInstructionsLoaded\tsession=%s\n' "$TS" "$SESSION_ID" >> "$DIAG_LOG" 2>/dev/null || true
+
+# --- Context-budget telemetry row (NDJSON sibling log) -----------------------
+# The InstructionsLoaded payload carries the identity of the file that loaded —
+# file_path, memory_type (User/Project/Local/Managed) and load_reason
+# (session_start / nested_traversal / path_glob_match / include / compact) — and
+# the tab row above discards all three. This block RETAINS them, plus the loaded
+# file's byte size, so the always-on context budget is measured from the
+# platform's own event instead of estimated. Detection only: the loaded file is
+# read for its SIZE, never written.
+#
+# ONE log, rows discriminated by "event": the SessionEnd hook-spill counter in
+# session-deregister.sh appends its own row shape ("hook-spill-count") here, so
+# a reader has a single per-session telemetry stream to open. Row builder is jq
+# (correct escaping for arbitrary paths); jq absent degrades to the tab row
+# alone, which is why that row stays the presence signal. NEVER fail-hard.
+NDJSON_LOG="$STATE_DIR/instructions-loaded.ndjson"
+if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
+  IL_FILE=$(printf '%s' "$INPUT" | jq -r '.file_path // empty' 2>/dev/null)
+  IL_TYPE=$(printf '%s' "$INPUT" | jq -r '.memory_type // empty' 2>/dev/null)
+  IL_REASON=$(printf '%s' "$INPUT" | jq -r '.load_reason // empty' 2>/dev/null)
+  # bytes: wc -c of the loaded file when it is a readable regular file; empty
+  # (rendered as JSON null) when the path is absent, unreadable or not a file.
+  IL_BYTES=""
+  if [ -n "$IL_FILE" ] && [ -f "$IL_FILE" ] && [ -r "$IL_FILE" ]; then
+    IL_BYTES=$(wc -c < "$IL_FILE" 2>/dev/null | tr -d ' ')
+  fi
+  jq -cn \
+    --arg ts "$TS" --arg sid "$SESSION_ID" --arg fp "$IL_FILE" \
+    --arg mt "$IL_TYPE" --arg lr "$IL_REASON" --arg by "$IL_BYTES" \
+    '{ts: $ts, event: "instructions-loaded", session_id: $sid,
+      file_path: $fp, memory_type: $mt, load_reason: $lr,
+      bytes: (if $by == "" then null else ($by | tonumber) end)}' \
+    >> "$NDJSON_LOG" 2>/dev/null || true
+fi
 
 exit 0

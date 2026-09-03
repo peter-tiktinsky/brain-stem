@@ -1677,7 +1677,7 @@ EOF
     # governance/anchored-spoke-registry.json is SEED-ONCE / USER-PRESERVE-by-omission
     # (dropped from foundation-manifest.json files[]; delivered seed-if-absent at Step 8.5)
     # — surface it in the same informational class as the other copied-once surfaces.
-    for _up_rel in MEMORY.md rules/README.md governance/anchored-spoke-registry.json; do
+    for _up_rel in MEMORY.md governance/anchored-spoke-registry.json; do
       if [ -f "$CLAUDE_HOME/$_up_rel" ]; then
         upgrade_file_disp_preview="${upgrade_file_disp_preview}${_up_rel}	untouched
 "
@@ -3318,62 +3318,9 @@ else
   info "MEMORY.md lazy-seed wired (SessionStart hooks/memory-seed.sh → resolve_memory_dir; no eager install-time seed)"
 fi
 
-# Step 11.7: ~/.claude/rules/README.md seed
-# Seeds $CLAUDE_HOME/rules/README.md from templates/claude-home-rules-readme-template.md.
-# Adopter-facing README explaining the `paths:` frontmatter pattern for the
-# documented Anthropic .claude/rules/ scale-beyond primitive (loads beyond the
-# MEMORY.md 25KB cap via glob-scoped lazy loading; reference
-# code.claude.com/docs/en/memory).
-#
-# No-clobber: existing README is preserved unconditionally — adopters who
-# customize the README don't get clobbered on re-install.
-template_rules_readme="$CLAUDE_HOME/templates/claude-home-rules-readme-template.md"
-rules_dir="$CLAUDE_HOME/rules"
-rules_readme_target="$rules_dir/README.md"
-rules_caveat_sentinel="<!-- brain-stem: #21858-caveat -->"
-
-if [ ! -f "$template_rules_readme" ]; then
-  warn "claude-home-rules-readme-template.md not present at $template_rules_readme — skipping rules/README.md seed"
-elif [ -f "$rules_readme_target" ]; then
-  # No-clobber: an existing README is preserved. On an upgrade, deliver the
-  # user-scope `paths:`-glob "Known limitation" caveat (now in the template body)
-  # to pre-existing adopters by APPENDING it behind a sentinel — only when absent
-  # (grep -qF guard → idempotent), leaving the adopter's own edits untouched.
-  if grep -qF "$rules_caveat_sentinel" "$rules_readme_target"; then
-    info "rules/README.md exists at $rules_readme_target — preserving (no clobber); user-scope 'paths:' caveat note already present (no re-append)"
-  else
-    {
-      printf '\n%s\n' "$rules_caveat_sentinel"
-      printf '## Known limitation — user-scope `paths:` globs are silently ignored\n\n'
-      printf 'In **user-scope** `~/.claude/rules/` (this directory), a `paths:` glob is **silently ignored**: a glob-scoped rule placed here does not lazy-load on matching files — it is simply not picked up by the glob, with no warning. This is a known upstream limitation, tracked in GitHub issues `#21858` and `#25562`.\n\n'
-      printf 'Practical consequence and the reliable alternative:\n\n'
-      printf -- '- A user-scope rule that **must** fire should be **unscoped** (omit the `paths:` key) so it loads always-on at session start.\n'
-      printf -- '- Glob-scoped (`paths:`) rules load reliably only in **project-scope** `.claude/rules/` (inside a repo). Put domain-specific, file-matched rules there.\n'
-      printf -- '- Until the upstream behavior changes, treat a `paths:` key in user-scope as documentation of intent rather than an active loader.\n'
-    } >> "$rules_readme_target" || {
-      diag "rules/README.md caveat append failed: $rules_readme_target"
-      exit 11
-    }
-    info "rules/README.md exists at $rules_readme_target — preserving (no clobber); appended the user-scope 'paths:' caveat note (adopter content preserved)"
-  fi
-else
-  if ! mkdir -p "$rules_dir"; then
-    diag "rules/README.md seed: mkdir failed: $rules_dir"
-    exit 11
-  fi
-  rules_readme_tmp="$rules_readme_target.tmp.$$"
-  if ! cp "$template_rules_readme" "$rules_readme_tmp"; then
-    diag "rules/README.md seed: cp failed: $template_rules_readme → $rules_readme_tmp"
-    rm -f "$rules_readme_tmp"
-    exit 11
-  fi
-  if ! mv -f "$rules_readme_tmp" "$rules_readme_target"; then
-    diag "rules/README.md seed: atomic mv failed: $rules_readme_target"
-    rm -f "$rules_readme_tmp"
-    exit 11
-  fi
-  info "rules/README.md seeded at $rules_readme_target"
-fi
+# Step 11.7: RETIRED — install.sh seeds NO rules/README.md. The canonical rules
+# README ships as templates/claude-home-rules-readme-template.md and is installed
+# to $CLAUDE_HOME/templates/; migration 0010-class-a-rules-refresh retires the seed.
 
 # Step 11.7a: the generic rules/ entries.
 # The generic, cwd-parameterized, always-on entries seeded into
@@ -3383,10 +3330,10 @@ fi
 # All are UNSCOPED (no `paths:` key) so they load every session — the #21858
 # user-scope `paths:`-glob limitation makes glob-scoping unreliable here.
 # These are installed by install.sh (install.sh runs outside
-# the Edit-blocking sensitive-file gate), on BOTH paths in this same Step 11.7
-# section: fresh = mkdir + atomic-mv; existing-adopter = no-clobber preserve.
+# the Edit-blocking sensitive-file gate): fresh = mkdir + atomic-mv;
+# existing-adopter = no-clobber preserve.
 # Generic-only: NO per-project entries are ever written.
-rules_dir="$CLAUDE_HOME/rules"   # (already set above; restated for locality)
+rules_dir="$CLAUDE_HOME/rules"
 seed_rules_entry() {
   # $1 = entry filename (under rules/), $2 = entry body (already rendered)
   local fname="$1" body="$2" target="$rules_dir/$1" tmp
@@ -3418,25 +3365,9 @@ seed_rules_entry() {
 # 100% machine-derived: the sole cover is the force-ingested situating card (eager,
 # automatic). Not re-dumped here.
 read -r -d '' rules_binder_pointer <<'RULE_BINDER' || true
-# Project binder — the situating card is the sole, eager, machine-derived cover
+# Project binder — the situating card is the eager, machine-derived cover
 
-When working inside a registered project spoke, the spoke's binder has ONE cover
-surface, the force-ingested situating card:
-
-  The situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is
-  AUTO-FORCE-INGESTED at session start — you already have the machine-derived
-  orientation (the spoke's plan roster, aggregate status, active focus, and a
-  latest-handoff pointer per in-progress plan) WITHOUT reading anything. It is
-  generated from the plans' manifests, so it is always current. The binder is 100%
-  machine-derived — there is no hand-curated cover page.
-
-`<spoke>` is the current launch-directory's registered spoke key (`home` for the
-home anchor). The card gives you eager orientation automatically. For deeper binder
-surfaces, follow the card's pointers (research-index, decision-log,
-handoff-chronicle) on demand rather than loading every binder index up front. If no
-binder exists for the current spoke yet, run `librarian plan-research-index` (and
-the binder capabilities) to generate it. This entry is generic and cwd-parameterized
-— it never names a specific project.
+Inside a registered spoke, the situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is already in your context — injected at SessionStart from the plans' manifests (plan roster, status, active focus, latest-handoff pointers). Follow its pointers (research-index, decision-log, handoff-chronicle) on demand; never preload every binder index. No card for this spoke yet: run `librarian plan-research-index`.
 RULE_BINDER
 seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
 
@@ -3448,22 +3379,7 @@ seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
 read -r -d '' rules_library_check <<'RULE_LIBCHECK' || true
 # Before researching — check the library first
 
-Before starting a research-class task (investigating, surveying, gathering
-sources, building up knowledge on a topic), check whether the cross-project
-library already covers it, so the work is not duplicated:
-
-  Read `~/.claude-plans/_library/_index.md` (the topic roster + staleness) and
-  scan it for the topic. If a matching topic exists, open its
-  `~/.claude-plans/_library/<topic>/_index.md` and the relevant article BEFORE
-  researching fresh. If coverage is stale, choose: validate / use-as-is /
-  research-fresh.
-
-This is the portable degraded layer behind the `pre-research-check`
-UserPromptSubmit hook: when that hook is installed it injects a compressed
-coverage signal automatically at detected research intent; when it is absent (or
-the library has no coverage) this always-on rule keeps the library-first check in
-view. Advisory only — it never blocks. If `_library/` does not exist yet, there is
-nothing to check; proceed.
+Before any research-class task, read `~/.claude-plans/_library/_index.md` and, on a topic match, that topic's `_index.md` + article BEFORE researching fresh (stale coverage: validate / use-as-is / research-fresh). Advisory only. The `pre-research-check` UserPromptSubmit hook injects the same signal when it detects research intent; this rule is the degraded layer for prompts the heuristic misses.
 RULE_LIBCHECK
 seed_rules_entry "10-pre-research-library-check.md" "$rules_library_check"
 
@@ -3472,66 +3388,13 @@ seed_rules_entry "10-pre-research-library-check.md" "$rules_library_check"
 # ~/work project (surfaced in the vault as Work/<spoke>/). Generic — never names a
 # specific spoke. Advisory only (never blocks).
 read -r -d '' rules_work_project_register <<'RULE_WORKPROJ' || true
-# Starting a new ~/work project — register it first
+# New ~/work project — register before the first write
 
-When you begin a new project under `~/work/` (a Work spoke surfaced in the vault
-as `Work/<spoke>/`), register it BEFORE the first file write so its identity,
-on-disk shape, and write-time governance are in place:
-
-  Run `/govern register --kind project` from the new project's launch directory
-  (`~/work/<spoke>/`, exactly one level under `~/work/`). Pick the shape:
-
-  - `--layout flat` (default) — a single-project workspace: scaffolds the flat
-    MVP (CLAUDE.md, README.md, updates.md, deliverables/, reference/).
-  - `--layout master --first-sub <name>` — a master that organizes sub-projects:
-    scaffolds a master top (CLAUDE.md, README.md, updates.md — NO top-level
-    deliverables/reference) plus one sub-project under it (each sub owns its own
-    README + deliverables/ + reference/).
-
-Registration records the spoke in the anchored-spoke registry (the identity
-source of truth), scaffolds the shape, and emits the `Work/<spoke>/**` routing
-rule so write-time governance fires for the spoke. Run it before `mkdir`/first
-write — it is a proactive on-ramp, not a gate. This entry is generic and always-on;
-it never names a specific project and never blocks.
+Starting a project under `~/work/<spoke>/` (exactly one level down): run `/govern register --kind project` from that directory BEFORE any `mkdir`/write. It records the spoke in the anchored-spoke registry, scaffolds the layout (`--layout flat` default; `--layout master --first-sub <name>` for a master with sub-projects), and emits the `Work/<spoke>/**` routing rule so write-time governance fires. Proactive on-ramp, never a gate.
 RULE_WORKPROJ
 seed_rules_entry "20-work-project-register.md" "$rules_work_project_register"
 
-# Entry 4 — bounded cross-cutting-spoke on-ramp. Steers
-# cross-cutting personal-system work AWAY from $HOME: never launch from the home
-# directory; create a dedicated bounded dir (e.g. ~/system) and register it as a
-# spoke, the same way a code-tree or ~/work project is registered. Sibling to the
-# work-project on-ramp (20-work-project-register.md) and the cwd==$HOME SessionStart
-# warning (session-start-home-launch-warn.sh) — cross-referenced for discoverability.
-# Generic — never names a specific dir. Advisory only (never blocks).
-read -r -d '' rules_bounded_spoke <<'RULE_BOUNDEDSPOKE' || true
-# Cross-cutting personal-system work — give it a bounded spoke, never $HOME
-
-Some work belongs to no single project — cross-cutting personal-system tasks
-(tuning your own config, notes that span projects, one-off scripts). The tempting
-shortcut is to launch Claude Code from your home directory. Do NOT: launching from
-`$HOME` puts your ENTIRE home tree in the agent's file-operation scope, collapses
-the project `.claude/` onto the global `~/.claude`, and routes the session into the
-anchorless `home` catch-all identity. (A SessionStart advisory warns whenever a
-session is launched from `$HOME`.)
-
-Instead, give cross-cutting work a bounded home of its own:
-
-  1. Create a dedicated, bounded directory for it — e.g. `~/system` (any single
-     bounded dir works; this rule never mandates a specific name).
-  2. Register it as a spoke, exactly the way you register a code-tree or a `~/work`
-     project (see the work-project registration on-ramp): add a spoke entry in the
-     anchored-spoke registry and drop a one-line identity `CLAUDE.md` in the dir so
-     its purpose is self-describing.
-  3. Launch Claude Code FROM that directory — never from `$HOME`.
-
-The bounded dir keeps the agent's file-operation scope small, keeps project and
-global config distinct, and routes the session to an owned spoke instead of the
-catch-all. This entry is generic and always-on; it never names a specific directory
-and never blocks.
-RULE_BOUNDEDSPOKE
-seed_rules_entry "25-bounded-spoke-for-cross-cutting-work.md" "$rules_bounded_spoke"
-
-# Entry 5 — durable-artifact routing convention. The always-on counterpart of the
+# Entry 4 — durable-artifact routing convention. The always-on counterpart of the
 # closed plans-root namespace (plans-rules.json :: root_namespace + the pre-write-guard
 # root-allowlist arm + the librarian placement-validate plans-scope rule): the guard can
 # only deny a misplaced write — this rule tells the session where the artifact BELONGS.
@@ -3539,35 +3402,15 @@ seed_rules_entry "25-bounded-spoke-for-cross-cutting-work.md" "$rules_bounded_sp
 # discriminator / scratchpad-is-transit / library-universal-only). Generic — never names
 # a specific plan or spoke. Advisory only (never blocks).
 read -r -d '' rules_durable_routing <<'RULE_DURABLEROUTING' || true
-# Durable artifact routing — every research output lands in its owning context
+# Durable artifact routing — research output lands in its owning context
 
-Durable session outputs (research registers, design memos, audit ledgers, syntheses)
-never land at the plans-tree root or in hand-invented ad-hoc directories: the plans root
-is a CLOSED namespace (governance pillar `plans-rules.json :: root_namespace`), enforced
-write-time by the pre-write-guard root-allowlist arm and swept by the librarian
-placement-validate plans-scope rule. Route durable artifacts by these five clauses:
+The plans root (`~/.claude-plans/`) is a CLOSED namespace (`plans-rules.json :: root_namespace`; pre-write-guard denies root writes; `librarian placement-validate` sweeps). Route durable outputs (registers, memos, ledgers, syntheses) by five clauses:
 
-1. Research produced OUTSIDE any plan's scope: mint the owning plan FIRST through the
-   funnel — `promote-from-inbox.sh --capture <slug>` (write the idea note now), then
-   `promote-from-inbox.sh <slug>` (graduate to the `NN-<slug>/` plan when ready) — then
-   land the artifact in that plan's `_research/` and declare it in
-   `manifest.research_artifacts[]`.
-2. Research produced in a WORK-SPOKE session lands FLAT in the spoke's existing
-   `reference/` (single-level `.md` — the work-index indexer is single-level/.md-only
-   by design; nesting makes artifacts index-invisible).
-3. Discriminator: about the WORLD (engagement/domain knowledge) → the vault; about the
-   SYSTEM or the work itself → the owning plan's `_research/`.
-4. The session scratchpad is TRANSIT, never home: the sanctioned move is `mv` into
-   `<plan>/_research/` at graduation. Declaration DERIVES at session close (the
-   session-close capability populates `research_artifacts[]` via plan-research-declare)
-   — never maintain a second, hand-kept declaration surface.
-5. `_library/` stays UNIVERSAL-ONLY — cross-project doctrine that applies everywhere;
-   project-specific research belongs to its owning plan, never the library.
-
-Phase-2 hardening options are RECORDED, not scheduled — data-gated on accumulated
-placement-validate findings: a PreToolUse-on-Bash command screen for plans-root writes,
-and a machine-wide displacement scanner. Neither is built until sweep findings
-demonstrate the need.
+1. Outside any plan's scope: mint the owning plan first — `promote-from-inbox.sh --capture <slug>`, then `promote-from-inbox.sh <slug>` — and land the artifact in that plan's `_research/`.
+2. In a work-spoke session: land FLAT in the spoke's `reference/` (single-level `.md`; nesting is index-invisible).
+3. About the WORLD → the vault; about the SYSTEM or the work itself → the owning plan's `_research/`.
+4. The scratchpad is transit: `mv` into `<plan>/_research/` at graduation; `research_artifacts[]` derives at session close (plan-research-declare) — never a hand-kept second declaration.
+5. `_library/` is universal-only; project-specific research stays with its plan.
 RULE_DURABLEROUTING
 seed_rules_entry "30-durable-artifact-routing.md" "$rules_durable_routing"
 

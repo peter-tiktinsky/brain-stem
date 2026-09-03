@@ -1,14 +1,12 @@
 ---
 name: new-plan
 description: >
-  The research-skip mode of the ONE canonical plan scaffolder. Scaffolds a fully
-  governance-compliant plan directory in a single invocation: the flat depth-2 quartet
-  (spec.md + tasks.md + handoff.md + manifest.json) plus a placeholder 00-ideation-brief.md,
-  assigning the next-available NN- prefix and rejecting shame slugs. Opt-in --master mode
-  emits a master+sub structure; --add-subplan adds a sub-plan to an existing master.
-  Use when creating a plan directly from an idea (no research pass). For research-first
-  creation, route to /backlog-research (the research-backed mode of the same scaffolder).
-  Trigger on: "/new-plan", "new plan", "scaffold a plan", "create a plan for ...".
+  Scaffold a governance-compliant plan directory in one invocation (spec.md, tasks.md,
+  handoff.md, manifest.json, placeholder ideation brief) with the next NN- prefix assigned;
+  --master emits a master+sub structure, --add-subplan adds a sub-plan to an existing master.
+  Use when creating a plan directly from an idea with no research pass; for research-first
+  creation route to /backlog-research. Trigger on: "/new-plan", "new plan", "scaffold a plan",
+  "create a plan for ...".
 disable-model-invocation: false
 argument-hint: "<descriptive-slug> [--master --sub <sub-slug>] [--add-subplan <master-NN-slug> --sub <sub-slug>] [--title <title>] [--section <backlog-section>] [--force-slug]"
 ---

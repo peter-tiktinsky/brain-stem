@@ -278,10 +278,26 @@ if [ -f "$INDEX_FILE" ] && grep -q '^## Episodic' "$INDEX_FILE" 2>/dev/null; the
   # Two-branch sentinel re-derive (mirrors index-maintain.sh idempotency): if the
   # sentinel block exists, replace it in place; else insert it right under the
   # `## Episodic` header (top of section, above the fold). awk -v single-line.
-  if grep -qF "$PTR_START" "$INDEX_FILE" 2>/dev/null; then
+  #
+  # ONE PREDICATE, both branches. A live sentinel is a WHOLE LINE equal to the
+  # constant once trailing spaces/tabs/CR are trimmed — awk `{ l=$0;
+  # sub(/[ \t\r]+$/, "", l) }` then `l == s`. The existence test runs that SAME
+  # awk test, so the branch selector and the replacer can never disagree:
+  #   - a substring existence test routes an index whose only sentinel sits
+  #     INSIDE an HTML comment into the replace branch, where the exact-line
+  #     replacer matches nothing and rewrites the file unchanged — the pointer
+  #     never lands;
+  #   - an existence test with no trailing-whitespace/CR tolerance routes a
+  #     drifted live sentinel (an editor's trailing spaces, a CRLF index) into
+  #     the insert branch, leaving a second, permanently orphaned block.
+  # LEADING whitespace deliberately does NOT match: an indented sentinel copy is
+  # documentation inside a comment, never a live pointer, and is left untouched
+  # (no sweep, no deletion of loosely-matching lines).
+  if awk -v s="$PTR_START" '{ l=$0; sub(/[ \t\r]+$/, "", l) } l == s { f=1 } END { exit !f }' "$INDEX_FILE" 2>/dev/null; then
     awk -v s="$PTR_START" -v e="$PTR_END" -v line="$POINTER_LINE" '
-      $0 == s { print s; print line; print e; skip=1; next }
-      $0 == e { skip=0; next }
+      { l=$0; sub(/[ \t\r]+$/, "", l) }
+      l == s { print s; print line; print e; skip=1; next }
+      l == e { skip=0; next }
       skip { next }
       { print }
     ' "$INDEX_FILE" > "$tmp_idx" 2>/dev/null && mv "$tmp_idx" "$INDEX_FILE" 2>/dev/null || rm -f "$tmp_idx" 2>/dev/null
