@@ -15,7 +15,7 @@ schema_version: 1
 
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
-Goal / Problem Statement / Constraints; mutable tail). Cap ~500 lines.
+Goal / Problem Statement / Constraints; mutable tail). Line cap: spec.md.json size_limits.
 SUB-PLAN spec: this is an orchestrator-worker CHILD of the master `{{parent_plan}}` ().
 It carries its own immutable head + its own canonical status, and reports status + a
 graduation_timestamp UPWARD into the master manifest's sub_plans[] aggregate (the librarian
@@ -49,7 +49,9 @@ parent_plan is REQUIRED in frontmatter at depth >= 3 (R-28).
 
 ## Solution Approach
 
-{{SOLUTION — 3-8 sentences. High-level strategy for this sub-plan. Not a task list — tasks live in tasks.md / manifest.tasks[]. Post-Session-1 amendment blocks land here.}}
+{{SOLUTION — 3-8 sentences. High-level strategy for this sub-plan. Not a task list — tasks live in tasks.md / manifest.tasks[].}}
+
+{{Amendments: a spec-changing ruling runs `plan-rule --spec-change`, which mints decisions/ADR-NN-<slug>.md and adds one pointer line under `## Amendment register`.}}
 
 ### Key Design Decisions
 

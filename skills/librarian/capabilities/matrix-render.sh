@@ -186,14 +186,98 @@ def emit(d):
         print(line)
 
 
+def _yq(s):
+    s = " ".join(str(s).split())
+    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+    return s
+
+
+def _cohort_id(suffix):
+    ap = os.path.abspath(plan_dir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p] + [suffix])
+
+
+def upsert_fm_cohort(text):
+    """The replica preface carries the full frontmatter cohort plans-schema
+    requires (type,title,description,created,updated,id,schema_version).
+    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
+    'traceability-matrix'. Present values are never rewritten; status:/tags:
+    are never added (manifest owns status; tags are an authoring surface).
+    Idempotent. Only the lines up to the closing `---` can change; every later
+    byte round-trips."""
+    fl = text.split("\n")
+    if not fl or fl[0].strip() != "---":
+        return text
+    close = None
+    for i in range(1, len(fl)):
+        if fl[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    keys = {}
+    for i in range(1, close):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
+        if m:
+            keys[m.group(1)] = (i, m.group(2).strip())
+    add = []
+    if "type" in keys:
+        if keys["type"][1] != "traceability-matrix":
+            fl[keys["type"][0]] = "type: traceability-matrix"
+    else:
+        add.append("type: traceability-matrix")
+    fallback_title = "%s — Traceability Matrix" % title
+    if "title" not in keys:
+        add.append("title: %s" % _yq(fallback_title))
+    if "description" not in keys:
+        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
+        add.append("description: %s" % _yq(dv))
+    if "created" not in keys:
+        add.append("created: %s" % today)
+    if "updated" not in keys:
+        add.append("updated: %s" % today)
+    if "id" not in keys:
+        add.append("id: %s" % _cohort_id("matrix"))
+    if "schema_version" not in keys:
+        add.append("schema_version: 1")
+    if add:
+        fl[close:close] = add
+    return "\n".join(fl)
+
+
 # master-detect-and-skip (mirror of tasks-render.sh — same guard, mirror parity). matrix-render is the
 # mirror writer of the traceability-matrix.md sentinel region; on a type:master (or
 # sub_plans-bearing) manifest tasks[] is empty and parse_prior_rows keys only on T-N ids, so an
 # unguarded render rewrites a hand-authored sentinel'd master matrix to a 0-row matrix. Latent
 # today (no live master matrix), but armed for the first one. Same drift-sweep.sh master
 # predicate as tasks-render + the reconciler (ONE shared detection contract). On a master: emit
-# a single level:info finding and exit 0 WITHOUT touching traceability-matrix.md.
+# a single level:info finding and exit 0 WITHOUT rendering traceability-matrix.md.
 if manifest.get("type") == "master" or manifest.get("sub_plans"):
+    # heal the master preface cohort (mirror of tasks-render). A master's matrix is never
+    # rendered, but its frontmatter preface still carries the cohort every replica carries. In
+    # write mode an existing file that opens with a frontmatter block gains only its absent
+    # cohort keys, written atomically; every byte after the closing `---` stays identical.
+    # --check never writes, an absent file is not created, and a file with no frontmatter block
+    # is left byte-identical (upsert_fm_cohort returns it unchanged).
+    if not check_only and os.path.isfile(matrix_file):
+        with open(matrix_file, encoding="utf-8", newline="") as fh:
+            _current = fh.read()
+        _healed = upsert_fm_cohort(_current)
+        if _healed != _current:
+            _d = os.path.dirname(matrix_file) or "."
+            _fd, _tmp = tempfile.mkstemp(dir=_d, prefix=".matrix.", suffix=".tmp")
+            try:
+                with os.fdopen(_fd, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(_healed)
+                os.replace(_tmp, matrix_file)
+            except Exception:
+                if os.path.exists(_tmp):
+                    os.unlink(_tmp)
+                raise
     emit({
         "finding": "master-render-skipped",
         "level": "info",
@@ -213,6 +297,16 @@ def cell(value):
 
 _TID_RE = re.compile(r"^T-[0-9]+(\.[0-9]+)?$")
 _STRUCK_ID_RE = re.compile(r"^~~(.+)~~$")
+# A column separator is a pipe NOT preceded by a backslash. cell() escapes only `|` and every
+# row pads each cell with one space, so a separator never follows a backslash; a pipe inside a
+# cell always carries the backslash its escape added.
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+
+def split_cells(line):
+    # Declared mirror of tasks-render's split_cells: split on UNESCAPED pipes only and decode
+    # each cell's `\|` back to `|` once, so a carried cell re-escaped by cell() round-trips.
+    return [c.strip().replace("\\|", "|") for c in _CELL_SPLIT_RE.split(line.strip().strip("|"))]
 
 
 def _bare_matrix_id(cell_value):
@@ -229,15 +323,15 @@ def _bare_matrix_id(cell_value):
 def parse_prior_rows(region):
     """Survivorship: harvest the two human-owned trailing columns (Build artifact,
     Independent verdict) keyed by task id from an existing matrix region. Mirrors
-    tasks-render's parse_ledger_notes (:226-238): naive | split, skip the header +
-    delimiter rows (their first cell is not a T-N id), take the LAST TWO columns so a
+    tasks-render's parse_ledger_notes: split on unescaped pipes only (split_cells, which
+    decodes each cell's escaped pipe once), skip the header + delimiter rows (their first cell is not a T-N id), take the LAST TWO columns so a
     filled downstream cell survives a re-render. A row must carry >= 6 columns. The id
     cell is de-burred (strike-tolerant) before the match, mirroring parse_ledger_notes."""
     prior = {}
     for line in region.split("\n"):
         if not line.strip().startswith("|"):
             continue
-        cols = [c.strip() for c in line.strip().strip("|").split("|")]
+        cols = split_cells(line)
         if len(cols) < 6:
             continue
         tid = _bare_matrix_id(cols[0])
@@ -299,67 +393,6 @@ if os.path.isfile(matrix_file):
             rows_ondisk = len(prior_rows)
         else:
             preface = existing
-
-def _yq(s):
-    s = " ".join(str(s).split())
-    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
-        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
-    return s
-
-
-def _cohort_id(suffix):
-    ap = os.path.abspath(plan_dir.rstrip("/"))
-    marker = os.sep + ".claude-plans" + os.sep
-    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
-    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
-    return "plans-" + "-".join([p for p in parts if p] + [suffix])
-
-
-def upsert_fm_cohort(text):
-    """The replica preface carries the full frontmatter cohort plans-schema
-    requires (type,title,description,created,updated,id,schema_version).
-    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
-    'traceability-matrix'. Present values are never rewritten; status:/tags:
-    are never added (manifest owns status; tags are an authoring surface).
-    Idempotent."""
-    fl = text.split("\n")
-    if not fl or fl[0].strip() != "---":
-        return text
-    close = None
-    for i in range(1, len(fl)):
-        if fl[i].strip() == "---":
-            close = i
-            break
-    if close is None:
-        return text
-    keys = {}
-    for i in range(1, close):
-        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
-        if m:
-            keys[m.group(1)] = (i, m.group(2).strip())
-    add = []
-    if "type" in keys:
-        if keys["type"][1] != "traceability-matrix":
-            fl[keys["type"][0]] = "type: traceability-matrix"
-    else:
-        add.append("type: traceability-matrix")
-    fallback_title = "%s — Traceability Matrix" % title
-    if "title" not in keys:
-        add.append("title: %s" % _yq(fallback_title))
-    if "description" not in keys:
-        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
-        add.append("description: %s" % _yq(dv))
-    if "created" not in keys:
-        add.append("created: %s" % today)
-    if "updated" not in keys:
-        add.append("updated: %s" % today)
-    if "id" not in keys:
-        add.append("id: %s" % _cohort_id("matrix"))
-    if "schema_version" not in keys:
-        add.append("schema_version: 1")
-    if add:
-        fl[close:close] = add
-    return "\n".join(fl)
 
 
 if not preface.strip():

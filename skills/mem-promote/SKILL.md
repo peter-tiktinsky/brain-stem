@@ -74,6 +74,15 @@ memory asserts P. This is a **semantic** judgment, not token overlap.
   reach the Stop-block — and even then it yields to the R-26 checkpoint
   Stop-block + the ≥80% context-pressure valve.
 
+### Recipe: isolated subagent for the reshape and conflict pass
+
+- **When:** the Step 1 gather returned more candidates than the main session should read in its own context, and steps 2 and 3 are to run apart from it.
+- **Dispatch:** one Agent-tool subagent, no fan-out; the prompt is the Step 1 gather output and nothing else.
+- **Reads:** the Step 1 gather output, `MEMORY.md`, `MEMORY-archive.md` when it exists, and each de-conflicted neighbor memory file the gather names.
+- **Returns:** one Step 4 artifact per candidate, as a list of objects with the eight fields `candidate_id`, `subject`, `classification`, `deconflicted_against`, `reshaped_memory`, `narrowed_out`, `conflict` and `provenance`.
+- **Writes:** none by the subagent; its tools are Read, Grep and Glob.
+- **Then:** the main session runs Step 4 over the returned list, one `enqueue_item` call per artifact; each proposal is buffered and never applied by the recipe, no memory file is written, and the operator clears each item through `/librarian review`.
+
 ### 4. Proposal artifact → review queue
 Each proposal is buffered (NOT applied) via `enqueue_item` with the artifact:
 
@@ -84,7 +93,7 @@ Each proposal is buffered (NOT applied) via `enqueue_item` with the artifact:
 ```
 
 mapped onto the review-queue item shape (`id`, `severity`, `state: "open"`,
-`class`, `defer_count: 0`, `dismiss_count: 0`, `payload`). The operator clears
+`class`, `defer_count: 0`, `dismiss_count: 0`, `payload`). The item `id` is the artifact's `candidate_id`, verbatim, so a re-run over the same cluster re-enqueues the same id and keeps the operator's review outcome. The operator clears
 each item only on explicit confirm OR reject-with-reason via `/librarian review`.
 
 ## Degradation (no-claude-mem-DB graceful-degradation contract)
@@ -119,3 +128,5 @@ scripts/prefilter.sh --dry-run            # summary counts only; no enqueue
 - **Failure mode: block-and-log.** An invalid item is REFUSED and logged — never
   written. A missing System-B DB degrades to status `n/a` (0 candidates), never
   a partial/poisoned write.
+
+Re-run safety: content-dedup

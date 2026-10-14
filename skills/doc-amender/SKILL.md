@@ -126,7 +126,7 @@ For each eligible packet:
   - **Zero matches** → skip + audit-log `prompt-not-found`; no error (operator
     may not have authored a prompt for this destination yet).
   - **Multiple matches** → emit `_amender-conflict.json` sidecar listing
-    candidates; operator triages via `/amend-accept` (deferred skill).
+    candidates; the operator triages the sidecar manually.
 - **Variable substitution** per `doc-amender-prompt.md.json :: variable_namespace`
   6 entries: `packet_body`, `destination_current_content`, `destination_path`,
   `upstream_writers`, `writer_metadata`, `amendment_history`.
@@ -147,7 +147,7 @@ checks them in this order BEFORE invoking `claude -p`:
    in staging. Audit `survivorship-skip / operator-edit`.
 3. **`amender-conflict-sidecar`** — terminal signal: when signal 2 fires,
    write `<staging-packet-path>.amender-conflict.json` recording the conflict
-   payload. Operator triages via `/amend-accept <sidecar>` (deferred skill).
+   payload. The operator triages the sidecar manually.
 
 If all 3 signals pass → invoke `claude -p` with substituted prompt + 6-variable
 context; capture stdout as new body; emit replacement packet via staging-emit.
@@ -193,7 +193,7 @@ survivorship conflict, staging-emit failure): emit `_amender-conflict.json`
 sidecar; emit audit-log row with failure reason; continue to next packet.
 The **original packet is RETAINED in staging** — the reconciler picks it up
 on its next tick and writes the destination via the non-amended path (the
-operator triages the sidecar separately via the deferred `/amend-accept` skill).
+operator triages the sidecar separately, by hand).
 
 ## Why event-driven, not cron
 

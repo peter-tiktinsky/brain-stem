@@ -50,6 +50,9 @@
 #     automatic lane this capability carries; compare + emission live in
 #     tasks-render.sh ONLY (no second implementation here); read-only — repair
 #     stays owned by post-manifest-binder-refresh.sh / tasks-md-autosync.sh.
+#     Close-time STATUS-axis repair is owned by session-close step2d_tasks_md_heal
+#     (a targeted re-render of the plans this walk already flagged); this walk
+#     still repairs nothing itself.
 #     Skipped under --dry-run.
 #
 # CLI:
@@ -181,12 +184,19 @@ def norm(s):
     # two capabilities' counts agree on the same corpus.
     return (s or "").split("(")[0].strip().lower().replace("_", "-")
 
-# CLOSED terminal vocabulary: the declared terminal split (done/cut) plus the
-# frozen historical-tail synonyms, keyed to the schema declared_vocabulary.
-COMPLETE_SET = {"complete", "completed", "done", "implemented", "cut"}
+# Two axes, two purpose-named sets, keyed to the schema declared_vocabulary.
+# PLAN_COMPLETE_SET serves the plan axis: the plan terminal plus the frozen
+# historical-tail synonyms. TASK_TERMINAL_SET serves the task axis: only the
+# declared task terminal split (done/cut), so a task row at a historical-tail
+# value under a completed plan reads as lagging.
+PLAN_COMPLETE_SET = {"complete", "completed", "done", "implemented", "cut"}
+TASK_TERMINAL_SET = {"done", "cut"}
 
-def is_complete(s):
-    return norm(s) in COMPLETE_SET
+def is_plan_complete(s):
+    return norm(s) in PLAN_COMPLETE_SET
+
+def is_task_terminal(s):
+    return norm(s) in TASK_TERMINAL_SET
 
 counts = {"trinity-task-ledger-lag": 0, "parse-failure": 0,
           "master-sub-aggregation-drift": 0, "sub-publishes-upward-gap": 0,
@@ -241,8 +251,8 @@ def inspect_trinity(dirpath):
     # comparing the manifest against its own derivative would measure render freshness,
     # not status truth. Replica freshness is a separate detection axis
     # (tasks-render.sh --check and its sweep wiring).
-    if is_complete(manifest_s):
-        lagging = [x for x in ledger if not is_complete(x["status"])]
+    if is_plan_complete(manifest_s):
+        lagging = [x for x in ledger if not is_task_terminal(x["status"])]
         if lagging:
             emit({"finding": "trinity-status-drift", "file": rel,
                   "drift_class": "trinity-task-ledger-lag",

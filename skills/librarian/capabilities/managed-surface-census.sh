@@ -23,10 +23,18 @@
 # stream never trains the reader to skip it. The snapshot is state, not a
 # baseline — the manifest sha is always the comparison authority.
 #
-# CLASSIFIED, NOT FLAGGED (two lanes that are never fork findings):
-#   - governance/overlay-master.json — the adopter-extension surface, the SOLE
-#     files[] member a sanctioned runtime writer mutates (the locked
-#     overlay-master-mutate.sh path). Divergence there is expected state.
+# CLASSIFIED, NOT FLAGGED (lanes that are never fork findings):
+#   - Three-way-merge members — files[] members the installer merges into
+#     rather than replaces, so their live bytes diverge from the recorded sha
+#     BY DESIGN. Divergence there is expected state, not drift. Each member
+#     carries its own class label (the CLASSIFIED_MEMBERS list below):
+#       governance/overlay-master.json -> adopter-owned: the adopter-extension
+#         surface, the SOLE files[] member a sanctioned runtime writer mutates
+#         (the locked overlay-master-mutate.sh path).
+#       .gitignore -> three-way-merge: the installer appends its managed block
+#         behind the `# brain-stem: managed secret-exclusions` sentinel and
+#         preserves every adopter ignore rule, so any install carrying rules
+#         of its own differs from the template sha.
 #   - *.foundation-retired / *.foundation-local sidecars — installer/upgrade
 #     retirement artifacts and adopter-local variants; non-members by
 #     construction, surfaced informationally under the sidecar class.
@@ -34,7 +42,8 @@
 # Finding shapes (hooks/lib/findings.sh contract):
 #   {"finding":"managed-surface-fork","file":<abs>,"class":"modified|missing",
 #    "expected_sha":<sha>,"actual_sha":<sha|absent>}
-#   {"finding":"managed-surface-classified","file":<abs>,"class":"adopter-owned|sidecar"}
+#   {"finding":"managed-surface-classified","file":<abs>,
+#    "class":"adopter-owned|three-way-merge|sidecar"}
 #
 # Usage:
 #   managed-surface-census.sh            # walk, emit new findings, update snapshot
@@ -71,7 +80,7 @@ FULL="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full) FULL="true"; shift ;;
-    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "managed-surface-census: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -86,9 +95,27 @@ STATE_DIR="${CENSUS_STATE_DIR:-${CLAUDE_STATE_ROOT}/census}"
 SNAPSHOT="$STATE_DIR/managed-surface.snapshot"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
-# The sole files[] member a sanctioned runtime writer mutates (the locked
-# overlay-master-mutate.sh path) — expected divergence, adopter-owned class.
-ADOPTER_OWNED_REL="governance/overlay-master.json"
+# Three-way-merge members: expected divergence, classified never flagged. One
+# "<rel>|<class>" row per member (bash 3.2 has no associative arrays). Extend
+# the list with a row; the class label is what the finding reports.
+CLASSIFIED_MEMBERS="governance/overlay-master.json|adopter-owned
+.gitignore|three-way-merge"
+
+# classified_class_for <rel> — print the member's class label, rc 0 when the
+# path is on the list; rc 1 (nothing printed) otherwise.
+classified_class_for() {
+  local row
+  while IFS= read -r row; do
+    [[ -z "$row" ]] && continue
+    if [[ "${row%%|*}" == "$1" ]]; then
+      printf '%s' "${row#*|}"
+      return 0
+    fi
+  done <<EOF
+$CLASSIFIED_MEMBERS
+EOF
+  return 1
+}
 
 # One python pass computes every divergence line: "<class>\t<rel>\t<expected>\t<actual>".
 # Data reaches python via argv, never a piped stdin.
@@ -143,12 +170,12 @@ emit_fork() {  # $1=class $2=rel $3=expected $4=actual
 
 while IFS=$'\t' read -r dclass drel dexp dact; do
   [[ -z "${drel:-}" ]] && continue
-  if [[ "$drel" == "$ADOPTER_OWNED_REL" ]]; then
-    key="classified|adopter-owned|$drel"
+  if mclass=$(classified_class_for "$drel"); then
+    key="classified|$mclass|$drel"
     NEW_SNAPSHOT="${NEW_SNAPSHOT}${key}"$'\n'
     CLASSIFIED_COUNT=$((CLASSIFIED_COUNT + 1))
     if [[ "$FULL" == "true" ]] || ! printf '%s' "$PREV" | grep -Fqx "$key"; then
-      emit_finding "managed-surface-classified" "$CLAUDE_HOME_RES/$drel" "class" "adopter-owned"
+      emit_finding "managed-surface-classified" "$CLAUDE_HOME_RES/$drel" "class" "$mclass"
     fi
     continue
   fi
@@ -178,6 +205,6 @@ EOF
 printf '%s' "$NEW_SNAPSHOT" > "$SNAPSHOT" 2>/dev/null || true
 
 TOTAL=$(jq -r '.files | length' "$MANIFEST" 2>/dev/null || echo "?")
-echo "managed-surface-census: $TOTAL members walked; $FORK_COUNT fork divergence(s) ($NEW_FORK_COUNT new this run); $CLASSIFIED_COUNT classified (adopter-owned/sidecar)"
+echo "managed-surface-census: $TOTAL members walked; $FORK_COUNT fork divergence(s) ($NEW_FORK_COUNT new this run); $CLASSIFIED_COUNT classified (adopter-owned/three-way-merge/sidecar)"
 [[ "$FORK_COUNT" -gt 0 ]] && exit 1
 exit 0

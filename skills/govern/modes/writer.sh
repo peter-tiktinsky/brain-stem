@@ -87,8 +87,8 @@ mode_propose() {
   # below) has supplied a vault. Refuse rather than invent a root; no proposal is
   # emitted and nothing is written.
   if [ -z "${VAULT_ROOT:-}" ]; then
-    printf 'writer.mode_propose: no vault is configured — set .paths.vault_root in %s (or export VAULT_ROOT) and re-run. A writer-reference file has no valid destination without a vault root; no proposal composed.\n' \
-      "${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}" >&2
+    printf 'writer.mode_propose: no vault is configured — set it with `%s user-manifest set paths.vault_root <vault-dir>` (or export VAULT_ROOT) and re-run. A writer-reference file has no valid destination without a vault root; no proposal composed.\n' \
+      "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh" >&2
     return 3
   fi
 
@@ -335,7 +335,7 @@ sys.stdout.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
     [ -n "$_wh_key" ] && [ "$_wh_key" != "null" ] || _wh_key="unset"
   fi
   if [ "$_wh_key" != "enabled" ]; then
-    printf 'WRITER-HEALTH-PROPOSE: a vault writer is now registered. Enable the daily writer health check (writers-health-audit)? Accepting sets it default-on for every subsequent writer you add; declining leaves it dormant (re-proposable, never nagging). Record the choice by setting behavioral.hook_preferences.writers_health_check to "enabled" (accept) or "declined" (decline) in %s.\n' "$_wh_um"
+    printf 'WRITER-HEALTH-PROPOSE: a vault writer is now registered. Enable the daily writer health check (writers-health-audit)? Accepting sets it default-on for every subsequent writer you add; declining leaves it dormant (re-proposable, never nagging). Record the choice by running `%s user-manifest set behavioral.hook_preferences.writers_health_check enabled` (accept) or the same command ending in `declined` (decline).\n' "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh"
   fi
 
   # Now invoke library with empty {} payload purely for atomic action-log row.

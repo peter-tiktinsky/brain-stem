@@ -82,6 +82,8 @@ DRY_RUN=0
 PROPOSED_BY="direct-govern-register-invocation"
 KIND=""
 TARGET=""
+RETRACT=0
+RETRACT_PATTERN=""
 
 usage() {
   cat <<EOF
@@ -108,6 +110,18 @@ Required:
 Multi-pillar R-37 bundling:
   Repeat --pillar / --payload-file pairs in order. All mutations apply
   atomically or none do (single tempfile, single rename).
+
+Retract a path_routing rule (instead of --pillar / --payload-file):
+  overlay-master-mutate.sh --retract-rule <pattern> \\
+      [--kind folder] [--target <target-string>] \\
+      [--proposed-by <enum-value>] [--dry-run]
+  --retract-rule    Remove every frontmatter.path_routing.rules element whose
+                    pattern equals <pattern> exactly (string equality, no glob),
+                    under the same lock, schema check and atomic rename, and
+                    append one action-log row. Exclusive with --pillar and
+                    --payload-file. Exit 0 with a "nothing retracted" line (no
+                    write, no row) when no rule matches; exit 4 when
+                    path_routing is a bare array (the legacy shape).
 
 Optional:
   --kind            Mutation kind for action-log row. Enum per
@@ -201,14 +215,34 @@ while [ $# -gt 0 ]; do
     --target)          TARGET="$2"; shift 2 ;;
     --proposed-by)     PROPOSED_BY="$2"; shift 2 ;;
     --dry-run)         DRY_RUN=1; shift ;;
+    --retract-rule)
+      # Value-taking flag under `set -u`: read the value with ${2-} and shift past
+      # it only when one is present, so a trailing flag is refused, never looped on.
+      RETRACT=1
+      RETRACT_PATTERN="${2-}"
+      if [ $# -ge 2 ]; then shift 2; else shift; fi
+      ;;
     -h|--help)         usage; exit 0 ;;
     *) printf 'overlay-master-mutate.sh: unknown arg: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
+# ---- retract-rule argv validation --------------------------------------------
+
+if [ "$RETRACT" = "1" ]; then
+  if [ -z "$RETRACT_PATTERN" ]; then
+    printf 'overlay-master-mutate.sh: --retract-rule requires a non-empty pattern\n' >&2
+    exit 2
+  fi
+  if [ "$PILLAR_COUNT" != "0" ] || [ -n "$PILLARS" ]; then
+    printf 'overlay-master-mutate.sh: --retract-rule cannot be combined with --pillar/--payload-file\n' >&2
+    exit 2
+  fi
+fi
+
 # ---- argv validation --------------------------------------------------------
 
-if [ "$PILLAR_COUNT" = "0" ]; then
+if [ "$PILLAR_COUNT" = "0" ] && [ "$RETRACT" = "0" ]; then
   printf 'overlay-master-mutate.sh: at least one --pillar + --payload-file pair required\n' >&2
   exit 2
 fi
@@ -294,7 +328,7 @@ mkdir -p "$OVERLAY_DIR" 2>/dev/null || {
 
 # Initialize overlay-master if absent (empty stub conforming to schema).
 if [ ! -f "$OVERLAY_MASTER" ]; then
-  if [ "$DRY_RUN" = "0" ]; then
+  if [ "$DRY_RUN" = "0" ] && [ "$RETRACT" = "0" ]; then
     printf '{}\n' > "$OVERLAY_MASTER"
   fi
 fi
@@ -416,6 +450,36 @@ for p in $PILLARS; do
   i=$((i + 1))
 done
 
+# ---- retract-rule (under lock) ------------------------------------------------
+#
+# Exact-string removal of every .frontmatter.path_routing.rules element whose
+# pattern equals RETRACT_PATTERN. The bare-array legacy shape is refused BEFORE
+# anything is composed (the schema would reject the result, and the failed-
+# action-log row of that rejection must not be written for a refusal). A run with
+# no match writes nothing: no overlay file, no temp file, no action-log row. A
+# match falls through to the shared tempfile / schema / dry-run / rename flow
+# below, with PILLARS naming the one pillar touched for the failure row.
+if [ "$RETRACT" = "1" ]; then
+  if printf '%s' "$WORKING" | jq -e '(try .frontmatter.path_routing catch null) | type == "array"' >/dev/null 2>&1; then
+    printf 'overlay-master-mutate.sh: --retract-rule: path_routing is a bare array (legacy shape the schema rejects); nothing retracted\n' >&2
+    exit 4
+  fi
+  if ! printf '%s' "$WORKING" | jq -e --arg p "$RETRACT_PATTERN" \
+      '[((try .frontmatter.path_routing.rules catch null) // []) | .[]? | select(type == "object" and .pattern == $p)] | length > 0' >/dev/null 2>&1; then
+    printf "overlay-master-mutate.sh: no path_routing rule with pattern '%s'; nothing retracted\n" "$RETRACT_PATTERN" >&2
+    exit 0
+  fi
+  RETRACTED=$(printf '%s' "$WORKING" | jq -c --arg p "$RETRACT_PATTERN" \
+    '.frontmatter.path_routing.rules |= map(select((type == "object" and .pattern == $p) | not))')
+  retract_rc=$?
+  if [ "$retract_rc" -ne 0 ] || [ -z "$RETRACTED" ]; then
+    printf 'overlay-master-mutate.sh: retract composition failed for pattern %s\n' "$RETRACT_PATTERN" >&2
+    exit 6
+  fi
+  WORKING="$RETRACTED"
+  PILLARS=" frontmatter"
+fi
+
 # Write composed JSON to tempfile (pretty-print for human inspection).
 if ! printf '%s\n' "$WORKING" | jq '.' > "$TMPFILE" 2>/dev/null; then
   rm -f "$TMPFILE"
@@ -470,6 +534,40 @@ SESSION_ID="${CLAUDE_SESSION_ID:-unknown-session}"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 mkdir -p "$(dirname "$ACTION_LOG")" 2>/dev/null || true
+
+# Retract: one row for the one rule pattern removed, then done (the per-pillar
+# loop below reads payload files, which a retract does not have).
+if [ "$RETRACT" = "1" ]; then
+  ROW=$(jq -nc \
+    --arg timestamp "$TS" \
+    --arg kind "$KIND" \
+    --arg proposed_by "$PROPOSED_BY" \
+    --arg session_id "$SESSION_ID" \
+    --arg target "$TARGET" \
+    --arg pattern "$RETRACT_PATTERN" \
+    '
+      {
+        timestamp: $timestamp,
+        kind: $kind,
+        proposed_by: $proposed_by,
+        session_id: $session_id,
+        target: ($target | if . == "" then $pattern else . end),
+        validated_fields: { "frontmatter.path_routing.rules": { retracted: $pattern } },
+        unregistered: false
+      }
+    ')
+  retract_rc=$?
+  if [ "$retract_rc" -ne 0 ] || [ -z "$ROW" ]; then
+    printf 'overlay-master-mutate.sh: action-log row composition failed for retract\n' >&2
+    exit 6
+  fi
+  if ! printf '%s\n' "$ROW" >> "$ACTION_LOG"; then
+    printf 'overlay-master-mutate.sh: action-log append failed for retract\n' >&2
+    exit 6
+  fi
+  printf "overlay-master-mutate.sh: retracted path_routing rule '%s'\n" "$RETRACT_PATTERN" >&2
+  exit 0
+fi
 
 i=1
 for p in $PILLARS; do

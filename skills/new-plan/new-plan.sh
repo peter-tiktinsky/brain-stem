@@ -17,11 +17,16 @@
 #                    an existing master and register it in the master's
 #                    sub_plans[] aggregate skeleton. The librarian reconciler does
 #                    the pull-based status fill, NOT this scaffolder.
+#   --rollup         Pull the sub-plans' status into an existing master's
+#                    sub_plans[] and rewrite the rows of the master tasks.md
+#                    rollup table from it, in one locked pass (lib/master-rollup.sh).
+#   --graduate       Turn a flat plan into a master whose first sub-plan is the
+#                    flat plan's own content, in one locked pass that rolls back on
+#                    any failure (lib/graduate-plan.sh). Takes the flat NN-slug and --sub.
 #
 # NOT built (charter — NOT minted):
-#   - flat->master graduation (DESIGNED-BUT-DEFERRED; see SKILL.md).
 #   - --promote-master (— no such flag exists; --add-subplan is the only
-#     sub-emit path).
+#     sub-emit path into an existing master; --graduate turns a flat plan into one).
 #
 # Failure mode is BLOCK-AND-LOG (never write-and-hope): all validation runs before
 # any write; a mid-scaffold failure rolls back the created directory.
@@ -30,6 +35,8 @@
 #   new-plan.sh <slug> [--section <backlog-section>] [--title <title>] [--project <spoke-key>] [--force-slug]
 #   new-plan.sh --master <slug> --sub <sub-slug> [--sub-title <title>] [--title <title>] [--project <spoke-key>] [--force-slug]
 #   new-plan.sh --add-subplan <master-NN-slug> --sub <sub-slug> [--sub-title <title>]
+#   new-plan.sh --rollup <master-NN-slug>
+#   new-plan.sh --graduate <flat-NN-slug> --sub <sub-slug> [--dry-run]
 #   new-plan.sh --dry-run ...        # compute + emit; no write
 #   new-plan.sh --help
 #
@@ -88,7 +95,50 @@ PROJECT_OVERRIDE=""
 FORCE_SLUG="false"
 DRY_RUN="false"
 
-usage() { /usr/bin/sed -n '2,38p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; }
+usage() { /usr/bin/sed -n '2,45p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; }
+
+# --rollup and --graduate grammar, checked on the raw argv before the flat / --master /
+# --add-subplan parser below (which stays as it is). --rollup takes one master NN-slug and
+# no other flag; --graduate takes one flat NN-slug, --sub <sub-slug> and --dry-run. A flag
+# with no value is handled here, never left to a bare `shift` that would exit silently.
+NEWMODE=""
+for _a in "$@"; do
+  case "$_a" in --rollup) NEWMODE="rollup"; break ;; --graduate) NEWMODE="graduate"; break ;; esac
+done
+nm_refuse() {
+  if [[ "$NEWMODE" == "rollup" ]]; then
+    echo "new-plan: --rollup takes only <master-NN-slug> (got $1)" >&2
+  else
+    echo "new-plan: --graduate takes only <flat-NN-slug> --sub <sub-slug> and --dry-run (got $1)" >&2
+  fi
+  exit 2
+}
+if [[ -n "$NEWMODE" ]]; then
+  NM_ARG=""; NM_HAVE="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      "--$NEWMODE")
+        if [[ "$NM_HAVE" == "true" ]]; then nm_refuse "$1"; fi
+        NM_HAVE="true"
+        if [[ $# -ge 2 && "$2" != -* ]]; then NM_ARG="$2"; shift 2; else shift; fi ;;
+      --sub)
+        if [[ "$NEWMODE" != "graduate" ]]; then nm_refuse "$1"; fi
+        if [[ $# -ge 2 && "$2" != -* ]]; then SUB_SLUG="$2"; shift 2; else shift; fi ;;
+      --dry-run)
+        if [[ "$NEWMODE" != "graduate" ]]; then nm_refuse "$1"; fi
+        DRY_RUN="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      -*) nm_refuse "$1" ;;
+      *)  echo "new-plan: unexpected arg '$1'" >&2; exit 2 ;;
+    esac
+  done
+  if [[ -z "$NM_ARG" ]]; then
+    echo "new-plan: missing <slug> (see --help)" >&2
+    exit 2
+  fi
+  MODE="$NEWMODE"; SLUG="$NM_ARG"
+  set --
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -111,7 +161,7 @@ if [[ -z "$SLUG" ]]; then
   echo "new-plan: missing <slug> (see --help)" >&2
   exit 2
 fi
-if [[ "$MODE" != "flat" && -z "$SUB_SLUG" ]]; then
+if [[ "$MODE" != "flat" && "$MODE" != "rollup" && -z "$SUB_SLUG" ]]; then
   echo "new-plan: --$MODE requires --sub <sub-slug>" >&2
   exit 2
 fi
@@ -119,6 +169,19 @@ fi
 # Resolve plan-tree root (test override -> paths.sh -> default).
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
+# --rollup and --graduate run their own scripts, which resolve the plans root the same way
+# and take the owning spoke from the plan's own manifest. They are dispatched before the
+# plans root is created, the template directory resolved or the spoke resolved, so they run
+# from any cwd and a plans root that does not exist is refused, never created.
+if [[ "$MODE" == "rollup" ]]; then
+  exec bash "$SCRIPT_DIR/lib/master-rollup.sh" "$SLUG"
+fi
+if [[ "$MODE" == "graduate" ]]; then
+  if [[ "$DRY_RUN" == "true" ]]; then
+    exec bash "$SCRIPT_DIR/lib/graduate-plan.sh" "$SLUG" "$SUB_SLUG" --dry-run
+  fi
+  exec bash "$SCRIPT_DIR/lib/graduate-plan.sh" "$SLUG" "$SUB_SLUG"
+fi
 # Self-heal the plan-tree root if absent. install.sh creates the default
 # ~/.claude-plans at apply-time, but a hand-edited custom plans_root may not exist
 # yet; mkdir -p is idempotent and only a genuine create failure is fatal. Skipped
@@ -187,6 +250,21 @@ def check_slug(s, label):
     if SHAME_RE.match(s) and not force_slug:
         abort("%s '%s' matches the shame-slug pattern (adjective-gerund-noun). "
               "Provide a descriptive slug. Override: --force-slug." % (label, s))
+
+
+def lock_numbering(root):
+    """Serialize NN numbering against every concurrent mint (graduations included): an
+    exclusive flock(2) on the directory fd that owns the numbers being drawn — the
+    plans root for top-level plan NNs, an existing master dir for sub-plan ids —
+    blocking, held until the caller's plan dir exists / the master's sub_plans[]
+    registration lands. The kernel releases it at exit or death, so no abort path
+    needs an unlock and no stale lock can exist; no lock file is created. A missing
+    root is created first, as the write that follows would create it anyway."""
+    import fcntl
+    os.makedirs(root, exist_ok=True)
+    fd = os.open(root, os.O_RDONLY)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
 
 
 def next_prefix(root):
@@ -304,7 +382,7 @@ def flat_files(title, plan_dir):
         "<!-- Head-immutable post Session 1: Goal / Problem Statement / Constraints "
         "(governance/file-type-contracts/spec.md.json). created/parent live in the YAML "
         "frontmatter; the plan's canonical 6-state status lives on manifest.json :: status "
-        "(DERIVE single-SoT — the artifact carries no status: frontmatter). Cap ~500 lines. -->\n\n"
+        "(DERIVE single-SoT — the artifact carries no status: frontmatter). Line cap: spec.md.json size_limits. -->\n\n"
         "## Problem Statement\n\n"
         "{2-4 sentences. What's broken, missing, or suboptimal today?}\n\n"
         "## Constraints\n\n"
@@ -312,7 +390,9 @@ def flat_files(title, plan_dir):
         "- {Scope constraint — e.g., single-team scope; no cross-org rollout}\n"
         "- {Anti-scope lock — what is explicitly OUT of scope}\n\n"
         "## Solution Approach\n\n"
-        "{3-8 sentences. High-level strategy. Post-Session-1 amendment blocks land here.}\n\n"
+        "{3-8 sentences. High-level strategy.}\n\n"
+        "{Amendments: a spec-changing ruling runs `plan-rule --spec-change`, which mints "
+        "decisions/ADR-NN-<slug>.md and adds one pointer line under `## Amendment register`.}\n\n"
         "## Files Modified/Created\n\n"
         "| File | Action | Purpose |\n"
         "|------|--------|---------|\n"
@@ -428,6 +508,47 @@ def flat_files(title, plan_dir):
     }
 
 
+def q(value):
+    """A frontmatter free-text value as a YAML double-quoted scalar (a JSON string is one);
+    non-ASCII such as an em dash stays literal."""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def fm_quote_titles(text):
+    """Quote the title:/description: lines of the leading frontmatter block as YAML
+    double-quoted scalars unless the value already is a JSON-decodable double-quoted
+    string; body lines (e.g. `# <title> — Spec`) are untouched."""
+    if not text.startswith("---\n"):
+        return text
+    lines = text.split("\n")
+    end = None
+    for i, line in enumerate(lines[1:], start=1):
+        if line == "---":
+            end = i
+            break
+    if end is None:
+        return text
+    out = []
+    for line in lines[1:end]:
+        m = re.match(r"^(title|description): (.*)$", line)
+        if m:
+            raw = m.group(2).strip()
+            try:
+                quoted = isinstance(json.loads(raw), str) if raw.startswith('"') else False
+            except ValueError:
+                quoted = False
+            if not quoted:
+                line = "%s: %s" % (m.group(1), q(raw))
+        out.append(line)
+    return "---\n" + "\n".join(out + lines[end:])
+
+
+def quote_md_files(files):
+    """fm_quote_titles over every .md value of a file dict (manifests are JSON, untouched)."""
+    return dict((rel, fm_quote_titles(content) if rel.endswith(".md") else content)
+                for rel, content in files.items())
+
+
 def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief):
     """Render the sub-plan quartet from templates/sub-*.tmpl into plan_dir-relative files."""
     kw = dict(title=title, date=today, plan_dir=plan_dir, spoke_key=spoke_key,
@@ -437,7 +558,8 @@ def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief
         "spec.md": render(tmpl("sub-spec.md.tmpl"), **kw),
         "tasks.md": render(tmpl("sub-tasks.md.tmpl"), **kw),
         "handoff.md": render(tmpl("sub-handoff.md.tmpl"), **kw),
-        "manifest.json": render(tmpl("sub-manifest.json.tmpl"), **kw),
+        "manifest.json": render(tmpl("sub-manifest.json.tmpl"),
+                                **dict(kw, title=json.dumps(title, ensure_ascii=False)[1:-1])),
     }
     if scaffold_brief:
         files["00-ideation-brief.md"] = render(tmpl("00-ideation-brief.md.tmpl"), **kw)
@@ -448,6 +570,7 @@ def render_sub_quartet(title, parent_plan, sub_plan_id, plan_dir, scaffold_brief
 
 if mode == "flat":
     check_slug(slug, "slug")
+    lock_fd = None if dry_run else lock_numbering(plans_root)
     coll = base_slug_collision(plans_root, slug)
     if coll:
         abort("slug collision with existing plan: %s" % coll)
@@ -465,7 +588,9 @@ if mode == "flat":
         print("new-plan: dry-run flat — would create %s (%d files)" % (plan_dir, len(files)), file=sys.stderr)
         print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "files": sorted(files)}))
         sys.exit(0)
+    files = quote_md_files(files)
     write_atomic(plan_dir, files)
+    os.close(lock_fd)  # the plan dir exists: its NN is taken, release the numbering lock
     delegate_render(plan_dir)  # RULING 2: renderer fills the empty sentinel region from manifest.tasks[]
     print("new-plan: created flat plan %s (%d files)" % (plan_slug, len(files)), file=sys.stderr)
     print(json.dumps({"mode": "flat", "plan_slug": plan_slug, "project": spoke_key, "plan_dir": plan_dir}))
@@ -473,6 +598,7 @@ if mode == "flat":
 elif mode == "master":
     check_slug(slug, "master slug")
     check_slug(sub_slug, "sub slug")
+    lock_fd = None if dry_run else lock_numbering(plans_root)
     coll = base_slug_collision(plans_root, slug)
     if coll:
         abort("slug collision with existing plan: %s" % coll)
@@ -495,7 +621,8 @@ elif mode == "master":
         "spec.md": render(tmpl("master-spec.md.tmpl"), **m_kw),
         "tasks.md": render(tmpl("master-tasks.md.tmpl"), **m_kw),
         "handoff.md": render(tmpl("master-handoff.md.tmpl"), **m_kw),
-        "manifest.json": render(tmpl("master-manifest.json.tmpl"), **m_kw),
+        "manifest.json": render(tmpl("master-manifest.json.tmpl"),
+                                **dict(m_kw, title=json.dumps(m_title, ensure_ascii=False)[1:-1])),
     }
     json.loads(master_files["manifest.json"])  # sanity
     sub_files = render_sub_quartet(s_title, master_slug, sub_id, sub_plan_dir, scaffold_brief=False)
@@ -510,9 +637,11 @@ elif mode == "master":
         print(json.dumps({"mode": "master", "master_slug": master_slug,
                           "first_sub": "%s-%s" % (sub_id, sub_slug), "files": sorted(files)}))
         sys.exit(0)
+    files = quote_md_files(files)
     write_atomic(master_dir, files)
+    os.close(lock_fd)  # the master dir exists: its NN is taken, release the numbering lock
     # RULING 2: render the SUB's tasks.md (the sub carries real tasks). The master's tasks.md is
-    # a hand-owned rollup with NO sentinels — tasks-render detect-and-skips a master (184/03), so
+    # a rollup written by --rollup with NO sentinels — tasks-render detect-and-skips a master (184/03), so
     # the master is intentionally NOT delegated here.
     delegate_render(sub_plan_dir)
     print("new-plan: created master %s + first sub 01-%s" % (master_slug, sub_slug), file=sys.stderr)
@@ -531,6 +660,7 @@ elif mode == "add-subplan":
         abort("master plan dir not found: %s" % master_dir)
     if not os.path.isfile(master_manifest_path):
         abort("master manifest not found: %s" % master_manifest_path)
+    lock_fd = None if dry_run else lock_numbering(master_dir)
     with open(master_manifest_path, encoding="utf-8") as fh:
         master = json.load(fh)
     if master.get("type") != "master":
@@ -572,6 +702,7 @@ elif mode == "add-subplan":
         sys.exit(0)
 
     # write the sub-plan quartet (rollback-safe within the new sub dir)
+    sub_files = quote_md_files(sub_files)
     write_atomic(sub_plan_dir, sub_files)
     delegate_render(sub_plan_dir)  # RULING 2: renderer fills the new sub's empty sentinel region
 
@@ -585,6 +716,7 @@ elif mode == "add-subplan":
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(master, indent=2, ensure_ascii=False) + "\n")
     os.replace(tmp, master_manifest_path)
+    os.close(lock_fd)  # the sub id is registered (dir on disk + sub_plans[] entry): release
 
     print("new-plan: added sub-plan %s-%s to master %s (registered in sub_plans[])"
           % (sub_id, sub_slug, master_slug), file=sys.stderr)

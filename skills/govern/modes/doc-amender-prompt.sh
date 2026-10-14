@@ -19,16 +19,16 @@
 #   (iv)  validate against doc-amender-prompt.md.json BEFORE write
 #         (block-and-log; never write-and-hope);
 #   (v)   write create-only to $VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md;
-#   (vi)  optionally create/extend the writer-fan-in entry in
-#         governance/doc-dependencies.json.
+#   (vi)  optionally create/extend the writer-fan-in entry in the overlay
+#         master's doc_dependencies pillar.
 #
 # OUTPUT CONTRACT (Skill Creation Rules — MANDATORY):
 #   Files written:
 #     1. $VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md (the prompt asset;
 #        CREATE-ONLY — refuses to clobber an existing prompt; atomic temp+rename).
-#     2. (optional, --with-fan-in) a writer-fan-in entry appended to
-#        governance/doc-dependencies.json :: entries[] (1 consumer glob +
-#        N upstream_writers[]); also create-only on the entry id.
+#     2. (optional, --with-fan-in) a writer-fan-in entry appended to the overlay
+#        master's doc_dependencies.entries[] via hooks/lib/overlay-master-mutate.sh
+#        (1 consumer glob + N upstream_writers[]); also create-only on the entry id.
 #   Schema type: doc-amender-prompt (governance/file-type-contracts/
 #     doc-amender-prompt.md.json — validated BEFORE write).
 #   Pre-write validation: contract conformance (frontmatter_required present;
@@ -198,7 +198,7 @@ mode_propose() {
           "Layer-3 doc-amender prompt authoring (5th registration class). The prompt asset is the create-time companion to the consume-time runtime (skills/doc-amender/process.sh).",
           "merge-intent " + $merge_intent + " maps to amendment_strategy=" + $frontmatter.amendment_strategy + " / persistence_mode=" + $frontmatter.persistence_mode + " (per the doc-amender-prompt.md.json contract).",
           "commit validates the frontmatter against doc-amender-prompt.md.json BEFORE the create-only write to $VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md.",
-          "Pass --with-fan-in at commit to also append the writer-fan-in entry to governance/doc-dependencies.json."
+          "Pass --with-fan-in at commit to also append the writer-fan-in entry to the doc_dependencies pillar of the overlay master."
         ]
       }
     '
@@ -333,28 +333,37 @@ sys.stdout.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
   printf 'doc-amender-prompt.mode_commit: wrote prompt asset %s\n' "$prompt_path" >&2
 
   # ---- Step (vi): optionally create/extend the writer-fan-in doc-deps entry ----
+  # The entry lands in the overlay master's doc_dependencies pillar through the
+  # mutation library (lock + schema validation + action-log row); entries[] is not a
+  # union leaf, so the payload carries the overlay's existing entries plus the new one.
   if [ "$with_fan_in" = "1" ]; then
-    local doc_deps consumer upstream amendment_strategy entry_id
-    doc_deps="${CLAUDE_HOME:-$HOME/.claude}/governance/doc-dependencies.json"
-    if [ ! -w "$doc_deps" ]; then
-      printf 'doc-amender-prompt.mode_commit: WARN — doc-dependencies.json not writable (%s); prompt asset written, fan-in entry SKIPPED\n' "$doc_deps" >&2
+    local overlay_master existing consumer upstream amendment_strategy entry_id proposed_by
+    overlay_master="${OVERLAY_MASTER:-${CLAUDE_HOME:-$HOME/.claude}/governance/overlay-master.json}"
+    existing='[]'
+    if [ -s "$overlay_master" ]; then
+      # swallow-ok: reports=stderr a failed overlay read empties $existing, and the next test prints a WARN naming the path and skips the fan-in entry
+      existing=$(jq -c '.doc_dependencies.entries // []' "$overlay_master" 2>/dev/null) || existing=''
+    fi
+    if [ -z "$existing" ]; then
+      printf 'doc-amender-prompt.mode_commit: WARN — overlay master unreadable (%s); prompt asset written, fan-in entry SKIPPED\n' "$overlay_master" >&2
       return 0
     fi
     consumer=$(jq -r '.fan_in.consumer // empty' "$proposal")
     upstream=$(jq -c '.fan_in.upstream_writers // []' "$proposal")
     amendment_strategy=$(jq -r '.fan_in.amendment_strategy // "prompt-guided-amend"' "$proposal")
+    proposed_by=$(jq -r '.proposed_by // "user-direct"' "$proposal")
     entry_id="${prompt_id}-fan-in"
     # Create-only on the entry id (block-and-log on collision).
-    if jq -e --arg id "$entry_id" '.entries[]? | select(.id==$id)' "$doc_deps" >/dev/null 2>&1; then
+    if printf '%s' "$existing" | jq -e --arg id "$entry_id" '.[]? | select(.id==$id)' >/dev/null 2>&1; then
       printf 'doc-amender-prompt.mode_commit: WARN — doc-deps fan-in entry %s already exists; prompt asset written, entry NOT modified\n' "$entry_id" >&2
       return 0
     fi
-    local dd_tmp="$tmpdir/doc-deps.json"
-    if jq --arg id "$entry_id" --arg consumer "$consumer" --argjson upstream "$upstream" --arg strategy "$amendment_strategy" \
-        '.entries += [{id:$id, kind:"writer-fan-in", consumer:$consumer, upstream_writers:$upstream, amendment_strategy:$strategy, rename_history:[]}]' \
-        "$doc_deps" > "$dd_tmp" 2>/dev/null && jq empty "$dd_tmp" >/dev/null 2>&1; then
-      mv -f "$dd_tmp" "$doc_deps" && \
-        printf 'doc-amender-prompt.mode_commit: appended writer-fan-in entry %s to %s\n' "$entry_id" "$doc_deps" >&2
+    local dd_payload="$tmpdir/doc-deps-payload.json"
+    if jq -n --argjson existing "$existing" --arg id "$entry_id" --arg consumer "$consumer" --argjson upstream "$upstream" --arg strategy "$amendment_strategy" \
+        '{entries: ($existing + [{id:$id, kind:"writer-fan-in", consumer:$consumer, upstream_writers:$upstream, amendment_strategy:$strategy, rename_history:[]}])}' \
+        > "$dd_payload" 2>/dev/null \
+      && "$LIB_MUTATE" --pillar doc_dependencies --payload-file "$dd_payload" --kind writer --target "$prompt_id" --proposed-by "$proposed_by"; then
+      printf 'doc-amender-prompt.mode_commit: appended writer-fan-in entry %s to the overlay master doc_dependencies\n' "$entry_id" >&2
     else
       printf 'doc-amender-prompt.mode_commit: WARN — doc-deps fan-in append failed; prompt asset written, entry SKIPPED\n' >&2
     fi

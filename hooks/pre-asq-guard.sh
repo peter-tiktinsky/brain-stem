@@ -5,7 +5,7 @@
 #
 # Branches (modular composition per — each branch is an independent
 # function that emits a text fragment or empty; composer concatenates):
-#   decision_quality_branch()   — advisory + telemetry/
+#   decision_quality_branch()   — the decision-quality advisory + telemetry/
 #                                 annotation grammar + Phase 1/2 env-var-flip.
 #                                 Ported from the live pre-write-guard prelude
 #                                 per T-2 (port-first discipline).
@@ -69,7 +69,7 @@ HC_FRAGMENT=""
 
 # === decision_quality_branch() ============================================
 # PORTED from the live ~/.claude/hooks/pre-write-guard.sh prelude per T-2
-# (port-first discipline). Preserves+:
+# (port-first discipline). Preserves the decision-quality protocol:
 #   - Substantive-shape heuristic (option count ≥ 2 + description > 50 chars
 #     OR keyword match in question text)
 #   - Skip-conditions (yes/no canonical labels; no signals)
@@ -192,18 +192,18 @@ PYEOF
 
   case "$aq_decision" in
     nudge)
-      DQP_FRAGMENT="[Decision-Quality Protocol —/] You are presenting a substantive option set. Run the 4-element research pass BEFORE publishing:
+      DQP_FRAGMENT="[Decision-Quality Protocol] You are presenting a substantive option set. Run the 4-element research pass BEFORE publishing:
 
 1. Project goals — re-read the active plan's spec, manifest, recent handoff.
 2. Inter-project deps — check adjacent plans (predecessor, in-flight, coordinate-with) for conflicts/synergies.
 3. Live-vault state — read current files; do not trust memory.
 4. +1 unconsidered option — generate one option NOT yet on the table; expand the option space.
 
-Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. Empirically, the user overrides the first-presented option ≈100% of the time without this pass. If you keep a decision-quality entry in your ~/.claude/rules/, it carries the rationale; the four elements above are the operative instruction."
+Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. Empirically, the user overrides the first-presented option ≈100% of the time without this pass. If you recommend one option, place it FIRST and append \"(Recommended)\" to THAT option's label — the label marks the option you actually recommend, never the one that happens to be listed first; when you recommend none, label none. State the recommendation and its reason in prose BEFORE the call; do not bury it in co-equal-looking option lists. Show your work: name the trade-off each of the four pillars surfaced."
       DQP_DECISION="allow"
       ;;
     deny)
-      DQP_FRAGMENT="[Decision-Quality Protocol — Phase 2] This AskUserQuestion presents a substantive option set without a \`research_complete:\` annotation. Run the 4-element research pass (project goals, inter-project deps, live-vault state, +1 unconsidered option) and re-issue with \`research_complete: <one-line summary>\` prefixed to the question text or embedded in an option description. The four elements named here are the operative instruction; no other file is required."
+      DQP_FRAGMENT="[Decision-Quality Protocol — annotation required] This AskUserQuestion presents a substantive option set without a \`research_complete:\` annotation. Run the 4-element research pass (project goals, inter-project deps, live-vault state, +1 unconsidered option) and re-issue with \`research_complete: <one-line summary>\` prefixed to the question text or embedded in an option description. The four elements named here are the operative instruction; no other file is required. If you recommend one option, place it FIRST and append \"(Recommended)\" to THAT option's label — the label marks the option you actually recommend, never the one that happens to be listed first; when you recommend none, label none. State the recommendation and its reason in prose BEFORE the call; do not bury it in co-equal-looking option lists. Show your work: name the trade-off each of the four pillars surfaced."
       DQP_DECISION="deny"
       ;;
     allow-annotated|allow|*)
@@ -263,7 +263,7 @@ PYEOF
   rm -f "$hc_input_file"
 
   if [[ "$hc_substantive" == "true" ]]; then
-    HC_FRAGMENT="[Hard Constraints Override Spec Text] When a stated constraint (no live mutations, no destructive ops without confirmation, etc.) conflicts with a spec, plan, or task description, the spec is treated as DEFECTIVE. Options that violate the constraint do NOT appear in option-comparison tables. The user does not get to 'choose between honoring or violating' their own rule — the constraint already settled the question. Flag the spec as defective and propose corrections. If you keep a hard-constraints entry in your ~/.claude/rules/, it carries the rationale; the instruction above stands on its own."
+    HC_FRAGMENT="[Hard Constraints Override Spec Text] When a stated constraint (no live mutations, no destructive ops without confirmation, etc.) conflicts with a spec, plan, or task description, the spec is treated as DEFECTIVE. Options that violate the constraint do NOT appear in option-comparison tables. The user does not get to 'choose between honoring or violating' their own rule — the constraint already settled the question. Flag the spec as defective and propose corrections. Before drafting an option table: (1) list the stated constraints that bound the problem (CLAUDE.md, engagement or project docs, memories, and anything stated in this conversation); (2) check every candidate against every constraint; (3) EXCLUDE a violating option from the table and say which constraint it violates; (4) if every attractive option violates a constraint, the answer is that the spec is defective — propose the correction, never pick a violation because the spec text seemed to allow it."
   fi
 }
 

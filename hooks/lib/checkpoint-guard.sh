@@ -28,20 +28,39 @@
 # scalar lines. Both halves are required — a header with too few populated fields
 # is a husk, and flat scalars without the header are not a continuity block.
 #
+# Provenance is the third half. A block pre-compact-checkpoint.sh extracts
+# mechanically carries the header and nine populated scalars (an empty field reads
+# [MISSING]), so the shape test alone ranks it with a model-authored handoff record.
+# It is not one: it is a refreshable snapshot of the session at one compaction, and
+# preserving it lets every later compaction re-inject that first, stale snapshot. A
+# block carrying the mechanical provenance line is therefore never rich. It still
+# counts as a block, so a stub is never written over it, and an overwrite of it is
+# still rotated first.
+#
 # Bash 3.2 clean (R-23). No paths.sh dependency: callers pass an absolute target.
 
 # The SKILL.md invariant's field floor. Changing it changes the shipped contract.
 CHECKPOINT_RICH_MIN_FIELDS=3
+
+# The provenance line pre-compact-checkpoint.sh writes into every mechanical block,
+# matched as a line prefix so the parenthetical after it can change freely.
+CHECKPOINT_MECHANICAL_SOURCE='**Source:** PreCompact hook — mechanical extraction'
 
 # checkpoint_has_block <file> — 0 when the structured header is present.
 checkpoint_has_block() {
   [ -f "$1" ] && grep -q "^# Session Continuity Block" "$1" 2>/dev/null
 }
 
-# checkpoint_is_rich <file> — 0 when the file carries the SKILL.md invariant.
+# checkpoint_is_rich <file> — 0 when the file carries the SKILL.md invariant and
+# is not a mechanical snapshot.
 checkpoint_is_rich() {
-  local n
+  local n line
   checkpoint_has_block "$1" || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$CHECKPOINT_MECHANICAL_SOURCE"*) return 1 ;;
+    esac
+  done < "$1"
   # grep -c prints 0 and exits 1 on no match; some platforms pad the count.
   n=$(grep -cE "^[a-z_]+: .+$" "$1" 2>/dev/null) || n=0
   n="${n//[^0-9]/}"

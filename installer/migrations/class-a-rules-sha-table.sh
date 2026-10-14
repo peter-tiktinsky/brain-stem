@@ -18,21 +18,32 @@
 # retired upgrade-lane caveat block appended.
 class_a_readme_shas() {
   cat <<'CLASSA_README_SHAS'
+180d9938250441106f8430ccd011b9c4bad47f5c986050ff7d1e13794802d3e7
 3318d25ac3c3cd8b641ecaa1ff772d82fd449d5487c0381bf119acc54a2c54b3
 33954e0a7fbd2d7bdd853da17c8b5f28a655964fd00c81e0b1b651765406bb0f
+724f951d935b2311bd6fcf7f19fe6e06029b6f9b091e9fcf0e1dd96924904574
 77cec70a0329dfc3f39fec7968ecdedf8c3388610362283eda6f74e3a1207f19
 79423fe8a197607f94cb4491d1b92dda539e2bdbcb48437546c0ac7f387e93df
+7e2abb1a7ca780b0cd20172766343930207ddfdf835234258763068bf074f295
 7eddc52216ab66e43de73d437831b2ef1fca20affd6b6171ab269e0ccba2f300
 88b7c9052a676903749d1077f1f3dc5f39c9046cfeeed01501f0773396a7a9e6
 8f5108e52293897f15fcb30dd8ce07605c65eb447e6c408fb538031d1dfd6913
 d6717f8249bd0ce1d8aebada97358f1e6b5d1ad25ce7ed2b7b1cf365f812207c
+efac0b2981cedb2d9092997b90fc2db13405b3362c8cddaa828ccf6a9ebd0f9f
 CLASSA_README_SHAS
 }
 
-# Every shipped body of each Class-A rule entry, including the retired
-# 25-bounded-spoke-for-cross-cutting-work.md.
+# Every shipped body of each Class-A rule entry ever seeded (every one of them now
+# retired: 25-bounded-spoke-for-cross-cutting-work.md by 0010, the four former
+# entries by 0011).
 class_a_historical_shas() {  # $1 = rule filename
   case "$1" in
+    25-bounded-spoke-for-cross-cutting-work.md)
+      cat <<'CLASSA_ENTRY_SHAS'
+661774cfdb063d335ae8ff8806aa381274adcf20fc83895d7b95edad80c9de3d
+ba73b15655c867f24857f469b2fc32010b20b7d9f85b66c7b2a937cbe5a19463
+CLASSA_ENTRY_SHAS
+      ;;
     00-project-binder-pointer.md)
       cat <<'CLASSA_ENTRY_SHAS'
 1ac166417ec6faee1307683ad5eb2f136b06017c702d7d31336606a07485ada2
@@ -73,62 +84,36 @@ CLASSA_ENTRY_SHAS
 ef92540c1a40278825333e8ebe00f520d3863bcef77060c67976b86f2f4d7ef3
 CLASSA_ENTRY_SHAS
       ;;
-    25-bounded-spoke-for-cross-cutting-work.md)
-      cat <<'CLASSA_ENTRY_SHAS'
-661774cfdb063d335ae8ff8806aa381274adcf20fc83895d7b95edad80c9de3d
-ba73b15655c867f24857f469b2fc32010b20b7d9f85b66c7b2a937cbe5a19463
-CLASSA_ENTRY_SHAS
-      ;;
   esac
 }
 
-# The rule entries install.sh currently seeds, and the retired one it no longer does.
+# The rule entries install.sh currently seeds (derived from its seed_rules_entry call
+# sites; none today), and the retired ones it no longer does.
 class_a_live_entries() {
   cat <<'CLASSA_LIVE'
+CLASSA_LIVE
+}
+
+# Every retired entry, one per line: the 0010 retiree first, then the four 0011 retirees.
+class_a_retired_entries() {
+  cat <<'CLASSA_RETIRED'
+25-bounded-spoke-for-cross-cutting-work.md
 00-project-binder-pointer.md
 10-pre-research-library-check.md
 20-work-project-register.md
 30-durable-artifact-routing.md
-CLASSA_LIVE
+CLASSA_RETIRED
 }
 
-class_a_retired_entry() { printf '%s' '25-bounded-spoke-for-cross-cutting-work.md'; }
+# SINGLE-VALUED by contract: 0010 arm (c) reads it as one filename
+# (`[ -f "$RULES_DIR/$retired" ]`); a multi-line value would silently no-op that arm.
+class_a_retired_entry() { printf '%s\n' '25-bounded-spoke-for-cross-cutting-work.md'; }
 
 # The CURRENT body of each live entry, carried in the same heredoc form install.sh
 # uses, so the bytes this table replays and the bytes install.sh seeds are identical
-# by construction.
-read -r -d '' class_a_current_body_00 <<'CLASSA_BODY_00' || true
-# Project binder — the situating card is the eager, machine-derived cover
-
-Inside a registered spoke, the situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is already in your context — injected at SessionStart from the plans' manifests (plan roster, status, active focus, latest-handoff pointers). Follow its pointers (research-index, decision-log, handoff-chronicle) on demand; never preload every binder index. No card for this spoke yet: run `librarian plan-research-index`.
-CLASSA_BODY_00
-read -r -d '' class_a_current_body_10 <<'CLASSA_BODY_10' || true
-# Before researching — check the library first
-
-Before any research-class task, read `~/.claude-plans/_library/_index.md` and, on a topic match, that topic's `_index.md` + article BEFORE researching fresh (stale coverage: validate / use-as-is / research-fresh). Advisory only. The `pre-research-check` UserPromptSubmit hook injects the same signal when it detects research intent; this rule is the degraded layer for prompts the heuristic misses.
-CLASSA_BODY_10
-read -r -d '' class_a_current_body_20 <<'CLASSA_BODY_20' || true
-# New ~/work project — register before the first write
-
-Starting a project under `~/work/<spoke>/` (exactly one level down): run `/govern register --kind project` from that directory BEFORE any `mkdir`/write. It records the spoke in the anchored-spoke registry, scaffolds the layout (`--layout flat` default; `--layout master --first-sub <name>` for a master with sub-projects), and emits the `Work/<spoke>/**` routing rule so write-time governance fires. Proactive on-ramp, never a gate.
-CLASSA_BODY_20
-read -r -d '' class_a_current_body_30 <<'CLASSA_BODY_30' || true
-# Durable artifact routing — research output lands in its owning context
-
-The plans root (`~/.claude-plans/`) is a CLOSED namespace (`plans-rules.json :: root_namespace`; pre-write-guard denies root writes; `librarian placement-validate` sweeps). Route durable outputs (registers, memos, ledgers, syntheses) by five clauses:
-
-1. Outside any plan's scope: mint the owning plan first — `promote-from-inbox.sh --capture <slug>`, then `promote-from-inbox.sh <slug>` — and land the artifact in that plan's `_research/`.
-2. In a work-spoke session: land FLAT in the spoke's `reference/` (single-level `.md`; nesting is index-invisible).
-3. About the WORLD → the vault; about the SYSTEM or the work itself → the owning plan's `_research/`.
-4. The scratchpad is transit: `mv` into `<plan>/_research/` at graduation; `research_artifacts[]` derives at session close (plan-research-declare) — never a hand-kept second declaration.
-5. `_library/` is universal-only; project-specific research stays with its plan.
-CLASSA_BODY_30
+# by construction. Empty while install.sh seeds nothing.
 
 class_a_current_body() {  # $1 = rule filename
   case "$1" in
-    00-project-binder-pointer.md) printf '%s' "$class_a_current_body_00" ;;
-    10-pre-research-library-check.md) printf '%s' "$class_a_current_body_10" ;;
-    20-work-project-register.md) printf '%s' "$class_a_current_body_20" ;;
-    30-durable-artifact-routing.md) printf '%s' "$class_a_current_body_30" ;;
   esac
 }

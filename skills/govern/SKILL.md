@@ -50,6 +50,9 @@ code path. Plans-tree creation is ORTHOGONAL — use `/new-plan` or
 /govern register --kind project --under <spoke> --add-sub <name>              # add a sub-project to an existing spoke
 /govern register --kind project --under <spoke> --add-folder <name> [--role <slug>]  # add a plain non-sub folder (routing rule, no registry write)
 /govern register --kind project --adopt                           # promote a sub to a top-level spoke (post operator git mv)
+/govern register --kind project --under <spoke> --retract-sub <sub>  # retract a moved-out sub's leftover routing rule
+/govern register --kind project --under <spoke> --emit-moves <mapping.json>  # print the git mv commands for a mapping you name (moves nothing)
+/govern register --kind project --anchor <dir> [--spoke-key <key>]  # register a launch directory outside ~/work (registry entry + identity CLAUDE.md + binder home)
 ```
 
 ### `project` mode (the C1/C5 work-project on-ramp — Class F)
@@ -106,13 +109,50 @@ no re-scaffold).
   executed), then register the depth-1 spoke + scaffold the MISSING-ONLY work
   `CLAUDE.md` + establish the binder home (existing `README`/`deliverables`/`reference`
   byte-unchanged). Lossless; ZERO content-file mutation.
+- `--under <spoke> --retract-sub <sub>` — retract the per-sub routing rule
+  `Work/<spoke>/<sub>/**` a sub leaves behind once it has been promoted with
+  `--adopt`. The rule is removed by exact string through
+  `overlay-master-mutate.sh --retract-rule` (same lock, schema check and atomic
+  rename; one action-log row). The commit BLOCKS while `Work/<spoke>/<sub>` still
+  exists under the spoke: move it out first, nothing is retracted. The master's
+  wildcard rule `Work/<spoke>/*/{deliverables,reference}/**` is never retracted by a
+  sub name, and a re-run once the rule is gone changes nothing.
+- `--under <spoke> --emit-moves <mapping.json>` — print the commands that move a flat
+  spoke's content into its sub-projects. The mapping is a file you write,
+  `{"moves": [{"from": "<path>", "to": "<path>"}, ...]}`, with paths relative to
+  `~/work/<spoke>`. `propose` validates the whole mapping before it prints anything and
+  emits the `moves` and the `commands`: one `mkdir -p --` per missing target parent, then
+  one `git -C <spoke dir> mv --` per move, every path shell-quoted. `commit` validates
+  again against the disk, prints exactly those lines on stdout and nothing else, and
+  prints a one-line summary on stderr. It writes nothing, runs no `git` and appends no
+  action-log row: the moves stay with you, and you run the printed lines. A target must
+  sit inside an existing sub-project directory (never `deliverables` or `reference`) and
+  must not exist, and no two moves may share a target or overlap a source. Validation
+  stops at the first failure and prints that one line.
+- `--anchor <dir> [--spoke-key <key>]` — register a launch directory OUTSIDE `~/work`
+  (a code repository, a bounded `~/system` directory) as a spoke: one registry entry,
+  a one-line identity `CLAUDE.md` in the directory and the binder home. No scaffold and
+  no overlay rule, and no depth guard. The key is `--spoke-key`, else the directory's
+  name lowercased with every run of other characters turned into one hyphen. `propose`
+  refuses a missing directory, the home directory, `~/work` itself or anything inside
+  it, a key that is invalid (lowercase letters, digits and hyphens; `home` is reserved)
+  or taken, an anchor another spoke already holds, and any other sub-mode flag given
+  with it. `commit` stages the identity file, adds the registry entry under a lock,
+  places the file (an existing `CLAUDE.md` is kept as is), then makes the binder home;
+  each step is safe to repeat, so a stopped commit is finished by running the same
+  commit again. A session launched in the directory, or below it, resolves to the
+  spoke; a nested directory registered later wins for its own subtree.
 ```
 
-`process.sh` exposes three sub-verbs matching the 6-step protocol's
-deliberation/commit/skip arcs:
+`process.sh` exposes four sub-verbs matching the 6-step protocol's
+deliberation/compose/commit/skip arcs:
 
 - `process.sh propose --kind <K> --target <T> [...]` — emit proposal JSON
   to stdout (Claude renders it for the user; user redlines per-field).
+- `process.sh assemble <kind> --proposal <proposal.json> --rulings <rulings.json> [--out <validated.json>]` —
+  compose `validated.json` from the proposal and the operator's per-field
+  rulings (see "Rulings file and `process.sh assemble`" below); `--out` writes
+  the file atomically, otherwise it prints to stdout.
 - `process.sh commit --kind <K> --proposal <validated.json>` — invoke
   `hooks/lib/overlay-master-mutate.sh` to atomically apply mutations + append
   action-log row.
@@ -128,7 +168,7 @@ deliberation/commit/skip arcs:
 | `file-type` | `frontmatter.types` + `file_type_contracts.<type-slug>` | (none) | `file-type` |
 | `tag-extension` | `tagging.taxonomy.dimension_prefixes` | (none) | `tag-extension` |
 | `writer` | `vault_writers` (no-op `{}` payload for atomic action-log) | `Vault Writers/<slug>.md` writer-reference file | `writer` |
-| `doc-amender-prompt` | (none — outside-vault state-tier asset) | `$VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md` (CREATE-ONLY) + optional `doc-dependencies.json` writer-fan-in entry | `doc-amender-prompt` |
+| `doc-amender-prompt` | (none — outside-vault state-tier asset) | `$VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md` (CREATE-ONLY) + optional writer-fan-in entry in the overlay master's `doc_dependencies.entries[]` | `doc-amender-prompt` |
 | `project` | `frontmatter.path_routing.rules` (vault-view overlay rule; union shape, committed as `--kind folder`) | `anchored-spoke-registry.json` (standalone direct-patch, atomic temp+rename — master only) + `$WORK_HOME/<spoke>/` scaffold (flat MVP OR master + sub) — NEVER the vault-root `CLAUDE.md` tree. `--add-folder` mints a plain non-sub folder + routing rule ONLY (NO registry write, NO `CLAUDE.md` tree append) | `folder` (overlay rule); registry patch writes NO action-log row |
 
 ### doc-amender-prompt Output Contract (the 5th class — Skill Creation Rules)
@@ -141,7 +181,8 @@ create-time companion to the `disable-model-invocation:true` runtime
 - **Files written:** (1) the prompt asset at
   `$VAULT_WRITER_STATE_ROOT/prompts/<prompt_id>.md` — **create-only** (refuses
   to clobber; atomic temp+rename); (2) optional (`--with-fan-in`) a
-  `writer-fan-in` entry appended to `doc-dependencies.json :: entries[]`
+  `writer-fan-in` entry appended to the overlay master's
+  `doc_dependencies.entries[]` via `hooks/lib/overlay-master-mutate.sh`
   (create-only on the entry id).
 - **Schema type:** `doc-amender-prompt` (validated against
   `doc-amender-prompt.md.json` BEFORE write — `frontmatter_required` present,
@@ -166,7 +207,7 @@ case-arm in the dispatcher.
 | 1. DETECT | `pre-write-guard.sh` branch #1 (Classes A/B/C/D) — UPSTREAM; not part of this skill |
 | 2. CONFIRM INTENT | Claude (in conversation) reads hook-supplied `additionalContext` OR user-direct argv, confirms target with operator |
 | 3. PROPOSE | `process.sh propose <kind> ...` → `modes/<kind>.sh propose()` — emits draft JSON of per-pillar fields |
-| 4. USER VALIDATE PER-FIELD | Claude (in conversation) renders proposal, gathers per-field accept/edit/reject; composes `validated.json` |
+| 4. USER VALIDATE PER-FIELD | Claude (in conversation) renders proposal, gathers per-field accept/edit/reject into a rulings file; `process.sh assemble <kind> --proposal <proposal.json> --rulings <rulings.json> --out <validated.json>` writes `validated.json` |
 | 5. MUTATE + ACTION-LOG | `process.sh commit <kind> <validated.json>` → `modes/<kind>.sh commit()` → `hooks/lib/overlay-master-mutate.sh` (atomic; appends row) |
 | 6. VAULT-ROOT CLAUDE.md SELF-UPDATE | `modes/folder.sh` only — appends user-cluster entry to vault-root `CLAUDE.md` Vault Structure tree (no `[F]` marker per) — invoked AFTER step 5 commit succeeds |
 
@@ -189,10 +230,7 @@ All modes emit a single JSON object on stdout:
       "payload": { /* deep-merge payload — see mode docs */ },
       "field_descriptions": {
         "<field-key>": "human-readable rationale for this field"
-      },
-      "collisions": [
-        {"field": "<field-path>", "foundation_value": "...", "proposed_value": "...", "requires_override_reason": true}
-      ]
+      }
     }
   ],
   "notes": [ /* freeform strings for user context */ ]
@@ -200,7 +238,7 @@ All modes emit a single JSON object on stdout:
 ```
 
 Claude renders this proposal to the operator, gathers per-field
-edits/rejects, and composes a `validated.json` of the SAME shape with:
+edits/rejects into a rulings file, and `process.sh assemble` composes a `validated.json` of the SAME shape with:
 - Accepted pillar payloads carried through verbatim
 - Rejected fields removed from `payload` + listed under top-level
   `rejected_fields: {pillar: {field: reason}}`
@@ -211,6 +249,55 @@ edits/rejects, and composes a `validated.json` of the SAME shape with:
   longer accepted by the hook-side R-52 check.
 
 The validated.json is then passed to `process.sh commit`.
+
+### Rulings file and `process.sh assemble`
+
+Step 4 ends in a rulings file, never a hand-written `validated.json`. The file is
+`{"rulings": [...]}` (an empty list is valid); each ruling is one of:
+
+```jsonc
+{"target": "<target>", "verdict": "accept"}
+{"target": "<target>", "verdict": "edit", "value": /* any JSON, null included */}
+{"target": "<target>", "verdict": "reject", "reason": "<why>"}
+```
+
+A ruling carries no key its verdict does not name. A target is one of
+`writer_reference.frontmatter.<field>`, `prompt_asset.frontmatter.<field>`,
+`fan_in.<field>` (`consumer`, `upstream_writers`, `amendment_strategy`), the exact
+target `prompt_asset.body`, or `<pillar>.<field>` (a key of that pillar's
+`payload`). Nothing else is rulable: `target`, `kind`, `proposed_by`, `notes`,
+`field_descriptions`, `writer_reference.destination` and `prompt_asset.prompt_id`
+are proposal identity, so a different destination or id is a new `propose` run
+with another `--target` or `--prompt-id`.
+
+```bash
+process.sh assemble <kind> --proposal <proposal.json> --rulings <rulings.json> [--out <validated.json>]
+```
+
+The kind is positional or `--kind <kind>`; a `project` proposal is committed as
+proposed and has no per-field rulings. A field with no ruling is accepted as
+proposed. The result is the proposal with each edit set at its target and each
+rejected field removed (a pillar a reject emptied is dropped), plus a top-level
+`rejected_fields` object appended last (`{"<scope>": {"<field>": "<reason>"}}`;
+present only when a reject exists). Every other key keeps its place. Editing
+`prompt_asset.frontmatter.amendment_strategy` also sets the `fan_in` copy that
+`commit --with-fan-in` reads, unless `fan_in.amendment_strategy` has its own
+ruling. An override reason rides inside an edit's `value` as an inline
+`_override_reason`; assemble never writes one.
+
+Without `--out` the validated JSON goes to stdout. With `--out` it is written to a
+temp file beside the target and renamed into place, and the command prints
+`govern-assemble: wrote <out>`.
+
+Every refusal is exit 2: one stderr line that begins `govern-assemble: refused:`,
+nothing written (an existing `--out` file stays byte-identical and no temp file
+survives, a signal included). Beyond the argument and file checks, the checks run
+in this order and the first failure speaks: the rulings shape, each ruling in turn
+(verdict, keys, `value` or `reason`, target, a target ruled twice), then
+`unresolved placeholder at <target>` (a rulable string leaf that is still a whole
+`<...>` placeholder after the rulings apply: edit or reject it) and
+`no pillar would remain`. A missing `jq` is exit 3 and a failed rename is exit 6
+with `govern-assemble: write failed: <out>`.
 
 ## Per-mode proposal payloads
 
@@ -392,11 +479,11 @@ mandate is a strong recommendation, never a block).
 - R-37 multi-pillar bundling: file-type and folder modes invoke the
   library with two `--pillar/--payload-file` pairs in a single call;
   either both apply or neither does.
-- R-52 collision tiebreaker: `process.sh propose` flags collisions
-  against `~/.claude/governance/foundation-master.json` in the proposal
-  output; commit phase rejects (rc=4) any shadowing payload entry that
-  lacks an inline `_override_reason: "<text>"` field (canonical
-  shape; per-entry only since T-5).
+- Override reasons: a payload entry that shadows a foundation entry carries an
+  inline `_override_reason: "<text>"` field (per-entry shape). The write-time
+  hook reads that field when an overlay file is written through an editor tool;
+  `process.sh propose`, `process.sh commit` and the mutation library do not
+  check it.
 
 **Failure mode:** block-and-log — a skill never generates its own mutation
 code, and a structural layer beats a remembered reminder:

@@ -23,7 +23,7 @@
 #                          re-invokes with `--resume --extraction-stub PATH`.
 #   --extraction-stub PATH Supply the Section-B extraction output directly; the
 #                          chain runs end-to-end in one shot (no rc=5 yield).
-#   --resume               Resume the two-pass chain (paired with --extraction-stub).
+#   --resume               Resume the two-pass chain; with no --extraction-stub it reads the staged stub.
 #   --typed-only           Force typed input for Section B (skip the voice probe).
 #   --skip-external-setup  Skip the soft-mandate external-setup gate (step 6).
 #   --dry-run              Emit per-step would-run handoffs; zero filesystem writes.
@@ -101,7 +101,7 @@ usage() { sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume)            RESUME=1 ;;
-    --extraction-stub)   shift; [ $# -gt 0 ] || { echo "onboard.sh: --extraction-stub requires a path" >&2; exit 2; }; EXTRACTION_STUB="$1" ;;
+    --extraction-stub)   shift; [ $# -gt 0 ] || { echo "onboard.sh: --extraction-stub requires a path" >&2; exit 2; }; [ -n "$1" ] || { echo "onboard.sh: --extraction-stub requires a non-empty path" >&2; exit 2; }; EXTRACTION_STUB="$1" ;;
     --typed-only)        TYPED_ONLY=1 ;;
     --skip-external-setup) SKIP_EXTERNAL=1 ;;
     --dry-run)           DRY_RUN=1 ;;
@@ -126,6 +126,39 @@ emit_handoff() {
 onboarding_complete() {
   [ -f "$USER_MANIFEST" ] || return 1
   jq -e '.system.onboarding_complete == true' "$USER_MANIFEST" >/dev/null 2>&1
+}
+
+# The conventional path a driver writes the model's extraction output to; --resume
+# with no stub flag and no EXTRACTION_OUTPUT_OVERRIDE reads it when it is non-empty.
+staged_stub_path() { printf '%s\n' "$INPUTS_DIR/extraction-output-B-slim.json"; }
+
+# The command that resumes this run: every value is printf %q-quoted so the printed
+# command runs verbatim; flags are forwarded in a fixed order. $1 = 1 appends
+# --extraction-stub "$2".
+resume_command() {
+  local c
+  c="bash $(printf '%q' "$SELF_DIR/onboard.sh") --resume"
+  if [ "$1" = 1 ]; then c="$c --extraction-stub $(printf '%q' "$2")"; fi
+  if [ "$TYPED_ONLY" -eq 1 ]; then c="$c --typed-only"; fi
+  if [ "$SKIP_EXTERNAL" -eq 1 ]; then c="$c --skip-external-setup"; fi
+  if [ -n "$VAULT_ROOT_ARG" ]; then c="$c --vault-root $(printf '%q' "$VAULT_ROOT_ARG")"; fi
+  if [ -n "$PLANS_HOME_ARG" ]; then c="$c --plans-home $(printf '%q' "$PLANS_HOME_ARG")"; fi
+  if [ -n "$SKILLS_DIR_ARG" ]; then c="$c --skills-dir $(printf '%q' "$SKILLS_DIR_ARG")"; fi
+  if [ "$FORCE" -eq 1 ]; then c="$c --force"; fi
+  printf '%s' "$c"
+}
+
+# At the exit-5 pause: print the exact next command. A staged transcript means the
+# model extraction is next; no transcript means the driver stages one first.
+emit_resume_handoff() {
+  local stub transcript
+  stub="$(staged_stub_path)"
+  transcript="$TRANSCRIPT_DIR/section-b-slim.txt"
+  if [ -f "$transcript" ]; then
+    emit_handoff "extract-section-B prompt=$(printf '%q' "$INPUTS_DIR/extraction-prompt-B-slim.txt") stub=$(printf '%q' "$stub") resume-with=\"$(resume_command 1 "$stub")\""
+  else
+    emit_handoff "stage-section-B-transcript transcript=$(printf '%q' "$transcript") resume-with=\"$(resume_command 0)\""
+  fi
 }
 
 # Step runners.
@@ -158,6 +191,11 @@ run_section_b() {
   # Stub supplied (CLI flag or env): run the whole two-pass section in one shot.
   local stub="$EXTRACTION_STUB"
   [ -z "$stub" ] && stub="${EXTRACTION_OUTPUT_OVERRIDE:-}"
+  # --resume with no stub from the caller reads the conventional staged stub when
+  # it is non-empty; without --resume that file is never read.
+  if [ -z "$stub" ] && [ "$RESUME" -eq 1 ] && [ -s "$(staged_stub_path)" ]; then
+    stub="$(staged_stub_path)"
+  fi
   if [ -n "$stub" ]; then
     # Propagate section-b's rc — do NOT swallow it with an unconditional return 0
     # (mirrors the interactive branch's rc handling below). A swallowed exit 3
@@ -178,7 +216,7 @@ run_section_b() {
   set -e
   if [ "$rc" -eq 5 ]; then
     log "Section B — Pass 1 complete; awaiting LLM extraction"
-    emit_handoff "extract-section-B resume-with=\"--resume --extraction-stub <path>\""
+    emit_resume_handoff
     exit 5
   elif [ "$rc" -ne 0 ]; then
     log "Section B failed rc=$rc"

@@ -138,7 +138,7 @@ if [ -z "$SITUATING_CAP" ]; then
   unset _c
 fi
 if [ -n "$SITUATING_CAP" ] && [ -f "$SITUATING_CAP" ]; then
-  # The generator self-skips a spoke with no contributing plans (no binder yet) and
+  # The generator mints an empty card for a spoke with no contributing plans (project-context-situating.sh) and
   # is block-and-log internally; suppress its findings stream + ignore its rc so the
   # refresh never derails the ingest. PLANS_ROOT carries through for test isolation.
   PLANS_ROOT="$PLANS_ROOT" FINDINGS_OUTPUT="/dev/null" \

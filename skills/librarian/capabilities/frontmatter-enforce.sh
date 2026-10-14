@@ -664,13 +664,17 @@ def run_per_file(files):
         if not (missing or empties or tag_issues):
             continue
 
-        # --fix: auto-apply safe additions
+        # --fix: auto-apply safe additions. Same gate as the cohort backfill:
+        # --fix --dry-run computes the fix and reports it as a proposal, never writes.
         if fix_mode:
+            will_apply = fix_mode and not dry_run
             changed = False
             new_fm = dict(fm)
+            proposed = {}
             # updated
             if "updated" in missing and ("updated" in required):
                 new_fm["updated"] = today_date
+                proposed["updated"] = today_date
                 changed = True
                 missing = [k for k in missing if k != "updated"]
             # tags inference
@@ -678,6 +682,7 @@ def run_per_file(files):
                 inferred = infer_tags(rel)
                 if inferred:
                     new_fm["tags"] = inferred
+                    proposed["tags"] = inferred
                     changed = True
                     missing = [k for k in missing if k != "tags"]
                     tag_issues = []
@@ -685,9 +690,14 @@ def run_per_file(files):
             for k in empties:
                 if k in new_fm:
                     del new_fm[k]
+                    proposed.setdefault("remove_empty", []).append(k)
                     changed = True
             if changed:
-                _rewrite_frontmatter(full, new_fm, body, fm_end_line)
+                if will_apply:
+                    _rewrite_frontmatter(full, new_fm, body, fm_end_line)
+                else:
+                    emit({"finding": "frontmatter-auto-fix-proposed", "file": rel,
+                          "proposed": proposed, "classification": "auto-fix", "applied": False})
                 fixed_files.append(rel)
                 auto_fixed += 1
 

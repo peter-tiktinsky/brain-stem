@@ -9,9 +9,21 @@
 # Usage:
 #   handoff-disposition-check.sh --files <file> [--files <file> ...]
 #   echo "<file>" | handoff-disposition-check.sh            # stdin scope
+#   find <plans-root> -name '*handoff.md' | handoff-disposition-check.sh   # whole corpus
 #
-# Unresolved-language regex (case-insensitive):
-#   (^|[^a-z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)([^a-z]|$)
+# A whole-corpus report is a triage pass, not a close gate. Point FINDINGS_OUTPUT at a
+# scratch file so the finding NDJSON lands there, apart from the markdown summary on
+# stdout (unset, each finding prints inline with it). The exit is non-zero whenever a
+# hit is found, which on a triage pass is the expected result, not a failure.
+#
+# Callers: session-close.sh runs it over the touched handoffs and BLOCKS on a miss;
+# hooks/pre-write-guard.sh's write-time arm (handoff block) runs it with
+# --files over a temp copy of each handoff write's NEW content and returns the hits
+# as an ALLOW advisory (never a deny). The trigger regex and masks live here only.
+#
+# Unresolved-language regex (case-insensitive; a plural "s" is part of the word, so
+# "SHOULDs", "TODOs" and "follow-ups" are hits while "shoulders" and "laterals" are not):
+#   (^|[^a-z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)s?([^a-z]|$)
 #
 # NON-PROSE SPANS ARE MASKED BEFORE THE TRIGGER SEARCH. R-25 governs unresolved
 # follow-up LANGUAGE — a human sentence deferring work. Three span classes are not
@@ -46,9 +58,40 @@
 # lookahead is TRUNCATED at the first subsequent line that is itself a hit-line or
 # starts a new bullet/list item, so a disposition belonging to the NEXT item can
 # no longer satisfy this hit):
-#   FIX NOW | ABSORB | STANDALONE | deferred-to:<slug>
+#   FIX NOW | ABSORB | STANDALONE | NO-BUILD | deferred-to:<slug>
+# ABSORB and NO-BUILD are case-sensitive: only the uppercase stem is a tag (ABSORB,
+# ABSORBED, ABSORBed; NO-BUILD). Lower-case and title-case inflections ("not absorbed",
+# "absorbs", "Absorbed into", "no-build") are prose and dispose of nothing. The other
+# tags match any case.
+#
+# ABSORB and deferred-to: carry a TARGET discipline: the text following the tag
+# to the end of the per-item window must name the specific target — a plan slug,
+# a task id, or an NN/T-n pair. A floating target ("the next architect run",
+# "a future session") is functionally a "remember this" and fails exactly like a
+# missing tag. Emits blocking finding 'handoff-disposition-target-unspecific'.
+# FIX NOW is target-less by contract and never triggers it.
+#
+# A RESOLVABLE TARGET. Inside the file's NEWEST session entry (the topmost H2 matching
+# the session-heading grammar of hooks/lib/launch-prompt-length.sh, down to the next
+# such H2 or end of file), a hit disposed by STANDALONE, ABSORB or NO-BUILD must name,
+# in the rest of its per-item window, a token that resolves on disk under the plans
+# root (PLANS_ROOT, else PLANS_DIR): _inbox/<slug>.md, _inbox/_settled/<slug>.md, or
+# <key>/manifest.json (a sub-plan key <plan>/<sub> resolves too; an optional
+# ":: T-N" suffix is stripped); a bare slug resolves through _inbox/<slug>.md. A hit with
+# no resolving token emits blocking 'handoff-disposition-target-unresolved', counted in
+# the exit contract. The unspecific test above keeps precedence for ABSORB and
+# deferred-to:; FIX NOW and deferred-to: never take this one. Outside the newest entry,
+# and in a file with no session heading, only the lexical check above applies.
 #
 # Emits blocking finding 'handoff-disposition-missing' per unresolved hit.
+#
+# LAUNCH-PROMPT LENGTH (warn, never blocking). For each launch-prompt block inside
+# the file's NEWEST session entry whose word count exceeds LAUNCH_PROMPT_MAX_WORDS
+# (default 300, strictly greater-than), emits a warn-level
+# 'handoff-launch-prompt-long' finding naming the heading, the count, the threshold
+# and the 200-word target. It is NOT counted in the "(N missing)" total and never
+# changes the exit code. Block grammar, entry boundary and counter live in
+# hooks/lib/launch-prompt-length.sh; a missing lib skips the check silently.
 #
 # THE STDIN FALLBACK IS BOUNDED, NEVER AN INDEFINITE READ. fd 0 is INHERITED, and
 # when no --files is supplied this capability falls back to reading its scope from
@@ -61,7 +104,7 @@
 # degrades to the empty scope this capability already documents as valid, instead
 # of hanging the caller.
 #
-# Env overrides: FINDINGS_OUTPUT, LIBRARIAN_STDIN_WAIT.
+# Env overrides: FINDINGS_OUTPUT, LIBRARIAN_STDIN_WAIT, LAUNCH_PROMPT_MAX_WORDS.
 # Bash 3.2 clean per R-23.
 
 set -u
@@ -78,6 +121,12 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || source "$_REPO_LIB/findings.sh"
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/launch-prompt-length.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/launch-prompt-length.sh"; } \
+  || { [ -r "$_REPO_LIB/launch-prompt-length.sh" ] && source "$_REPO_LIB/launch-prompt-length.sh"; } \
+  || true
+LPL_AVAILABLE=0
+declare -F launch_prompt_blocks_newest >/dev/null 2>&1 && LPL_AVAILABLE=1
 
 FILES=""
 
@@ -112,6 +161,10 @@ fi
 
 MISSING=0
 REPORT_LINES=""
+LONG=0
+LONG_LINES=""
+LP_MAX=300
+[[ "$LPL_AVAILABLE" == "1" ]] && LP_MAX="$(launch_prompt_max_words)"
 
 # For each file, scan line by line.
 while IFS= read -r file; do
@@ -127,18 +180,67 @@ while IFS= read -r file; do
 
   # Use Python for precise regex + 2-line-window scan (bash 3.2 grep variants
   # can't cleanly do word-boundary + case-insensitive + N-lookahead).
-  RESULT=$(python3 - "$file" <<'PY'
-import re, sys
+  # Newest session entry line span (1-based, inclusive) for the resolvable-target rule;
+  # "0 0" turns the rule off (no heading grammar, or no matching heading in the file).
+  SPAN_LO=0; SPAN_HI=0
+  if [[ -n "${LPL_SESSION_HEADING_RE:-}" ]]; then
+    HEAD_LINES="$(grep -niE "$LPL_SESSION_HEADING_RE" "$file" 2>/dev/null | cut -d: -f1)" || HEAD_LINES=""
+    SPAN_LO="$(printf '%s\n' "$HEAD_LINES" | sed -n '1p')"
+    SPAN_NEXT="$(printf '%s\n' "$HEAD_LINES" | sed -n '2p')"
+    if [[ "$SPAN_LO" =~ ^[0-9]+$ ]]; then
+      if [[ "$SPAN_NEXT" =~ ^[0-9]+$ ]]; then
+        SPAN_HI=$((SPAN_NEXT - 1))
+      else
+        SPAN_HI="$(wc -l < "$file" | tr -d ' ')"
+        SPAN_HI=$((SPAN_HI + 1))
+      fi
+    else
+      SPAN_LO=0; SPAN_HI=0
+    fi
+  fi
+  PLANS_ROOT_RES="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
+
+  RESULT=$(python3 - "$file" "$SPAN_LO" "$SPAN_HI" "$PLANS_ROOT_RES" <<'PY'
+import os, re, sys
 path = sys.argv[1]
+span_lo, span_hi = int(sys.argv[2]), int(sys.argv[3])
+plans_root = sys.argv[4]
 # Word-boundary-guarded unresolved-language regex per SKILL.md-688.
+# The optional plural "s" sits inside the right-hand boundary, so a plural is a hit
+# and a longer word on the same stem is not.
 hit_re = re.compile(
-    r"(^|[^a-zA-Z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)([^a-zA-Z]|$)",
+    r"(^|[^a-zA-Z])(should|later|eventually|TODO|worth watching|flagged|follow[- ]?up)s?([^a-zA-Z]|$)",
     re.IGNORECASE,
 )
+# The ABSORB and NO-BUILD alternatives are case-sensitive (scoped inline flags): the
+# uppercase stem is the tag, a lower-case or title-case inflection is prose.
 disp_re = re.compile(
-    r"\b(FIX NOW|ABSORB|STANDALONE|deferred[- ]to:)",
+    r"\b(FIX NOW|(?-i:ABSORB)|STANDALONE|(?-i:NO-BUILD)|deferred[- ]to:)",
     re.IGNORECASE,
 )
+# A candidate target token: a path-ish run; trailing punctuation is trimmed.
+TOKEN_RE = re.compile(r"[A-Za-z0-9_./:\-]+")
+SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+KEY_RE = re.compile(r"^[0-9]+(?:-[A-Za-z0-9]+)+(?:/[A-Za-z0-9][A-Za-z0-9._-]*)?$")
+
+def resolves(rest):
+    # True when some token in the rest of the window names a real on-disk target
+    # under the plans root. An optional ":: T-N" suffix (spaced or not) is dropped.
+    for tok in TOKEN_RE.findall(rest):
+        tok = tok.strip(".,;:)")
+        tok = re.sub(r"::T-\d+$", "", tok)
+        if not tok or ".." in tok or tok.startswith("/"):
+            continue
+        if tok.startswith("_inbox/"):
+            if tok.endswith(".md") and os.path.isfile(os.path.join(plans_root, tok)):
+                return True
+        elif SLUG_RE.match(tok):
+            if os.path.isfile(os.path.join(plans_root, "_inbox", tok + ".md")):
+                return True
+        elif KEY_RE.match(tok):
+            if os.path.isfile(os.path.join(plans_root, tok, "manifest.json")):
+                return True
+    return False
 # A new bullet / ordered-list item starts a new logical item — the per-item
 # disposition-window boundary.
 item_re = re.compile(r"^\s*([-*+]|\d+[.)])\s")
@@ -159,6 +261,10 @@ INLINE_CODE_RE = re.compile("%s{2}[^%s\\n]+%s{2}|%s[^%s\\n]+%s" % (_BT, _BT, _BT
 # purpose: 53-archive-cleanup-followup is a slug, 12-later is not, and the
 # ambiguous shape must keep firing rather than be silently swallowed.
 PLAN_SLUG_RE = re.compile(r"\b\d{1,4}(?:-[a-z0-9]+){2,}\b", re.IGNORECASE)
+# A specific disposition TARGET for ABSORB / deferred-to:: a plan slug (above), a
+# task id, or an NN/T-n pair. Anything else ("the next pass", "a future session")
+# is a floating target — the remember-this pattern wearing a tag.
+TASK_ID_RE = re.compile(r"\bT-\d+\b", re.IGNORECASE)
 # A line that POINTS AT the dispositions section instead of needing a disposition.
 DISPOSITION_XREF_RE = re.compile(
     r"^\s{0,3}#{1,6}\s+.*\bdispositions?\b"
@@ -219,7 +325,30 @@ for i, line in enumerate(lines):
             break
         window_lines.append(nxt)
     window = "".join(window_lines)
-    if disp_re.search(window):
+    dm = disp_re.search(window)
+    if dm:
+        # Target discipline: ABSORB / deferred-to: must name WHERE — a plan
+        # slug, a task id or an NN/T-n pair, in the text following the tag to
+        # the end of the per-item window. A floating target is an undisposed
+        # item wearing a tag, so it fails like a missing tag (same severity,
+        # same exit contract). FIX NOW and STANDALONE are target-less.
+        tag_norm = dm.group(1).upper().replace(" ", "")
+        if tag_norm.startswith("ABSORB") or tag_norm.startswith("DEFERRED"):
+            rest = window[dm.end():]
+            if not (PLAN_SLUG_RE.search(rest) or TASK_ID_RE.search(rest)):
+                phrase = dm.group(1).strip()
+                trimmed = line.strip().replace('"', '\\"')
+                print(f"{i+1}\t{phrase}\t{trimmed}\tunspecific")
+                continue
+        # Resolvable target: inside the newest session entry only, a STANDALONE /
+        # ABSORB / NO-BUILD hit must name a token that exists under the plans root.
+        # FIX NOW and deferred-to: never take this test.
+        if (tag_norm.startswith("ABSORB") or tag_norm == "STANDALONE" or tag_norm == "NO-BUILD") \
+                and span_lo <= i + 1 <= span_hi:
+            if not resolves(window[dm.end():]):
+                phrase = dm.group(1).strip()
+                trimmed = line.strip().replace('"', '\\"')
+                print(f"{i+1}\t{phrase}\t{trimmed}\tunresolved")
         continue
     # Emit one record per missing-disposition hit.
     phrase = m.group(2).strip()
@@ -228,19 +357,53 @@ for i, line in enumerate(lines):
 PY
 )
 
+  # Launch-prompt length, newest session entry only: warn-level, never counted in
+  # MISSING and never part of the exit code.
+  if [[ "$LPL_AVAILABLE" == "1" ]]; then
+    LP_ROWS="$(launch_prompt_blocks_newest "$file" 2>/dev/null)" || LP_ROWS=""
+    while IFS=$'\t' read -r lp_heading lp_words; do
+      [[ "$lp_words" =~ ^[0-9]+$ ]] || continue
+      [[ "$lp_words" -gt "$LP_MAX" ]] || continue
+      LONG=$((LONG + 1))
+      emit_finding "handoff-launch-prompt-long" "$file" \
+        "heading" "$lp_heading" \
+        "words" "$lp_words" \
+        "threshold" "$LP_MAX" \
+        "target" "$LAUNCH_PROMPT_TARGET_WORDS" \
+        "level" "warn"
+      LONG_LINES="${LONG_LINES}- ${file} — \"${lp_heading}\" is ${lp_words} words (threshold ${LP_MAX}; target ≤ ${LAUNCH_PROMPT_TARGET_WORDS})"$'\n'
+    done <<< "$LP_ROWS"
+  fi
+
   if [[ -z "$RESULT" ]]; then
     continue
   fi
 
-  while IFS=$'\t' read -r lineno phrase matched; do
+  while IFS=$'\t' read -r lineno phrase matched kind; do
     [[ -z "$lineno" ]] && continue
     MISSING=$((MISSING + 1))
-    emit_finding "handoff-disposition-missing" "$file" \
-      "line" "$lineno" \
-      "phrase" "$phrase" \
-      "matched" "$matched" \
-      "level" "error"
-    REPORT_LINES="${REPORT_LINES}- ${file}:${lineno} — \"${phrase}\" needs one of FIX NOW / ABSORB / STANDALONE / deferred-to:"$'\n'
+    if [[ "$kind" == "unspecific" ]]; then
+      emit_finding "handoff-disposition-target-unspecific" "$file" \
+        "line" "$lineno" \
+        "phrase" "$phrase" \
+        "matched" "$matched" \
+        "level" "error"
+      REPORT_LINES="${REPORT_LINES}- ${file}:${lineno} — \"${matched}\" disposes via ${phrase} but names no target plan/task (add a plan slug or task id)"$'\n'
+    elif [[ "$kind" == "unresolved" ]]; then
+      emit_finding "handoff-disposition-target-unresolved" "$file" \
+        "line" "$lineno" \
+        "phrase" "$phrase" \
+        "matched" "$matched" \
+        "level" "error"
+      REPORT_LINES="${REPORT_LINES}- ${file}:${lineno} — \"${matched}\" disposes via ${phrase} but names no target that resolves under the plans root (an _inbox/<slug>.md, an _inbox/_settled/<slug>.md or a <key>/manifest.json)"$'\n'
+    else
+      emit_finding "handoff-disposition-missing" "$file" \
+        "line" "$lineno" \
+        "phrase" "$phrase" \
+        "matched" "$matched" \
+        "level" "error"
+      REPORT_LINES="${REPORT_LINES}- ${file}:${lineno} — \"${phrase}\" needs one of FIX NOW / ABSORB / STANDALONE / NO-BUILD / deferred-to:"$'\n'
+    fi
   done <<< "$RESULT"
 done <<< "$FILES"
 
@@ -249,6 +412,10 @@ if [[ -n "$REPORT_LINES" ]]; then
   printf '%s' "$REPORT_LINES"
 else
   echo "- All unresolved language disposed."
+fi
+if [[ "$LONG" -gt 0 ]]; then
+  printf "\n## Launch Prompts (%d over %d words; warn, not counted above)\n\n" "$LONG" "$LP_MAX"
+  printf '%s' "$LONG_LINES"
 fi
 
 # Non-zero exit if missing — session-close contract blocks on this.

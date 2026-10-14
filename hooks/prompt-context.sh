@@ -26,6 +26,25 @@ if [ "${1:-}" = "--do-heartbeat" ]; then
   exit 0
 fi
 
+# This file has TWO contention surfaces — the heartbeat re-exec
+# below and the locked registry read further down — and both route through this ONE
+# local helper so the skip-line literal occurs exactly once per file, the same
+# single-site shape every registry-writing hook carries. Appends the
+# lockf.sh-convention line to <basename>-skip.log in the first existing of $LOG_DIR,
+# $HOOKS_STATE, the lockfile's dir. Never non-zero: this hook runs under
+# `set -euo pipefail` and a deferred row must never abort the R-26 valve.
+log_registry_skip() {
+  local _sl_dir="${LOG_DIR:-}"
+  if [ -z "$_sl_dir" ] || [ ! -d "$_sl_dir" ]; then
+    _sl_dir="${HOOKS_STATE:-}"
+    if [ -z "$_sl_dir" ] || [ ! -d "$_sl_dir" ]; then
+      _sl_dir="$(dirname "$REGISTRY_LOCK")"
+    fi
+  fi
+  echo "$(date -Iseconds) prompt-context.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; next fire retries)" \
+    >> "$_sl_dir/prompt-context-skip.log" 2>/dev/null || true
+}
+
 # Per-session checkpoint/pressure dir roots at $CLAUDE_STATE_ROOT (/
 # /), via the paths.sh SoT — NOT $HOOKS_STATE. registry.sh (sourced
 # above) sources paths.sh, so SESSION_STATE_ROOT is exported here.
@@ -35,7 +54,7 @@ STATE_DIR="${SESSION_STATE_ROOT:-${HOOKS_STATE_OVERRIDE:-${CLAUDE_STATE_ROOT:-${
 # T-3 (2026-05-11): per-session pressure file paths
 # (`sessions/<sid>/context-pressure.json`). PRESSURE_FILE construction moved
 # AFTER SESSION_ID resolution. Empty SID → PRESSURE_FILE="" → existence checks
-# fall through to default-pct-0 path; R-26 mandate firing preserved.
+# fall through to default-pct-0 path; the R-26 bands stay silent without a session.
 # Read stdin once up-front so we can resolve the per-session checkpoint path
 # before the pressure block (which reads CHECKPOINT_FILE mtime).
 # BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
@@ -69,17 +88,22 @@ fi
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
 # T-3: refresh this session's last_heartbeat on EVERY UserPromptSubmit (solo
-# sessions too), BEFORE any early-exit path below (161/:172/:191), so a live session's
-# heartbeat stays fresh and the T-1 heartbeat-authoritative verdict keeps it — closing
-# the inverse under-count. UPSERTS if a peer's reconcile reaped the row. Holds
-# REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec (fail-open to a
-# direct unlocked upsert). Every path ends in `|| true` so it can NEVER non-zero-
-# propagate under this hook's `set -euo pipefail` and abort the R-26 safety valve.
+# sessions too), BEFORE any early-exit path below, so a live session's heartbeat stays
+# fresh and the T-1 heartbeat-authoritative verdict keeps it — closing the
+# inverse under-count. UPSERTS if a peer's reconcile reaped the row. Holds
+# REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec. A
+# lockf timeout (rc 75) DEFERS the row — one skip line via the shared helper above,
+# never an unlocked write (non-75 keeps the silent swallow, T-3a); the skipped
+# heartbeat self-heals at the next UserPromptSubmit. Never non-zero-propagates under
+# this hook's `set -euo pipefail` to abort the R-26 safety valve.
 if [[ -n "$SESSION_ID" ]]; then
   ensure_coord_dir 2>/dev/null || true
   if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
-    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-heartbeat "$SESSION_ID" >/dev/null 2>&1 \
-      || heartbeat_row "$SESSION_ID" || true
+    _pc_hb_rc=0
+    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-heartbeat "$SESSION_ID" >/dev/null 2>&1 || _pc_hb_rc=$?
+    if [ "$_pc_hb_rc" -eq 75 ]; then
+      log_registry_skip
+    fi
   else
     heartbeat_row "$SESSION_ID" || true
   fi
@@ -89,6 +113,7 @@ if [[ -n "$SESSION_ID" ]]; then
   SESSION_DIR="$STATE_DIR/sessions/$SESSION_ID"
   CHECKPOINT_FILE="$SESSION_DIR/checkpoint.md"
   PRESSURE_FILE="$SESSION_DIR/context-pressure.json"
+  BAND_MARKER="$SESSION_DIR/.pressure-band-warned"
   mkdir -p "$SESSION_DIR" 2>/dev/null || true
   # compute + write the .pct the bands below read (no-op if no transcript).
   _cp_tp="$TRANSCRIPT_PATH"
@@ -97,10 +122,10 @@ if [[ -n "$SESSION_ID" ]]; then
   # usage-block count at the compaction boundary). Until the transcript advances
   # PAST that boundary (a genuine post-compact usage block appears), do NOT
   # re-derive .pct from the stale pre-compact block — recomputing would re-write
-  # the stale-high value and false-fire the R-26 mandate (the session-register-only
+  # the stale-high value and false-fire the R-26 banner (the session-register-only
   # reset is provably inert without this guard). On advance: clear the marker +
   # resume the normal recompute so real post-compact pressure (incl. a genuinely
-  # high one) is written and the mandate fires. write_context_pressure()
+  # high one) is written and the banner fires. write_context_pressure()
   # (hooks/lib/context-pressure.sh) stays byte-frozen.
   _cp_marker="$STATE_DIR/sessions/$SESSION_ID/.compact-pending"
   _cp_skip=0
@@ -123,31 +148,43 @@ if [[ -n "$SESSION_ID" ]]; then
   fi
 else
   # No session ID — checkpoint + pressure operations skipped (per-session path unavailable).
-  # Existence checks against "" return false, so pressure mandates default to pct=0.
+  # Existence checks against "" return false, so the pressure bands default to pct=0.
   CHECKPOINT_FILE=""
   PRESSURE_FILE=""
+  BAND_MARKER=""
 fi
 
-# --- Context pressure enforcement (R-26) ---
-# Re-firing mandates with mtime-based clearing condition.
-# Clearing window: checkpoint.md mtime must be < 600s (10 min) old.
-# The one-shot last_warned flag has been removed — mandates fire every
-# UserPromptSubmit until the clearing condition is met.
+# --- Context pressure banner (R-26) ---
+# Two bands, warn (WARN_PCT) and mandate (MANDATE_PCT), measured on band_pct (the
+# SEMANTICS note below). Entering either raises a banner in the top-level systemMessage field, which Claude
+# Code shows to the USER, not the model: whether to checkpoint and compact, or start a
+# fresh session, is the user's call, and the Stop gate (stop-checkpoint-check.sh) stays
+# the enforcement backstop. The banner fires once per band entry: the marker
+# sessions/<sid>/.pressure-band-warned holds the last band warned, a later prompt in
+# the same band stays silent, a move into the other band warns again, and falling
+# below WARN_PCT removes the marker so the next entry warns afresh. The compaction
+# guard above holds .pct at its reset until the transcript advances, which keeps a
+# stale pre-compact value from raising the banner.
+# Clearing window: a checkpoint.md younger than 600s (10 min) throttles the passive
+# capture below.
 CLEARING_WINDOW_SEC=600
 
 # --- T-13 (G3): manifest-driven thresholds for hooks.context_pressure ---
 # Reads warn_pct/mandate_pct from $CLAUDE_HOME/user-manifest.json (defaults 45/48
 # when absent or null). These are the ONLY context_pressure thresholds any hook
-# consumes: this hook enforces warn+mandate in-band.
+# consumes: this hook raises the warn and mandate banners from them.
 #
-# SEMANTICS: warn_pct/mandate_pct are percentages of the TRUE model context window.
-# The .pct in context-pressure.json is `used / actual-window` (the writer resolves
-# the window per model family — Haiku 200k, the 1M fleet 1,000,000 — not the former
-# spurious 200k default). At the 1M fleet, warn 45% / mandate 48% = ~450k / ~480k
-# tokens used, leaving ~520k of headroom at the mandate — ample for a checkpoint
-# write. The fractions are KEPT as-is: they remain meaningful window-relative
-# triggers, and re-tuning them for the larger window is a band-logic change that is
-# deliberately out of scope here (this plan only corrects the denominator).
+# SEMANTICS: warn_pct/mandate_pct are percentages of the window the harness compacts
+# against, so the bands and the harness's compaction share one window. The .pct in
+# context-pressure.json is `used / model-window` (the writer resolves the window per
+# model family — Haiku 200k, the 1M fleet 1,000,000), while the harness auto-compacts
+# against its own auto-compact window, which can sit far below the model window. The
+# bands therefore compare band_pct = input_tokens * 100 / basis, the basis being the
+# first positive integer among the CLAUDE_CODE_AUTO_COMPACT_WINDOW env var,
+# .autoCompactWindow in $CLAUDE_HOME/settings.json and the .window the writer
+# recorded, capped at that .window. With no input_tokens (the compaction reset writes
+# {"pct":0}) or no basis, band_pct is the .pct itself. The 35% passive capture keeps
+# the raw .pct and its own range, below WARN_PCT.
 #
 # The stop-gate's 48/80/90 boundaries are FIXED constants in stop-checkpoint-check.sh
 # by design (a safety gate is not weakened by misconfig). `hard_pct` is schema-parity
@@ -172,6 +209,8 @@ if [[ -f "$USER_MANIFEST" ]] && command -v jq >/dev/null 2>&1; then
 fi
 
 pressure_context=""
+r26_banner=""
+r26_banner_fired=false
 if [[ -f "$PRESSURE_FILE" ]]; then
   pct=$(jq -r '.pct // 0' "$PRESSURE_FILE" 2>/dev/null || echo 0)
   pct_int=${pct%.*}
@@ -189,23 +228,37 @@ if [[ -f "$PRESSURE_FILE" ]]; then
     checkpoint_fresh=true
   fi
 
-  if (( pct_int >= MANDATE_PCT )); then
-    if ! $checkpoint_fresh; then
-      # mandate% immediate-action mandate — re-fires every prompt until cleared
-      pressure_context="CONTEXT PRESSURE ${pct}% — IMMEDIATE ACTION REQUIRED.
-Before responding to the user's prompt, invoke /session-checkpoint.
-Do not take any other tool action until checkpoint is written to $CHECKPOINT_FILE.
-This is a blocking mandate enforced by the Stop hook (R-26).
-Clearing condition: checkpoint.md mtime < 10 min old."
-    fi
-  elif (( pct_int >= WARN_PCT )); then
-    if ! $checkpoint_fresh; then
-      # warn% at-next-break mandate — re-fires every prompt until cleared
-      pressure_context="CONTEXT PRESSURE ${pct}%. At the next natural task boundary (current tool chain complete), invoke /session-checkpoint to write $CHECKPOINT_FILE with the Session Continuity Block.
-Do not begin new multi-step work until checkpoint is written.
-Clearing condition: checkpoint.md mtime < 10 min old (R-26)."
-    fi
-  elif (( pct_int >= 35 )); then
+  # band_pct: the banner bands measured against the auto-compact window (SEMANTICS
+  # above). A candidate that is not a positive integer is skipped.
+  _bb_pos_int() { case "${1:-}" in ''|0*|*[!0-9]*) return 1 ;; esac; return 0; }
+  _bb_in=$(jq -r '.input_tokens // empty' "$PRESSURE_FILE" 2>/dev/null || true)
+  _bb_win=$(jq -r '.window // empty' "$PRESSURE_FILE" 2>/dev/null || true)
+  _bb_pos_int "$_bb_win" || _bb_win=""
+  _bb_settings="${CLAUDE_HOME:-$HOME/.claude}/settings.json"
+  _bb_set=""
+  if [[ -r "$_bb_settings" ]]; then
+    _bb_set=$(jq -r '.autoCompactWindow // empty' "$_bb_settings" 2>/dev/null || true)
+  fi
+  _bb_basis=""
+  for _bb_cand in "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" "$_bb_set" "$_bb_win"; do
+    if _bb_pos_int "$_bb_cand"; then _bb_basis="$_bb_cand"; break; fi
+  done
+  if [[ -n "$_bb_basis" && -n "$_bb_win" ]] && (( _bb_basis > _bb_win )); then
+    _bb_basis="$_bb_win"
+  fi
+  band_pct=$pct_int
+  if [[ -n "$_bb_basis" && -n "$_bb_in" && "$_bb_in" != *[!0-9]* ]]; then
+    band_pct=$(( 10#$_bb_in * 100 / _bb_basis ))
+  fi
+
+  r26_band=""
+  if (( band_pct >= MANDATE_PCT )); then
+    r26_band=mandate
+  elif (( band_pct >= WARN_PCT )); then
+    r26_band=warn
+  fi
+
+  if (( pct_int >= 35 && pct_int < WARN_PCT )); then
     # 35% silent passive checkpoint — preserves prior behavior as PreCompact feed.
     # Don't clobber manual ones: that clause is now enforced by predicate, not by
     # prose. checkpoint_guarded_write (hooks/lib/checkpoint-guard.sh) preserves a
@@ -221,22 +274,49 @@ Clearing condition: checkpoint.md mtime < 10 min old (R-26)."
 CKPT
     fi
   fi
+
+  if [[ -n "$r26_band" ]]; then
+    _last_band=$(cat "$BAND_MARKER" 2>/dev/null || true)
+    if [[ "$r26_band" != "$_last_band" ]]; then
+      if [[ "$r26_band" == mandate ]]; then
+        r26_banner="CONTEXT PRESSURE ${band_pct}% — context use is high. Run /session-checkpoint now, then /compact to continue from a model-authored restore, or start a fresh session."
+      else
+        r26_banner="CONTEXT PRESSURE ${band_pct}% — context use is climbing. At the next natural break, run /session-checkpoint, then /compact to continue from a model-authored restore, or start a fresh session."
+      fi
+      printf '%s\n' "$r26_band" > "$BAND_MARKER" 2>/dev/null || true
+      r26_banner_fired=true
+    fi
+  else
+    rm -f "$BAND_MARKER" 2>/dev/null || true
+  fi
 fi
+
+# One stdout JSON object per prompt: the user-facing banner (when this prompt raised
+# one) and the model-facing context compose into a single payload on every exit path.
+emit_prompt_output() {
+  local ctx="${1:-}"
+  if [[ -n "$r26_banner" ]]; then
+    format_output_user_notice "UserPromptSubmit" "$r26_banner" "$ctx"
+  elif [[ -n "$ctx" ]]; then
+    format_output "UserPromptSubmit" "$ctx"
+  fi
+}
 
 # ---: memory-review re-firing band — YIELDS to R-26 ---
 # Escalates a UserPromptSubmit mandate for aged (high-severity pending >3d) or
-# defer_count≥2 review items. The band NEVER competes with the R-26 checkpoint
-# mandate: it fires ONLY when pressure_context is empty (no active checkpoint
-# mandate). Clear-condition: the item leaves the queue only on explicit confirm
-# OR reject-with-reason (never silent dismiss / session-exit / bare defer) —
-# enforced at the queue layer, so the mandate re-fires every prompt until then.
+# defer_count≥2 review items. The band NEVER competes with the R-26 pressure
+# banner: it stays silent on a prompt that raised the banner (r26_banner_fired) and
+# fires ONLY when pressure_context is empty. Clear-condition: the item leaves the
+# queue only on explicit confirm OR reject-with-reason (never silent dismiss /
+# session-exit / bare defer) — enforced at the queue layer, so the mandate re-fires
+# every prompt until then.
 # The aged/defer thresholds are resolved env > user-manifest.json ::
 # hooks.memory_review > default inside review-queue.sh.
-if [[ -z "$pressure_context" ]] \
+if [[ -z "$pressure_context" ]] && ! $r26_banner_fired \
    && command -v review_queue_has_aged_or_deferred >/dev/null 2>&1; then
   if ! { command -v memory_review_opt_out >/dev/null 2>&1 && memory_review_opt_out; }; then
     if review_queue_has_aged_or_deferred; then
-      pressure_context="MEMORY REVIEW MANDATE — one or more aged/high-severity memory-review items are pending (>3d high-severity, or deferred ≥2 times). At the next natural task boundary, run /librarian review to address them: each item clears ONLY on explicit confirm OR reject-with-reason. This mandate re-fires every prompt until the queue clears, and YIELDS to the R-26 checkpoint mandate + the ≥80% context-pressure valve (session-continuity always wins)."
+      pressure_context="MEMORY REVIEW MANDATE — one or more aged/high-severity memory-review items are pending (>3d high-severity, or deferred ≥2 times). At the next natural task boundary, run /librarian review to address them: each item clears ONLY on explicit confirm OR reject-with-reason. This mandate re-fires every prompt until the queue clears, and YIELDS to the R-26 context-pressure banner + the ≥80% context-pressure valve (session-continuity always wins)."
     fi
   fi
 fi
@@ -244,20 +324,24 @@ fi
 # stdin + SESSION_ID parsed at top (T-2). Re-check empty case here:
 if [[ -z "$SESSION_ID" ]]; then
   # No session ID but we may still have pressure / memory-review context
-  if [[ -n "$pressure_context" ]]; then
-    format_output "UserPromptSubmit" "$pressure_context"
-  fi
+  emit_prompt_output "$pressure_context"
   exit 0
 fi
 
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""')
 
-# Read registry under lock (2s timeout — skip on contention)
+# Read registry under lock (2s timeout — skip on contention). An rc 75
+# appends ONE skip line via the shared helper above so the degrade is diagnosable;
+# any other rc — e.g. cat on a missing registry file, a normal early-session state
+# with the lock free — keeps today's silent pressure-only degrade with NO contention
+# line (T-3a: only contention may name itself).
 reg=$(lockf -k -t 2 "$REGISTRY_LOCK" cat "$REGISTRY_FILE" 2>/dev/null) || {
-  # Registry unavailable — still emit pressure warnings
-  if [[ -n "$pressure_context" ]]; then
-    format_output "UserPromptSubmit" "$pressure_context"
+  _pc_read_rc=$?
+  if [ "$_pc_read_rc" -eq 75 ]; then
+    log_registry_skip
   fi
+  # Registry unavailable — still emit pressure warnings
+  emit_prompt_output "$pressure_context"
   exit 0
 }
 
@@ -274,9 +358,7 @@ peer_count=$(echo "$reg" | jq --arg sid "$SESSION_ID" \
   '[.sessions | to_entries[] | select(.key != $sid) | select(.value.status == "active" or .value.status == "closing" or .value.status == "closed-pending-reconciliation")] | length')
 if (( peer_count == 0 )); then
   # No peers, but may still have pressure context
-  if [[ -n "$pressure_context" ]]; then
-    format_output "UserPromptSubmit" "$pressure_context"
-  fi
+  emit_prompt_output "$pressure_context"
   exit 0
 fi
 
@@ -359,8 +441,6 @@ ${context}"
   fi
 fi
 
-if [[ -n "$context" ]]; then
-  format_output "UserPromptSubmit" "$context"
-fi
+emit_prompt_output "$context"
 
 exit 0

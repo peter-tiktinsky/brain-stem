@@ -23,6 +23,7 @@
 #            crash window is the accepted contract; the library-index re-derive
 #            is the one-sided-edge detector (this capability never builds a
 #            transaction layer).
+#            Convention: originating_plan names its plan by plans-root-relative path (<master>/<sub> for a sub-plan); the bare basename is still accepted.
 #   PROMO-6  archive: the workshop originals MOVE to workshop/_archive/. The
 #            _library/log.md append half is owned by a separate capability and
 #            is NOT written here.
@@ -37,16 +38,69 @@
 # Block-and-log, never write-and-hope: an empty/malformed scrub
 # output is never written; it emits a `scrub-blocked` finding and is skipped.
 #
-# NOTE (transcription): the binding SoT labels this a dual-output scrub;
-# that is the same-ID as the distinct frictionless-capture workshop contract in
-# the surface-architecture doc. Same-ID drift, not an error.
+# CENSUS (--census, read-only): lists each research_artifacts[] entry of a
+# top-level plan under the plans root (resolved via paths.sh) whose manifest
+# status is `completed` and whose entry carries no library_refs, i.e. research
+# no promotion has reached. A superseded plan is excluded: its successor
+# overruled its conclusions. A sub-plan is not walked, because promotion
+# resolves a plan at the top level only. It needs no workshop and writes
+# nothing; an unreadable manifest is reported, never skipped silently.
+# Promoting a listed entry stays an operator library-scrub run.
+#
+# LIBRARY PROMOTION (--candidates, --triage, --next, --answer, --claim-answer,
+# --mode, --pending):
+# a queue that offers each newly completed plan's research for promotion. The
+# mode is behavioral.hook_preferences.library_promotion in the user manifest
+# (prompt | auto | off; an unset key reads off). While it reads off, --candidates,
+# --triage and --next exit 0 with no model call and no write. State lives under
+# $CLAUDE_STATE_ROOT/library-promotion/: baseline.json (the plans already
+# completed when the mode was switched on, never offered), queue.json (one
+# record per candidate: state, triage topic and reason, and the session holding
+# its claim) and scan-marker (a manifest older than it is not re-read). Every
+# state-writing mode runs under the lockf.sh re-exec on
+# $HOOKS_STATE/library-promotion.lock: a contended run exits 0 and logs a skip
+# line, and where /usr/bin/lockf is absent the run is inline.
+#   --candidates         queue each top-level `completed` plan that is in neither
+#                        the baseline nor the queue (no model call). A sub-plan
+#                        is never queued: promotion resolves a plan at the top
+#                        level only. A mode set by hand, with no baseline yet,
+#                        records the baseline on this first run and queues nothing.
+#   --triage <plan>      send the plan's canonical research (declared under
+#                        _research/, status neither superseded nor deferred, gate
+#                        records dropped by path or title) to a small model
+#                        (`claude --bare -p --model haiku`, JSON-schema output,
+#                        under a watchdog) and record promote or skip plus a
+#                        library topic. An empty canonical set is recorded skip
+#                        with no call; a failed call leaves the candidate pending
+#                        with the reason.
+#   --next <session-id>  claim one unclaimed `promote` candidate; print its slug.
+#   --claim-answer <session-id> yes|no|always
+#                        the auto-mode combined operation: claim one unclaimed
+#                        `promote` candidate for the session AND answer it under
+#                        one lock acquisition. Contention (lockf timeout) exits 0
+#                        having claimed nothing — the skip line records it and the
+#                        next Stop re-offers the candidate; a claim is never left
+#                        stranded without its answer.
+#   --answer <plan> yes|no|always
+#                        yes promotes the canonical set through the _research/
+#                        source arm: the article lands under the triage topic, no
+#                        workshop home is needed, the source is read and never
+#                        written or moved (no PROMO-3, no PROMO-6), and both
+#                        PROMO-4 stamps are re-read before success is reported.
+#                        no records the plan declined; it is never offered again.
+#                        always promotes, then sets the mode to auto. yes and
+#                        always keep the --apply non-interactive guard.
+#   --mode get | --mode set prompt|auto|off
+#                        read or write the mode; the first switch to prompt or
+#                        auto records the baseline.
+#   --pending            list the unanswered candidates: state, claim, topic, reason.
 #
 # Flow-maintained artifacts (workshop/_archive/, _library/<topic>/_raw/) carry
 # maintainer=flow(F-CAP|F-PROMO) with enforcement-owner=librarian — this
 # capability is that enforcement owner.
 #
 # Output Contract (per CLAUDE.md skill-creation rule):
-#   Files written (ONLY in --apply mode; propose mode writes nothing):
+#   Files written (ONLY in --apply mode; propose mode and --census write nothing):
 #     1. $LIBRARY/<topic>/_raw/<source>            — immutable provenance copy
 #                                                    (written once; never edited)
 #     2. $LIBRARY/<topic>/<article>.md             — scrubbed universal article
@@ -58,6 +112,10 @@
 #     5. $LIBRARY/<topic>/<article>.md frontmatter — gains originating_plan:
 #                                                    (the PROMO-4 second atomic write)
 #     6. workshop original -> $WORKSHOP/_archive/   — PROMO-6 move
+#   The promotion modes write $CLAUDE_STATE_ROOT/library-promotion/* and, for
+#     --mode set and --answer always, the user manifest's
+#     behavioral.hook_preferences.library_promotion; --answer yes|always writes
+#     files 1, 2, 4 and 5 above, never 3 or 6.
 #   Schema gated by: schemas/plan-manifest-schema.json (the research_artifacts[]
 #     item shape) — the manifest entry is validated as an object BEFORE the
 #     library_refs[] stamp write (jsonschema when importable; structural
@@ -89,6 +147,12 @@
 #               "category":"promoted", "topic":"<topic>",
 #               "article":"<topic>/<article>.md", "written":"<article path>",
 #               "plan_sot":"<_research path>", "archived":"<archive path>" }
+#             (the _research/ source arm leaves plan_sot and archived empty)
+#   census:  { "finding":"library-scrub", "file":"<research path>",
+#               "category":"unpromoted-research", "plan":"<plan-slug>",
+#               "ra_id":"<research_artifacts[] id>", "path":"<plan-relative path>" }
+#             then one { "finding":"library-scrub", "file":"<plans root>",
+#               "category":"unpromoted-research-count", "count":<n> }
 #
 # Tier: judgment. requires_confirmation: true (propose-then-confirm default;
 # --apply is the confirm gate). Cron block: skip-non-interactive.
@@ -98,6 +162,14 @@
 #   library-scrub.sh --apply              # confirm: write + stamp + archive
 #   library-scrub.sh --topic <dir>        # one workshop topic dir (else sweep all)
 #   library-scrub.sh --dry-run            # summary counts only; no findings/writes
+#   library-scrub.sh --census             # read-only: unpromoted research of completed plans
+#   library-scrub.sh --candidates         # queue newly completed plans (no model call)
+#   library-scrub.sh --triage <plan>      # small-model promote/skip verdict + topic
+#   library-scrub.sh --next <session-id>  # claim one promote candidate; print its slug
+#   library-scrub.sh --answer <plan> yes|no|always
+#   library-scrub.sh --claim-answer <session-id> yes|no|always
+#   library-scrub.sh --mode get | --mode set prompt|auto|off
+#   library-scrub.sh --pending            # unanswered candidates with state and reason
 #   library-scrub.sh --help               # usage
 #
 # Env overrides:
@@ -114,6 +186,9 @@
 #   CLAUDECODE             Set by an attended Claude Code session; bypasses the
 #                          --apply non-interactive guard (CC is the primary
 #                          library-curation surface). A bare cron sweep still blocks.
+#   UMR_USER_MANIFEST_PATH user manifest holding the promotion mode (default
+#                          $CLAUDE_HOME/user-manifest.json, via user-manifest-read.sh).
+#   LIBRARY_PROMOTION_TRIAGE_TIMEOUT  triage watchdog in seconds (default 120).
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24.
 
@@ -135,16 +210,683 @@ fi
 APPLY="false"
 TOPIC=""
 DRY_RUN="false"
+CENSUS="false"
+PROMO_OP=""
+PROMO_PLAN=""
+PROMO_ARG=""
+PROMO_VERDICT=""
+# The lockf.sh re-exec runs this script again with the same arguments.
+ORIG_ARGS=("$@")
+
+# One library-promotion mode per run.
+promo_op() {
+  if [[ -n "$PROMO_OP" ]]; then
+    echo "library-scrub: one promotion mode per run ('$PROMO_OP' and '$1')" >&2
+    exit 2
+  fi
+  PROMO_OP="$1"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY="true"; shift ;;
     --topic) TOPIC="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,111p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --census) CENSUS="true"; shift ;;
+    --candidates) promo_op candidates; shift ;;
+    --pending) promo_op pending; shift ;;
+    --triage|--next)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "library-scrub: $1 takes an argument" >&2; exit 2
+      fi
+      promo_op "${1#--}"
+      if [[ "$1" == "--triage" ]]; then PROMO_PLAN="$2"; else PROMO_ARG="$2"; fi
+      shift 2 ;;
+    --answer)
+      if [[ $# -lt 3 ]]; then
+        echo "library-scrub: --answer takes <plan> yes|no|always" >&2; exit 2
+      fi
+      case "$3" in
+        yes|no|always) ;;
+        *) echo "library-scrub: --answer takes yes, no or always, not '$3'" >&2; exit 2 ;;
+      esac
+      promo_op answer; PROMO_PLAN="$2"; PROMO_ARG="$3"; shift 3 ;;
+    --claim-answer)
+      if [[ $# -lt 3 ]]; then
+        echo "library-scrub: --claim-answer takes <session-id> yes|no|always" >&2; exit 2
+      fi
+      case "$3" in
+        yes|no|always) ;;
+        *) echo "library-scrub: --claim-answer takes yes, no or always, not '$3'" >&2; exit 2 ;;
+      esac
+      promo_op claim-answer; PROMO_ARG="$2"; PROMO_VERDICT="$3"; shift 3 ;;
+    --mode)
+      case "${2:-}" in
+        get) promo_op mode-get; shift 2 ;;
+        set)
+          case "${3:-}" in
+            prompt|auto|off) ;;
+            *) echo "library-scrub: --mode set takes prompt, auto or off, not '${3:-}'" >&2; exit 2 ;;
+          esac
+          promo_op mode-set; PROMO_ARG="$3"; shift 3 ;;
+        *) echo "library-scrub: --mode takes get, or set prompt|auto|off" >&2; exit 2 ;;
+      esac ;;
+    # The usage text is the whole leading comment block (it ends at the first empty line).
+    -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "library-scrub: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
+
+# A plan argument names a top-level plan directory, nothing else.
+case "$PROMO_PLAN" in
+  */*|.*|_*) echo "library-scrub: '$PROMO_PLAN' is not a top-level plan slug" >&2; exit 2 ;;
+esac
+
+# --- Resolve the three surface homes -----------------------------------------
+# Workshop home: $CLAUDE_STATE_ROOT/workshop/ — NEVER hardcoded.
+STATE_ROOT_RES="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"
+WORKSHOP_RES="${WORKSHOP_DIR:-$STATE_ROOT_RES/workshop}"
+PLANS_RES="${PLANS_DIR:-$HOME/.claude-plans}"
+LIBRARY_RES="${LIBRARY_DIR:-$PLANS_RES/_library}"
+
+# --census: the read-only unpromoted-research census. It reads plan manifests
+# only, so it runs before the --apply guard and needs no workshop home.
+if [[ "$CENSUS" == "true" ]]; then
+  if [[ "$APPLY" == "true" ]]; then
+    echo "library-scrub: --census is read-only and does not take --apply" >&2
+    exit 2
+  fi
+  python3 - "${PLANS_DIR:-}" <<'PY'
+import json
+import os
+import sys
+
+plans_dir = sys.argv[1]
+
+
+def emit(payload):
+    out = os.environ.get("FINDINGS_OUTPUT", "")
+    line = json.dumps(payload, ensure_ascii=False, separators=(", ", ": "))
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    else:
+        sys.stdout.write(line + "\n")
+
+
+count = 0
+names = []
+if plans_dir and os.path.isdir(plans_dir):
+    names = sorted(os.listdir(plans_dir))
+else:
+    emit({"finding": "library-scrub", "file": plans_dir,
+          "category": "census-blocked",
+          "reason": "plans root absent or unresolved", "valid": False})
+for name in names:
+    if name.startswith(("_", ".")):
+        continue
+    manifest_path = os.path.join(plans_dir, name, "manifest.json")
+    if not os.path.isfile(manifest_path):
+        continue
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, ValueError) as exc:
+        emit({"finding": "library-scrub", "file": manifest_path,
+              "category": "census-unreadable", "reason": str(exc),
+              "valid": False})
+        continue
+    if not isinstance(manifest, dict) or manifest.get("status") != "completed":
+        continue
+    for entry in manifest.get("research_artifacts") or []:
+        if not isinstance(entry, dict) or entry.get("library_refs"):
+            continue
+        rel = entry.get("path") or ""
+        emit({"finding": "library-scrub",
+              "file": os.path.join(plans_dir, name, rel) if rel else manifest_path,
+              "category": "unpromoted-research", "plan": name,
+              "ra_id": entry.get("id") or "", "path": rel})
+        count += 1
+emit({"finding": "library-scrub", "file": plans_dir,
+      "category": "unpromoted-research-count", "count": count})
+PY
+  exit 0
+fi
+
+# --- Library promotion (see LIBRARY PROMOTION in the header) -----------------
+# promo_py <op> [args...]: the queue, baseline, triage and mode operations. Every
+# op but pending runs under the lock taken below.
+promo_py() {
+  local op="$1"
+  shift
+  python3 - "$op" "$PROMO_STATE" "$PLANS_RES" "$PROMO_PLAN" "$PROMO_ARG" \
+            "$PROMO_UM" "$@" <<'PY'
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+
+op, state_dir, plans_dir, plan, arg, um_path = sys.argv[1:7]
+extra = sys.argv[7:]
+queue_path = os.path.join(state_dir, "queue.json")
+baseline_path = os.path.join(state_dir, "baseline.json")
+marker_path = os.path.join(state_dir, "scan-marker")
+# Unanswered states; `declined` and `promoted` are answered and never re-offered.
+OPEN_STATES = ("pending", "promote", "skip")
+GATE_RE = re.compile(r"\bgate[-_ ]?[12]\b", re.IGNORECASE)
+TOPIC_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["promote", "skip"]},
+        "topic": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["verdict", "topic", "reason"],
+    "additionalProperties": False,
+}
+PROMPT_HEAD = (
+    "You decide whether one completed project's research belongs in a shared\n"
+    "reference library that other projects read. Answer promote only when the\n"
+    "research holds guidance that stays useful outside this project: a reusable\n"
+    "technique, a measured finding or a decision rule. Answer skip for status\n"
+    "notes, one-off records and anything tied to this project's own files.\n"
+    "Return verdict (promote or skip), topic (a short lowercase hyphenated\n"
+    "library topic, for example shell-scripting) and a one-sentence reason.\n")
+EXCERPT_CHARS = 4000
+PROMPT_CAP = 40000
+
+
+def now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def say(msg):
+    sys.stderr.write("library-scrub: %s\n" % msg)
+
+
+def flat(text):
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return default
+    except (OSError, ValueError) as exc:
+        say("unreadable state file %s (%s)" % (path, exc))
+        sys.exit(1)
+
+
+def write_json(path, data):
+    """Atomic temp + os.replace, keeping the file's mode. A target made
+    read-only is refused, never replaced behind the operator's back."""
+    if os.path.exists(path) and not os.access(path, os.W_OK):
+        raise OSError("%s is read-only" % path)
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def load_queue():
+    q = load_json(queue_path, {})
+    return q if isinstance(q, dict) else {}
+
+
+def save_queue(q):
+    try:
+        write_json(queue_path, q)
+    except OSError as exc:
+        say("queue write failed (%s)" % exc)
+        sys.exit(1)
+
+
+def top_level_completed(since=None):
+    """Direct children of the plans root whose manifest status is completed.
+    A sub-plan sits under its master, so it is never read here."""
+    out = []
+    try:
+        names = sorted(os.listdir(plans_dir))
+    except OSError:
+        return out
+    for name in names:
+        if name.startswith(("_", ".")):
+            continue
+        mp = os.path.join(plans_dir, name, "manifest.json")
+        if not os.path.isfile(mp):
+            continue
+        try:
+            if since is not None and os.stat(mp).st_mtime < since:
+                continue
+            with open(mp, encoding="utf-8") as fh:
+                m = json.load(fh)
+        except (OSError, ValueError) as exc:
+            say("unreadable manifest %s (%s)" % (mp, exc))
+            continue
+        if isinstance(m, dict) and m.get("status") == "completed":
+            out.append(name)
+    return out
+
+
+def write_baseline():
+    write_json(baseline_path, {"plans": top_level_completed(), "recorded_at": now()})
+
+
+def set_mode(value):
+    """Persist behavioral.hook_preferences.library_promotion, keeping every
+    other key. The first switch to prompt or auto records the baseline."""
+    try:
+        with open(um_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        say("no user manifest at %s; the mode was not set" % um_path)
+        return 1
+    except (OSError, ValueError) as exc:
+        say("user manifest unreadable (%s); the mode was not set" % exc)
+        return 1
+    if not isinstance(data, dict):
+        say("user manifest is not a JSON object; the mode was not set")
+        return 1
+    beh = data.get("behavioral")
+    if not isinstance(beh, dict):
+        beh = {}
+        data["behavioral"] = beh
+    prefs = beh.get("hook_preferences")
+    if not isinstance(prefs, dict):
+        prefs = {}
+        beh["hook_preferences"] = prefs
+    prefs["library_promotion"] = value
+    try:
+        write_json(um_path, data)
+        if value in ("prompt", "auto") and not os.path.exists(baseline_path):
+            write_baseline()
+    except OSError as exc:
+        say("mode write failed (%s)" % exc)
+        return 1
+    return 0
+
+
+def canonical_set(slug):
+    """The plan's canonical research: research_artifacts[] entries declared
+    under _research/ whose status is neither superseded nor deferred and whose
+    file exists, minus gate records (a _gates/ path, or a gate-1 / gate-2 path
+    or title): a gate record never carries universal value. None when the
+    manifest cannot be read."""
+    root = os.path.join(plans_dir, slug)
+    try:
+        with open(os.path.join(root, "manifest.json"), encoding="utf-8") as fh:
+            m = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(m, dict):
+        return None
+    out = []
+    for e in m.get("research_artifacts") or []:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        rel = os.path.normpath(e.get("path") or "")
+        parts = rel.split(os.sep)
+        if parts[0] != "_research" or len(parts) < 2 or ".." in parts:
+            continue
+        if e.get("status") in ("superseded", "deferred"):
+            continue
+        if "_gates" in parts or GATE_RE.search(parts[-1]) \
+                or GATE_RE.search(e.get("title") or ""):
+            continue
+        if not os.path.isfile(os.path.join(root, rel)):
+            continue
+        out.append(e)
+    return out
+
+
+def call_model(prompt):
+    """One small-model verdict. Returns (verdict-dict, None) or (None, error)."""
+    exe = shutil.which("claude")
+    if not exe:
+        return None, "claude CLI not found on PATH"
+    try:
+        timeout = max(1, int(os.environ.get("LIBRARY_PROMOTION_TRIAGE_TIMEOUT") or 120))
+    except ValueError:
+        timeout = 120
+    argv = [exe, "--bare", "-p", "--model", "haiku", "--output-format", "json",
+            "--json-schema", json.dumps(VERDICT_SCHEMA)]
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, start_new_session=True)
+    except OSError as exc:
+        return None, "claude did not start (%s)" % exc
+    try:
+        out, err = proc.communicate(prompt.encode("utf-8"), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        return None, "no answer within the %ds watchdog" % timeout
+    if proc.returncode != 0:
+        tail = flat((err.decode("utf-8", "replace").strip().splitlines() or [""])[-1])[:200]
+        return None, "claude exited %d%s" % (proc.returncode, (": " + tail) if tail else "")
+    try:
+        doc = json.loads(out.decode("utf-8", "replace"))
+    except ValueError:
+        return None, "the output is not JSON"
+    if not isinstance(doc, dict) or doc.get("is_error"):
+        return None, "claude reported an error"
+    v = doc.get("structured_output")
+    if not isinstance(v, dict) and isinstance(doc.get("result"), str):
+        try:
+            v = json.loads(doc["result"])
+        except ValueError:
+            v = None
+    if not isinstance(v, dict) and "verdict" in doc:
+        v = doc
+    if not isinstance(v, dict) or v.get("verdict") not in ("promote", "skip"):
+        return None, "no promote or skip verdict in the output"
+    topic = re.sub(r"[^a-z0-9]+", "-", str(v.get("topic") or "").lower()).strip("-")[:60]
+    if v["verdict"] == "promote" and not topic:
+        return None, "a promote verdict without a topic"
+    return {"verdict": v["verdict"], "topic": topic,
+            "reason": flat(v.get("reason"))[:300]}, None
+
+
+def op_candidates():
+    t0 = int(time.time())
+    baseline = load_json(baseline_path, None)
+    if not isinstance(baseline, dict):
+        # The mode was set by hand: record the baseline now and offer nothing,
+        # so a plan completed before the switch is never offered.
+        try:
+            write_baseline()
+        except OSError as exc:
+            say("baseline write failed (%s)" % exc)
+            return 1
+        new = []
+    else:
+        base = set(baseline.get("plans") or [])
+        q = load_queue()
+        since = os.stat(marker_path).st_mtime if os.path.exists(marker_path) else None
+        new = [s for s in top_level_completed(since) if s not in base and s not in q]
+        if new:
+            for s in new:
+                q[s] = {"state": "pending", "queued_at": now(), "topic": "",
+                        "reason": "awaiting triage", "claimed_by": ""}
+            try:
+                write_json(queue_path, q)
+            except OSError as exc:
+                say("queue write failed (%s); the scan marker is unchanged" % exc)
+                return 1
+    # The marker moves only after the queue write, to the scan's start, so a
+    # manifest written during the scan is read again next time.
+    os.makedirs(state_dir, exist_ok=True)
+    with open(marker_path, "a"):
+        pass
+    os.utime(marker_path, (t0, t0))
+    for s in new:
+        print(s)
+    return 0
+
+
+def op_triage():
+    q = load_queue()
+    rec = q.get(plan)
+    if not isinstance(rec, dict):
+        say("%s is not a queued candidate" % plan)
+        return 1
+    if rec.get("state") != "pending":
+        say("%s is already triaged (%s)" % (plan, rec.get("state")))
+        return 0
+    entries = canonical_set(plan)
+    if entries is None:
+        rec["reason"] = "triage failed: the plan manifest is unreadable"
+        save_queue(q)
+        say("%s: %s" % (plan, rec["reason"]))
+        return 1
+    if not entries:
+        rec.update(state="skip", topic="", reason="canonical set empty", triaged_at=now())
+        save_queue(q)
+        print("%s\tskip\t-" % plan)
+        return 0
+    parts = [PROMPT_HEAD, "\nPlan: %s\n" % plan]
+    budget = PROMPT_CAP
+    for e in entries:
+        if budget <= 0:
+            parts.append("\n(further research omitted at the length cap)\n")
+            break
+        try:
+            with open(os.path.join(plans_dir, plan, os.path.normpath(e["path"])),
+                      encoding="utf-8", errors="replace") as fh:
+                text = fh.read(EXCERPT_CHARS)
+        except OSError:
+            text = ""
+        text = text[:budget]
+        budget -= len(text)
+        parts.append("\n--- Research %s: %s\nPath: %s\n\n%s\n"
+                     % (e.get("id"), flat(e.get("title")), e.get("path"), text))
+    verdict, err = call_model("".join(parts))
+    if err:
+        rec.update(state="pending", reason="triage failed: %s" % err, triaged_at=now())
+        save_queue(q)
+        say("%s: %s" % (plan, rec["reason"]))
+        return 1
+    rec.update(state=verdict["verdict"], topic=verdict["topic"],
+               reason=verdict["reason"], triaged_at=now())
+    save_queue(q)
+    print("%s\t%s\t%s" % (plan, rec["state"], rec["topic"] or "-"))
+    return 0
+
+
+def op_next():
+    q = load_queue()
+    for slug in sorted(q, key=lambda s: (str(q[s].get("queued_at", "")), s)):
+        rec = q[slug]
+        if isinstance(rec, dict) and rec.get("state") == "promote" \
+                and not rec.get("claimed_by"):
+            rec["claimed_by"] = arg
+            rec["claimed_at"] = now()
+            save_queue(q)
+            print(slug)
+            return 0
+    return 0
+
+
+def op_pending():
+    q = load_queue()
+    for slug in sorted(q):
+        rec = q[slug]
+        if not isinstance(rec, dict) or rec.get("state") not in OPEN_STATES:
+            continue
+        print("%s\tstate=%s\tclaimed=%s\ttopic=%s\treason=%s" % (
+            slug, rec.get("state"), flat(rec.get("claimed_by")) or "-",
+            flat(rec.get("topic")) or "-", flat(rec.get("reason")) or "-"))
+    return 0
+
+
+def open_record(q):
+    rec = q.get(plan)
+    if not isinstance(rec, dict) or rec.get("state") not in OPEN_STATES:
+        say("%s is not an unanswered candidate" % plan)
+        sys.exit(1)
+    return rec
+
+
+def op_answer_skipped():
+    q = load_queue()
+    rec = q.get(plan)
+    if isinstance(rec, dict) and rec.get("state") in OPEN_STATES:
+        rec["reason"] = "answer %s skipped (non-interactive)" % arg
+        save_queue(q)
+    return 0
+
+
+def op_answer_no():
+    q = load_queue()
+    rec = open_record(q)
+    rec.update(state="declined", reason="declined", answered_at=now(), claimed_by="")
+    save_queue(q)
+    print("library-scrub: %s declined; it is not offered again" % plan)
+    return 0
+
+
+def op_answer_prepare():
+    q = load_queue()
+    rec = open_record(q)
+    topic = rec.get("topic") or ""
+    if not TOPIC_RE.match(topic):
+        say("%s has no triage topic; run --triage first" % plan)
+        return 1
+    entries = canonical_set(plan)
+    if not entries:
+        say("%s has no canonical research to promote" % plan)
+        return 1
+    print(topic)
+    print(json.dumps([e["id"] for e in entries]))
+    return 0
+
+
+def op_answer_record():
+    result_path, scrub_rc = extra[0], extra[1]
+    res = load_json(result_path, None)
+    try:
+        os.unlink(result_path)
+    except OSError:
+        pass
+    q = load_queue()
+    rec = open_record(q)
+    rc = 0
+    if scrub_rc == "0" and isinstance(res, dict) and res.get("promoted") \
+            and not res.get("blocked"):
+        rec.update(state="promoted", refs=res["promoted"], reason="",
+                   answered_at=now(), claimed_by="")
+        save_queue(q)
+        print("library-scrub: %s promoted (%d article(s)); PROMO-4 stamps verified"
+              % (plan, len(res["promoted"])))
+    else:
+        blocked = (res or {}).get("blocked") if isinstance(res, dict) else None
+        rec["reason"] = flat("promotion incomplete: %s" % "; ".join(
+            blocked or ["the scrub exited %s" % scrub_rc]))[:300]
+        save_queue(q)
+        say("%s: %s" % (plan, rec["reason"]))
+        rc = 1
+    if arg == "always" and set_mode("auto") != 0:
+        rc = 1
+    return rc
+
+
+OPS = {
+    "candidates": op_candidates, "triage": op_triage, "next": op_next,
+    "pending": op_pending, "answer-skipped": op_answer_skipped,
+    "answer-no": op_answer_no, "answer-prepare": op_answer_prepare,
+    "answer-record": op_answer_record, "mode-set": lambda: set_mode(arg),
+}
+sys.exit(OPS[op]())
+PY
+}
+
+RESEARCH_PLAN=""
+RESEARCH_TOPIC=""
+RESEARCH_IDS=""
+RESEARCH_RESULT=""
+if [[ -n "$PROMO_OP" ]]; then
+  if [[ "$APPLY" == "true" || "$CENSUS" == "true" || "$DRY_RUN" == "true" || -n "$TOPIC" ]]; then
+    echo "library-scrub: a promotion mode takes no --apply, --census, --dry-run or --topic" >&2
+    exit 2
+  fi
+  PROMO_STATE="$STATE_ROOT_RES/library-promotion"
+  # shellcheck source=/dev/null
+  { [ -r "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/user-manifest-read.sh"; } \
+    || { [ -r "$_REPO_LIB/user-manifest-read.sh" ] && source "$_REPO_LIB/user-manifest-read.sh"; } || true
+  if command -v _umr_resolve_path >/dev/null 2>&1; then
+    PROMO_UM="$(_umr_resolve_path)"
+  else
+    PROMO_UM="${UMR_USER_MANIFEST_PATH:-${USER_MANIFEST_PATH:-$CLAUDE_HOME_RES/user-manifest.json}}"
+  fi
+  PROMO_MODE=""
+  if command -v umr_get_string >/dev/null 2>&1; then
+    PROMO_MODE="$(umr_get_string '.behavioral.hook_preferences.library_promotion' 2>/dev/null || true)"
+  fi
+  case "$PROMO_MODE" in prompt|auto|off) ;; *) PROMO_MODE="off" ;; esac
+
+  # Read-only modes, and the dormant exit: while the mode reads off the queue
+  # modes make no model call and write nothing.
+  case "$PROMO_OP" in
+    mode-get) printf '%s\n' "$PROMO_MODE"; exit 0 ;;
+    pending) promo_py pending; exit 0 ;;
+    candidates|triage|next|claim-answer)
+      if [[ "$PROMO_MODE" == "off" ]]; then exit 0; fi ;;
+  esac
+
+  # State-writing modes: one run at a time under the lockf.sh re-exec.
+  if [[ -x /usr/bin/lockf ]]; then
+    # shellcheck source=/dev/null
+    { [ -r "$CLAUDE_HOME_RES/hooks/lib/lockf.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/lockf.sh"; } \
+      || { [ -r "$_REPO_LIB/lockf.sh" ] && source "$_REPO_LIB/lockf.sh"; } || true
+    if command -v claude_lockf_reexec >/dev/null 2>&1; then
+      PROMO_LOCK_DIR="${HOOKS_STATE:-$STATE_ROOT_RES/hooks-state}"
+      mkdir -p "$PROMO_LOCK_DIR"
+      claude_lockf_reexec "$PROMO_LOCK_DIR/library-promotion.lock" "${ORIG_ARGS[@]}"
+    fi
+  fi
+
+  # --claim-answer (the auto-mode combined operation): claim the next promote
+  # candidate for this session and answer it under THIS ONE lock acquisition, so
+  # a contended run degrades to "never claimed" (the lockf helper's skip line,
+  # exit 0) — the next Stop re-offers it — instead of a claimed-but-unanswered
+  # record stranded past its one-shot claim. The claim reuses the --next
+  # selection (PROMO_ARG carries the session id); an empty answer means nothing
+  # was claimable for this session, a clean exit 0. A claimed slug falls through
+  # to the answer flow below under the SAME held lock.
+  if [[ "$PROMO_OP" == "claim-answer" ]]; then
+    _ca_slug="$(promo_py next)"
+    if [[ -z "$_ca_slug" ]]; then
+      exit 0
+    fi
+    PROMO_PLAN="$_ca_slug"
+    PROMO_ARG="$PROMO_VERDICT"
+    PROMO_OP="answer"
+  fi
+  if [[ "$PROMO_OP" != "answer" ]]; then
+    promo_py "$PROMO_OP"
+    exit 0
+  fi
+  if [[ "$PROMO_ARG" == "no" ]]; then
+    promo_py answer-no
+    exit 0
+  fi
+  # yes | always write durable content, so they keep the --apply guard below.
+  if [[ -z "${FOUNDATION_TEST_MODE:-}" ]] && [[ -z "${CLAUDECODE:-}" ]] \
+     && [[ -z "${TTY:-}" ]] && ! [ -t 0 ]; then
+    promo_py answer-skipped
+    echo "library-scrub: --answer $PROMO_ARG skipped (non-interactive)" >&2
+    exit 0
+  fi
+  PROMO_PREP="$(promo_py answer-prepare)"
+  RESEARCH_PLAN="$PROMO_PLAN"
+  RESEARCH_TOPIC="$(printf '%s\n' "$PROMO_PREP" | sed -n '1p')"
+  RESEARCH_IDS="$(printf '%s\n' "$PROMO_PREP" | sed -n '2p')"
+  RESEARCH_RESULT="$PROMO_STATE/.answer-result.json"
+  rm -f "$RESEARCH_RESULT"
+  # Falls through to the main body, whose _research/ source arm promotes.
+fi
 
 # Judgment-tier non-interactive guard (mirrors memory-globalize.sh /
 # memory-hygiene.sh). The propose phase is read-only and harmless, but --apply
@@ -158,16 +900,10 @@ if [[ "$APPLY" == "true" ]] && [[ -z "${FOUNDATION_TEST_MODE:-}" ]] \
   exit 0
 fi
 
-# --- Resolve the three surface homes -----------------------------------------
-# Workshop home: $CLAUDE_STATE_ROOT/workshop/ — NEVER hardcoded.
-STATE_ROOT_RES="${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}"
-WORKSHOP_RES="${WORKSHOP_DIR:-$STATE_ROOT_RES/workshop}"
-PLANS_RES="${PLANS_DIR:-$HOME/.claude-plans}"
-LIBRARY_RES="${LIBRARY_DIR:-$PLANS_RES/_library}"
-
 # workshop-absent -> block-and-log, never crash (the workshop scaffold is a
 # separate install unit; this capability degrades gracefully when it is absent).
-if [[ ! -d "$WORKSHOP_RES" ]]; then
+# The _research/ source arm reads plan research, so it needs no workshop.
+if [[ ! -d "$WORKSHOP_RES" && -z "$RESEARCH_PLAN" ]]; then
   if command -v emit_finding >/dev/null 2>&1; then
     emit_finding "library-scrub" "$WORKSHOP_RES" \
       "category" "scrub-blocked" \
@@ -248,9 +984,11 @@ if [[ -z "$DERIVE_DESC" ]]; then
   done
 fi
 
+SCRUB_RC=0
 python3 - "$WORKSHOP_RES" "$LIBRARY_RES" "$PLANS_RES" "$MANIFEST_SCHEMA" \
           "$FRONTMATTER_RULES" "$APPLY" "$DRY_RUN" "$TOPIC" "$LOG_APPENDER" "$FM_BUNDLE" \
-          "$DERIVE_DESC" <<'PY'
+          "$DERIVE_DESC" "$RESEARCH_PLAN" "$RESEARCH_TOPIC" "$RESEARCH_IDS" \
+          "$RESEARCH_RESULT" <<'PY' || SCRUB_RC=$?
 import json
 import os
 import re
@@ -271,6 +1009,10 @@ topic_filter = sys.argv[8]
 log_appender = sys.argv[9] if len(sys.argv) > 9 else ""
 fm_bundle_path = sys.argv[10] if len(sys.argv) > 10 else ""
 derive_desc_helper = sys.argv[11] if len(sys.argv) > 11 else ""
+research_plan = sys.argv[12] if len(sys.argv) > 12 else ""
+research_topic = sys.argv[13] if len(sys.argv) > 13 else ""
+research_ids = json.loads(sys.argv[14]) if len(sys.argv) > 14 and sys.argv[14] else []
+research_result = sys.argv[15] if len(sys.argv) > 15 else ""
 
 
 def append_log_event(action, rel_path, note):
@@ -648,6 +1390,154 @@ counts = {
     "skipped_empty": 0, "skipped_archive": 0,
 }
 
+
+def article_origin(path):
+    """The originating_plan: value in an article's frontmatter; None when the
+    article does not exist, "" when it carries no such line."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    m = re.match(r"^---\n(.*?)\n---", text, re.S)
+    for line in (m.group(1) if m else "").split("\n"):
+        if line.startswith("originating_plan:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def manifest_has_ref(manifest_path, ra_id, ref):
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    for entry in data.get("research_artifacts") or []:
+        if isinstance(entry, dict) and entry.get("id") == ra_id:
+            return ref in (entry.get("library_refs") or [])
+    return False
+
+
+# ---- _research/ source arm (--answer yes|always) -----------------------------
+# The promotion queue's accept step. The source is a plan's own declared
+# _research/ research, the topic is the triage verdict's, and no workshop home
+# is needed. The source is read and never written or moved: PROMO-3 and PROMO-6
+# do not run. The article write and the manifest stamp are the PROMO-4 pair,
+# and both are re-read before a promotion counts.
+if research_plan:
+    import filecmp
+
+    result = {"promoted": [], "blocked": []}
+
+    def research_blocked(src, reason):
+        result["blocked"].append("%s: %s" % (src, reason))
+        emit({"finding": "library-scrub", "file": src, "category": "scrub-blocked",
+              "reason": reason, "valid": False})
+
+    plan_root = os.path.join(plans_dir, research_plan)
+    manifest_path = os.path.join(plan_root, "manifest.json")
+    entries = {}
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            for e in json.load(fh).get("research_artifacts") or []:
+                if isinstance(e, dict) and e.get("id"):
+                    entries[e["id"]] = e
+    except (OSError, ValueError, AttributeError) as exc:
+        research_blocked(manifest_path, "plan manifest unreadable (%s)" % exc)
+    engagement_terms = [seg for seg in research_plan.split("-")
+                        if seg and not seg.isdigit() and len(seg) > 3]
+    tags = ["#%s/library" % research_topic]
+    if not research_ids:
+        research_blocked(manifest_path, "no canonical research to promote")
+    for rid in research_ids:
+        entry = entries.get(rid)
+        if entry is None:
+            research_blocked(rid, "no research_artifacts[] entry with this id")
+            continue
+        rel = os.path.normpath(entry.get("path") or "")
+        src_path = os.path.join(plan_root, rel)
+        src = os.path.basename(rel)
+        if rel.split(os.sep)[0] != "_research" or ".." in rel.split(os.sep) \
+                or not src.endswith(".md"):
+            research_blocked(src_path, "not a _research/ markdown entry")
+            continue
+        try:
+            with open(src_path, encoding="utf-8") as fh:
+                raw_text = fh.read()
+        except OSError as exc:
+            research_blocked(src_path, "source unreadable (%s)" % exc)
+            continue
+        # A leading ordinal (01-, 02-) orders a plan's own research; the
+        # article name drops it.
+        article_name = re.sub(r"^\d+-", "", src[:-3]) or src[:-3]
+        scrubbed, _n_removed = scrub_body(raw_text, research_plan, engagement_terms)
+        if not scrubbed.strip():
+            research_blocked(src_path, "scrub produced an empty article body")
+            continue
+        routing = synthesize_routing(research_topic, article_name, scrubbed)
+        cohort_description = derive_description(
+            scrubbed, derive_h1(scrubbed, article_name))
+        cohort_id = cohort_slug("%s/%s" % (research_topic, article_name)) or "note"
+        art_fm = article_frontmatter_dict(
+            research_topic, article_name, routing, [src], tags, research_plan,
+            cohort_description, today, cohort_id, COHORT_SCHEMA_VERSION)
+        missing = [k for k in REF_REQUIRED
+                   if k not in art_fm or art_fm[k] in (None, "", [])]
+        if missing:
+            research_blocked(src_path, "article frontmatter missing required "
+                                       "field(s): %s" % ",".join(missing))
+            continue
+        ok, reason = validate_ra_item(entry)
+        if not ok:
+            research_blocked(src_path, "manifest research_artifacts[] entry "
+                                       "invalid: %s" % reason)
+            continue
+        topic_root = os.path.join(library_dir, research_topic)
+        article_path = os.path.join(topic_root, article_name + ".md")
+        raw_target = os.path.join(topic_root, "_raw", src)
+        ref = "%s/%s" % (research_topic, article_name)
+        origin = article_origin(article_path)
+        if origin not in (None, research_plan):
+            research_blocked(src_path, "article %s.md already exists from %s"
+                                       % (ref, origin or "an unknown plan"))
+            continue
+        if os.path.exists(raw_target) and not filecmp.cmp(src_path, raw_target,
+                                                          shallow=False):
+            research_blocked(src_path, "%s/_raw/%s holds a different source"
+                                       % (research_topic, src))
+            continue
+        try:
+            os.makedirs(os.path.dirname(raw_target), exist_ok=True)
+            if not os.path.exists(raw_target):
+                shutil.copy2(src_path, raw_target)
+            article_md, _h1 = build_article(
+                research_topic, article_name, scrubbed, routing, [src], tags,
+                research_plan, cohort_description, today, cohort_id,
+                COHORT_SCHEMA_VERSION)
+            atomic_write(article_path, article_md)
+        except OSError as exc:
+            research_blocked(src_path, "library write failed (%s)" % exc)
+            continue
+        try:
+            stamp_manifest_library_refs(manifest_path, rid, ref)
+        except OSError:
+            pass
+        if not (manifest_has_ref(manifest_path, rid, ref)
+                and article_origin(article_path) == research_plan):
+            research_blocked(src_path, "PROMO-4 stamps not verified (manifest "
+                                       "library_refs or article originating_plan)")
+            continue
+        append_log_event("INGEST", "%s/_raw/%s" % (research_topic, src),
+                         "promoted provenance original (CAP-3)")
+        append_log_event("PROMOTE", ref + ".md", "promoted from %s" % research_plan)
+        result["promoted"].append(ref)
+        emit({"finding": "library-scrub", "file": src_path, "category": "promoted",
+              "topic": research_topic, "article": ref + ".md",
+              "written": article_path, "plan_sot": "", "archived": ""})
+    if research_result:
+        atomic_write(research_result, json.dumps(result) + "\n")
+    sys.exit(0 if result["promoted"] and not result["blocked"] else 3)
+
 if not os.path.isdir(workshop_dir):
     # already guarded in the shell wrapper, but stay defensive.
     print("library-scrub: workshop dir absent", file=sys.stderr)
@@ -893,4 +1783,10 @@ if dry_run:
         counts["skipped_empty"]), file=sys.stderr)
 PY
 
+# --answer yes|always: record the _research/ arm's outcome on the candidate.
+if [[ -n "$RESEARCH_PLAN" ]]; then
+  promo_py answer-record "$RESEARCH_RESULT" "$SCRUB_RC"
+  exit 0
+fi
+[[ "$SCRUB_RC" -eq 0 ]] || exit "$SCRUB_RC"
 exit 0

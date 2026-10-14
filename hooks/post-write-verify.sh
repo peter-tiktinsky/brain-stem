@@ -181,18 +181,38 @@ def add_if_absent(k, v):
         keys[k] = len(lines) - 1
 DATE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2})')
 NESTED_RE = re.compile(r'^[ \t]+([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
-def metadata_modified_date():
-    # The other writer's in-band origin claim: `modified:` nested under `metadata:`.
-    if "metadata" not in keys:
-        return ""
-    for ln in lines[keys["metadata"] + 1:]:
+def metadata_block(fm_lines, top_keys):
+    # The keys nested directly under the top-level `metadata:` key, as
+    # [(key, value, deeper_lines)]. Block-aware, the same walker as memory-auto-stamp.sh:
+    # the block runs to the first non-blank column-0 line; its key indent is the width of
+    # its first non-blank line; only a line at exactly that width is read as a key; a
+    # deeper line (a `- item` or a continuation) belongs to the preceding key and is never
+    # read as a key; a shallower line ends the block.
+    if "metadata" not in top_keys:
+        return []
+    entries = []
+    indent = None
+    for ln in fm_lines[top_keys["metadata"] + 1:]:
         if not ln.strip():
             continue
-        m = NESTED_RE.match(ln)
-        if not m:
-            break   # de-indented — end of the metadata block
-        if m.group(1) == "modified":
-            d = DATE_RE.match(m.group(2).strip().strip('"').strip("'"))
+        width = len(ln) - len(ln.lstrip(" \t"))
+        if width == 0:
+            break
+        if indent is None:
+            indent = width
+        if width < indent:
+            break
+        m = NESTED_RE.match(ln) if width == indent else None
+        if m:
+            entries.append((m.group(1), m.group(2).strip(), []))
+        elif entries:
+            entries[-1][2].append(ln.strip())
+    return entries
+def metadata_modified_date():
+    # The other writer's in-band origin claim: `modified:` nested under `metadata:`.
+    for key, value, _deeper in metadata_block(lines, keys):
+        if key == "modified":
+            d = DATE_RE.match(value.strip('"').strip("'"))
             return d.group(1) if d else ""
     return ""
 def derive_created_floor():

@@ -11,7 +11,7 @@
      rules.
 
      Hard cap 80 lines. Claude self-maintains the structure tree when
-     user adds new top-level folders (via propose-and-validate flow). -->
+     user adds new top-level folders (via /govern register --kind folder). -->
 
 ## Vault Structure
 

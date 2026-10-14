@@ -46,7 +46,7 @@
       "absorbs": "canonical tag-prefix taxonomy (absorbed from dissolved schemas/vault-schema._tag_prefixes + _tag_prefixes_meta)",
       "r37_coupled_surfaces": [
         "governance/tagging-rules.json",
-        "hooks/pre-write-guard.sh (tag-validation branch)",
+        "hooks/pre-write-guard.sh (tag-taxonomy allowlist check)",
         "governance/log-subtype-registry.json (system-utility canonicality discipline)",
         "governance/foundation-master.json (forward — composed r47_exempt_paths_composed union)"
       ]
@@ -128,7 +128,7 @@
         "governance/mandatory-files-rules.json (mandates[<file_type>].body_structure_contract pointer)",
         "hooks/pre-write-guard.sh (body-structure validation lookup)",
         "hooks/post-write-verify.sh (body-structure validation)",
-        "templates/{spec,tasks,handoff,ideation-brief}-template.md (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
+        "templates/ideation-brief-template.md and skills/new-plan/templates/{master,sub}-{spec,tasks,handoff}.md.tmpl (reciprocal coupling: the plan-quartet templates are authored-to-contract against {spec,tasks,handoff,ideation-brief}.md.json here — a contract body-shape change must propagate to the template in lockstep; registered as the primary surface under the plans pillar)",
         "governance/file-type-contracts/adr.md.json (ADR record body-structure contract; enumerated by the *.json glob above, so live without per-name registration — this is the reciprocal-pointer peer to the plans pillar, where the decision_records convention + manifest decision_records[] are the lockstep pair)",
         "governance/foundation-master.json (forward — composed file_type_contracts slot)"
       ]
@@ -338,10 +338,10 @@
       "tier": "gate",
       "enforcement_layer": [
         "hooks/stop-checkpoint-check.sh (Stop gate)",
-        "hooks/prompt-context.sh (re-firing mandate band)"
+        "hooks/prompt-context.sh (once-per-band-entry user banner)"
       ],
       "status": "active",
-      "rule_text": "At context pressure thresholds, a fresh per-session checkpoint is required; the Stop hook gates until the checkpoint is fresh (< 10 min). Safety valve preserved above the high-pressure ceiling.",
+      "rule_text": "Context pressure is surfaced to the user, not mandated to the model: entering the warn or mandate band (percentages of the harness auto-compact window) shows a banner once per band entry that recommends /session-checkpoint, then /compact, or a fresh session. The Stop hook is the gate: in the 48-80% band of the raw pressure it blocks until the per-session checkpoint is a Session Continuity Block (any age) or a stub younger than 10 min; at 80-90% any checkpoint suffices. Safety valve preserved above the high-pressure ceiling.",
       "failure_mode": "A long session compacts without a fresh checkpoint; session continuity state is lost.",
       "source": "governance/_index.json :: cross_cutting_meta_rules (SoT)"
     },

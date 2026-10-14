@@ -9,7 +9,7 @@
   "matcher_pillar": "governance/plans-rules.json",
   "matcher_entry": "decision_records",
   "_design_notes": {
-    "consumer": "librarian plan-decision-log (decision-record enumeration) + future R-27-adjacent advisory; manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
+    "consumer": "librarian plan-decision-log (decision-record enumeration) + future R-27-adjacent advisory; hooks/pre-write-guard.sh (the accepted-ADR lock above the first amendment heading) + skills/librarian/capabilities/adr-supersede.sh (the supersede verb); manifest pointer round-trips via schemas/plan-manifest-schema.json :: decision_records[]",
     "lockstep_pair": "governance/plans-rules.json :: decision_records (convention) + schemas/plan-manifest-schema.json :: decision_records[] (manifest pointer shape)",
     "evolution_protocol": "R-37 atomic lockstep — this runtime artifact + plans-rules.json decision_records convention + plan-manifest-schema.json decision_records[] + governance/_index.json coupled_surfaces move in one commit"
   },
@@ -25,7 +25,7 @@
   "numbering": "monotonic-two-digit-creation-order-within-plan",
 
   "immutable_post_accepted": true,
-  "immutable_rationale": "An accepted ADR is an immutable record of a decision made at a point in time. A decision change does NOT edit the original — it creates a NEW ADR that supersedes the prior one (the prior ADR's Status flips to `superseded-by-ADR-NN`; the new ADR references what it supersedes in Context). Mirrors the RFC→ADR supersession chain; distinct from the in-place amendment pattern used by spec.md.",
+  "immutable_rationale": "An accepted ADR is an immutable record of a decision made at a point in time. A decision change does NOT edit the original — it creates a NEW ADR that supersedes the prior one (the prior ADR's Status flips to `superseded-by-ADR-NN`; the new ADR references what it supersedes in Context). Mirrors the RFC→ADR supersession chain; distinct from the in-place amendment pattern used by spec.md. An appended amendment section is allowed; only the body above the first amendment heading is locked.",
 
   "body_structure": {
     "h1": {
@@ -84,5 +84,5 @@
     "rationale": "ADRs are short by design — one decision, the forces behind it, and its consequences. Long rationale belongs in context-packets/ or the spec; the ADR is the durable record, not the working material."
   },
 
-  "write_shape": "create-only"
+  "write_shape": "create-then-append"
 }

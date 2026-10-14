@@ -38,6 +38,8 @@
         "external-root symlink surface whose subfolder indexes are librarian-generated, not mandate-bootstrapped (Work/)",
         "plans-tree machine indexes owned by registered librarian writers (Plans/ — the plan navigation index, the inbox funnel index, the library topic/root indexes): librarian-generated, not mandate-bootstrapped, and not exemption conflicts"
       ],
+      "_de_exemption_via_overlay": "A folder covered by a static exemption (Work/**) is RE-INCLUDED in the _index.md mandate when it is registered via the overlay's frontmatter.path_routing.rules[] — registration in the overlay IS the de-exemption, and a registered glob WINS over a static exemption that also matches the path. The overlay's path_routing rule set is the SINGLE SOURCE OF TRUTH for which Work-subtree folders carry the mandate; there is NO separate de-exemption list. Globs are matched by fnmatch so nested and wildcard-spoke patterns (Work/<spoke>/<sub>/**) de-exempt correctly at depth. Consumers: skills/librarian/capabilities/index-maintain.sh (audit-time bootstrap) and hooks/post-write-verify.sh (write-time bootstrap).",
+      "_generated_index_cohort_exemption": "Writer-owned machine indexes — the same writes[]-derived ownership as the exemption-conflict skip set (skills/librarian/capability-registry.json :: output_contract.writes[]) — are exempt from the identity cohort [description, created, id, schema_version] per frontmatter-rules.json#types.index.generated_exemption (mirrored in the file-type contract); the cohort binds the mandate-bootstrapped/hand-authored flow, whose post-write-verify Tier-1 bootstrap mints all seven fields.",
       "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
       "consumers": [
         "hooks/post-write-verify.sh (Tier 1 auto-bootstrap + live-sync)",
@@ -51,6 +53,8 @@
       "thresholds": {
         "max_lines": 200,
         "max_bytes": 25000,
+        "_unit": "utf16_code_units_post_strip",
+        "_max_bytes_rationale": "The harness measures UTF-16 code units of the TRIMMED, frontmatter-stripped, HTML-comment-stripped text, not raw file bytes. The key keeps the name max_bytes for consumer compatibility, and a raw wc -c byte count is a sound conservative stand-in because bytes over-count multi-byte characters and so trip the advisory early, never late.",
         "max_chars_per_line": 200,
         "governing_trigger": "bytes",
         "_governing_trigger_note": "The BYTE cap is the governing trigger — it bites first (at ~110 entries) before the line cap. R-59 consumers gate on the byte ratio primarily; the line + char-line caps are secondary drift signals."
@@ -61,7 +65,7 @@
         "_note": "Count BOTH the raw line count AND the comment-stripped line count, and gate on the LARGER of the two until MEMORY.md comment-stripping is empirically verified — HTML-comment blocks (<!-- -->) must not buy unlimited headroom. memory-consolidation-run.sh Check 8 implements this."
       },
       "overflow_routing": {
-        "_description": "Cold-spill seam — documented design, not yet built. At byte-cap approach, relocate the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leave one pointer line in the index. DO NOT create MEMORY-archive.md until needed (auto-spill ships in a future version, volume-gated). The fixed section order below makes the cold boundary always knowable.",
+        "_description": "Cold-spill seam. The librarian memory-spill capability relocates the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leaves one pointer line in the index, on request and only once the index reaches the YELLOW band; automatic spill is not built (volume-gated). MEMORY-archive.md is created by the first applied spill, never before. The fixed section order below makes the cold boundary always knowable.",
         "fixed_section_order": [
           "Semantic",
           "Procedural",
@@ -102,8 +106,10 @@
       },
       "rules_unscoped_aggregate": {
         "max_units": 1,
-        "scope": "every rule that loads for the cwd: all user-scope *.md + project-scope *.md without paths:",
-        "render": "contributor list (files by bytes, cumulative %) — no per-file threshold"
+        "scope": "every rule file counted as always-on-eligible for the cwd: all user-scope *.md + project-scope *.md without paths:",
+        "_scope_note": "A paths: glob is honored in both scopes, but a paths: rule loads when a matching file is READ, not at session start. The census counts every user-scope rule as always-on-eligible, the conservative reading, and a project-scope rule counts only when it declares no paths: key.",
+        "render": "contributor list (files by bytes, cumulative %) — no per-file threshold",
+        "_render_note": "The aggregate is the only rules threshold. A second per-file number would be an invented convention; the contributor list shows what dominates without one, and the per-file rows the index renders are informational."
       },
       "claude_md": {
         "max_lines": 200,
@@ -130,7 +136,8 @@
       },
       "template_residue": {
         "yellow_min_bytes": 500,
-        "method": "type-2 HTML-block parser (harness-equivalent), never a fingerprint"
+        "method": "type-2 HTML-block parser (harness-equivalent), never a fingerprint",
+        "_method_note": "The harness strips block-level HTML comments with a CommonMark type-2 HTML-block lexer: a block opens on a line indented at most 3 spaces starting <!--, and CLOSES AT THE FIRST --> (nesting is not understood), so the tail of a nested comment leaks into context as ordinary markdown. The residue is therefore what the harness loads minus what a nesting-aware strip would leave. A fixed byte fingerprint is NOT acceptable: the opening lines of an affected header are byte-identical before and after the fix, so a fingerprint fires on the fixed file too."
       },
       "enforcement_mechanism": "advisory — skills/librarian/capabilities/context-budget-index.sh renders a read-replica and emits one finding per non-GREEN row; it never blocks a write and never modifies a measured file.",
       "consumers": [

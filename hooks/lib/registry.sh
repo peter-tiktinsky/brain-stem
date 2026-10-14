@@ -11,15 +11,20 @@
 # amendment: top-level lib/ does NOT exist — this body lives at
 # hooks/lib/registry.sh and sources hooks/lib/paths.sh directly.
 
-source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
+# paths.sh and the peers below are resolved from THIS file's own directory, never from the
+# live install prefix: in an install this directory IS $CLAUDE_HOME/hooks/lib, so an install
+# is unchanged, while a run from a repo checkout (a fixture, a dev tree) loads its own copy
+# instead of whatever is installed under $HOME/.claude.
+_REGISTRY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_REGISTRY_LIB_DIR/paths.sh"
 # Hook-journal + output-validator peers live at hooks/lib/ and land at
 # /; source them when present (graceful-degrade so registry.sh does
 # not hard-fail before its peers land).
 for _peer in hook-journal.sh validate-hook-output.sh; do
-  _peer_path="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/$_peer"
+  _peer_path="$_REGISTRY_LIB_DIR/$_peer"
   [ -r "$_peer_path" ] && source "$_peer_path"
 done
-unset _peer _peer_path
+unset _peer _peer_path _REGISTRY_LIB_DIR
 
 # Fail-OPEN fallbacks. The hook-journal + validate-hook-output peers are
 # deliberately NOT shipped in brain-stem (clean-room drops emission telemetry
@@ -135,6 +140,30 @@ format_output() {
   local event="$1" ctx="$2" payload
   payload=$(jq -n --arg event "$event" --arg ctx "$ctx" \
     '{"hookSpecificOutput":{"hookEventName":$event,"additionalContext":$ctx}}')
+
+  if printf '%s' "$payload" | validate_hook_output; then
+    journal_emission "$event" "$payload" 0 "true"
+    printf '%s\n' "$payload"
+    return 0
+  else
+    journal_emission "$event" "$payload" 1 "false"
+    return 1
+  fi
+}
+
+# Format a user-facing notice: the top-level systemMessage field, which Claude Code
+# shows to the user rather than to the model. Args: event_name, message,
+# [additional_context]. With a non-empty third argument the model-facing
+# additionalContext rides in the same payload, so a hook that has both to say still
+# prints exactly one JSON object. Same validator + journal path as format_output.
+format_output_user_notice() {
+  local event="$1" msg="$2" ctx="${3:-}" payload
+  if [[ -n "$ctx" ]]; then
+    payload=$(jq -n --arg event "$event" --arg msg "$msg" --arg ctx "$ctx" \
+      '{"systemMessage":$msg,"hookSpecificOutput":{"hookEventName":$event,"additionalContext":$ctx}}')
+  else
+    payload=$(jq -n --arg msg "$msg" '{"systemMessage":$msg}')
+  fi
 
   if printf '%s' "$payload" | validate_hook_output; then
     journal_emission "$event" "$payload" 0 "true"

@@ -371,7 +371,7 @@ for job in writer-reconciler doc-amender; do
     if "$RENDER" "$job" >/dev/null 2>&1; then
       info "re-rendered launchd '$job' (CLAUDE_LOG_DIR now resolves to $NEW_LOGS)"
     else
-      diag "WARN: render-launchd '$job' returned non-zero (re-render manually; cron logs may strand)"
+      diag "WARN: render-launchd '$job' returned non-zero (re-run installer/render-launchd.sh '$job' by hand; cron logs may strand)"
     fi
   fi
 done

@@ -207,7 +207,7 @@ _folder_claude_md_tree_append() {
   # commit is canonical and has already landed.
   local vault_root="${VAULT_ROOT:-}"
   if [ -z "$vault_root" ]; then
-    printf 'folder: vault-root CLAUDE.md tree-append skipped for %s — no vault is configured (set .paths.vault_root in the user manifest, or export VAULT_ROOT); nothing was written\n' "$target" >&2
+    printf 'folder: vault-root CLAUDE.md tree-append skipped for %s — no vault is configured (set it with `%s user-manifest set paths.vault_root <vault-dir>`, or export VAULT_ROOT); nothing was written\n' "$target" "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh" >&2
     return 0
   fi
 

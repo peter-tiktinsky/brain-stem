@@ -130,7 +130,10 @@ Options:
                 begins with '-', prefix it (e.g. -o ./-weird.json).
   --version <ver>  pin top-level version field. The operand is REQUIRED — a bare
                    --version is a usage error (exit 2), never a crash.
-                   (default: derived from committed governance/foundation-manifest.json)
+                   (default: derived from committed governance/foundation-manifest.json.
+                   A committed manifest that exists but is unparseable, empty, or has no
+                   string .version is refused with exit 2 and nothing is written; pass
+                   --version to regenerate over it. An absent manifest derives v0.0.0.)
   -h | --help   this help
 EOF
 }
@@ -179,12 +182,23 @@ done
 # unchanged. Falls back to v0.0.0 only when no committed manifest exists yet
 # (true bootstrap). jq is a hard prereq (asserted below).
 COMMITTED_MANIFEST="$SOURCE_REPO/governance/foundation-manifest.json"
+# A committed manifest that EXISTS but cannot yield a non-empty string .version (conflict
+# markers, any parse failure, a 0-byte file, no .version, several documents) is REFUSED: a
+# silent v0.0.0 fallback would mis-stamp the regen and defeat the self-reference exclusion
+# below. Only an ABSENT manifest falls back. When jq is not on PATH the derive neither runs
+# jq nor refuses; the prereq loop below then exits 10 before any output.
 if [ -z "$VERSION" ]; then
-  if [ -f "$COMMITTED_MANIFEST" ] && command -v jq >/dev/null 2>&1; then
-    VERSION="$(jq -r '.version // "v0.0.0"' "$COMMITTED_MANIFEST" 2>/dev/null)"
-    [ -n "$VERSION" ] && [ "$VERSION" != "null" ] || VERSION="v0.0.0"
-  else
+  if [ ! -f "$COMMITTED_MANIFEST" ]; then
     VERSION="v0.0.0"
+  elif command -v jq >/dev/null 2>&1; then
+    _derived=""
+    if _derived="$(jq -rs 'if (length == 1) and (.[0] | (type == "object" and ((.version | type) == "string"))) then .[0].version else empty end' "$COMMITTED_MANIFEST" 2>/dev/null)" \
+       && [ -n "$_derived" ] && [ "$(printf '%s\n' "$_derived" | wc -l | tr -d ' ')" = "1" ]; then
+      VERSION="$_derived"
+    else
+      printf 'generate-foundation-manifest FAIL: committed manifest is unparseable or has no .version (resolve it, or pass --version): %s\n' "$COMMITTED_MANIFEST" >&2
+      exit 2
+    fi
   fi
 fi
 

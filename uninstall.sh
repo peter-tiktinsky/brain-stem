@@ -873,8 +873,8 @@ fi
 # --- cleanup tmp files: handled by the single EXIT trap ---
 
 info "uninstall complete. next-steps:"
-info "  - restore round-trip: cp -R $backup_dir/. \$CLAUDE_HOME/"
-info "  - prune backup when satisfied: rm -rf $backup_dir"
+info "  - restore round-trip: cp -R $(printf %q "$backup_dir/.") $(printf %q "$CLAUDE_HOME/")"
+info "  - prune backup when satisfied: rm -rf $(printf %q "$backup_dir")"
 info "provenance: $log_path"
 
 exit 0

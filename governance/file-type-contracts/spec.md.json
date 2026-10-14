@@ -33,10 +33,10 @@
   ],
 
   "size_limits": {
-    "max_lines": 500
+    "max_lines": 1100
   },
 
-  "amendment_pattern": "post-Session-1 amendments append as §Session N amendments blocks; body preserved as historical record",
+  "amendment_pattern": "a post-Session-1 spec change is a ruling recorded with plan-rule --spec-change: it mints decisions/ADR-NN-<slug>.md, adds its decision_records[] entry, and appends one 'Amended by ADR-NN: <title>' pointer line under the spec's ## Amendment register; the head sections stay as written",
 
   "frontmatter_required_hints": [
     "title",

@@ -18,12 +18,13 @@
 #       Predicate RE-ADJUDICATED (T-2): the guard was `age < 600s AND
 #       structured`, which released a rich checkpoint at any age past ten minutes
 #       — exactly when a long session had made it irreplaceable. Rich now wins at
-#       ANY AGE, and the accepted consequence is deliberate: a mechanically
-#       extracted block is itself structured, so a second compaction preserves the
-#       first one's snapshot instead of refreshing it. Refresh belongs to the
-#       higher-provenance writer (/session-checkpoint, which is also what the R-26
-#       bands mandate); silently destroying a handoff record to keep a mechanical
-#       one current is the trade this hook used to make, and it is the wrong one.
+#       ANY AGE, and rich means model-authored. A block carrying the
+#       mechanical provenance line this hook writes (its Source: line) is never
+#       rich, even though it is structured: the next compaction rotates that
+#       snapshot and extracts afresh instead of re-injecting a stale one. A model-authored
+#       block (/session-checkpoint output) wins at any age; silently destroying
+#       a handoff record to keep a mechanical one current is the trade this hook
+#       used to make, and it is the wrong one.
 #       The predicate itself lives in hooks/lib/checkpoint-guard.sh and is shared
 #       with the other writer of this file (prompt-context.sh).
 #   (3) [MISSING] tokens replace empty fields per R-26 contract verbatim

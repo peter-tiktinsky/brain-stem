@@ -2,25 +2,33 @@
 # skills/govern/process.sh — orchestrator for the /govern register
 # skill family (folder / file-type / tag-extension / writer /
 # doc-amender-prompt / project).
+#
 # Implements the 6-step propose-and-validate protocol.
+#
 # The skill family is flattened from
 # skills/govern/register/ -> skills/govern/ (Claude Code scans one level deep).
 # `register` stays the user-facing invocation token (the SKILL.md `name`); only
 # the directory is flattened. The flatten removed one path level, so the REPO_ROOT
 # walk uses ../.. .
+#
 # The mutation library lives at hooks/lib/ (the SOLE lib/ surface; top-level
 # lib/ does NOT exist). LIB_MUTATE resolves to
 # $REPO_ROOT/hooks/lib/overlay-master-mutate.sh.
+#
 # Sub-verbs:
 #   propose <kind> <target> [...args...]   -> emit proposal JSON to stdout
 #   commit  <kind> --proposal <validated.json>  -> atomic mutate via library
 #   skip    <kind> --target <T> [--reason <R>]  -> frictionless-skip action log
+#   assemble <kind> --proposal <P> --rulings <R> [--out <V>]  -> validated.json (lib/assemble-validated.sh)
+#
 # Overlay-master mutations route through hooks/lib/overlay-master-mutate.sh
 # (single mutation library; schema-drift prevention; lockf serialization).
 # The skip path appends an action-log row inline. Schema source of truth:
 # schemas/governance-action-log-schema.json.
+#
 # Mode-specific propose/commit logic lives in modes/<kind>.sh; the
 # orchestrator dispatches by sourcing the matching handler.
+#
 # bash 3.2 compatible.
 
 set -u
@@ -74,6 +82,10 @@ Sub-verbs:
       Append a frictionless-skip action-log row (unregistered: true).
       No overlay mutation. No vault writes.
 
+  assemble <kind> --proposal <P> --rulings <R> [--out <V>]
+      Compose validated.json from a proposal and its per-field rulings
+      (lib/assemble-validated.sh).
+
 Modes (per --kind):
   folder              New top-level vault folder        (frontmatter + mandatory_files)
   file-type           New file-type in existing folder  (frontmatter + file_type_contracts; R-37 atomic)
@@ -105,6 +117,9 @@ case "$VERB" in
     exit 0
     ;;
   propose|commit|skip)
+    ;;
+  assemble)
+    exec bash "$SCRIPT_DIR/lib/assemble-validated.sh" "$@"
     ;;
   *)
     printf 'process.sh: unknown verb: %s\n' "$VERB" >&2

@@ -66,7 +66,10 @@ COLLISION_PILLARS="frontmatter,tagging,naming,mandatory_files,doc_dependencies,f
 # Default: the sibling hooks/lib/merge-strategy-registry.json (co-located with
 # this loader AND overlay-master-mutate.sh — the WRITE consumer of the SAME
 # registry; read + write must agree). Env override $MERGE_REGISTRY for fixture
-# testing. Empty / missing registry -> degrades to legacy REPLACE-everywhere.
+# testing. An ABSENT registry degrades to legacy REPLACE-everywhere with one
+# stderr line naming the path; a PRESENT but unreadable one (invalid JSON, or
+# .strategies of a non-object shape) is a structural error: one stderr line
+# naming the path and the jq rc, exit 5 — never a silent "no union paths".
 if [ -z "${MERGE_REGISTRY:-}" ]; then
   _BS_SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd 2>/dev/null || printf '%s' "$_BS_CLAUDE_HOME/hooks/lib")
   MERGE_REGISTRY="$_BS_SCRIPT_DIR/merge-strategy-registry.json"
@@ -105,8 +108,10 @@ Exit codes:
   1  R-52 violation — overlay shadows foundation without _override_reason.
   2  Usage error.
   3  Foundation read/parse error.
-  5  jq failure (deep-merge, or R-52 collision-walk structural error — the
-     walk is fail-closed: a jq raise is never swallowed into "no collisions").
+  5  jq failure (deep-merge, an R-52 null-scan or collision-walk structural
+     error, or an unreadable merge-strategy registry — all fail-closed: a jq
+     raise is never swallowed into "no null-valued entries", "no collisions"
+     or "no union paths").
 
 Stderr:
   - R-52 DENY message (when exit 1)
@@ -455,6 +460,10 @@ fi
 # collision DENY (a policy decision), not structural corruption of the merged
 # view. Cost in the clean case is ONE extra jq pass; the report pass runs only
 # when a null entry is actually found.
+#
+# The scan is fail-closed, like the collision walk: a jq failure, or output
+# that is not a JSON array, exits 5. A scan that could not run must never read
+# as "no null-valued entries", or a null entry merges silently.
 NULL_SCAN_MAP='['
 _NSM_FIRST=1
 _NSM_IFS_SAVED="$IFS"
@@ -496,8 +505,10 @@ if [ "$NULL_SCAN_MAP" != "[]" ]; then
         | select((($ek | startswith("_")) | not) or (($usallow | index($ek)) != null))
         | if $m.s == "__top_level_keys__" then [$m.p, $ek] else [$m.p, $m.s, $ek] end
       ]
-  ' 2>/dev/null) || NULL_PATHS_JSON='[]'
-  [ -z "$NULL_PATHS_JSON" ] && NULL_PATHS_JSON='[]'
+  ') && printf '%s' "$NULL_PATHS_JSON" | jq -e 'type == "array"' >/dev/null 2>&1 || {
+    printf 'foundation-overlay-load.sh: R-52 null-scan jq failure at %s — fail-closed (structural error, not a policy DENY)\n' "$OVERLAY_PATH" >&2
+    exit 5
+  }
 fi
 
 if [ "$NULL_PATHS_JSON" != "[]" ]; then
@@ -536,8 +547,16 @@ fi
 # WRITE side (overlay-master-mutate.sh) EXACTLY so read + write agree.
 UNION_PATHS_JSON='[]'
 if [ -r "$MERGE_REGISTRY" ]; then
-  UNION_PATHS_JSON=$(jq -c '(.strategies // {}) | to_entries | map(select(.value == "union") | .key)' "$MERGE_REGISTRY" 2>/dev/null) || UNION_PATHS_JSON='[]'
+  UNION_RC=0
+  # swallow-ok: reports=exit a failed registry read is captured (UNION_RC), named on stderr with its path and jq rc, and exits 5 — never silently "no union paths"
+  UNION_PATHS_JSON=$(jq -c '(.strategies // {}) | to_entries | map(select(.value == "union") | .key)' "$MERGE_REGISTRY" 2>/dev/null) || UNION_RC=$?
+  if [ "$UNION_RC" -ne 0 ]; then
+    printf 'foundation-overlay-load.sh: merge-strategy registry unreadable at %s (jq rc %s); fail-closed exit 5\n' "$MERGE_REGISTRY" "$UNION_RC" >&2
+    exit 5
+  fi
   [ -z "$UNION_PATHS_JSON" ] && UNION_PATHS_JSON='[]'
+else
+  printf 'foundation-overlay-load.sh: merge-strategy registry absent at %s; union leaves degrade to REPLACE\n' "$MERGE_REGISTRY" >&2
 fi
 
 UNION_JSON=$(jq -n \

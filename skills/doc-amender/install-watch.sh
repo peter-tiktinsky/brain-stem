@@ -60,9 +60,11 @@ renders plist via render-launchd.sh doc-amender, atomic-installs to
 ~/Library/LaunchAgents/<Label>.plist, launchctl bootstraps.
 
 Env:
-  WATCH_PATHS_ROOT         Exported for the plist template. If --staging-root
+  WATCH_PATHS_ROOT         Read as the staging-root input. If --staging-root
                            provided, overrides this. If neither set, defaults to
                            $DEFAULT_STAGING_ROOT.
+  WRITER_STAGING_ROOT      Exported for the plist template: the resolved staging
+                           root, the value render-launchd.sh puts in WatchPaths.
 
 Exit codes:
   0   success
@@ -104,6 +106,7 @@ if [ ! -d "$STAGING_ROOT" ]; then
 fi
 
 export WATCH_PATHS_ROOT="$STAGING_ROOT"
+export WRITER_STAGING_ROOT="$STAGING_ROOT"
 
 # --- template + render-launchd presence checks -------------------------------
 

@@ -161,7 +161,7 @@ def parse_fm_title(path):
 existing = []
 if os.path.isdir(memory_dir):
     for fn in sorted(os.listdir(memory_dir)):
-        if not fn.endswith(".md") or fn == "MEMORY.md":
+        if not fn.endswith(".md") or fn in ("MEMORY.md", "MEMORY-archive.md"):
             continue
         full = os.path.join(memory_dir, fn)
         if not os.path.isfile(full):
@@ -264,6 +264,9 @@ for cluster_idxs in sorted(clusters.values(), key=lambda c: all_obs[c[0]]["creat
     cobs = [all_obs[i] for i in cluster_idxs]
     rep = min(cobs, key=lambda o: len(o["title"]))
     subject = rep["title"]
+    # The id anchors on the cluster's EARLIEST observation (created_at, then id), so a
+    # re-run that gains a shorter-titled observation or reorders the sessions keeps it.
+    anchor = min(cobs, key=lambda o: ((o["created_at"] or ""), o["id"]))
     ctoks = set()
     for o in cobs:
         ctoks |= o["tokens"]
@@ -285,7 +288,7 @@ for cluster_idxs in sorted(clusters.values(), key=lambda c: all_obs[c[0]]["creat
     candidate = {
         "capability": "mem-promote",
         "check": "promotion-candidate",
-        "candidate_id": candidate_id(subject),
+        "candidate_id": candidate_id(anchor["title"]),
         "subject": subject,
         "classification_hint": dedup,
         "evidence": {

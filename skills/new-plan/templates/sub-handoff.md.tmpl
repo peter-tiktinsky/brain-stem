@@ -16,7 +16,9 @@ Append-only session record. Newest entry at top.
 SHAPE CONTRACT — governance/file-type-contracts/handoff.md.json + the
 session-continuity protocol. STRICTLY APPEND-ONLY, NEWEST-FIRST. Never edit a prior session
 block — corrections land as a NEW block referencing the prior one. New sessions PREPEND a
-`## Session N — <title>` block directly below this line.
+`## Session N — <title>` block directly below this line; the `handoff-entry` librarian verb
+stamps that block (heading, identity line, subsection skeleton). When a later research
+artifact replaces an earlier one, record it with the `plan-research-supersede` verb.
 handoff.md is EXEMPT from the parent_plan frontmatter requirement at any depth (R-28) — so
 this sub-plan handoff carries no parent_plan line (unlike its sibling spec.md / tasks.md /
 manifest.json).
@@ -24,7 +26,9 @@ SUB-PLAN handoff: records this sub-plan's session arc and PUBLISHES terminal sta
 when the sub-plan reaches a terminal state, the librarian reconciler pulls its published
 status + graduation_timestamp into the master's sub_plans[] aggregate (sub-publishes-upward).
 The task-done marker convention lives here (`<!-- task-done: NN/T-M -->`).
-Per-session block target 300-1,500 tokens. Hard cap 50KB -> split to handoff-archive.md.
+Per-session block target 300-1,500 tokens. Hard cap 50KB. No tool splits this file: the
+spoke's handoff-ledger.jsonl carries the sortable history, and an operator may move old
+entries by hand to a sibling archive file.
 -->
 
 ## Session 0 — scaffold
@@ -50,7 +54,7 @@ Per-session block target 300-1,500 tokens. Hard cap 50KB -> split to handoff-arc
 | `{{path}}` | {{created / modified / deleted}} |
 
 ### Follow-up dispositions
-{{Close-out follow-ups, each with one disposition: FIX NOW / ABSORB / STANDALONE. Omit if none.}}
+{{Close-out follow-ups, each with one disposition and its target: FIX NOW / ABSORB <plan key> / STANDALONE _inbox/<slug> / NO-BUILD _inbox/<slug>. Omit if none.}}
 
 ### Memories saved
 {{Auto-memory entries written this session. Omit if none.}}

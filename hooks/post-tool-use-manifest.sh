@@ -25,6 +25,19 @@
 #   literal RETAINED as a fail-open fallback:
 #     $PLANS_DIR/*/manifest.json     (top-level / master manifest)
 #     $PLANS_DIR/*/*/manifest.json   (depth-3 sub-plan manifest)
+#   A path spelled through the vault's Plans/ symlink ($VAULT_ROOT/Plans/...) is
+#   first canonicalized to the physical plans root, but only when that symlink's
+#   target IS the plans root; a real Plans/ directory is never rewritten.
+#
+# Inbox arm (same tool_name gate, checked before the manifest match):
+#   file_path is an idea note one level deep, $PLANS_DIR/_inbox/<name>.md, with the
+#   */.claude-plans/_inbox/<name>.md literal as the same fail-open fallback; <name>
+#   never starts with `_`, so _settled/ notes and _index.md stay silent. The note is
+#   re-read from disk: an empty disposition, or one outside the plans-rules
+#   backlog_row.disposition_enum, prints one additionalContext naming the note and
+#   the enum, plus `/backlog-triage --item <slug>` when its status is new or absent.
+#   Any other note prints nothing. A Bash-tool write of the note (a --capture) is
+#   invisible here, so the prompt comes on the session's next Edit/Write of the note.
 #
 # Test-isolation env:
 #   PLAN_MANIFEST_SCHEMA   - override path to plan-manifest-schema.json
@@ -87,6 +100,87 @@ case "$TOOL_NAME" in
 esac
 
 [[ -z "$FILE_PATH" ]] && exit 0
+
+# Plans-address convergence: a manifest written through the vault's Plans/
+# spelling ($VAULT_ROOT/Plans/<plan>/manifest.json) is the same file as its
+# physical plans-root path, and is verified the same way. This is the rule of the
+# PreToolUse guard's PLANS_ADDR_CONV prelude (hooks/pre-write-guard.sh): rewrite
+# ONLY when $VAULT_ROOT/Plans is a symlink whose canonical target IS the plans
+# root (pwd -P comparison). A real Plans/ directory in a vault, or a symlink that
+# points elsewhere, is never rewritten. Any resolution error leaves FILE_PATH
+# untouched (fail-open).
+if [[ "${VAULT_CONFIGURED:-0}" == "1" ]] && [[ -n "${VAULT_ROOT:-}" ]] \
+   && [[ "$FILE_PATH" == "$VAULT_ROOT/Plans/"* ]] && [[ -L "$VAULT_ROOT/Plans" ]]; then
+  _PC_LINK_CANON="$(cd "$VAULT_ROOT/Plans" 2>/dev/null && pwd -P 2>/dev/null || true)"
+  _PC_PLANS_CANON="$(cd "$PLANS_ROOT" 2>/dev/null && pwd -P 2>/dev/null || true)"
+  if [[ -n "$_PC_LINK_CANON" ]] && [[ -n "$_PC_PLANS_CANON" ]] \
+     && [[ "$_PC_LINK_CANON" == "$_PC_PLANS_CANON" ]]; then
+    FILE_PATH="$PLANS_ROOT/${FILE_PATH#$VAULT_ROOT/Plans/}"
+  fi
+  unset _PC_LINK_CANON _PC_PLANS_CANON
+fi
+
+# --- inbox arm: an idea note with no in-enum disposition prompts triage ----
+# awk and jq only (no python block). The enum resolves as promote-from-inbox.sh
+# resolves plans-rules.json (PLANS_RULES_PATH, the loose pillar, then the
+# foundation-overlay `.plans` slot), with a pillar-equal literal fallback.
+_INBOX_NAME=""
+case "$FILE_PATH" in
+  "$PLANS_ROOT"/_inbox/*.md) _INBOX_NAME="${FILE_PATH#"$PLANS_ROOT"/_inbox/}" ;;
+  */.claude-plans/_inbox/*.md) _INBOX_NAME="${FILE_PATH##*/.claude-plans/_inbox/}" ;;
+esac
+case "$_INBOX_NAME" in */*|_*) _INBOX_NAME="" ;; esac
+if [[ -n "$_INBOX_NAME" ]]; then
+  [[ -f "$FILE_PATH" ]] || exit 0
+  _INBOX_SLUG="${_INBOX_NAME%.md}"
+  _fm_value() { # _fm_value <key> <file>: the frontmatter value, trimmed and unquoted
+    awk -v key="$1" '
+      NR==1 { if ($0 ~ /^---[[:space:]]*$/) { infm=1; next } else { exit } }
+      infm && /^---[[:space:]]*$/ { exit }
+      infm && index($0, key ":") == 1 {
+        v=substr($0, length(key) + 2); sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+        if (v ~ /^".*"$/) { v=substr(v, 2, length(v) - 2) }
+        print v; exit
+      }' "$2" 2>/dev/null
+  }
+  _INBOX_STATUS="$(_fm_value status "$FILE_PATH")"
+  _INBOX_DISP="$(_fm_value disposition "$FILE_PATH")"
+  _RULES="${PLANS_RULES_PATH:-}"
+  [[ -n "$_RULES" && -f "$_RULES" ]] || _RULES="${CLAUDE_HOME:-$HOME/.claude}/governance/plans-rules.json"
+  # A corrupt pillar or a failing loader reports on stderr; the literal fallback below
+  # still lets the prompt name an enum.
+  _ENUM=""
+  if [[ -f "$_RULES" ]]; then
+    _ENUM="$(jq -r '.backlog_row.disposition_enum[]? // empty' "$_RULES")"
+  else
+    for _loader in "$_PTUM_DIR/lib/foundation-overlay-load.sh" \
+        "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/foundation-overlay-load.sh"; do
+      [[ -x "$_loader" ]] || continue
+      _ENUM="$(bash "$_loader" --query '.plans' --force-override \
+        | jq -r '.backlog_row.disposition_enum[]? // empty')"
+      [[ -n "$_ENUM" ]] && break
+    done
+  fi
+  [[ -n "$_ENUM" ]] || _ENUM="$(printf '%s\n' "FIX NOW" "ABSORB" "STANDALONE" "NO-BUILD")"
+  if [[ -n "$_INBOX_DISP" ]] && printf '%s\n' "$_ENUM" | grep -qxF -- "$_INBOX_DISP"; then
+    exit 0
+  fi
+  _ENUM_LIST="$(printf '%s\n' "$_ENUM" | awk 'NF { printf "%s%s", (n++ ? ", " : ""), $0 }')"
+  if [[ -z "$_INBOX_DISP" ]]; then
+    _CTX="[inbox-triage] _inbox/${_INBOX_NAME} has no disposition. A disposition is one of: ${_ENUM_LIST}."
+  else
+    _CTX="[inbox-triage] _inbox/${_INBOX_NAME} carries disposition '${_INBOX_DISP}', which is not one of: ${_ENUM_LIST}."
+  fi
+  if [[ -z "$_INBOX_STATUS" || "$_INBOX_STATUS" == "new" ]]; then
+    _CTX="${_CTX} Triage it now: /backlog-triage --item ${_INBOX_SLUG}"
+  else
+    _CTX="${_CTX} Set the disposition in the note's frontmatter (its status is ${_INBOX_STATUS})."
+  fi
+  PAYLOAD=$(jq -n --arg ctx "$_CTX" \
+    '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":$ctx}}')
+  [[ -n "$PAYLOAD" ]] && printf '%s\n' "$PAYLOAD"
+  exit 0
+fi
 
 # Match a plan-tree manifest (top-level OR depth-3 sub-plan) DERIVED from $PLANS_DIR
 # (paths.sh) so a relocated plans tree is covered; the */.claude-plans/*/ literal is
@@ -151,6 +245,26 @@ if errs:
   if [[ -n "$SCHEMA_ERR" ]]; then
     WARNINGS="manifest does not conform to plan-manifest-schema.json — ${SCHEMA_ERR}"
   fi
+fi
+
+# --- (3) Library promotion: queue a newly completed plan ------------------
+# Reads the mode first (unset or `off`: nothing runs), then, when the written
+# manifest's status is `completed`, runs the library-scrub.sh --candidates mode: a
+# pre-filtered scan with no model call that queues the plan for the Stop hook's
+# offer. Every state write stays in that capability, under its lock.
+_LP_HOST=""
+for _c in "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/library-scrub.sh" \
+          "$(cd "$_PTUM_DIR/.." 2>/dev/null && pwd)/skills/librarian/capabilities/library-scrub.sh"; do
+  if [[ -f "$_c" ]]; then _LP_HOST="$_c"; break; fi
+done
+unset _c
+if [[ -n "$_LP_HOST" ]]; then
+  case "$(bash "$_LP_HOST" --mode get 2>/dev/null </dev/null)" in
+    prompt|auto)
+      if [[ "$(jq -r '.status // empty' "$FILE_PATH" 2>/dev/null)" == "completed" ]]; then
+        bash "$_LP_HOST" --candidates >/dev/null 2>&1 </dev/null || true
+      fi ;;
+  esac
 fi
 
 # --- Surface advisory ----------------------------------------------------

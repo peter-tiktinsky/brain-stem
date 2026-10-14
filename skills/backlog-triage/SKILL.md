@@ -30,7 +30,7 @@ idea note's funnel `status` + `disposition` frontmatter; the next
 `librarian:backlog-index` regen re-renders the row.
 
 Capture does NOT render the idea-note template itself — it delegates to the landed
-R-34 mechanical helper `skills/new-plan/lib/promote-from-inbox.sh --capture <slug>`
+R-34 mechanical helper `skills/new-plan/lib/promote-from-inbox.sh --capture <slug> --disposition <value>`
 (the ONE mechanical-mutation home for the funnel; ). The inbox contract
 (`dir`, `slug_pattern`, `note_frontmatter`, `funnel_status_enum`) is read from
 `governance/plans-rules.json :: inbox`.
@@ -42,7 +42,7 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
 
 **Files written:**
 - `{paths.plans_root}/_inbox/<slug>.md` — either (a) a NEW idea note created by
-  delegating to `skills/new-plan/lib/promote-from-inbox.sh --capture <slug>`
+  delegating to `skills/new-plan/lib/promote-from-inbox.sh --capture <slug> --disposition <value>`
   (inline-idea mode; the helper renders the note + version-on-collision), then an
   in-place frontmatter classification update; or (b) an in-place frontmatter update
   to an existing note's `status` / `disposition` / `related` / `updated` + an
@@ -63,12 +63,14 @@ required `{title, type, status, created, project}` (`project:` is the registry-r
 owning-spoke key, stamped mechanically at capture); optional
 `{updated, disposition, tags, related, promoted_to, absorbed_into, resolution, resolved_at}`;
 `status ∈ inbox.funnel_status_enum` (`new / triaged / briefed`);
-`disposition ∈ backlog_row.disposition_enum` (`FIX NOW / ABSORB / STANDALONE / DEFERRED`)
-when set. The disposition TARGET is a machine-joinable plan-dir key —
+`disposition ∈ backlog_row.disposition_enum` (`FIX NOW / ABSORB / STANDALONE / NO-BUILD`)
+when set; a NO-BUILD note also carries `reopen_gate:`, an id in
+`governance/plans-rules.json :: inbox.reopen_gates`. The disposition TARGET is a machine-joinable plan-dir key —
 `absorbed_into:` for ABSORB, `promoted_to:` for a graduated idea — resolvable against the
 plan roster as `NN-<slug>` or a sub-plan `NN-<slug>/SS-<subslug>`, with an optional
-` :: T-N` task suffix. The terminal
-`resolution ∈ {promoted, absorbed, resolved, dropped, superseded, discharged}`
+` :: T-N` task suffix. A suffixed target is a YAML double-quoted scalar — author it as
+`absorbed_into: "NN-<slug> :: T-N"` — so the value survives a YAML re-read. The terminal
+`resolution ∈ {promoted, absorbed, resolved, dropped, superseded, discharged, parked}`
 (+ `resolved_at`) is stamped by the `librarian:backlog-index` closure loop (targeted
 notes) or the `librarian:inbox-settle` manual channel (operator-judgment settlement,
 no target) — not by triage. A settlement event relocates the note to
@@ -104,6 +106,8 @@ back / never clobbers on failure; the classification edit is applied only after 
 note is confirmed well-formed. No partial note ever lands. Diagnostic written to
 `{paths.hooks_state}/backlog-triage-errors.jsonl` and the user is told what went wrong.
 
+Re-run safety: stamp
+
 ## Hard rules
 
 1. **Read-before-write.** Always read the full backlog view + inbox + in-flight manifests before classifying.
@@ -127,6 +131,7 @@ note is confirmed well-formed. No partial note ever lands. Diagnostic written to
 |---|---|---|
 | Inline idea | Free-text description | Captures a new `_inbox/<slug>.md` note (helper) and classifies it |
 | Existing item | `--item <inbox-slug>` | Classifies an existing inbox note currently in `new` funnel status |
+| Parked idea | `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/reopen-idea.sh <inbox-slug>` | Re-opens a parked NO-BUILD note whose `reopen_gate` is a manual gate: moves `_inbox/_settled/<slug>.md` back to `_inbox/<slug>.md` with the disposition cleared; a command gate re-opens through `librarian:backlog-index` instead |
 
 ---
 
@@ -164,23 +169,23 @@ Classification rules:
 | **DUPLICATE** | >80% functional overlap with a single existing item | Link to the duplicate (`related:` frontmatter). Recommend merge. Do NOT promote to `triaged` — leave `status: new`. |
 | **OVERLAP** | Significant scope or motivation overlap with 1-3 existing items, but distinct functionality | Link related items (`related:`). Promote to `triaged`. Suggest a grouping strategy. |
 | **NOVEL** | No significant overlap on any axis | Promote to `triaged`. Flag for `/backlog-research`. |
-| **DEFERRED** | Valid idea but blocked by prerequisites, timing, or resource constraints | Keep `status: new` (or `triaged` with a deferred note) and set `disposition: DEFERRED`. Record the reason. |
+| **DEFERRED** | Valid idea but blocked by prerequisites, timing, or resource constraints | The classification word stays; the disposition is `NO-BUILD`, a decided "no for now" that a gate watches. Keep `status: new` (or `triaged` with a deferred note), set `disposition: NO-BUILD` and `reopen_gate: <id>` (at capture, `--reopen-gate <id>`; an id from `hooks/lib/reopen-gate.sh --list`, `manual` when no mechanical condition exists). Record the reason. |
 
 ### 4. Capture (inline-idea mode) or classify-in-place (`--item` mode)
 
 **Inline-idea mode (capture + classify):**
 1. Delegate capture to the mechanical helper — it writes the idea-note shape (field-parity with `templates/idea-note-template.md`), stamps the registry-resolved `project:` key, applies the inbox `slug_pattern`, and version-on-collision protects an existing capture:
    ```sh
-   FOUNDATION_REPO={foundation_repo} bash {foundation_repo}/skills/new-plan/lib/promote-from-inbox.sh --capture <slug> [--title "<Human Title>"]
+   FOUNDATION_REPO={foundation_repo} bash {foundation_repo}/skills/new-plan/lib/promote-from-inbox.sh --capture <slug> --disposition <value> [--title "<Human Title>"] [--absorbed-into <plan-key>] [--release-class <local-release|public-release|post-release|docs> --size <day|build>] [--reopen-gate <id>]
    ```
+   A capture is born decided: `--disposition` is required and takes a `backlog_row.disposition_enum` value. `FIX NOW` is refused (a fix-now item is fixed, not captured). `ABSORB` also takes `--absorbed-into` with a target that resolves to an existing plan dir; `STANDALONE` takes `--release-class` and `--size`; `NO-BUILD` takes `--reopen-gate` with an id `hooks/lib/reopen-gate.sh --list` names. A class flag with any other disposition is refused. The helper refuses an invalid set before writing anything; an idea with no decision yet is not captured.
    The helper emits an `idea-captured` NDJSON finding (`inbox_slug`, `note_path`, `versioned`) and writes `{paths.plans_root}/_inbox/<final-slug>.md` at funnel `status: new`. Use `--dry-run` first to confirm the computed slug + that no collision-versioning will surprise the user. Do NOT render the note yourself.
 2. Apply the classification in place on the just-captured note (see the in-place steps below), using the `final-slug` the helper reported (it may differ from your slug if it versioned on collision).
 
 **Existing-item mode + the in-place classification edit:**
 1. Read the existing note (or the just-captured note).
-2. Update only `status` (if promoting `new → triaged` per the classification rules), `disposition` (if the classification sets one), `related:` (if OVERLAP/DUPLICATE), and `updated` to today.
-3. Append the classification rationale to the note's `## Notes` body — never overwrite existing body content (survivorship). The note body carries the rationale; there is no per-plan progress satellite.
-4. **Validate the edited frontmatter against `inbox.note_frontmatter` before the write; abort + log on failure (block-and-log).** Touch no other frontmatter field and no other note.
+2. Run `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/triage-apply.sh <slug> --classification <NOVEL|DUPLICATE|OVERLAP|DEFERRED> --rationale "<one line>" [--related a,b,c] [--reopen-gate <id>]` — it applies the classification table above to the note in place (`status`, `disposition`, `related` and `updated` only), appends the rationale line to the note's `## Notes` section without touching existing body content, and writes the note in one atomic step. Never edit the note by hand.
+3. **The command validates the edited note against `inbox.note_frontmatter` and the plans rules before the write; a refusal exits 2, changes nothing and logs to `backlog-triage-errors.jsonl` (block-and-log).** After a write it runs the inbox hook, so an empty disposition prompts the next step, and it never writes `_backlog.md`: run `/librarian backlog-index` to refresh the view.
 
 Do NOT touch `_backlog.md` in either mode — the next `librarian:backlog-index` regen re-renders the unified table from the note.
 
@@ -191,13 +196,13 @@ Do NOT touch `_backlog.md` in either mode — the next `librarian:backlog-index`
 
 Item: <slug>  (_inbox/<slug>.md)
 Funnel status: <new | triaged>
-Disposition: <FIX NOW | ABSORB | STANDALONE | DEFERRED | —>
+Disposition: <FIX NOW | ABSORB | STANDALONE | NO-BUILD | —>
 Target: <absorbed_into: NN-<slug>[/SS-<subslug>][ :: T-N] — REQUIRED + resolvable for ABSORB; — otherwise>
 Rationale: <2-3 sentences>
 Related items: <linked items, if any>
 Next step: <e.g. "Ready for /backlog-research" or "Merge with <item>">
 
-Run `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run) to refresh _backlog.md.
+Run `/librarian backlog-index` to refresh _backlog.md.
 ```
 
 ---
@@ -220,4 +225,4 @@ Run `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run
 
 **DEFERRED** — "Build a Slack integration for real-time vault updates."
 - Valid idea but no Slack MCP available, no Slack workspace in scope.
-- Result: DEFERRED, `status: new`, `disposition: DEFERRED`, reason: "No Slack MCP or workspace; revisit when infrastructure exists."
+- Result: DEFERRED, `status: new`, `disposition: NO-BUILD`, `reopen_gate: manual`, reason: "No Slack MCP or workspace; revisit when infrastructure exists."

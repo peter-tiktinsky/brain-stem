@@ -41,7 +41,8 @@ _rq_log_file() {
 }
 
 _rq_schema_path() {
-  # Repo-only schema; resolved relative to the install root for validation.
+  # Shipped schema: install.sh copies it to $CLAUDE_HOME/schemas/, so the gate
+  # resolves it under the install root; REVIEW_QUEUE_SCHEMA overrides the path.
   echo "${REVIEW_QUEUE_SCHEMA:-${CLAUDE_HOME:-$HOME/.claude}/schemas/review-queue-schema.json}"
 }
 
@@ -89,7 +90,13 @@ _rq_ensure_queue() {
 # Validates the item against the queue item shape (severity / state /
 # defer_count / dismiss_count / class) and appends it to .review-queue.json.
 # Returns 0 on a successful append, non-zero (and a log line) on a refused
-# invalid item (block-and-log). De-dupes by item id (idempotent).
+# invalid item (block-and-log). Returns 6 (and a REFUSED log line) when the queue write itself fails.
+# De-dupes by item id (idempotent): a new id
+# appends; a same-id re-enqueue replaces the queued item but keeps its review
+# outcome (state, defer_count, dismiss_count, reject_reason, defer_reason,
+# escalated, when present), so a producer that re-runs never reopens an item
+# the operator already rejected, deferred, dismissed or suppressed. Every other
+# field comes from the incoming item (a refreshed severity or summary lands).
 enqueue_item() {
   local item_json="$1"
   if [ -z "$item_json" ]; then
@@ -110,6 +117,10 @@ enqueue_item() {
     return 4
   fi
   # Optional schema-conformance gate when a validator + schema are present.
+  # The schema describes the whole queue FILE ({version, items}); an item is
+  # validated as a one-item queue document, which reaches definitions.item
+  # through the schema's own $ref (no deprecated resolver API, so no silent
+  # fail-open if one is removed).
   local schema
   schema="$(_rq_schema_path)"
   if [ -r "$schema" ] && command -v python3 >/dev/null 2>&1; then
@@ -125,7 +136,7 @@ try:
     item=json.load(sys.stdin)
 except Exception:
     sys.exit(0)
-errs=list(jsonschema.Draft7Validator(schema).iter_errors(item))
+errs=list(jsonschema.Draft7Validator(schema).iter_errors({"version": 1, "items": [item]}))
 if errs:
     print(errs[0].message)
 ' "$schema" 2>/dev/null)
@@ -138,13 +149,24 @@ if errs:
   local qf id
   qf="$(_rq_ensure_queue)"
   id=$(printf '%s' "$item_json" | jq -r '.id')
-  # Idempotent: replace an existing item with the same id, else append.
+  # Idempotent: replace an existing item with the same id, keeping its review
+  # outcome fields (see the header above), else append.
   if jq -e --arg id "$id" '.items[]? | select(.id==$id)' "$qf" >/dev/null 2>&1; then
-    jq --arg id "$id" --argjson it "$item_json" \
-      '.items = ([.items[] | if .id==$id then $it else . end])' \
-      "$qf" > "$qf.tmp" && mv "$qf.tmp" "$qf"
+    if jq --arg id "$id" --argjson it "$item_json" \
+      '.items = ([.items[] | if .id==$id then ($it + with_entries(select(.key == "state" or .key == "defer_count" or .key == "dismiss_count" or .key == "reject_reason" or .key == "defer_reason" or .key == "escalated"))) else . end])' \
+      "$qf" > "$qf.tmp" && mv "$qf.tmp" "$qf"; then
+      :
+    else
+      rm -f "$qf.tmp" 2>/dev/null
+      _rq_log "REFUSED enqueue id=$id: queue write failed"; return 6
+    fi
   else
-    jq --argjson it "$item_json" '.items += [$it]' "$qf" > "$qf.tmp" && mv "$qf.tmp" "$qf"
+    if jq --argjson it "$item_json" '.items += [$it]' "$qf" > "$qf.tmp" && mv "$qf.tmp" "$qf"; then
+      :
+    else
+      rm -f "$qf.tmp" 2>/dev/null
+      _rq_log "REFUSED enqueue id=$id: queue write failed"; return 6
+    fi
   fi
   _rq_log "enqueued id=$id severity=$(printf '%s' "$item_json" | jq -r '.severity') class=$(printf '%s' "$item_json" | jq -r '.class')"
   return 0
@@ -249,13 +271,14 @@ suppress_item() {
   return 0
 }
 
-# review_queue_pending_count — count unaddressed items (state == open).
+# review_queue_pending_count — count unaddressed items (state open or deferred).
 review_queue_pending_count() {
   local qf
   qf="$(_rq_queue_file)"
   [ -f "$qf" ] || { echo 0; return 0; }
   command -v jq >/dev/null 2>&1 || { echo 0; return 0; }
-  jq -r '[.items[]? | select(.state=="open")] | length' "$qf" 2>/dev/null || echo 0
+  # swallow-ok: reports=none an unreadable queue file counts as 0 items and nothing reports it, the same as the absent-file and no-jq branches above
+  jq -r '[.items[]? | select((.state=="open" or .state=="deferred"))] | length' "$qf" 2>/dev/null || echo 0
 }
 
 # review_queue_revalidation_count — count open low-severity revalidation items
@@ -265,7 +288,8 @@ review_queue_revalidation_count() {
   qf="$(_rq_queue_file)"
   [ -f "$qf" ] || { echo 0; return 0; }
   command -v jq >/dev/null 2>&1 || { echo 0; return 0; }
-  jq -r '[.items[]? | select(.state=="open" and .class=="revalidation")] | length' "$qf" 2>/dev/null || echo 0
+  # swallow-ok: reports=none an unreadable queue file counts as 0 items and nothing reports it, the same as the absent-file and no-jq branches above
+  jq -r '[.items[]? | select((.state=="open" or .state=="deferred") and .class=="revalidation")] | length' "$qf" 2>/dev/null || echo 0
 }
 
 # review_queue_has_high_severity_conflict — true (exit 0) when an open
@@ -276,7 +300,8 @@ review_queue_has_high_severity_conflict() {
   qf="$(_rq_queue_file)"
   [ -f "$qf" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  n=$(jq -r '[.items[]? | select(.state=="open" and .severity=="high" and .class=="conflict")] | length' "$qf" 2>/dev/null || echo 0)
+  # swallow-ok: reports=none an unreadable queue file counts as 0 conflicts and nothing reports it, the same as the absent-file and no-jq branches above
+  n=$(jq -r '[.items[]? | select((.state=="open" or .state=="deferred") and .severity=="high" and .class=="conflict")] | length' "$qf" 2>/dev/null || echo 0)
   [ "${n:-0}" -gt 0 ]
 }
 
@@ -293,9 +318,10 @@ review_queue_has_aged_or_deferred() {
   defer_cap="$(_rq_defer_cap)"
   local now_epoch
   now_epoch=$(date +%s)
+  # swallow-ok: reports=none an unreadable queue file counts as 0 aged or deferred items and nothing reports it, the same as the absent-file and no-jq branches above
   n=$(jq -r --argjson now "$now_epoch" --argjson days "$days_cap" --argjson dcap "$defer_cap" '
     [.items[]?
-      | select(.state=="open")
+      | select((.state=="open" or .state=="deferred"))
       | select(
           (.defer_count >= $dcap)
           or ( (.severity=="high")

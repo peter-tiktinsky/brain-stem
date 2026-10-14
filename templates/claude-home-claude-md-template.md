@@ -1,13 +1,15 @@
 # Claude Code — Global Instructions
 
-<!-- This file is YOURS. brain-stem seeded it at install (substituting identity
-     fields from user-manifest.json) and will never overwrite it on
-     re-run unless invoked with --force-install + explicit clobber sentinel.
+<!-- This file is YOURS. The onboarder authors it from this template
+     (skills/onboarder/scripts/author-claude-home.sh, substituting identity
+     fields from user-manifest.json) — install.sh never writes it — and a
+     re-run never overwrites it without an explicit --force.
 
      For PERSONAL preferences only: identity, communication, working style,
-     tooling. Universal brain-stem behaviors are enforced by hooks at tool-call
-     time, not by content in this file. Anything project-specific belongs
-     in that project's CLAUDE.md, not here.
+     tooling. Universal brain-stem behaviors are enforced by hooks
+     (session start, prompt submit, tool-call time), not by content in this
+     file. Anything project-specific belongs in that project's CLAUDE.md,
+     not here.
 
      Hard cap 60 lines. HTML comments cost zero tokens (Anthropic strips
      them before injection). To update identity, re-run /onboard --force. -->

@@ -1,8 +1,8 @@
 #!/bin/bash
 # session-start-placement-findings.sh — SessionStart reader for OPEN plans-root placement
-# findings AND for OPEN research-declare closed-scope findings (two independent
-# librarian-manifest drift_findings leaves; each check is self-gating, so one leaf's
-# silence never starves the other's banner).
+# findings, for OPEN research-declare closed-scope findings AND for undecided inbox
+# captures (three independent librarian-manifest drift_findings leaves; each check is
+# self-gating, so one leaf's silence never starves another's banner).
 #
 # Leaf 1 — placement. The placement-validate plans-root-namespace sweep persists its
 # findings to drift_findings.placement.plans_root (scope-keyed so the vault-scoped sweep
@@ -47,7 +47,7 @@ if [ "$CNT" -gt 0 ] && [ "$SCOPE" = "plans-root-namespace" ]; then
   # The persisted plans_root leaf's entry class: a non-allowlisted plans-root entry is a
   # bare basename; a binder-root stray is PATH-QUALIFIED as _projects/<spoke>/<name>.
   cat <<EOF
-[OPEN PLACEMENT FINDINGS — $CNT] The plans-tree closed-namespace sweep (librarian placement-validate --scope <plans-root>) has $CNT open finding(s). Open entries (non-allowlisted plans-root entries, bare basenames; binder-root strays path-qualified as _projects/<spoke>/<name>): ${ENTRIES:-<see manifest drift_findings.placement>}. Re-home each durable artifact to its owning context via the funnel (promote-from-inbox --capture <slug> then graduate) — a plans-root stray lands in <plan>/_research/ — or adjudicate it. Re-run the sweep after re-homing — this reminder silences when findings_count is 0.
+[OPEN PLACEMENT FINDINGS — $CNT] The plans-tree closed-namespace sweep (librarian placement-validate --scope <plans-root>) has $CNT open finding(s). Open entries (non-allowlisted plans-root entries, bare basenames; binder-root strays path-qualified as _projects/<spoke>/<name>): ${ENTRIES:-<see manifest drift_findings.placement>}. Re-home each durable artifact to its owning plan with one command: bash ${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/rehome-stray.sh <entry> --into <plan> (the owning plan exists) or <entry> --mint <slug> --disposition <value> --body <text> (it does not: the command captures and graduates it first) — it moves the entry into <plan>/_research/, runs the derivations and re-sweeps — or adjudicate it. This reminder silences when findings_count is 0.
 EOF
 fi
 
@@ -59,6 +59,31 @@ if [ "$RCNT" -gt 0 ]; then
   RENTRIES=$(jq -r '(.drift_findings.research_declare_closed_scope.open_entries // []) | join(", ")' "$MANIFEST" 2>/dev/null)
   cat <<EOF
 [OPEN RESEARCH-DECLARE FINDINGS — $RCNT] plan-research-declare found $RCNT undeclared research artifact(s) under research_closed:true plan(s) — the anti-scope gate warned INSTEAD of appending (post-closure drops need human adjudication). Entries (plan-qualified as <plan>: <artifact path>): ${RENTRIES:-<see manifest drift_findings.research_declare_closed_scope>}. Adjudicate each: hand-declare the artifact in that plan's manifest research_artifacts[] (append-only; the declare writer preserves hand-authored entries verbatim), or re-home/remove the file if it does not belong. The next session close re-runs the sweep — this reminder silences when findings_count is 0.
+EOF
+fi
+
+# Leaf 3 — inbox drain. inbox-drain-check persists drift_findings.inbox_drain on every
+# session close: findings_count (undecided notes the closing session captured),
+# open_entries (their slugs), undecided_total (every open undecided flat inbox note) and
+# threshold (inbox.undecided_threshold). A detached close's blocking findings never reach
+# the operator through the transient per-run channel, so this surfaces them at the next
+# session start; each line gates on its own count and is silent at 0 and under the
+# threshold.
+ICNT=$(jq -r '.drift_findings.inbox_drain.findings_count // 0' "$MANIFEST" 2>/dev/null)
+case "$ICNT" in ''|*[!0-9]*) ICNT=0 ;; esac
+if [ "$ICNT" -gt 0 ]; then
+  IENTRIES=$(jq -r '(.drift_findings.inbox_drain.open_entries // []) | join(", ")' "$MANIFEST" 2>/dev/null)
+  cat <<EOF
+[INBOX UNDECIDED — $ICNT] inbox-drain-check found $ICNT flat inbox note(s) a closing session captured without deciding them: ${IENTRIES:-<see manifest drift_findings.inbox_drain>}. Decide each (STANDALONE with a release class and size, ABSORB into a plan key, or NO-BUILD on a registered re-open gate) by editing its frontmatter. The next session close re-runs the check — this reminder silences when the count is 0.
+EOF
+fi
+ITOT=$(jq -r '.drift_findings.inbox_drain.undecided_total // 0' "$MANIFEST" 2>/dev/null)
+ITHR=$(jq -r '.drift_findings.inbox_drain.threshold // 10' "$MANIFEST" 2>/dev/null)
+case "$ITOT" in ''|*[!0-9]*) ITOT=0 ;; esac
+case "$ITHR" in ''|*[!0-9]*) ITHR=10 ;; esac
+if [ "$ITOT" -gt "$ITHR" ]; then
+  cat <<EOF
+[INBOX DRAIN] $ITOT flat inbox notes are undecided, over the threshold of $ITHR. Triage them (/backlog-triage) so each carries a decided disposition.
 EOF
 fi
 exit 0

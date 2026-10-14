@@ -61,7 +61,7 @@
       ],
       "status": "active",
       "source": "governance/plans-rules.json :: _rules (SoT)",
-      "rule_text": "Every backlog row (idea note or {researching,planned} manifest) carries a disposition signal (FIX NOW / ABSORB / STANDALONE / DEFERRED). backlog-hygiene escalates severity Warning -> Alert by stale_for_days against backlog_row.stale_advisory_days when a disposition is missing.",
+      "rule_text": "Every backlog row (idea note or {researching,planned} manifest) carries a disposition signal (FIX NOW / ABSORB / STANDALONE / NO-BUILD). backlog-hygiene escalates severity Warning -> Alert by stale_for_days against backlog_row.stale_advisory_days when a disposition is missing.",
       "failure_mode": "Undisposed backlog rows float indefinitely; the GTD review loop has nothing to act on. Skill-enforced (backlog-hygiene), never write-time."
     },
     {
@@ -189,6 +189,20 @@
       "manifest.json"
     ]
   },
+  "plan_folder_managed_set": [
+    "manifest.json",
+    "spec.md",
+    "tasks.md",
+    "handoff.md",
+    "00-ideation-brief.md",
+    "_research",
+    "decisions",
+    "_gates",
+    "target-state",
+    "deliverables",
+    "traceability-matrix.md",
+    ".active-sp"
+  ],
   "slug_rules": {
     "pattern": "^[0-9]{2,}-[a-z][a-z0-9-]+$",
     "plan_root_numbering": "next-available-prefix-creation-order",
@@ -258,6 +272,20 @@
     "immutability": "An accepted ADR is immutable. A decision change creates a NEW ADR that supersedes the prior one (prior Status -> superseded-by-ADR-NN); never an in-place edit. Distinct from the spec.md append-amendment pattern.",
     "manifest_pointer": "manifest.decision_records[]"
   },
+  "gate_records": {
+    "dir": "_gates",
+    "filename_pattern": "^[0-9]{2}-gate[12]-[a-z0-9-]+\\.md$",
+    "keywords": [
+      "charge",
+      "verdict",
+      "gate1",
+      "gate2"
+    ],
+    "keyword_patterns": [
+      "round[0-9]+"
+    ],
+    "research_prefix_pattern": "^[0-9]{2}-"
+  },
   "backlog_row": {
     "required_fields": [
       "Project Dir",
@@ -293,7 +321,7 @@
       "FIX NOW",
       "ABSORB",
       "STANDALONE",
-      "DEFERRED"
+      "NO-BUILD"
     ],
     "stale_advisory_days": [
       14,
@@ -328,7 +356,25 @@
         "promoted_to",
         "absorbed_into",
         "resolution",
-        "resolved_at"
+        "resolved_at",
+        "reopen_gate",
+        "reopened_at",
+        "reopened_from_gate",
+        "release_class",
+        "size",
+        "captured_session",
+        "distinct_from",
+        "distinct_scope"
+      ],
+      "release_class_enum": [
+        "local-release",
+        "public-release",
+        "post-release",
+        "docs"
+      ],
+      "size_enum": [
+        "day",
+        "build"
       ]
     },
     "funnel_status_enum": [
@@ -342,8 +388,29 @@
       "resolved",
       "dropped",
       "superseded",
-      "discharged"
+      "discharged",
+      "parked"
     ],
+    "reopen_gates": {
+      "manual": {
+        "kind": "manual"
+      },
+      "r45-gate": {
+        "kind": "command",
+        "argv": [
+          "hooks/lib/r45-gate.sh"
+        ],
+        "timeout_s": 30
+      }
+    },
+    "undecided_threshold": 10,
+    "capture_freeze_record": "_projects/<spoke>/.capture-freeze",
+    "near_duplicate": {
+      "overlap_min": 0.33,
+      "corroborated_overlap_min": 0.3,
+      "stem_min_tokens": 2,
+      "min_shared_tokens": 3
+    },
     "index_file": "_inbox/_index.md",
     "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation"
   },

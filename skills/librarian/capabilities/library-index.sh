@@ -464,6 +464,30 @@ def has_inline_toc(text):
     anchor_links = re.findall(r"^\s*[-*]\s+\[[^\]]+\]\(#[^)]+\)", head, re.M)
     return len(anchor_links) >= 3
 
+_BT = chr(96)
+FENCE_RE = re.compile("^\\s{0,3}(%s{3}|~~~)" % _BT)
+INLINE_CODE_RE = re.compile("%s{2}[^%s\\n]+%s{2}|%s[^%s\\n]+%s" % (_BT, _BT, _BT, _BT, _BT, _BT))
+
+def blank(text):
+    # Preserve width (and newlines) so the masked copy lines up with the original.
+    return "".join("\n" if ch == "\n" else " " for ch in text)
+
+def mask_code(text):
+    # A copy of text with fenced blocks (a backtick or tilde fence, toggled by a
+    # fence line) and inline code spans (single and double backtick) blanked, so a
+    # shell test such as [[ -f x ]] inside code is never read as a wikilink.
+    out = []
+    in_fence = False
+    for raw in text.splitlines(True):
+        if FENCE_RE.match(raw):
+            in_fence = not in_fence
+            out.append(blank(raw))
+        elif in_fence:
+            out.append(blank(raw))
+        else:
+            out.append(INLINE_CODE_RE.sub(lambda mm: blank(mm.group(0)), raw))
+    return "".join(out)
+
 def md_target(t):
     # minimal percent-quoting so a markdown link target survives spaces/parens
     return t.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
@@ -565,8 +589,9 @@ def splice_index(idx_path, dirpath, folder_name, parent_folder, default_tags,
     return rendered
 
 # --- cross-cutting: manifest library_refs[] for one-sided-edge detection -----
+# originating_plan names its plan by plans-root-relative path (<master>/<sub> for a sub-plan); the bare basename is still accepted.
 def collect_manifest_refs(root):
-    """Map library_ref string -> set(plan-slug) declared in manifests under root."""
+    """Map library_ref string -> set(plan-slug and plans-root-relative path) declared in manifests under root."""
     refs = {}
     if not os.path.isdir(root):
         return refs
@@ -581,13 +606,14 @@ def collect_manifest_refs(root):
         except Exception:
             continue
         slug = os.path.basename(dp)
+        qual = os.path.relpath(dp, root)
         ras = man.get("research_artifacts") or []
         if isinstance(ras, list):
             for ra in ras:
                 if not isinstance(ra, dict):
                     continue
                 for lr in (ra.get("library_refs") or []):
-                    refs.setdefault(str(lr).strip(), set()).add(slug)
+                    refs.setdefault(str(lr).strip(), set()).update((slug, qual))
     return refs
 
 manifest_refs = collect_manifest_refs(manifest_root)
@@ -707,7 +733,8 @@ for topic in topic_dirs:
                   "library_ref": ref_key, "manifest_backlinks": ",".join(sorted(back)) or "(none)",
                   "detector_role": "promotion-edge-crash-window", "detected_at": today})
         # dangling bare wikilinks at the article foot -> sibling that does not exist
-        for wl in re.findall(r"\[\[([^\[\]|]+?)\]\]", text):
+        wl_text = mask_code(text)
+        for wl in re.findall(r"\[\[([^\[\]|]+?)\]\]", wl_text):
             base = wl.split("/")[-1]
             base = base[:-3] if base.endswith(".md") else base
             sib = os.path.join(topic_dir, base + ".md")

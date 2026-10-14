@@ -35,6 +35,9 @@ source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 # Atomic write via the lib's write_registry (temp+rename). Preserves
 # touched_files + started on a re-fire so the R-42 file list survives. Invoked
 # directly OR re-exec'd under lockf (the --do-register internal entry-point).
+# $3 is the SessionStart payload's transcript_path: recorded on the row when present
+# (the integrity backstop hands it to a crashed session's checkpoint extraction), and
+# an earlier value is kept when a later payload carries none.
 #
 # ADVISORY PID (T-1): the recorded pid is ADVISORY / display-only —
 # NOT a liveness key and NOT a session-identity key. Multiple Claude session-ids
@@ -48,16 +51,17 @@ source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null || exit 0
 # remains useful for display (peer summaries) — it is simply never the keep-signal.
 register_row() {
   command -v jq >/dev/null 2>&1 || return 0
-  local sid="$1" rpid="$2" now reg updated
+  local sid="$1" rpid="$2" rtp="${3:-}" now reg updated
   ensure_coord_dir 2>/dev/null || true
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   reg=$(read_registry)
   updated=$(printf '%s' "$reg" | jq \
-    --arg sid "$sid" --argjson pid "$rpid" --arg hb "$now" \
+    --arg sid "$sid" --argjson pid "$rpid" --arg hb "$now" --arg tp "$rtp" \
     '.sessions[$sid] = ((.sessions[$sid] // {})
        + {pid: $pid, status: "active", last_heartbeat: $hb}
        + {touched_files: ((.sessions[$sid].touched_files) // []),
-          started: ((.sessions[$sid].started) // $hb)})' 2>/dev/null)
+          started: ((.sessions[$sid].started) // $hb)}
+       + (if $tp == "" then {} else {transcript_path: $tp} end))' 2>/dev/null)
   [ -n "$updated" ] && write_registry "$updated"
 }
 
@@ -90,10 +94,10 @@ resolve_session_pid() {
   printf '%s' "${PPID:-$$}"
 }
 
-# Internal lockf re-exec target: `session-register.sh --do-register <sid> <pid>`
-# runs the upsert while holding registry.lock, then exits.
+# Internal lockf re-exec target: `session-register.sh --do-register <sid> <pid>
+# [<transcript_path>]` runs the upsert while holding registry.lock, then exits.
 if [ "${1:-}" = "--do-register" ]; then
-  register_row "${2:-}" "${3:-0}"
+  register_row "${2:-}" "${3:-0}" "${4:-}"
   exit 0
 fi
 
@@ -143,7 +147,8 @@ if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
 fi
 
 # Transcript path (Cause-2): needed to record the usage-block count at the
-# compaction boundary in the compact-pending marker. Absent on non-compact fires.
+# compaction boundary in the compact-pending marker. Every fire that carries it also
+# records it on the registry row (register_row below).
 TRANSCRIPT_PATH=""
 if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
   TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
@@ -156,19 +161,36 @@ fi
 
 # --- 1. Register / refresh this session's registry row (lockf-guarded) -------
 # Serialize the read-modify-write under registry.lock by re-exec'ing the
-# --do-register entry-point under lockf. Fail-open: if lockf is unavailable or
-# contended, fall back to a direct (unlocked) upsert so the session still
-# registers — the registry self-reaps and write_registry is atomic.
+# --do-register entry-point under lockf. Under contention (rc 75)
+# the row is DEFERRED with one skip line, never written unlocked — a lost
+# register_row leaves the session with no pid or `started`, and prompt-context's
+# pid-liveness view then blanks it (invisible to peer file-overlap warnings for
+# its whole life), so this one-shot lifecycle row gets ONE bounded retry first
+# (retry on rc 75 only; a non-75 failure goes straight to the skip line; each
+# attempt is the locked re-exec). Deferred → the residual is bounded by the
+# reaper's heartbeat-authoritative verdict and the backstop's crash path. The
+# lockf-absent branch (platform graceful-degrade, not contention) is untouched.
 ensure_coord_dir 2>/dev/null || true
 # Record the long-lived Claude pid (resolve_session_pid), NOT this hook's
 # transient subshell $$ — see the resolver above (S2). Passed explicitly so the
 # lockf re-exec records this pid, not the lockf pid.
 SESSION_PID=$(resolve_session_pid)
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
-  lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-register "$SESSION_ID" "$SESSION_PID" >/dev/null 2>&1 \
-    || register_row "$SESSION_ID" "$SESSION_PID"
+  _row_rc=75
+  _row_attempt=0
+  while [ "$_row_rc" -eq 75 ] && [ "$_row_attempt" -lt 2 ]; do
+    _row_attempt=$((_row_attempt + 1))
+    _row_rc=0
+    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-register "$SESSION_ID" "$SESSION_PID" "$TRANSCRIPT_PATH" >/dev/null 2>&1 || _row_rc=$?
+  done
+  if [ "$_row_rc" -ne 0 ]; then
+    _sr_dir="${LOG_DIR:-}"
+    if [ -z "$_sr_dir" ] || [ ! -d "$_sr_dir" ]; then _sr_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
+    echo "$(date -Iseconds) session-register.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; session recovery applies)" \
+      >> "$_sr_dir/session-register-skip.log" 2>/dev/null || true
+  fi
 else
-  register_row "$SESSION_ID" "$SESSION_PID"
+  register_row "$SESSION_ID" "$SESSION_PID" "$TRANSCRIPT_PATH"
 fi
 
 # --- 2. Post-compaction checkpoint restore + .pct reset (source=compact) -----

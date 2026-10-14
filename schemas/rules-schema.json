@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://brain-stem.local/schemas/rules-schema.json",
-  "schema_version": "1.1.0",
+  "schema_version": "2.0.0",
   "title": "Rule file frontmatter contract (user-scope and project-scope `.claude/rules/*.md`)",
   "description": "YAML frontmatter contract every Markdown file under a `.claude/rules/` directory MUST carry. `.claude/rules/` is the documented scale-beyond / global surface for instructions that load every session regardless of cwd (the USER-SCOPE `.claude/rules/`, at the install root) or every session within one project (a PROJECT-SCOPE `.claude/rules/`, at the project root). The harness reads `description` (scan hook) and `paths` (glob activation) directly; the STEM governance fields (`provenance`, `source_memory`, `promoted_at`, `tags`) are additive and ignored by the harness but consumed by the memory→RULES promotion (memory-globalize) + rules-hygiene. Schema validates the frontmatter block parsed as an object; additionalProperties is true so rule files may carry the harness-native shape unchanged. Sibling contract to schemas/memory-schema.json.",
 
   "_design_notes": {
-    "purpose": "Codify the global/project rule surface: the `scope:` router on a memory points global facts at the user-scope `.claude/rules/`, where a promotion step (memory-globalize) elevates them as unscoped or glob-scoped rules. This schema is the validation contract that promotion (block-and-log, never write-and-hope) and rules-hygiene check against. REPO-ONLY at GA (KEEP / / governance R-04) — never shipped to the 10 adopter schemas; the two consumers degrade to a structural fallback that mirrors this contract when the file is absent (the intended adopter degradation). Adopter live rules cutover is OUT OF SCOPE (release-ceremony-gated).",
+    "purpose": "Codify the global/project rule surface: the `scope:` router on a memory points global facts at the user-scope `.claude/rules/`, where a promotion step (memory-globalize) elevates them as unscoped or glob-scoped rules. This schema is the validation contract that promotion (block-and-log, never write-and-hope) and rules-hygiene check against. The consumers degrade to a structural fallback that mirrors this contract when the file is absent from the install.",
 
-    "ship_tier": "repo-only (authoring-side). install.sh's schema ship-tier case enumerates 'rules-schema' among the repo-only schemas; this file is NOT one of the 10 adopter schemas. Executes (rules-schema KEEP, ships >= repo-only) and lets the Gate-2 (A->RULES) jsonschema block-and-log path run repo-side instead of always degrading to the structural fallback.",
+    "ship_tier": "SHIPPED. install.sh's Step 9 schema loop copies this file to $CLAUDE_HOME/schemas/ (`rules-schema` is one of the 13 names in that loop), and the shipped consumers resolve it live from the install: memory-globalize (the memory->RULES promotion validates its candidate against it, block-and-log), rules-hygiene (the frontmatter audit) and context-budget-index (the always-on rules census). Each degrades to the structural fallback only when the installed file is absent.",
 
     "two_activation_modes": {
       "_description": "The harness loads .claude/rules/*.md by one of two modes, keyed on presence of the `paths:` frontmatter key (confirmed against the shipped binary).",
@@ -31,25 +31,25 @@
     },
 
     "size_ceiling": {
-      "_description": "Body line-count is NOT validated by this JSON Schema (no JSON path into body bytes). The ceiling is documentary here + enforced by the rules-hygiene librarian capability (propose-only NDJSON, mirroring the MEMORY.md cap advisory at mandatory-files-rules.json :: R-59). Industry convergence: Cursor .mdc, GitHub Copilot applyTo:.",
+      "_description": "Body line-count is NOT validated by this JSON Schema (no JSON path into body bytes). The ceiling is documentary here + enforced by the rules-hygiene librarian capability (propose-only NDJSON, mirroring the MEMORY.md cap advisory at mandatory-files-rules.json :: R-59). Cursor's rules docs state 500 lines; GitHub Copilot's custom-instructions docs state ~1,000; brain-stem adopts 500 as its own ceiling.",
       "max_lines": 500,
       "rationale": "One concern per file; split when a file outgrows a single domain. Rules that grow past ~500 lines are usually two rules wearing one filename."
     },
 
     "no_auto_writes_to_claude_md": "Promotion targets the user-scope `rules/` directory ONLY — never the global `CLAUDE.md` beside it. CLAUDE.md stays hand-curated (one-time no-clobber install seed); nothing in this pipeline ever auto-writes it.",
 
+    "no_pipeline_owned_exemption": "Installer seeds were retired at v1.19.0 (migration 0011-class-a-rules-retire): brain-stem seeds no rule file. A frontmatter-less `NN-*.md` on an adopter's disk is adopter-owned and its `frontmatter` finding is real — no consumer exempts a rule by name, prefix or installer provenance.",
+
     "relationship_to_memory_schema": "Sibling contract to schemas/memory-schema.json. Memory = project layer (auto-fed, 200-line/25KB capped, isolated per git-root). Rules = global/scale-beyond layer (uncapped by the harness, loaded every session). The memory `scope:` field is the router between them; promotion is the transport.",
 
     "consumers": [
       "skills/librarian/capabilities/memory-globalize.sh (memory->RULES promotion — validates a candidate `scope: global` memory against THIS schema before writing to the user-scope `rules/` directory; block-and-log. Resolves the schema foundation-repo -> live install at lines 149-157; degrades to the structural fallback at lines 205-210 when absent)",
       "skills/librarian/capabilities/rules-hygiene.sh (frontmatter validity + size ceiling + dead-glob audit; propose-only NDJSON. Resolves the schema at lines 106-114; structural fallback when absent)",
-      "skills/librarian/capabilities/rules-compact.sh (reads `enforced_by` to SELECT which rules are compactable — the named hook must be registered, present and inline-blocking — and validates the stub frontmatter against THIS schema before either write; block-and-log)",
-      "skills/librarian/capabilities/context-budget-index.sh (renders the `enforced_by` column of the always-on rules budget, 'none' where the field is absent, so an always-on rule with no declared backstop is visible)",
       "templates/claude-home-rules-readme-template.md (adopter-facing authoring guidance; its worked examples validate against this schema)",
       "internal/tests (regression — validates the rules README template's worked examples + a synthetic promoted rule)"
     ],
 
-    "schema_version_policy": "SemVer. Additive field additions = minor bump. Required-field changes or enum reductions = major bump (R-37 atomic lockstep with consumers above)."
+    "schema_version_policy": "SemVer. Additive field additions = minor bump. Required-field changes or enum reductions = major bump. Removing a documented field = major bump (R-37 atomic lockstep with consumers above)."
   },
 
   "type": "object",
@@ -95,12 +95,6 @@
       "items": { "type": "string" },
       "minItems": 0,
       "description": "Optional free-form retrieval/hygiene tags. Ignored by the harness; consumed by rules-hygiene for corpus organization. May be empty []."
-    },
-
-    "enforced_by": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Optional BACKSTOP DECLARATION: the mechanism that enforces this rule regardless of model cooperation. Two forms. (1) A registered hook script basename, e.g. 'pre-write-guard.sh' or 'pre-asq-guard.sh' — the hook must be registered in settings.json, present in the install's hooks/ directory, and inline-blocking (only a PreToolUse hook can deny inside the tool call). A rule with a resolving backstop can be COMPACTED: the operative instruction, the escape hatch and the one-line why stay always-on while the narrative moves out of the loaded corpus. (2) The reserved 'probe:<name>' form, for a rule whose backstop is a deterministic transcript probe rather than a hook; no probe class is active yet, so a 'probe:' value resolves to no hook and is not compactable. Absent = no declared backstop, and the rule keeps its full text. Ignored by the harness."
     }
   },
 

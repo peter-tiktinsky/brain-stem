@@ -96,6 +96,11 @@ if [ -z "${PLANS_DIR:-}" ]; then
   _v="$(_manifest_get .paths.plans_root)"
   if [ -n "$_v" ]; then PLANS_DIR="$_v"; else PLANS_DIR="$HOME/.claude-plans"; fi
   unset _v
+  # Provenance: this root was DEFAULTED here, not chosen by the caller. The value names the
+  # root it defaulted to, so a consumer (session-close.sh's caller-set predicate) can tell a
+  # PLANS_DIR that merely carries this default from one a caller exported on purpose.
+  _PATHS_PLANS_DEFAULTED="$PLANS_DIR"
+  export _PATHS_PLANS_DEFAULTED
 fi
 export PLANS_DIR
 

@@ -105,6 +105,10 @@
 #       stamp: NO .installed-state.json written, baseline NOT advanced
 # (forward-progress — the un-stamped home re-runs to eventual
 #       convergence). NOT 54 (54 is G4 vault-symlink); 56 is the free code.
+#       Also the fresh lane's pre-write refuse: a shipped file in SOURCE_REPO
+#       differs from governance/foundation-manifest.json (header phrase:
+#       fresh lane: SOURCE_REPO bytes differ from the shipped manifest); nothing
+#       is written and no stamp is created.
 #   57  G7 fired (settings.json merge would silently delete keys)
 #   58  G8 fired (UID 0; no override)
 #   59  G9 RESERVED — dry-run default is the posture (not refuse-gate);
@@ -817,7 +821,22 @@ g2_detect_foreign_content() {
     return 0
   fi
 
-  local entry base known found f rel sha_actual sha_baseline
+  # Installed-baseline mode only: an upgrade that died after the take-new walk
+  # and before the live manifest was re-delivered leaves every already-delivered
+  # file differing from the OLD baseline yet equal to the shipped target. Those
+  # bytes are the new version, not edits, so a plain re-run must resume. The
+  # target shas come from the shipped manifest; FAIL-CLOSED: an allocation or
+  # extraction failure leaves the target set empty and relaxes nothing.
+  local target_tmp=""
+  if [ "$g2_baseline_mode" = "installed-baseline" ]; then
+    target_tmp="$(mktemp -t install-g2-target.XXXXXX 2>/dev/null)" || target_tmp=""
+    if [ -n "$target_tmp" ] \
+       && ! jq -r '.files[] | "\(.path)\t\(.sha256)"' "$SOURCE_REPO/governance/foundation-manifest.json" > "$target_tmp" 2>/dev/null; then
+      : > "$target_tmp"
+    fi
+  fi
+
+  local entry base known found f rel sha_actual sha_baseline sha_target
   for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
     [ -e "$entry" ] || continue
     base="${entry##*/}"
@@ -847,6 +866,11 @@ g2_detect_foreign_content() {
       [ -z "$sha_baseline" ] && continue   # not in baseline = user content
       sha_actual="$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')"
       if [ "$sha_actual" != "$sha_baseline" ]; then
+        if [ -n "$target_tmp" ]; then
+          sha_target="$(awk -F'\t' -v p="$rel" '$1 == p {print $2; exit}' "$target_tmp")"
+          # already at the shipped version: not a violation
+          [ -n "$sha_target" ] && [ "$sha_actual" = "$sha_target" ] && continue
+        fi
         if [ -z "$g2_violations" ]; then
           g2_violations="$rel"
         else
@@ -861,6 +885,8 @@ EOF
   done
 
   rm -f "$baseline_tmp"
+  [ -n "$target_tmp" ] && rm -f "$target_tmp"
+  return 0
 }
 
 g2_detect_foreign_content
@@ -947,6 +973,39 @@ INSTALLED_VERSION="(none)"
 # and the runner can skip already-applied ids. Absent on a
 # fresh/legacy-adopt home ⇒ empty ⇒ the runner runs the full chain from 0001.
 PRIOR_MIGRATIONS_APPLIED=""
+# PRIOR_SEEDED_PERMISSIONS_OFFERED — a JSON array: every seeded permissions.ask
+# rule a previous successful apply has already offered (the stamp's
+# seeded_permissions_offered). Read here, before any copy step runs, because
+# Step 10 overwrites $CLAUDE_HOME/templates/settings-seeded-permissions.json with
+# this release's bytes: the offered set is a durable record, never re-derived
+# from that copy. A rule in the shipped declaration but not in this set is
+# offered once (Step 12.7); a rule already offered is never re-added, so an
+# adopter's removal sticks. [] when the stamp or the field is absent.
+PRIOR_SEEDED_PERMISSIONS_OFFERED="[]"
+if [ -f "$INSTALLED_STATE_PATH" ]; then
+  PRIOR_SEEDED_PERMISSIONS_OFFERED="$(python3 -c "import json,sys
+try:
+    v=json.load(open(sys.argv[1])).get('seeded_permissions_offered',[])
+    print(json.dumps([x for x in v if isinstance(x,str)] if isinstance(v,list) else []))
+except Exception:
+    print('[]')" "$INSTALLED_STATE_PATH" 2>/dev/null || echo '[]')"
+  [ -n "$PRIOR_SEEDED_PERMISSIONS_OFFERED" ] || PRIOR_SEEDED_PERMISSIONS_OFFERED="[]"
+fi
+# The seeded-permissions transform, shared by the Step 12.7 apply pass and its
+# dry-run preview arm so the two cannot drift. Input: settings.json. $decl: the
+# slurped declaration; $prior: PRIOR_SEEDED_PERMISSIONS_OFFERED. Appends each
+# declared rule that is neither already offered nor present in .permissions.ask;
+# never removes, rewrites or reorders. A non-object .permissions or a non-array
+# .ask is an adopter-authored shape: left untouched, nothing appended.
+SEEDED_PERMISSIONS_JQ='
+if ((.permissions // {}) | type) != "object" or ((.permissions.ask // []) | type) != "array" then .
+else
+  (.permissions.ask // []) as $have
+  | [ ($decl[0].ask // [])[] | strings
+      | select(. as $r | ($prior | any(.[]; . == $r) | not) and ($have | any(.[]; . == $r) | not)) ] as $new
+  | if ($new | length) == 0 then .
+    else .permissions = ((.permissions // {}) + {"ask": ($have + $new)}) end
+end'
 if [ -f "$INSTALLED_STATE_PATH" ]; then
   iv="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('foundation_version',''))" "$INSTALLED_STATE_PATH" 2>/dev/null || true)"
   [ -n "$iv" ] && INSTALLED_VERSION="$iv"
@@ -1657,6 +1716,30 @@ EOF
     fi
   fi
 
+  # --- (2b') seeded permissions.ask convergence: the dry-run mirror of the Step
+  #     12.7 apply pass. Runs the SAME transform (SEEDED_PERMISSIONS_JQ) with the
+  #     SOURCE declaration (the bytes Step 10 would land) and the entrypoint read of
+  #     seeded_permissions_offered, against the live settings.json, into a scratch
+  #     file (never the live file). A canonical-form difference means the apply
+  #     would append a seeded rule: `settings.json reconcile-permissions`. A
+  #     malformed settings.json previews nothing here (the apply stops at Step 12).
+  _seeded_decl_src="$SOURCE_REPO/templates/settings-seeded-permissions.json"
+  if [ -f "$_live_settings" ] && [ -f "$_seeded_decl_src" ]; then
+    _perm_after="$(mktemp 2>/dev/null || echo "")"
+    if [ -n "$_perm_after" ]; then
+      if jq \
+        --slurpfile decl "$_seeded_decl_src" \
+        --argjson prior "$PRIOR_SEEDED_PERMISSIONS_OFFERED" \
+        "$SEEDED_PERMISSIONS_JQ" "$_live_settings" > "$_perm_after" 2>/dev/null; then
+        if ! jq -S . "$_live_settings" 2>/dev/null | diff -q - <(jq -S . "$_perm_after" 2>/dev/null) >/dev/null 2>&1; then
+          upgrade_file_disp_preview="${upgrade_file_disp_preview}settings.json	reconcile-permissions
+"
+        fi
+      fi
+      rm -f "$_perm_after" 2>/dev/null || true
+    fi
+  fi
+
  # --- (2c) USER-PRESERVE visibility (copied-once-then-adopter-owned set):
  # the schema (line 215) requires the upgrade
   #     diff to surface the USER-PRESERVE class explicitly —
@@ -1670,7 +1753,8 @@ EOF
   #     is [] ONLY when the home already matches the target. An informational
   #     `untouched` entry must NOT itself make a fully-converged home non-empty, so
   #     the USER-PRESERVE entries are appended ONLY WHEN >=1 actionable disposition
-  #     (replace/sidecar/new-ship/reconcile-hooks/skeleton-merge*/sidecar-skip-deferred)
+  #     (replace/sidecar/new-ship/reconcile-hooks/reconcile-permissions/skeleton-merge*/
+  #     sidecar-skip-deferred)
   #     is already present — i.e. an actual upgrade is being previewed. WRITE-FREE: only tests
  # on-disk presence of the copied-once surfaces. Emitted in order.
   if [ -n "$upgrade_file_disp_preview" ]; then
@@ -1782,6 +1866,55 @@ $_cll"
   fi
 fi
 
+# Fresh-lane source verification. A fresh install (no stamp, no legacy adoption)
+# copies SOURCE_REPO bytes as they are, and no post-copy assertion covers this
+# lane, so a modified or missing shipped file would install silently and the
+# stamp would then misstate the disk. Hash every manifest files[] member's
+# source bytes against the manifest sha BEFORE any write: --apply refuses with
+# exit 56 (no home write, no stamp); the dry-run reports one blocking finding.
+if [ "$UPGRADE_PRESENT" = "0" ] && [ "$LEGACY_ADOPT" = "0" ]; then
+  sv_manifest="$SOURCE_REPO/governance/foundation-manifest.json"
+  if [ ! -f "$sv_manifest" ]; then
+    info "source verification skipped: governance/foundation-manifest.json absent at SOURCE_REPO"
+  else
+    sv_rows="$(mktemp -t install-source-verify.XXXXXX 2>/dev/null)" || sv_rows=""
+    sv_count=0
+    sv_lines=""
+    sv_paths=""
+    if [ -n "$sv_rows" ] && jq -r '.files[] | "\(.path)\t\(.sha256)"' "$sv_manifest" > "$sv_rows" 2>/dev/null; then
+      while IFS="$(printf '\t')" read -r sv_path sv_sha; do
+        [ -z "$sv_path" ] && continue
+        sv_src="$sv_path"
+        # the manifest records the gitignore template under its installed name
+        [ "$sv_path" = ".gitignore" ] && sv_src="templates/claude-home.gitignore"
+        if [ -f "$SOURCE_REPO/$sv_src" ]; then
+          sv_actual="$(shasum -a 256 "$SOURCE_REPO/$sv_src" 2>/dev/null | awk '{print $1}')"
+          [ "$sv_actual" = "$sv_sha" ] && continue
+          sv_shown="$(printf '%s' "$sv_actual" | cut -c1-12)"
+        else
+          sv_shown="(absent)"
+        fi
+        sv_count=$((sv_count + 1))
+        sv_lines="$sv_lines  $sv_path (manifest sha $(printf '%s' "$sv_sha" | cut -c1-12), source $sv_shown)
+"
+        if [ -z "$sv_paths" ]; then sv_paths="$sv_path"; else sv_paths="$sv_paths, $sv_path"; fi
+      done < "$sv_rows"
+    else
+      warn "source verification skipped: governance/foundation-manifest.json files[] extraction failed"
+    fi
+    [ -n "$sv_rows" ] && rm -f "$sv_rows"
+    if [ "$sv_count" -gt 0 ]; then
+      if [ "$APPLY_MODE" = "1" ]; then
+        diag "source verification: $sv_count shipped file(s) in SOURCE_REPO differ from governance/foundation-manifest.json:"
+        printf '%s' "$sv_lines" >&2
+        diag "Re-clone the release to get a clean tree; if the edits are intentional, regenerate governance/foundation-manifest.json with generate-foundation-manifest.sh and re-run."
+        exit 56
+      fi
+      note_blocking_finding "source verification: $sv_count shipped file(s) differ from governance/foundation-manifest.json ($sv_paths) — --apply refuses (exit 56)"
+    fi
+  fi
+fi
+
 # --- G9: dry-run as default ---
 # Posture (not refuse-gate). First invocation without --apply emits action-plan
 # JSON to stdout with zero $CLAUDE_HOME writes; --apply required to actually
@@ -1791,6 +1924,19 @@ fi
 # not refuse). Exit 0 from dry-run; provenance log NOT written (zero FS
 # writes by design).
 if [ "$APPLY_MODE" != "1" ]; then
+  # Read-only advisory (dry-run only; stderr, never in the JSON): an Edit( or Read(
+  # rule in the existing settings.json permissions that starts with a SINGLE slash
+  # and an absolute-looking root. Claude Code reads a single leading slash relative
+  # to the settings file, not from the filesystem root, so such a rule does not
+  # match the path it names. One line per rule; the rule is never changed.
+  if [ -f "$CLAUDE_HOME/settings.json" ]; then
+    while IFS='	' read -r _perm_list _perm_rule; do
+      [ -n "$_perm_rule" ] || continue
+      info "advisory: settings.json permissions.$_perm_list rule $_perm_rule starts with a single slash, which Claude Code reads relative to the settings file, not from the filesystem root; use a double slash for an absolute path or ~/ for a path under your home (not changed by install)"
+    done <<EOF
+$(jq -r '(.permissions // {}) | if type == "object" then to_entries[] | select(.key == "allow" or .key == "ask" or .key == "deny") | .key as $k | (.value | if type == "array" then .[] else empty end) | strings | select(test("^(Edit|Read)\\(/(Users|home|private|tmp|opt|var)/")) | "\($k)\t\(.)" else empty end' "$CLAUDE_HOME/settings.json" 2>/dev/null)
+EOF
+  fi
   # JSON action-plan emit. Validity contract: jq parseable. Schema:
   #   {version, claude_home, claude_home_defaulted, source_repo,
   #    state_classification, flags{...}, guards_passed[], guards_skipped[],
@@ -1956,6 +2102,7 @@ if [ "$APPLY_MODE" != "1" ]; then
   "migrations_to_run": (if ($migrations_to_run | rtrimstr("\n")) == "" then [] else ($migrations_to_run | rtrimstr("\n") | split("\n")) end),
   "file_dispositions": (if ($file_dispositions | rtrimstr("\n")) == "" then [] else ($file_dispositions | rtrimstr("\n") | split("\n") | map(split("\t") | (.[0]) as $p | (.[1]) as $d
     | (if   $d == "reconcile-hooks"     then {"class":"THREE-WAY-MERGE", "reason":"missing foundation hook tuple(s) appended (reconciler)", "added_hooks":["see settings-required-hooks.json"]}
+       elif $d == "reconcile-permissions" then {"class":"THREE-WAY-MERGE", "reason":"seeded permissions.ask rule(s) not yet offered appended (settings-seeded-permissions.json); adopter entries and removed rules untouched"}
        elif $d == "skeleton-merge"      then {"class":"THREE-WAY-MERGE", "reason":"overlay-wins skeleton-merge (adopter registrations preserved, new foundation pillars added); INTENDED gear — a runtime merge failure downgrades to skeleton-merge-skip"}
        elif $d == "skeleton-merge-skip" then {"class":"THREE-WAY-MERGE", "reason":"skeleton-merge skipped (merge failed; adopter overlay untouched)"}
        elif $d == "sidecar-skip-deferred" then {"class":"THREE-WAY-MERGE", "reason":"outstanding <path>.foundation-new sidecar (prior unresolved merge) — apply SKIPs, deferred to user; nothing taken-new until the merge is resolved"}
@@ -1989,6 +2136,7 @@ if [ "$APPLY_MODE" != "1" ]; then
     {"step": 11.5, "op": "DROPPED", "rationale": "global CLAUDE.md pre-seed struck; skills/onboarder/scripts/author-claude-home.sh is the authoritative writer"},
     {"step": 12, "op": "jq-merge", "target": ($claude_home + "/settings.json"), "source": ($claude_home + "/templates/settings.json"), "rationale": "atomic deep-merge with G7 silent-key-deletion gate (template * user → user wins on conflict); the reconciler at Step 12.5 re-lands any foundation hook the array-win merge dropped"},
     {"step": 12.5, "op": "jq-reconcile", "target": ($claude_home + "/settings.json"), "source": ($claude_home + "/templates/settings-required-hooks.json"), "rationale": "data-driven settings-required-hooks reconciler (closes the install-time hook-reconciliation gap). Single loop over the declared {event,matcher,command,timeout?} tuples; per-COMMAND idempotent detect-absence-and-append into the matcher-resolved bucket (new bucket only when none matches; no duplicate Edit|Write PostToolUse bucket); carries template timeouts verbatim. ADDS-only POS1 survivorship; runs after the G7-gated mv so it cannot trip G7. Retires the former bespoke Step 12.5 (spec-context-inject) + Step 12.6 (pre-asq-guard) hand-patches into one source of truth."},
+    {"step": 12.7, "op": "jq-seed-permissions", "target": ($claude_home + "/settings.json"), "source": ($claude_home + "/templates/settings-seeded-permissions.json"), "rationale": "append each declared permissions.ask rule (one Edit(~/.claude/<dir>/**) per managed directory) that is absent from .permissions.ask and not already recorded in the stamp seeded_permissions_offered; each rule is offered once, so an adopter removal sticks. ADDS-only: never removes, rewrites or reorders adopter entries; runs after the G7-gated mv. The Step 13.7 stamp records the offered set on success"},
     {"step": 13, "op": "validate", "target": ($claude_home + "/schemas/*.json"), "rationale": "post-install schema parse validation"},
     {"step": 13.5, "op": "validate", "target": ($claude_home + "/governance/foundation-manifest.json"), "rationale": "parse-validate baseline post-Step-8.5-copy (load-bearing for G2 + uninstall fingerprint match); lives at governance/"},
     {"step": 15, "op": "log", "target": ($claude_home + "/logs/install-*.log"), "rationale": "G10 provenance log header emit"}
@@ -3202,7 +3350,7 @@ done
 # INERT SOURCE DATA via the FOUNDATION-REPLACE disposition — never the live merge
 # target. The live $CLAUDE_HOME/settings.json is jq-merged at Step 12 (the
 # MIGRATE-STATE surface), a distinct path the templates walk never touches.
-for tmpl in settings.json settings-required-hooks.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md ideation-brief-template.md idea-note-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
+for tmpl in settings.json settings-required-hooks.json settings-seeded-permissions.json librarian-manifest-skeleton.json README.md vault-claude-md-template.md claude-home-claude-md-template.md MEMORY.md.template claude-home-rules-readme-template.md ideation-brief-template.md idea-note-template.md research-index-template.md decision-log-template.md handoff-chronicle-template.md library-article-template.md topic-index-template.md; do
   src="$SOURCE_REPO/templates/$tmpl"
   [ -e "$src" ] || continue
   upgrade_foundation_file "$src" "$CLAUDE_HOME/templates/${src##*/}"   # foundation-replace disposition
@@ -3322,97 +3470,13 @@ fi
 # README ships as templates/claude-home-rules-readme-template.md and is installed
 # to $CLAUDE_HOME/templates/; migration 0010-class-a-rules-refresh retires the seed.
 
-# Step 11.7a: the generic rules/ entries.
-# The generic, cwd-parameterized, always-on entries seeded into
-# $CLAUDE_HOME/rules/ are enumerated by the `# Entry N —` markers below (each
-# marker heads one `seed_rules_entry` call), the source of truth for which
-# entries ship — add or remove an entry there and this header stays true.
-# All are UNSCOPED (no `paths:` key) so they load every session — the #21858
-# user-scope `paths:`-glob limitation makes glob-scoping unreliable here.
-# These are installed by install.sh (install.sh runs outside
-# the Edit-blocking sensitive-file gate): fresh = mkdir + atomic-mv;
-# existing-adopter = no-clobber preserve.
-# Generic-only: NO per-project entries are ever written.
-rules_dir="$CLAUDE_HOME/rules"
-seed_rules_entry() {
-  # $1 = entry filename (under rules/), $2 = entry body (already rendered)
-  local fname="$1" body="$2" target="$rules_dir/$1" tmp
-  if [ -f "$target" ]; then
-    info "rules/$fname exists at $target — preserving (no clobber)"
-    return 0
-  fi
-  if ! mkdir -p "$rules_dir"; then
-    diag "rules/$fname seed: mkdir failed: $rules_dir"
-    exit 11
-  fi
-  tmp="$target.tmp.$$"
-  if ! printf '%s' "$body" > "$tmp"; then
-    diag "rules/$fname seed: write failed: $tmp"
-    rm -f "$tmp"
-    exit 11
-  fi
-  if ! mv -f "$tmp" "$target"; then
-    diag "rules/$fname seed: atomic mv failed: $target"
-    rm -f "$tmp"
-    exit 11
-  fi
-  info "rules/$fname seeded at $target"
-}
-
-# Entry 1 — binder pointer. Cwd-parameterized: resolves the
-# CURRENT spoke's _projects/<spoke>/ binder surface. Generic — never names a
-# specific spoke; the launch directory selects the spoke at read time. The binder is
-# 100% machine-derived: the sole cover is the force-ingested situating card (eager,
-# automatic). Not re-dumped here.
-read -r -d '' rules_binder_pointer <<'RULE_BINDER' || true
-# Project binder — the situating card is the eager, machine-derived cover
-
-Inside a registered spoke, the situating card (`~/.claude-plans/_projects/<spoke>/_situating.md`) is already in your context — injected at SessionStart from the plans' manifests (plan roster, status, active focus, latest-handoff pointers). Follow its pointers (research-index, decision-log, handoff-chronicle) on demand; never preload every binder index. No card for this spoke yet: run `librarian plan-research-index`.
-RULE_BINDER
-seed_rules_entry "00-project-binder-pointer.md" "$rules_binder_pointer"
-
-# Entry 2 — pre-research library-check fallback. The portable
-# DEGRADED layer that backs the pre-research hook (hooks/pre-research-check.sh):
-# it operates when that hook is unavailable, so library coverage is surfaced even
-# pre-hook. Generic + always-on; advisory-only (mirrors the hook's never-block
-# posture).
-read -r -d '' rules_library_check <<'RULE_LIBCHECK' || true
-# Before researching — check the library first
-
-Before any research-class task, read `~/.claude-plans/_library/_index.md` and, on a topic match, that topic's `_index.md` + article BEFORE researching fresh (stale coverage: validate / use-as-is / research-fresh). Advisory only. The `pre-research-check` UserPromptSubmit hook injects the same signal when it detects research intent; this rule is the degraded layer for prompts the heuristic misses.
-RULE_LIBCHECK
-seed_rules_entry "10-pre-research-library-check.md" "$rules_library_check"
-
-# Entry 3 — work-project registration on-ramp. The always-on, unscoped, create-only
-# rule that names the /govern register --kind project path before any write into a new
-# ~/work project (surfaced in the vault as Work/<spoke>/). Generic — never names a
-# specific spoke. Advisory only (never blocks).
-read -r -d '' rules_work_project_register <<'RULE_WORKPROJ' || true
-# New ~/work project — register before the first write
-
-Starting a project under `~/work/<spoke>/` (exactly one level down): run `/govern register --kind project` from that directory BEFORE any `mkdir`/write. It records the spoke in the anchored-spoke registry, scaffolds the layout (`--layout flat` default; `--layout master --first-sub <name>` for a master with sub-projects), and emits the `Work/<spoke>/**` routing rule so write-time governance fires. Proactive on-ramp, never a gate.
-RULE_WORKPROJ
-seed_rules_entry "20-work-project-register.md" "$rules_work_project_register"
-
-# Entry 4 — durable-artifact routing convention. The always-on counterpart of the
-# closed plans-root namespace (plans-rules.json :: root_namespace + the pre-write-guard
-# root-allowlist arm + the librarian placement-validate plans-scope rule): the guard can
-# only deny a misplaced write — this rule tells the session where the artifact BELONGS.
-# Five routing clauses (funnel-first / flat work-spoke reference/ / world-vs-system
-# discriminator / scratchpad-is-transit / library-universal-only). Generic — never names
-# a specific plan or spoke. Advisory only (never blocks).
-read -r -d '' rules_durable_routing <<'RULE_DURABLEROUTING' || true
-# Durable artifact routing — research output lands in its owning context
-
-The plans root (`~/.claude-plans/`) is a CLOSED namespace (`plans-rules.json :: root_namespace`; pre-write-guard denies root writes; `librarian placement-validate` sweeps). Route durable outputs (registers, memos, ledgers, syntheses) by five clauses:
-
-1. Outside any plan's scope: mint the owning plan first — `promote-from-inbox.sh --capture <slug>`, then `promote-from-inbox.sh <slug>` — and land the artifact in that plan's `_research/`.
-2. In a work-spoke session: land FLAT in the spoke's `reference/` (single-level `.md`; nesting is index-invisible).
-3. About the WORLD → the vault; about the SYSTEM or the work itself → the owning plan's `_research/`.
-4. The scratchpad is transit: `mv` into `<plan>/_research/` at graduation; `research_artifacts[]` derives at session close (plan-research-declare) — never a hand-kept second declaration.
-5. `_library/` is universal-only; project-specific research stays with its plan.
-RULE_DURABLEROUTING
-seed_rules_entry "30-durable-artifact-routing.md" "$rules_durable_routing"
+# Step 11.7a: RETIRED — install.sh seeds NO rules/ entries and creates no rules/ directory.
+# The four former always-on entries (00-project-binder-pointer.md,
+# 10-pre-research-library-check.md, 20-work-project-register.md,
+# 30-durable-artifact-routing.md) are retired by migration 0011-class-a-rules-retire; each
+# entry's load-bearing residual is delivered by a shipped hook or generated surface at the
+# moment it applies. Every rules/ writer owns its own makedirs (memory-globalize,
+# rules-hygiene); an adopter's rules/ is a user corpus this installer never populates.
 
 # Step 11.7b: pre-existing legacy episode_*.md migration (upgrade-lane only, idempotent).
 # Existing installs accumulated per-session episode_<sid>-<ts>.md docs in each project's flat
@@ -3829,6 +3893,38 @@ if [ -f "$target_settings" ] && [ -f "$required_hooks_decl" ]; then
   mv -f "$tmp_settings_125" "$target_settings" || { diag "atomic mv failed: $target_settings (Step 12.5)"; rm -f "$tmp_settings_125"; exit 11; }
 fi
 
+# Step 12.7: seeded permissions.ask rules. templates/settings-seeded-permissions.json
+# (landed at Step 10) declares .ask rules — one Edit(~/.claude/<dir>/**) per managed
+# directory — so Claude Code asks before it edits a path the next upgrade replaces.
+# Each rule is OFFERED ONCE: this pass appends every declared rule that is absent
+# from .permissions.ask AND not already in PRIOR_SEEDED_PERMISSIONS_OFFERED (read at
+# entrypoint, before Step 10 overwrote the declaration copy). A rule the adopter
+# removed after an earlier offer is therefore never re-added, and a rule a later
+# release declares is offered on that upgrade. ADDS-only: creates .permissions /
+# .ask when missing; never removes, rewrites or reorders an existing entry (allow,
+# deny, ask, defaultMode). Runs after the G7-gated mv, so it cannot trip G7; writes
+# only when a rule is appended (atomic tmp+mv). The Step 13.7 stamp records the
+# offered set (PRIOR ∪ declared) only on overall-apply-success, so a run that dies
+# between Step 10 and here re-offers on the resumed apply.
+seeded_permissions_decl="$CLAUDE_HOME/templates/settings-seeded-permissions.json"
+if [ -f "$target_settings" ] && [ -f "$seeded_permissions_decl" ]; then
+  tmp_settings_127="$CLAUDE_HOME/.settings.json.tmp.127.$$"
+  if ! jq \
+    --slurpfile decl "$seeded_permissions_decl" \
+    --argjson prior "$PRIOR_SEEDED_PERMISSIONS_OFFERED" \
+    "$SEEDED_PERMISSIONS_JQ" "$target_settings" > "$tmp_settings_127" 2>/dev/null; then
+    diag "jq seeded permissions pass failed (Step 12.7); manual resolution required"
+    rm -f "$tmp_settings_127"
+    exit 40
+  fi
+  if jq -S . "$target_settings" 2>/dev/null | cmp -s - <(jq -S . "$tmp_settings_127" 2>/dev/null); then
+    rm -f "$tmp_settings_127"
+  else
+    sync 2>/dev/null || true
+    mv -f "$tmp_settings_127" "$target_settings" || { diag "atomic mv failed: $target_settings (Step 12.7)"; rm -f "$tmp_settings_127"; exit 11; }
+  fi
+fi
+
 # Step 13: schema parse validation (post-install)
 for schema in "$CLAUDE_HOME/schemas"/*.json; do
   [ -e "$schema" ] || continue
@@ -4036,6 +4132,11 @@ if [ -f "$CLAUDE_HOME/migrations/run-migrations.sh" ] && [ -n "$TARGET_VERSION" 
     [ "${mig_skip_count:-0}" -gt 0 ] \
       && info "migrations: $mig_skip_count already applied (high-water log) — skipped; per-id rows in the provenance log"
     MIG_RUNNER_NOTES="$(grep '^migrations: NOTE \|^migrations: SKIP ' "$mig_err" 2>/dev/null || true)"
+    # A migration that leaves an adopter-edited file in place prints ONE stderr
+    # line per file with the stable prefix `NNNN: ACTION ` (0011 is the first).
+    # Collected here, before the capture file goes, so the epilogue can re-print
+    # them as the first next-step and the provenance log can record them.
+    MIG_ACTION_LINES="$(grep -E '^[0-9]{4}: ACTION ' "$mig_err" 2>/dev/null || true)"
     rm -f "$mig_err" 2>/dev/null || true
     RAN_MIGRATIONS="$(cat "$mig_out" 2>/dev/null || true)"
     DEFERRED_MIGRATIONS="$(cat "$mig_defer_out" 2>/dev/null || true)"
@@ -4130,9 +4231,19 @@ fi
 # SINGLE SOURCE: the shortfall set is computed ONCE here; the operator-
 # actionable exit-56 diag below consumes the SAME set (no second verification
 # walk).
+#
+# FAIL-CLOSED ON THE VERIFIER ITSELF: the verifier's exit code and stderr are read,
+# never discarded. A verifier that could not run (a crash, an unreadable shipped
+# manifest) prints no shortfall lines, and an empty list must never read as
+# "converged": any non-zero verifier exit refuses to stamp with the same exit 56.
+# delivery_walk_ran records that this gate ran, so the Step 13.10 self-check claims
+# a delivery walk only on a lane where one happened.
 delivery_verified=1
+delivery_walk_ran=0
 if [ -f "$manifest_dst" ] && [ -n "$TARGET_VERSION" ] \
    && { [ "$UPGRADE_ENVELOPE_ON" = "1" ] || { [ "$LEGACY_ADOPT" = "1" ] && [ "$APPLY_MODE" = "1" ]; }; }; then
+  delivery_walk_ran=1
+  delivery_verify_err="$(mktemp 2>/dev/null || echo "")"
   # delivery_shortfall = newline-joined "<rel>\t<expected-sha>\t<ondisk-sha>" for
   # every non-exempt files[] ship-member whose on-disk content != shipped content.
   delivery_shortfall="$(
@@ -4180,10 +4291,11 @@ def sha256(p):
 
 try:
     m = json.load(open(os.environ["SHIPPED_MANIFEST"]))
-except Exception:
-    # Shipped manifest unreadable here would have failed Step 13.5 already; treat
-    # as no shortfall (do not block on a manifest the install just validated).
-    sys.exit(0)
+except Exception as e:
+    # Without the shipped manifest there is nothing to check the delivery against:
+    # a non-zero exit, so the gate refuses to stamp rather than read "converged".
+    print("shipped manifest unreadable: %s" % e, file=sys.stderr)
+    sys.exit(3)
 
 for f in m.get("files", []):
     rel = f.get("path", "")
@@ -4206,8 +4318,20 @@ for f in m.get("files", []):
         sha_disk = "(absent)"
     if sha_disk != sha_shipped:
         print("%s\t%s\t%s" % (rel, sha_shipped, sha_disk))
-' 2>/dev/null
+' 2>"${delivery_verify_err:-/dev/null}"
   )"
+  delivery_verify_rc=$?
+  delivery_verify_first=""
+  if [ -n "$delivery_verify_err" ]; then
+    delivery_verify_first="$(grep -m1 . "$delivery_verify_err" 2>/dev/null)"
+    rm -f "$delivery_verify_err"
+  fi
+  if [ "$delivery_verify_rc" -ne 0 ]; then
+    delivery_verified=0
+    diag "delivery verification could not run (verifier rc=$delivery_verify_rc): ${delivery_verify_first:-(no stderr)}. Refusing to stamp this home (no .installed-state.json written, baseline NOT advanced) — exit 56."
+    diag "remediation: fix the cause named above, then re-run the identical command; the stamp and frozen baseline were NOT advanced, so nothing is lost."
+    exit 56
+  fi
   if [ -n "$delivery_shortfall" ]; then
     delivery_verified=0
  # operator-actionable refuse. Mirror the G2
@@ -4264,6 +4388,7 @@ if [ -f "$manifest_dst" ] && [ -n "$TARGET_VERSION" ]; then
   state_manifest_sha="$(shasum -a 256 "$manifest_dst" 2>/dev/null | awk '{print $1}')"
   if ! FV="$TARGET_VERSION" IA="$state_installed_at" SS="$state_install_sha" MS="$state_manifest_sha" \
       PRIOR_MIG="$PRIOR_MIGRATIONS_APPLIED" RAN_MIG="$RAN_MIGRATIONS" \
+      PRIOR_SPO="$PRIOR_SEEDED_PERMISSIONS_OFFERED" \
       python3 -c '
 import json, os, sys
 # COMBINED high-water log: prior on-disk ids + the ids the Step 13.6 runner
@@ -4274,18 +4399,36 @@ for src in (os.environ.get("PRIOR_MIG", ""), os.environ.get("RAN_MIG", "")):
         mid = line.strip()
         if mid and mid not in applied:
             applied.append(mid)
+# seeded_permissions_offered: every seeded permissions.ask rule offered so far —
+# the prior record read at entrypoint, then this release declaration (the copy
+# Step 10 landed), de-duplicated in first-seen order. Step 12.7 never re-offers
+# a rule recorded here, so an adopter removal sticks across upgrades.
+offered = []
+try:
+    prior = json.loads(os.environ.get("PRIOR_SPO", "[]") or "[]")
+except ValueError:
+    prior = []
+try:
+    declared = json.load(open(sys.argv[2])).get("ask", [])
+except Exception:
+    declared = []
+for src in (prior, declared):
+    for rule in (src if isinstance(src, list) else []):
+        if isinstance(rule, str) and rule not in offered:
+            offered.append(rule)
 rec = {
     "foundation_version": os.environ["FV"],
     "installed_at": os.environ["IA"],
     "source_install_sha256": os.environ["SS"],
     "manifest_sha256": os.environ["MS"],
     "migrations_applied": applied,
+    "seeded_permissions_offered": offered,
     "schema_versions": {},
 }
 with open(sys.argv[1], "w") as f:
     json.dump(rec, f, indent=2)
     f.write("\n")
-' "$INSTALLED_STATE_PATH" 2>/dev/null; then
+' "$INSTALLED_STATE_PATH" "$CLAUDE_HOME/templates/settings-seeded-permissions.json" 2>/dev/null; then
     diag "failed to write installed-state stamp at $INSTALLED_STATE_PATH"
     exit 30
   fi
@@ -4383,7 +4526,13 @@ for src in ("PRIOR_MIG", "RAN_MIG"):
     post_apply_self_check="pass"
     _pac_ran_n="$(printf '%s' "${RAN_MIGRATIONS:-}" | grep -c . 2>/dev/null)"; _pac_ran_n="${_pac_ran_n:-0}"
     _pac_hw_n="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1])).get('migrations_applied',[])))" "$INSTALLED_STATE_PATH" 2>/dev/null || printf '?')"
-    info "post-apply self-check: PASS — foundation_version=$TARGET_VERSION confirmed on read-back; migrations: $_pac_ran_n applied this run, high-water log $_pac_hw_n id(s); manifest sha cross-check ok (delivery walk already held every non-exempt managed file to the shipped bytes on the delivering lane)"
+    # Claim the delivery walk only where the gate above ran; a fresh install has none.
+    if [ "${delivery_walk_ran:-0}" = "1" ]; then
+      _pac_walk="delivery walk already held every non-exempt managed file to the shipped bytes on the delivering lane"
+    else
+      _pac_walk="stamp vs manifest only; no per-file delivery walk ran on this lane"
+    fi
+    info "post-apply self-check: PASS — foundation_version=$TARGET_VERSION confirmed on read-back; migrations: $_pac_ran_n applied this run, high-water log $_pac_hw_n id(s); manifest sha cross-check ok ($_pac_walk)"
   else
     post_apply_self_check="warn"
     warn "post-apply self-check: FINDINGS on stamp read-back (install completed; investigate before relying on this home):"
@@ -4461,6 +4610,14 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
       [ -z "$p" ] || printf '  - %s\n' "$p"
     done
   fi
+  # The migrations' `NNNN: ACTION ` lines — the adopter-facing follow-ups a
+  # migration could not settle on its own (an adopter-edited file left in place).
+  if [ -n "${MIG_ACTION_LINES:-}" ]; then
+    printf 'migrations_action_required:\n'
+    printf '%s\n' "$MIG_ACTION_LINES" | while IFS= read -r p; do
+      [ -z "$p" ] || printf '  - %s\n' "$p"
+    done
+  fi
   printf 'post_apply_self_check: %s\n' "$post_apply_self_check"
   if [ "$post_apply_self_check" = "warn" ]; then
     printf 'post_apply_findings:\n'
@@ -4506,25 +4663,39 @@ fi
 # console (build vocabulary an adopter cannot act on).
 if [ "$UPGRADE_BASELINE_PRESENT" = "1" ]; then
   info "upgrade complete: ${INSTALLED_VERSION:-unknown} -> ${TARGET_VERSION:-unknown}. next-steps:"
+  if [ -n "${MIG_ACTION_LINES:-}" ]; then
+    info "  - ACTION REQUIRED after upgrade:"
+    printf '%s\n' "$MIG_ACTION_LINES" | while IFS= read -r p; do
+      [ -z "$p" ] || info "      $p"
+    done
+  fi
   info "  - verify: the post-apply self-check verdict is printed above (PASS expected); the pre-upgrade backup is at ${BACKUP_DIR:-<your --backup-dir>}"
   info "  - re-running the same command any time is safe (idempotent); exit 56 on a future run means run it once more to converge"
-  info "  - launchd lanes: only if this release changed plist templates — re-render + bootstrap (the SessionStart hook also does this automatically in your next Aqua session):"
-  info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh \"\$job\"; done"
+  info "  - launchd lanes: only if this release changed plist templates — re-render + bootstrap (the SessionStart hook bootstraps a plist this command rendered, in your next Aqua session; the hook never renders one):"
+  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") \"\$job\"; done"
   info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
-  info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --full --dry-run   # preview proposed created/id/schema_version/description"
-  info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --fix --full        # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
+  info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --full --dry-run  # preview proposed created/id/schema_version/description"
+  info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --fix --full       # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
 else
   info "install complete (${TARGET_VERSION:-unknown}). next-steps:"
+  if [ -n "${MIG_ACTION_LINES:-}" ]; then
+    # defensive: a migration never runs on a fresh install, but the epilogue
+    # is one contract for both lanes
+    info "  - ACTION REQUIRED after upgrade:"
+    printf '%s\n' "$MIG_ACTION_LINES" | while IFS= read -r p; do
+      [ -z "$p" ] || info "      $p"
+    done
+  fi
   info "  - START HERE: open a Claude Code session and run /onboard — a short interview writes user-manifest.json + your global CLAUDE.md and builds your vault"
   info "  - render plists for ALL declared jobs (post-onboarding) — loop the shipped single-job renderer:"
-  info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging \"\$job\"; done"
+  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --staging-dir $(printf '%q' "$CLAUDE_HOME/Library/LaunchAgents.staging") \"\$job\"; done"
   info "  - render a single job manually:"
-  info "    \$CLAUDE_HOME/installer/render-launchd.sh --staging-dir \$CLAUDE_HOME/Library/LaunchAgents.staging <job-id>"
+  info "    $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --staging-dir $(printf '%q' "$CLAUDE_HOME/Library/LaunchAgents.staging") <job-id>"
   info "  - load the lanes NOW (real launchctl bootstrap): the SessionStart hook (session-start-launchd-bootstrap.sh) does this automatically in your next Aqua session; this is the manual fallback for a headless / non-session install — the production (no --staging-dir) render bootstraps each label:"
-  info "    for job in writer-reconciler doc-amender; do \$CLAUDE_HOME/installer/render-launchd.sh \"\$job\"; done"
+  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") \"\$job\"; done"
   info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
-  info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --full --dry-run   # preview proposed created/id/schema_version/description"
-  info "    \$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh --fix --full        # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
+  info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --full --dry-run  # preview proposed created/id/schema_version/description"
+  info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --fix --full       # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
 fi
 info "provenance: $log_path"
 

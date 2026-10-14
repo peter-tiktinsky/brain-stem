@@ -1,0 +1,23 @@
+{
+  "_comment": "Permission rules install.sh adds to .permissions.ask in ~/.claude/settings.json, so Claude Code asks before it edits a directory brain-stem manages. Those directories are replaced on every upgrade (an edited file is set aside as a .foundation-local sidecar), so a change made there by hand does not last. One rule per managed top-level directory, and one per shipped skill under skills/. Each rule is offered once: the offered set is recorded in governance/.installed-state.json, so a rule you remove is never added back, and a rule a later release adds is offered on that upgrade. Your own allow, deny, ask and defaultMode entries are never removed, rewritten or reordered; the seeded rules are appended after them.",
+  "ask": [
+    "Edit(~/.claude/governance/**)",
+    "Edit(~/.claude/hooks/**)",
+    "Edit(~/.claude/installer/**)",
+    "Edit(~/.claude/orchestrator/**)",
+    "Edit(~/.claude/schemas/**)",
+    "Edit(~/.claude/skills/backlog-hygiene/**)",
+    "Edit(~/.claude/skills/backlog-research/**)",
+    "Edit(~/.claude/skills/backlog-triage/**)",
+    "Edit(~/.claude/skills/doc-amender/**)",
+    "Edit(~/.claude/skills/govern/**)",
+    "Edit(~/.claude/skills/librarian/**)",
+    "Edit(~/.claude/skills/mem-promote/**)",
+    "Edit(~/.claude/skills/new-plan/**)",
+    "Edit(~/.claude/skills/onboarder/**)",
+    "Edit(~/.claude/skills/session-checkpoint/**)",
+    "Edit(~/.claude/skills/writer-reconciler/**)",
+    "Edit(~/.claude/templates/**)",
+    "Edit(~/.claude/vault-init/**)"
+  ]
+}

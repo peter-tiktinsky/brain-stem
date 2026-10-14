@@ -6,8 +6,8 @@
 #      of the body (frontmatter stripped). This covers the overwhelming majority.
 #   2. CHEAP MODEL (Haiku-class, OPT-IN) — only when the heuristic is weak AND
 #      DERIVE_DESC_MODEL=1 AND the `claude` CLI is present. OFF by default so the
-#      write-time auto-stamp path stays deterministic + fast; the frontmatter-enforce
-#      --fix backfill (a batch/opt-in context) may enable it.
+#      write-time auto-stamp path stays deterministic + fast. No shipped caller sets
+#      DERIVE_DESC_MODEL=1; an operator exports it to opt in.
 #   3. DETERMINISTIC FALLBACK — the filename stem, so the helper is never empty.
 # Consumers (SHARED — one derivation contract, two callers):
 #   - hooks/post-write-verify.sh forward-governance cohort auto-stamp (T-7)

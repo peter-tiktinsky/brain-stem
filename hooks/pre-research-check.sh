@@ -35,10 +35,10 @@
 #            <topic>` pointer so the inline signal survives below the cap.
 #   PRE-5  Advisory-only: inject, never block; no Stop escalation.
 #
-# Degraded portable layer: a generic global-rules library-check entry (the
-# rules/ fallback seeded by install.sh — NOT authored here) backs this hook so coverage
-# is preserved even when the hook is absent. This hook only needs to degrade
-# gracefully (silent allow) when the library is absent.
+# No rules/ fallback is seeded (retired at v1.19.0, migration 0011): this hook is a
+# required UserPromptSubmit hook (templates/settings-required-hooks.json), so the
+# former degraded layer duplicated it. This hook only needs to degrade gracefully
+# (silent allow) when the library is absent.
 #
 # Seam note: the at-cap pointer text `librarian library-index --query <topic>`
 # (the SoT-worded contract) resolves to library-index.sh's
@@ -320,8 +320,8 @@ if stale_matched:
                  "(3) research fresh.")
 # PRE-2: read-pointer, never the full index body
 lines.append("")
-lines.append("Before researching, read _library/<topic>/_index.md for the "
-             "topic(s) above.")
+lines.append("Before researching, read _library/_index.md, then "
+             "_library/<topic>/_index.md for the topic(s) above.")
 if winnowed:
     lines.append("(%d of %d covered topics shown — top matches only; run "
                  "`librarian library-index` for the full roster.)"

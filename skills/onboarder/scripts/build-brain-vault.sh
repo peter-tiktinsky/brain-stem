@@ -116,7 +116,7 @@ VAULT_ROOT="$VAULT_ROOT_ARG"
 # discoverable after the fact. Fail loudly and name the key to set.
 if [ -z "$VAULT_ROOT" ]; then
   diag "no vault root configured — --vault-root was not given and .paths.vault_root is empty (mirror .vault.root also empty) in: $USER_MANIFEST"
-  diag "set .paths.vault_root in that user-manifest, or pass --vault-root PATH. There is no default vault location to fall back to."
+  diag "set it with: $CLAUDE_HOME/hooks/lib/field-set.sh user-manifest set paths.vault_root <vault-dir>, or pass --vault-root PATH. There is no default vault location to fall back to."
   exit 2
 fi
 VAULT_ROOT="$(expand_tilde "$VAULT_ROOT")"
@@ -144,15 +144,14 @@ MARKER="$VAULT_ROOT/Vault Writers/_index.md"   # presence => brain vault we buil
 # --- non-empty foreign-vault guard ---
 # Empty / missing      -> fresh build.
 # Our brain vault      -> idempotent overlay (marker present).
-# Foreign non-empty    -> refuse without --force (retrofit-existing is).
+# Foreign non-empty    -> refuse without --force.
 IS_BRAIN_VAULT=0
 [ -f "$MARKER" ] && IS_BRAIN_VAULT=1
 NON_EMPTY=0
 if [ -d "$VAULT_ROOT" ] && [ -n "$(ls -A "$VAULT_ROOT" 2>/dev/null)" ]; then NON_EMPTY=1; fi
 if [ "$NON_EMPTY" = "1" ] && [ "$IS_BRAIN_VAULT" = "0" ] && [ "$FORCE" != "1" ]; then
   diag "vault root is a non-empty FOREIGN directory: $VAULT_ROOT"
-  diag "refusing to scaffold into it. Pass --force to override, or use the"
-  diag "retrofit-existing flow for an existing vault."
+  diag "refusing to scaffold into it. Pass --force to scaffold into it anyway, or point --vault-root at an empty directory."
   exit 2
 fi
 

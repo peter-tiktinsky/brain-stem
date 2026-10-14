@@ -37,6 +37,11 @@
 #     - transformed frontmatter must validate against rules-schema.json.
 #     - target rule path must not already belong to a DIFFERENT source memory
 #       (name-collision guard).
+#     - target rule file must not ALREADY EXIST (any source memory, the same
+#       slug included): re-promotion never overwrites an existing rule — delete
+#       or rename the rule first, or pass --replace. --replace is honoured ONLY
+#       on an attended run; the fully-auto surface (MEMORY_GLOBALIZE_AUTO=1)
+#       never honours it.
 #     - with --target project: the project must OWN the memory being scanned.
 #       resolve_memory_dir() evaluated for the destination git root must equal
 #       the memory dir under scan; otherwise the whole dir is blocked with no
@@ -65,6 +70,9 @@
 # CLI:
 #   memory-globalize.sh                          # propose (NDJSON candidates; NO writes)
 #   memory-globalize.sh --apply                  # confirm: write rules + stamp pointers
+#   memory-globalize.sh --replace                # with --apply: overwrite an existing
+#                                                # target rule (attended runs only; the
+#                                                # fully-auto surface never honours it)
 #   memory-globalize.sh --scope <dir>            # one memory dir (else sweep all projects)
 #   memory-globalize.sh --include-default-scope  # also treat absent-scope as candidate
 #   memory-globalize.sh --dry-run                # summary counts only; no findings/writes
@@ -111,6 +119,7 @@ fi
   || source "$_REPO_LIB/findings.sh"
 
 APPLY="false"
+REPLACE="false"
 SCOPE=""
 DRY_RUN="false"
 INCLUDE_DEFAULT="false"
@@ -120,6 +129,7 @@ PATHS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY="true"; shift ;;
+    --replace) REPLACE="true"; shift ;;
     --scope) SCOPE="$2"; shift 2 ;;
     --include-default-scope) INCLUDE_DEFAULT="true"; shift ;;
     --dry-run) DRY_RUN="true"; shift ;;
@@ -202,7 +212,7 @@ if [[ -z "$SCHEMA_PATH" ]]; then
 fi
 
 python3 - "$MEM_DIRS" "$RULES_DIR" "$SCHEMA_PATH" "$APPLY" "$DRY_RUN" "$INCLUDE_DEFAULT" \
-         "$TARGET" "$PATHS" "$PROJECT_ROOT" "$PROJECT_MEM_DIR" <<'PY'
+         "$TARGET" "$PATHS" "$PROJECT_ROOT" "$PROJECT_MEM_DIR" "$REPLACE" "${MEMORY_GLOBALIZE_AUTO:-}" <<'PY'
 import json
 import os
 import re
@@ -220,6 +230,12 @@ target_scope = sys.argv[7]
 paths_csv = sys.argv[8]
 project_root = sys.argv[9]
 project_mem_dir = sys.argv[10]
+replace_flag = sys.argv[11] == "true"
+auto_mode = sys.argv[12]
+# --replace is honoured ONLY on an attended run: the fully-auto surface
+# (MEMORY_GLOBALIZE_AUTO=1) never overwrites an existing rule file, whatever
+# flags its caller forwards.
+replace_ok = replace_flag and auto_mode != "1"
 
 rule_paths = [p.strip() for p in paths_csv.split(",") if p.strip()] or None
 
@@ -397,7 +413,7 @@ counts = {
     "scanned": 0, "candidates": 0, "promoted": 0, "blocked": 0,
     "skipped_already_promoted": 0, "skipped_project_scope": 0,
     "skipped_absent_scope": 0, "skipped_no_frontmatter": 0,
-    "skipped_collision": 0,
+    "skipped_collision": 0, "skipped_existing": 0,
 }
 
 for memory_dir in mem_dirs:
@@ -500,6 +516,24 @@ for memory_dir in mem_dirs:
                 })
             continue
 
+        # Existing-target guard: a promotion NEVER overwrites an existing rule
+        # file. The collision guard above only blocks a DIFFERENT source_memory;
+        # a same-slug re-promotion (a source memory whose promoted_to: stamp was
+        # removed) would otherwise clobber the existing bytes unconditionally —
+        # including a compacted stub. Block-and-log; --replace (attended runs
+        # only) is the sole overwrite path.
+        if os.path.isfile(target) and not replace_ok:
+            counts["skipped_existing"] += 1
+            if not dry_run:
+                emit({
+                    "finding": "memory-globalize", "file": entry,
+                    "category": "promotion-blocked",
+                    "reason": "target rule %s already exists; re-promotion never overwrites — delete or rename the rule first, or pass --replace (attended runs only; the fully-auto surface never honours it)" % (rname + ".md"),
+                    "source_memory": src_slug, "target_rule": rname + ".md",
+                    "valid": False, "memory_dir": memory_dir,
+                })
+            continue
+
         counts["candidates"] += 1
 
         if apply_mode:
@@ -537,10 +571,10 @@ if dry_run:
     print("  scanned=%d candidates=%d promoted=%d blocked=%d" % (
         counts["scanned"], counts["candidates"], counts["promoted"], counts["blocked"],
     ), file=sys.stderr)
-    print("  skipped: already_promoted=%d project_scope=%d absent_scope=%d collision=%d no_frontmatter=%d" % (
+    print("  skipped: already_promoted=%d project_scope=%d absent_scope=%d collision=%d existing=%d no_frontmatter=%d" % (
         counts["skipped_already_promoted"], counts["skipped_project_scope"],
         counts["skipped_absent_scope"], counts["skipped_collision"],
-        counts["skipped_no_frontmatter"],
+        counts["skipped_existing"], counts["skipped_no_frontmatter"],
     ), file=sys.stderr)
 PY
 

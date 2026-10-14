@@ -52,13 +52,29 @@
 # the chronicle is never pruned/rewritten destructively — a re-derive rebuilds the
 # full newest-first projection from the current handoff.md set (it adds blocks for
 # new sessions; it does not delete the historical record from the source
-# handoffs, which are themselves append-only session records).
+# handoffs, which are themselves append-only session records). The per-plan window
+# (LEDGER below) bounds what the chronicle shows; the ledger keeps every block.
 #
 # Re-derive from each handoff.md every run; a missing/empty/malformed handoff =
 # DEFENSIVE SKIP + a finding, never an error (defensive default).
 #
+# LEDGER. Each run first derives <plans-root>/_projects/<spoke>/handoff-ledger.jsonl: one JSON
+# row per session block across the spoke's plans, sorted by (plan, at-or-date, n, pos). Keys:
+#   plan (the plan dir basename), n, at, date, title, kind, source, heading, pos, path, next,
+#   summary, summary_src.
+# A block stamped by the handoff-entry verb carries a one-line identity header; its row takes n,
+# at and kind from that header (source "header"). A legacy block parses through
+# hooks/lib/handoff-recognizer.sh (source "recognizer"; at and kind are null). date is the
+# heading's date, else the header's at date. title is the heading's trailing (...) text, else the
+# whole heading. pos is the block's position in its handoff.md. The rows alone render the
+# chronicle: the chronicle is rendered from them, never from a second parse.
+# The chronicle keeps the newest N blocks of each plan (--window N; default 5; 0 = every
+# block); the ledger always holds every block.
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
+#     - {PLANS_ROOT}/_projects/<spoke>/handoff-ledger.jsonl  (atomic temp+os.replace; the
+#         derived ledger, one JSON row per session block; see LEDGER above).
 #     - {PLANS_ROOT}/_projects/<spoke>/handoff-chronicle.md  (atomic temp+os.replace;
 #         full-file re-derive — the librarian role owns the WHOLE file). The
 #         sentinel-bounded region the SECONDARY-ROLE hook-append writer touches is
@@ -101,12 +117,13 @@
 #     append-one-block-at-the-head). It NEVER writes research-index.md,
 #     decision-log.md, the research/ symlink farm, plan manifests, or any plan
 #     handoff.md / _research/ content. It reads handoff.md and writes ONLY
-#     handoff-chronicle.md.
+#     handoff-ledger.jsonl and handoff-chronicle.md.
 #
 # CLI:
 #   plan-handoff-index.sh                 # regenerate every spoke's chronicle
 #   plan-handoff-index.sh --spoke <key>   # regenerate one spoke's chronicle only
-#   plan-handoff-index.sh --dry-run       # findings + would-be writes, NO write
+#   plan-handoff-index.sh --window <N>    # newest N blocks per plan in the chronicle (default 5; 0 = all)
+#   plan-handoff-index.sh --dry-run       # findings + would-be writes, NO write (neither file)
 #   plan-handoff-index.sh --help
 #
 # Env overrides (testing):
@@ -130,27 +147,39 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# The session-heading recognizer (exports the HANDOFF_*_PY patterns the parser below
+# compiles). Unreadable in both homes: exit 2 naming the lib, never a silent guess.
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh"; } \
+  || { [ -r "$_REPO_LIB/handoff-recognizer.sh" ] && source "$_REPO_LIB/handoff-recognizer.sh"; } \
+  || { echo "plan-handoff-index: hooks/lib/handoff-recognizer.sh unreadable under $CLAUDE_HOME_RES and $_REPO_LIB" >&2; exit 2; }
 
 DRY_RUN="false"
 SPOKE_FILTER=""
+WINDOW="5"
 while [ $# -gt 0 ]; do
   case "$1" in
     --spoke)   SPOKE_FILTER="${2:-}"; shift 2 ;;
+    --window)  WINDOW="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-handoff-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
+case "$WINDOW" in
+  ''|*[!0-9]*) echo "plan-handoff-index: --window takes a whole number (0 = every entry), got '$WINDOW'" >&2; exit 2 ;;
+esac
 
 # --- plans home resolution (robust; the sibling pattern) ---------------------
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 
-python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
+python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" "$WINDOW" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date
 
-plans_root, dry_s, spoke_filter = sys.argv[1:4]
+plans_root, dry_s, spoke_filter, window_s = sys.argv[1:5]
+window = int(window_s)
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
@@ -220,7 +249,7 @@ def walk_manifests(root):
             emit({"finding": "plan-handoff-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
-        # /(): keep only real plans. A real plan has a `status` field
+        # Real-plan shape predicate: keep only real plans. A real plan has a `status` field
         # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
         # accept clause subsumes the corpus_version/slots reject (those fixtures also
         # lack status+spec.md); if a future corpus_version dir ever declares status,
@@ -257,13 +286,10 @@ def field(man, key, default=""):
 #. The Session-followed-by-a-date form ("## Session 2026-06-24 — ...") is a
 # valid boundary but its date is parsed as the date sort-key, NOT the ordinal (
 # see SESSION_NUM_RE); S-prefixed ordinals ("", "Session") and the colon
-# form ("Session: ...") parse too.
+# form ("Session: ...") parse too. The patterns come from
+# hooks/lib/handoff-recognizer.sh, through the environment; no literal lives here.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+"
-    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
-    r"|s[0-9]+\b"
-    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
-    r".*$",
+    os.environ["HANDOFF_SESSION_HEADING_PY"],
     re.IGNORECASE,
 )
 # the `Next session...` carry-forward line, in any of its shipped forms
@@ -279,8 +305,11 @@ DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNOR
 # trailing (?![0-9])(?!-DD-DD) guard rejects a YYYY-MM-DD date so a
 # "Session 2026-06-24" heading yields NO spurious 2026 ordinal — the date is
 # picked up by DATE_RE instead. ""/"Session"→69/74; "Session <N>a"→<N>.
-SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
-DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
+SESSION_NUM_RE = re.compile(os.environ["HANDOFF_SESSION_NUM_PY"], re.IGNORECASE)
+DATE_RE = re.compile(os.environ["HANDOFF_DATE_PY"])
+# a stamped entry's one-line identity header; dropped from a block's body before the
+# summary harvest, as the append hook does.
+ENTRY_HEADER_RE = re.compile(os.environ["HANDOFF_ENTRY_HEADER_PY"])
 
 # The harvested next-session line carries its OWN "**Next session…:**" label verbatim,
 # and the renderer then prepends its own "- **Next session:** " label — doubling it. Strip the
@@ -375,13 +404,13 @@ def parse_blocks(text, src_rel):
             "session": "(no recognized session heading)",
             "session_key": (-1, fb_date.group(1) if fb_date else "", 0),
             "next_line": fb_next, "summary": fb_summary, "summary_src": fb_src,
-            "src_rel": src_rel,
+            "src_rel": src_rel, "header": None,
         })
         return blocks
     for k, start in enumerate(bounds):
         end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)
         heading = lines[start].lstrip("# ").strip()
-        body_lines = lines[start + 1:end]
+        body_lines = [l for l in lines[start + 1:end] if not ENTRY_HEADER_RE.match(l)]
         # NEXT line (verbatim) — first matching line in the block (incl. heading).
         next_line = ""
         for l in lines[start:end]:
@@ -408,8 +437,23 @@ def parse_blocks(text, src_rel):
         blocks.append({
             "session": heading, "session_key": skey, "next_line": next_line,
             "summary": summary, "summary_src": src, "src_rel": src_rel,
+            "header": entry_header(lines[start + 1:end]),
         })
     return blocks
+
+
+def entry_header(lines):
+    """The block's one-line identity header (the handoff-entry stamp) as a dict, or None when
+    the block has none or it does not parse."""
+    for l in lines:
+        if ENTRY_HEADER_RE.match(l):
+            m = re.search(r"\{.*\}", l)
+            try:
+                d = json.loads(m.group(0)) if m else None
+            except Exception:
+                d = None
+            return d if isinstance(d, dict) else None
+    return None
 
 
 # --- assemble blocks per spoke ----------------------------------------------
@@ -471,15 +515,59 @@ def esc(cell):
     return (cell or "").replace("|", "\\|")
 
 
-def write_atomic(dirpath, target, body):
-    fd, tmp = tempfile.mkstemp(dir=dirpath, prefix="._handoff-chronicle.", suffix=".tmp")
+def write_atomic(dirpath, target, body, prefix="._handoff-chronicle."):
+    fd, tmp = tempfile.mkstemp(dir=dirpath, prefix=prefix, suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(body)
     os.replace(tmp, target)
 
 
+# --- the ledger: one row per session block (see LEDGER above) ----------------
+TITLE_RE = re.compile(r"\(([^()]*)\)\s*$")
+
+
+def ledger_row(b):
+    h = b.get("header") or {}
+    heading = b["session"]
+    hn = h.get("n")
+    hn = hn if isinstance(hn, int) and not isinstance(hn, bool) else None
+    at = h.get("at") if isinstance(h.get("at"), str) and h.get("at") else None
+    snum = SESSION_NUM_RE.search(heading)
+    sdate = DATE_RE.search(heading)
+    tm = TITLE_RE.search(heading)
+    kind = h.get("kind") if isinstance(h.get("kind"), str) and h.get("kind") else None
+    return {
+        "plan": b["plan_slug"],
+        "n": hn if hn is not None else (int(snum.group(1)) if snum else None),
+        "at": at,
+        "date": sdate.group(1) if sdate else (at[:10] if at else None),
+        "title": tm.group(1).strip() if tm else heading,
+        "kind": kind,
+        "source": "header" if b.get("header") else "recognizer",
+        "heading": heading,
+        "pos": b["session_key"][2],
+        "path": b["src_rel"],
+        "next": b["next_line"],
+        "summary": b["summary"],
+        "summary_src": b["summary_src"],
+    }
+
+
+def render_key(r):
+    # The chronicle's newest-first key, recomputed from the row's heading and position the
+    # way parse_blocks computes it: session ordinal, then date, then document position.
+    snum = SESSION_NUM_RE.search(r["heading"])
+    sdate = DATE_RE.search(r["heading"])
+    return (int(snum.group(1)) if snum else -1, sdate.group(1) if sdate else "", r["pos"])
+
+
+def ledger_key(r):
+    return (r["plan"], r["at"] or r["date"] or "", r["n"] if r["n"] is not None else -1, r["pos"])
+
+
 spokes_written = 0
 blocks_total = 0
+rows_total = 0
 
 # When a --spoke filter names a spoke with no contributing plans, still render an
 # empty chronicle for it (idempotent empty surface).
@@ -491,9 +579,25 @@ for spoke in target_spokes:
     blocks = spokes.get(spoke, [])
     binder_home = os.path.join(PROJECTS, spoke)
     chronicle = os.path.join(binder_home, "handoff-chronicle.md")
+    ledger = os.path.join(binder_home, "handoff-ledger.jsonl")
 
-    # newest-first: sort by descending session_key, then plan-slug.
-    ordered = sorted(blocks, key=lambda b: (b["session_key"], b["plan_slug"]), reverse=True)
+    # The ledger rows, in file order; the chronicle renders from these rows alone.
+    rows = sorted((ledger_row(b) for b in blocks), key=ledger_key)
+    rows_total += len(rows)
+    ledger_body = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+
+    # Per-plan window: the newest `window` rows of each plan (0 = every row).
+    kept = rows
+    if window > 0:
+        per_plan = {}
+        for r in rows:
+            per_plan.setdefault(r["plan"], []).append(r)
+        kept = []
+        for plan_rows in per_plan.values():
+            kept.extend(sorted(plan_rows, key=render_key, reverse=True)[:window])
+
+    # newest-first: sort by descending session key, then plan-slug.
+    ordered = sorted(kept, key=lambda r: (render_key(r), r["plan"]), reverse=True)
 
     # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
@@ -529,15 +633,15 @@ for spoke in target_spokes:
     body_lines = []
     for b in ordered:
         blocks_total += 1
-        plan = b["plan_slug"]
-        src_rel = b["src_rel"]
+        plan = b["plan"]
+        src_rel = b["path"]
         # SOURCE: a relative pointer to the handoff.md (../../<plan>/handoff.md
         # under the binder home _projects/<spoke>/). Use the plans-root-relative
         # path prefixed to climb out of _projects/<spoke>/.
         src_link = md_link(src_rel, "../../%s" % src_rel)
-        next_line = strip_next_label(b["next_line"]) or "—"
+        next_line = strip_next_label(b["next"]) or "—"
         summary = b["summary"] or "—"
-        body_lines.append("### %s — %s" % (esc(plan), esc(b["session"])))
+        body_lines.append("### %s — %s" % (esc(plan), esc(b["heading"])))
         body_lines.append("")
         body_lines.append("- **Source:** %s" % src_link)
         body_lines.append("- **Next session:** %s" % esc(next_line))
@@ -559,6 +663,12 @@ for spoke in target_spokes:
                   "reason": "mkdir-failed", "error": str(exc), "detected_at": today})
             continue
         try:
+            write_atomic(binder_home, ledger, ledger_body, prefix="._handoff-ledger.")
+        except Exception as exc:
+            emit({"finding": "plan-handoff-index-blocked", "file": ledger,
+                  "reason": "write-failed", "error": str(exc), "detected_at": today})
+            continue
+        try:
             write_atomic(binder_home, chronicle, content)
         except Exception as exc:
             emit({"finding": "plan-handoff-index-blocked", "file": chronicle,
@@ -566,6 +676,6 @@ for spoke in target_spokes:
             continue
     spokes_written += 1
 
-print("plan-handoff-index: spokes=%d source-manifests=%d blocks=%d dry_run=%s"
-      % (spokes_written, len(manifests), blocks_total, dry_run), file=sys.stderr)
+print("plan-handoff-index: spokes=%d source-manifests=%d ledger-rows=%d blocks=%d window=%d dry_run=%s"
+      % (spokes_written, len(manifests), rows_total, blocks_total, window, dry_run), file=sys.stderr)
 PY

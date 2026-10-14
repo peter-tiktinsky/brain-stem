@@ -18,7 +18,7 @@
 # Capability chain (per SKILL.md session-close):
 #   Step 2  : scoped integrity (frontmatter-enforce, xref-check,
 #             placement-validate, stale-detect, handoff-disposition-check,
-#             plan-index, plan-parent-resolve) + the auto-fire adds:
+#             inbox-drain-check, plan-index, plan-parent-resolve) + the auto-fire adds:
 #             writers-index-refresh + writers-overlap-refresh (vault-health),
 #             drift-sweep --plans --fix (the master<->sub reconciler), and
 #             governance-parity-audit (R-37's enforcement vehicle — BUILD-DOGFOOD
@@ -85,9 +85,13 @@ set -uo pipefail
 
 # Capture whether the CALLER explicitly chose a plans root, BEFORE paths.sh resolves a
 # fallback below. Consumed by the corpus-walk dead-switch: a fallback-resolved PLANS_DIR
-# must not be mistaken for a deliberate caller choice.
+# must not be mistaken for a deliberate caller choice. A caller that SOURCED paths.sh
+# (the integrity backstop does, through registry.sh) hands this process a PLANS_DIR that
+# paths.sh defaulted and exported; paths.sh records that default in _PATHS_PLANS_DEFAULTED,
+# so a PLANS_DIR equal to it is not a caller choice. PLANS_ROOT is never defaulted by
+# paths.sh, so any non-empty PLANS_ROOT is.
 _SC_PLANS_CALLER_SET=0
-if [[ -n "${PLANS_ROOT:-}" || -n "${PLANS_DIR:-}" ]]; then
+if [[ -n "${PLANS_ROOT:-}" || ( -n "${PLANS_DIR:-}" && "${PLANS_DIR:-}" != "${_PATHS_PLANS_DEFAULTED:-}" ) ]]; then
   _SC_PLANS_CALLER_SET=1
 fi
 
@@ -110,13 +114,28 @@ fi
 # when the caller does not override it. Under a TEST/CI harness that reaches session-close
 # — including the SessionEnd DETACHED auto-close spawn (hooks/session-deregister.sh), which
 # runs the real session-close inheriting the caller's env with no PLANS_DIR of its own —
-# that fallback silently resolves to the operator's LIVE corpus. PLANS_DIR_DEAD marks a
-# test/CI context; when it is armed AND the caller chose NO plans root, re-point the plans
-# root to an isolated empty throwaway so EVERY corpus-walking step operates on an empty
-# tree, never the live corpus. Production (dead-switch empty) and tests that own their
-# plans root (PLANS_ROOT/PLANS_DIR set) are unaffected.
-if [[ -n "${PLANS_DIR_DEAD:-}" && "$_SC_PLANS_CALLER_SET" == "0" ]]; then
-  _SC_DEAD_PLANS="${CLAUDE_STATE_ROOT:-${TMPDIR:-/tmp}}/.session-close-dead-plans.$$"
+# that fallback silently resolves to the operator's LIVE corpus. Two switches mark a
+# test/CI context: PLANS_DIR_DEAD, and HOOKS_STATE_OVERRIDE (the test-isolation seam a
+# standalone fixture sets even when it never sources the standalone preamble). When
+# EITHER is non-empty AND the caller chose NO plans root, re-point the plans root to an
+# isolated empty throwaway so EVERY corpus-walking step operates on an empty tree, never
+# the live corpus. Production (both switches empty) and tests that own their plans root
+# (PLANS_ROOT/PLANS_DIR set) are unaffected.
+# ANCHOR: the throwaway lives under CLAUDE_STATE_ROOT, or the temp dir when that is unset.
+# When HOOKS_STATE_OVERRIDE is set and CLAUDE_STATE_ROOT is merely paths.sh's own default
+# (equal to what paths.sh resolves with CLAUDE_STATE_ROOT unset), that default is the live
+# state root, so the throwaway is anchored under the override instead and is never created
+# under a live state root. The default is read from paths.sh itself in a subshell, never
+# hand-copied, and only on this armed path.
+if [[ ( -n "${PLANS_DIR_DEAD:-}" || -n "${HOOKS_STATE_OVERRIDE:-}" ) && "$_SC_PLANS_CALLER_SET" == "0" ]]; then
+  _SC_DEAD_ANCHOR="${CLAUDE_STATE_ROOT:-${TMPDIR:-/tmp}}"
+  if [[ -n "${HOOKS_STATE_OVERRIDE:-}" ]]; then
+    _SC_STATE_DEFAULT="$(unset CLAUDE_STATE_ROOT; source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh" >/dev/null; printf '%s' "${CLAUDE_STATE_ROOT:-}")"
+    if [[ "${CLAUDE_STATE_ROOT:-}" == "$_SC_STATE_DEFAULT" ]]; then
+      _SC_DEAD_ANCHOR="$HOOKS_STATE_OVERRIDE"
+    fi
+  fi
+  _SC_DEAD_PLANS="$_SC_DEAD_ANCHOR/.session-close-dead-plans.$$"
   mkdir -p "$_SC_DEAD_PLANS" 2>/dev/null || true
   PLANS_DIR="$_SC_DEAD_PLANS"
   PLANS_ROOT="$_SC_DEAD_PLANS"
@@ -360,15 +379,26 @@ esac
 # then write a second receipt anyway. A re-invocation arriving within 60s of the
 # last receipt exits 0 here, before any capability work. Dry runs never short-
 # circuit: they write nothing, so they always report the full would-do walk.
+#
+# Session-scoped (T-6): a receipt suppresses THIS session's
+# close only when it is <60s old AND its `session_id:` line equals this
+# session's SELF_SESSION_ID, is bare, or is absent (receipts written before the
+# id was stamped). EVERY fresh receipt is checked, not only the newest, so two
+# sessions ending inside the window each keep their receipt. A bare-id receipt
+# matches every session — the manual-close behaviour, kept. Receipts are named
+# session-close-YYYYMMDD-HHMMSS.md; a same-second second write takes
+# session-close-YYYYMMDD-HHMMSS-<pid>.md (see write_log).
 idempotent_guard() {
-  local recent
-  recent=$(ls -1t "$LOG_DIR"/session-close-*.md 2>/dev/null | head -1)
-  [[ -z "$recent" ]] && return 1
-  local age
-  age=$(( $(date +%s) - $(stat -f %m "$recent" 2>/dev/null || echo 0) ))
-  if [[ "$age" -lt 60 ]]; then
-    return 0
-  fi
+  local f age line
+  for f in "$LOG_DIR"/session-close-*.md; do
+    [[ -f "$f" ]] || continue
+    age=$(( $(date +%s) - $(stat -f %m "$f" 2>/dev/null || echo 0) ))
+    [[ "$age" -lt 60 ]] || continue
+    line="$(sed -n 's/^session_id:[[:space:]]*//p' "$f" 2>/dev/null | head -1)"
+    if [[ -z "$line" || "$line" == "${SELF_SESSION_ID:-}" ]]; then
+      return 0
+    fi
+  done
   return 1
 }
 if [[ "$DRY_RUN" != "true" ]] && idempotent_guard; then
@@ -482,7 +512,17 @@ run_capability() {
   FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$cap_path" "$@" \
     >"$cap_stdout" 2>"$out_file"
   rc=$?
-  grep -a '^{' "$cap_stdout" >>"$RUN_FINDINGS_NDJSON" 2>/dev/null
+  # T-8: a failed sink append must surface. Collect the finding
+  # lines first, append only when there are any, and record findings-sink: error
+  # naming the capability and the sink when the append fails — findings would
+  # otherwise vanish with no trace in the receipt.
+  local fold
+  fold="$(grep -a '^{' "$cap_stdout")"
+  if [[ -n "$fold" ]]; then
+    if ! printf '%s\n' "$fold" >>"$RUN_FINDINGS_NDJSON"; then
+      record_capability "findings-sink" "error" "append failed after $name: $RUN_FINDINGS_NDJSON"
+    fi
+  fi
   cat "$cap_stdout" >>"$out_file"
   rm -f "$cap_stdout"
   if [[ "$rc" -eq 0 ]]; then
@@ -668,6 +708,30 @@ step2_integrity() {
   else
     run_capability handoff-disposition-check
   fi
+  # Inbox drain gate, beside the handoff disposition check: a flat inbox note this session
+  # captured (its captured_session equals the session id) or touched must be decided, and
+  # the open undecided count is persisted for the SessionStart reader. The session id and
+  # the session's _inbox/*.md touched files are fed the same way as the handoff scan: the
+  # --touched-files CSV, else the session registry's touched_files for the detached spawn.
+  _ib_args=()
+  [[ -n "$SELF_SESSION_ID" ]] && _ib_args+=(--session-id "$SELF_SESSION_ID")
+  if [[ -n "$TOUCHED_FILES_CSV" ]]; then
+    _ib_oifs="$IFS"; IFS=','
+    for _ib_f in $TOUCHED_FILES_CSV; do
+      case "$_ib_f" in
+        */_inbox/*.md) _ib_args+=(--files "$_ib_f") ;;
+      esac
+    done
+    IFS="$_ib_oifs"
+  elif [[ -n "$SELF_SESSION_ID" && -f "$SESSION_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    while IFS= read -r _ib_f; do
+      case "$_ib_f" in
+        */_inbox/*.md) _ib_args+=(--files "$_ib_f") ;;
+      esac
+    done < <(jq -r --arg s "$SELF_SESSION_ID" \
+      '.sessions[$s].touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null)
+  fi
+  run_capability inbox-drain-check ${_ib_args[@]+"${_ib_args[@]}"}
   # T-4: maintain the episodic chronicle. Chained AFTER
   # handoff-disposition-check so the handoff/close-out block is already written —
   # the one-line-summary backfill harvests it. Read-mostly: pointer-metadata
@@ -772,7 +836,14 @@ step2_integrity() {
     # is written here as exactly ONE line and replayed below to stderr + the capability chain.
     _ca_refusals="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.refusals"
     : > "$_ca_refusals"
-    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" "$_ca_refusals" "$_ca_plan" "$_ca_sp" 2>/dev/null <<'PY'
+    # T-8: the write-failure channel (the python block appends
+    # "write failed: <manifest path>" here when os.replace fails) and the stderr
+    # capture (a crash replays its first line below).
+    _ca_wchan="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.wchan"
+    : > "$_ca_wchan"
+    _ca_errfile="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.err"
+    : > "$_ca_errfile"
+    _ca_stamped="$(FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" python3 - "$_ca_plans_root" "$_ca_refusals" "$_ca_plan" "$_ca_sp" "$_ca_wchan" 2>"$_ca_errfile" <<'PY'
 import json, os, sys, tempfile
 from datetime import date
 
@@ -780,6 +851,7 @@ plans_root = sys.argv[1]
 refusal_path = sys.argv[2] if len(sys.argv) > 2 else ""
 armed_plan = sys.argv[3] if len(sys.argv) > 3 else ""
 armed_sp = sys.argv[4] if len(sys.argv) > 4 else ""
+wchan_path = sys.argv[5] if len(sys.argv) > 5 else ""
 today = os.environ.get("SESSION_CLOSE_TODAY") or date.today().isoformat()
 sink = os.environ.get("FINDINGS_OUTPUT", "")
 
@@ -916,6 +988,12 @@ for mpath in targets:
                 os.unlink(tmp)
             except Exception:
                 pass
+        if wchan_path:
+            try:
+                with open(wchan_path, "a", encoding="utf-8") as fh:
+                    fh.write("write failed: " + mpath + "\n")
+            except Exception:
+                pass
         continue
     # `slug` is already resolved above (the gate emits with it); no second derivation.
     if did_completed_at:
@@ -934,6 +1012,7 @@ for mpath in targets:
 print(stamped)
 PY
 )"
+    _ca_stamp_rc=$?
     # Replay the ordering gate's refusals LOUDLY: one stderr line + one `refused` line in the
     # capability chain per refused target. `refused` is a NON-error status by design — the
     # withheld stamp is a CORRECT outcome (the same disposition tasks-render's loud-skip gets
@@ -949,7 +1028,26 @@ PY
       done < "$_ca_refusals"
     fi
     rm -f "$_ca_refusals"
-    record_capability "completed-at-stamp" "ok" "${_ca_stamped:-0} plan(s) stamped completed_at (armed target)"
+    # T-8: surface a failed stamp write instead of folding it
+    # into a clean count. The python block writes "write failed: <manifest
+    # path>" into the fifth-argv channel when os.replace fails; a non-zero exit
+    # (a crash) replays the first captured stderr line. Both record as errors,
+    # and the ok line records only on exit 0 with an empty channel.
+    if [[ "$_ca_stamp_rc" -ne 0 ]]; then
+      record_capability "completed-at-stamp" "error" "stamp block exit $_ca_stamp_rc — $(head -1 "$_ca_errfile")"
+    fi
+    _ca_wfailed=0
+    if [[ -s "$_ca_wchan" ]]; then
+      _ca_wfailed=1
+      while IFS= read -r _ca_wline; do
+        [[ -n "$_ca_wline" ]] || continue
+        record_capability "completed-at-stamp" "error" "$_ca_wline"
+      done < "$_ca_wchan"
+    fi
+    rm -f "$_ca_wchan" "$_ca_errfile"
+    if [[ "$_ca_stamp_rc" -eq 0 && "$_ca_wfailed" -eq 0 ]]; then
+      record_capability "completed-at-stamp" "ok" "${_ca_stamped:-0} plan(s) stamped completed_at (armed target)"
+    fi
   fi
   # Re-derive the tasks.md read-replica on the SAME armed target chain the stamps above
   # resolve. tasks.md is a manifest-derived replica whose sole sanctioned writer is
@@ -1132,11 +1230,11 @@ $_tr_plans_root/$_tr_armed/$_tr_sp"
   run_capability plan-parent-resolve
   # Chain the vault-health writers-* refreshers (R-44 _index regen).
   # writers-index-refresh -> Vault Writers/_index.md catalog;
-  # writers-overlap-refresh -> _overlap-matrix.md. writers-health-audit is NOT
-  # chained here — it is a findings-JSONL no-vault-write sweep (cron_block:daily,
-  # registry-declared); its scheduled home is the registry's cron_block
-  # declaration, not this close chain. The cron_block:daily declaration is
-  # intact in capability-registry.json.
+  # writers-overlap-refresh -> _overlap-matrix.md. Both declare the session-close-step-2
+  # mode in capability-registry.json, so the cadence roster below skips them (single
+  # fire). writers-health-audit is NOT chained here — it is a findings-JSONL
+  # no-vault-write sweep (cron_block:daily, registry-declared) that fires through the
+  # step-2e cadence roster (cadence_roster + sweep_due), dormant until opted in.
   run_capability writers-index-refresh
   run_capability writers-overlap-refresh
   # governance-parity-audit R-37 backstop. Split so the R-37 enforcement
@@ -1157,8 +1255,9 @@ $_tr_plans_root/$_tr_armed/$_tr_sp"
   # capability-registry-parity walks the registry <-> on-disk capability-body parity;
   # librarian-manifest-validate checks the librarian manifest shape. Both are advisory
   # (findings route to the per-run sink; session-close stays exit 0). Each also carries a
-  # monday rolling cron_block, but it is DELIBERATELY not enumerated in the sweep_due()
-  # cadence roster below — the step-2 mode is its single fire, so there is no double-fire.
+  # monday rolling cron_block, but the cadence roster below skips every capability that
+  # declares the session-close-step-2 mode — the step-2 mode is its single fire, so there
+  # is no double-fire.
   run_capability capability-registry-parity
   run_capability librarian-manifest-validate
   # The reach-verified coverage guard: a standing, report-only regression guard
@@ -1233,19 +1332,86 @@ step2d_trinity_drift() {
   run_capability trinity-drift-detect --axis trinity-status
 }
 
+# T-11: heal every tasks.md whose ledger STATUS contradicts its
+# manifest. The drift findings step2d_trinity_drift just collected carry
+# status_drift_ids + plan_dir (tasks-render emits them), so this step re-renders
+# exactly the flagged plans through the same sole writer — a targeted re-render
+# of already-flagged replicas, not a second corpus sweep. Format-only drift
+# (status_drift_ids == []) is deliberately left alone: the heal never widens
+# into a format rewrite. A plan_dir outside the walked root (a ../ escape or a
+# .. component inside it) is recorded as a skip and never touched.
+step2d_tasks_md_heal() {
+  if [[ "$TEST_MODE" == "true" ]]; then
+    record_capability "tasks-md-heal" "stub" "test-mode"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    record_capability "tasks-md-heal" "dry-run" "would re-render status-drifted tasks.md replicas"
+    return 0
+  fi
+  local healed=0 f kind slug rc heal_sink walked_root
+  walked_root="${PLANS_DIR:-}"
+  heal_sink="$(mktemp "${TMPDIR:-/tmp}/session-close-heal-XXXXXX.ndjson")"
+  while IFS=$'\t' read -r f kind; do
+    [[ -n "$f" ]] || continue
+    if [[ "$kind" != "inside" ]]; then
+      record_capability "tasks-md-heal" "skip" "$f — plan_dir outside the walked root"
+      continue
+    fi
+    slug="$(basename "$f")"
+    FINDINGS_OUTPUT="$heal_sink" bash "$CAPS_DIR/tasks-render.sh" "$f"
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      healed=$((healed + 1))
+      record_capability "tasks-md-heal" "ok" "$slug — re-rendered from manifest.tasks[]"
+    else
+      record_capability "tasks-md-heal" "error" "$slug — render exit $rc"
+    fi
+  done < <(jq -r --arg root "$walked_root" '
+      select(((.status_drift_ids // []) | length) > 0)
+      | (.plan_dir // "") as $p
+      | select($p != "")
+      | if ($p | startswith($root + "/")) and ($p | test("/\\.\\./") | not) then
+          "\($p)\tinside"
+        else
+          "\($p)\toutside"
+        end' "$RUN_FINDINGS_NDJSON")
+  rm -f "$heal_sink"
+  if [[ "$healed" -eq 0 ]]; then
+    record_capability "tasks-md-heal" "ok" "no status-drifted replica"
+  fi
+}
+
 # ---- Step 2e: cadence-gated maintenance roster -----------------------------
 # The reconciler / auditor / vault-maintenance / cross-project-hygiene capabilities that
 # declare a cron_block cadence in capability-registry.json have no background scheduler on
 # an adopter install — this detached close is their deterministic trigger. sweep_due()
 # (hooks/lib/cadence.sh) fires each one only when its rolling window has elapsed (a cold
 # ledger fires once, then the window governs), stamping a durable per-capability ledger so
-# an in-window re-close skips it. The roster is an EXPLICIT per-capability list, not a blind
-# registry enumeration: the two session-close-step-2 meta-gates and the dormant-until-opt-in
-# audits are wired (or gated) elsewhere and must not double-fire here. Findings flow into the
-# per-run sink and the triage digest. index-maintain runs dry-run-first (no destructive
-# re-derive on a clean adopter); the two memory caps sweep every project memory dir
-# (--all-projects); rules-hygiene runs headless (its deterministic drift classes emit while
-# the judgment class stays interactive-gated).
+# an in-window re-close skips it. The roster is REGISTRY-DRIVEN: it enumerates cadence_roster
+# (every cron_block daily | weekly | monday capability) and skips the step-2 set — each
+# capability whose invocation_modes array holds an element exactly equal to
+# session-close-step-2, which already fires once at close step 2 (element equality, never the
+# jq contains builtin: it substring-matches array elements and would also catch the
+# session-close-step-2b / session-close-step-2d modes). A new cron_block declaration is
+# covered without editing this file. If the step-2 set cannot be computed, no roster
+# capability fires (a missed fire, never a double-fire). The DORMANT-until-opt-in audits
+# stay gated inside sweep_due(). Findings flow into the per-run sink and the triage digest.
+# Close args come from _sc_roster_close_args below.
+#
+# Close args for a roster capability (empty = none). index-maintain runs dry-run-first (no
+# destructive re-derive on a clean adopter); the two memory caps sweep every project memory
+# dir (--all-projects); every other roster capability runs with no arguments (rules-hygiene
+# runs headless: its deterministic drift classes emit while the judgment class stays
+# interactive-gated).
+_sc_roster_close_args() {
+  case "$1" in
+    index-maintain)                  printf '%s' '--dry-run' ;;
+    memory-hygiene|memory-staleness) printf '%s' '--all-projects' ;;
+    *)                               ;;
+  esac
+}
+
 step2e_cadence_roster() {
   if [[ "$TEST_MODE" == "true" ]]; then
     record_capability "cadence-roster" "stub" "test-mode"
@@ -1256,23 +1422,43 @@ step2e_cadence_roster() {
     return 0
   fi
   [[ "$CADENCE_AVAILABLE" == "1" ]] || return 0
-  # Reconciler + auditor tier.
-  sweep_due index-maintain        >/dev/null 2>&1 && run_capability index-maintain --dry-run
-  sweep_due rules-index           >/dev/null 2>&1 && run_capability rules-index
-  sweep_due library-index         >/dev/null 2>&1 && run_capability library-index
-  sweep_due skill-parity          >/dev/null 2>&1 && run_capability skill-parity
-  sweep_due waiver-audit          >/dev/null 2>&1 && run_capability waiver-audit
-  sweep_due tag-coverage-audit    >/dev/null 2>&1 && run_capability tag-coverage-audit
-  # Mechanical vault-maintenance tier.
-  sweep_due wikilink-repair       >/dev/null 2>&1 && run_capability wikilink-repair
-  sweep_due log-archive           >/dev/null 2>&1 && run_capability log-archive
-  sweep_due log-subtype-canonical >/dev/null 2>&1 && run_capability log-subtype-canonical
-  sweep_due library-log-rotate    >/dev/null 2>&1 && run_capability library-log-rotate
-  # Cross-project hygiene tier.
-  sweep_due memory-hygiene        >/dev/null 2>&1 && run_capability memory-hygiene --all-projects
-  sweep_due memory-staleness      >/dev/null 2>&1 && run_capability memory-staleness --all-projects
-  sweep_due rules-hygiene         >/dev/null 2>&1 && run_capability rules-hygiene
-  sweep_due context-budget-index  >/dev/null 2>&1 && run_capability context-budget-index
+  local reg step2 roster cap args
+  if ! reg="$(_cadence_registry 2>/dev/null)" \
+     || ! step2="$(jq -r '.capabilities | to_entries[]
+          | select(any((.value.invocation_modes // [])[]; . == "session-close-step-2"))
+          | .key' "$reg" 2>/dev/null)"; then
+    record_capability "cadence-roster" "skip" "registry unreadable — step-2 set not computable, no roster capability fired"
+    return 0
+  fi
+  roster="$(cadence_roster 2>/dev/null | cut -f1)"
+  for cap in $roster; do
+    printf '%s\n' "$step2" | grep -qxF "$cap" && continue
+    # T-8: sweep_due reports on stderr and that stream is the
+    # verdict channel — capture it instead of discarding it. rc 2 (a roster
+    # member it cannot schedule) records a cadence-roster error; a "but ledger
+    # stamp failed" line (a FIRE whose ledger stamp could not persist) records
+    # one too and the capability still runs below; rc 1 (in-window SKIP) stays
+    # silent, as before.
+    _sd_out=""
+    _sd_rc=0
+    _sd_out="$(sweep_due "$cap" 2>&1 >/dev/null)" || _sd_rc=$?
+    if [[ "$_sd_rc" -eq 2 ]]; then
+      record_capability "cadence-roster" "error" "$cap: $(printf '%s' "$_sd_out" | head -1)"
+      continue
+    fi
+    if printf '%s' "$_sd_out" | grep -q 'but ledger stamp failed'; then
+      record_capability "cadence-roster" "error" "$cap: $(printf '%s' "$_sd_out" | grep 'but ledger stamp failed' | head -1)"
+      # The FIRE verdict stands — run the capability anyway below.
+    elif [[ "$_sd_rc" -ne 0 ]]; then
+      continue
+    fi
+    args="$(_sc_roster_close_args "$cap")"
+    if [[ -n "$args" ]]; then
+      run_capability "$cap" "$args"
+    else
+      run_capability "$cap"
+    fi
+  done
 }
 
 # ---- (former Step 3: sync-check / Step 4c: architect-triage) ---------------
@@ -1308,10 +1494,22 @@ write_log() {
     return 0
   fi
   mkdir -p "$LOG_DIR"
+  # T-6: the receipt is created exclusively (noclobber); a
+  # same-second collision takes the pid-suffixed name below and leaves the
+  # first receipt's bytes untouched. The primary name stays session-close-$TS.md.
+  RECEIPT_TARGET="$LOG_PATH"
+  if ! ( set -C; : > "$RECEIPT_TARGET" ) 2>/dev/null; then
+    RECEIPT_TARGET="$LOG_DIR/session-close-$TS-$$.md"
+    if ! ( set -C; : > "$RECEIPT_TARGET" ) 2>/dev/null; then
+      echo "[write_log] both receipt names exist ($LOG_PATH, $RECEIPT_TARGET) — skipping write" >&2
+      return 0
+    fi
+  fi
   {
     echo "---"
     echo "type: log"
     echo "log-type: session-close"
+    echo "session_id:${SELF_SESSION_ID:+ }${SELF_SESSION_ID}"
     echo "mode: shell-orchestrator"
     echo "scope: $SCOPE"
     echo "date: $TODAY"
@@ -1350,8 +1548,8 @@ write_log() {
       echo "One or more capabilities exited non-zero. Session-close is advisory"
       echo "and did not halt. Review the capability chain section for details."
     fi
-  } > "$LOG_PATH"
-  echo "session-close log: $LOG_PATH"
+  } > "$RECEIPT_TARGET"
+  echo "session-close log: $RECEIPT_TARGET"
 }
 
 # ---- orchestration ----------------------------------------------------------
@@ -1360,6 +1558,7 @@ step2_integrity
 step2b_rename_cascade
 run_reconcile_sweep
 step2d_trinity_drift
+step2d_tasks_md_heal
 step2e_cadence_roster
 
 # Count the per-run findings sink AFTER the capability chain and BEFORE write_log emits

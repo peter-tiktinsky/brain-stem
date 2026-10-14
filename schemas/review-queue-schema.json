@@ -3,7 +3,7 @@
   "$id": "https://brain-stem.local/schemas/review-queue-schema.json",
   "schema_version": "1.0.0",
   "title": "Memory review-queue contract (.review-queue.json)",
-  "description": "Validates the .review-queue.json state file that lives beside .consolidation-state.json under the memory state tier. The guaranteed-surfacing substrate: holds every unaddressed memory-review item with severity, state, defer/dismiss counts, and class. Repo-only (inline-validated like memory-schema/rules-schema, not adopter-shipped). Producers append via hooks/lib/review-queue.sh::enqueue_item (block-and-log). The SessionStart banner + UserPromptSubmit re-firing mandate + Stop-block read it.",
+  "description": "Validates the .review-queue.json state file that lives beside .consolidation-state.json under the memory state tier. The guaranteed-surfacing substrate: holds every unaddressed memory-review item with severity, state, defer/dismiss counts, and class. Shipped: install.sh copies it to $CLAUDE_HOME/schemas/, where enqueue_item resolves it and validates each appended item as a one-item queue document ({version, items: [item]}), reaching definitions.item through its $ref. Producers append via hooks/lib/review-queue.sh::enqueue_item (block-and-log). The SessionStart banner + UserPromptSubmit re-firing mandate + Stop-block read it.",
 
   "_design_notes": {
     "item_classes": {

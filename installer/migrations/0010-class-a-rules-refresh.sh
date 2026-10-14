@@ -4,10 +4,9 @@
 # applies_at: v1.18.0
 #
 # Deliver the Class-A rules retirement + shortening to an EXISTING adopter home. The
-# $CLAUDE_HOME/rules/ seeds are written by install.sh's seed_rules_entry, which preserves
-# on exist — so a content change never reaches a home that is already seeded, and a seed
-# that install.sh stops writing is never removed. This migration is the only delivery path
-# for both.
+# $CLAUDE_HOME/rules/ seeds were written by install.sh's seeder, which preserved on exist —
+# so a content change never reached a home that was already seeded, and a seed that
+# install.sh stops writing is never removed. A migration is the only delivery path for both.
 #
 # Three arms, all complete-or-no-op, touching ONLY $CLAUDE_HOME/rules/:
 #   (a) rules/README.md RETIRE. The README is no longer seeded into the always-on rules
@@ -18,11 +17,11 @@
 #       match a shipped seed are removed; anything else is adopter content and is preserved
 #       under rules/README.md.foundation-retired — a name outside the *.md glob the harness
 #       loads, so the bytes survive without costing context every session.
-#   (b) rules/{00,10,20,30}-*.md REFRESH. A body that matches a shipped seed is replaced
-#       with the current one; a body that is already current is left alone; anything else
-#       is adopter-edited and is left exactly as it is, with an advisory naming it. An
-#       ABSENT entry is a no-op: install.sh's seeder runs earlier in the same --apply and
-#       has already written the current body.
+#   (b) rules/{00,10,20,30}-*.md REFRESH — VACUOUS since v1.19.0. The arm loops over the
+#       table's LIVE roster (class_a_live_entries), which is derived from install.sh's
+#       seeder call sites; install.sh seeds nothing now, so the loop runs zero times and
+#       every entry on disk is left exactly as it is. The retirement of those four entries
+#       is migration 0011-class-a-rules-retire's, not this one's.
 #   (c) rules/25-bounded-spoke-for-cross-cutting-work.md RETIRE. Its guidance is delivered
 #       in full by the required SessionStart hook hooks/session-start-home-launch-warn.sh,
 #       which fires exactly when the launch directory is $HOME — the case the rule exists

@@ -1,7 +1,7 @@
 {
   "schema_version": "2.1.0",
   "pillar": "frontmatter",
-  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-coverage-audit. Carries R-32, R-33, R-37, R-39, R-40, R-64 plus the type registry, tier compliance, path-routing rules, and the universal typed cohort + property_types value-typing declarations. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
+  "_description": "Claude-consumed JSON registry for the frontmatter pillar. Loaded by pre-write-guard.sh at runtime and read by the librarian frontmatter-enforce. Carries R-32, R-33, R-37, R-39, R-40, R-64 plus the type registry, tier compliance, path-routing rules, and the universal typed cohort + property_types value-typing declarations. Frontmatter is the API every file exposes to the system; this pillar declares the fields, per-type contracts, AND the rules that enforce them. The former schemas/vault-schema.json was dissolved into this pillar (types + tier assignment + path routing) plus governance/tagging-rules.json (tag-prefix taxonomy).",
   "cohort": {
     "_description": "The universal typed frontmatter cohort applied to durable in-folder notes. Scope is LOCATION-BASED: every file resident in (or symlinked into, e.g. Work/) the brain folder (vault root) is in scope; machine files parked outside the brain folder (logs, XDG state) are exempt by location, not by type. The per-type required[] lists are the real enforcement surface; universal_required (tier_compliance) is documentary. Value-typing is the write-time property_types format regex (R-64).",
     "fields": [
@@ -26,7 +26,7 @@
     "schema_version": "int"
   },
   "_design_notes": {
-    "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-coverage-audit (R-39, R-40)",
+    "consumer": "pre-write-guard.sh — SCHEMA_KEY case statement + R-32 type-allowlist DENY + R-33 placement advisory (reads .types[].expected_path); post-write-verify.sh — R-39 provides-presence advisory (reads .types[].canonical_scope); librarian frontmatter-enforce (R-39, R-40)",
     "absorbed_from_vault_schema": [
       "tiers (canonical tier definitions; was vault-schema.json `tiers`)",
       "types (were top-level type keys in vault-schema.json)",
@@ -53,7 +53,7 @@
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Files written with an unknown `type:` value or with missing Strict-tier required fields drift the schema contract silently. Downstream consumers (auto-routing, librarian, scaffold) cannot reason about the file because the contract has been violated. Without write-time DENY, the schema becomes documentation rather than enforcement — production-scale untagged-file backlogs (~500 files observed in a reference deployment) accumulate before audit catches up. The Tier 2 DENY closes the gap at the moment of capture, returning a structured error that enumerates the missing fields and points to the schema entry.",
-      "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-coverage-audit); Minimal-tier writes proceed without validation.",
+      "rule_text": "Every Strict-tier vault write MUST declare a `type:` value drawn from the governance/frontmatter-rules.json `types` allowlist (retired types preserved in `retired_types`). For Strict-tier files, the universal required fields (`type`, `tags`, `updated`) AND the per-type `required` field list MUST all be present in the YAML frontmatter. Pre-write-guard DENIES writes failing either check; the DENY message enumerates the missing fields plus the pillar entry path. Adding a new type or extending a required-field list requires R-37 atomic lockstep updating this pillar + pre-write-guard SCHEMA_KEY case + post-write-verify type_map in one commit. Standard-tier writes emit a warning instead of DENY (operator triages via librarian frontmatter-enforce); Minimal-tier writes proceed without validation.",
       "schema_source": "governance/frontmatter-rules.json#types",
       "retired_types_handling": "Files declaring a retired `type:` value (currently `engagement`, `project`, `system-governance-spoke`) are DENIED with the retirement reference and per-type `replacement` guidance. For `engagement` and `project` the replacement points the author to the folder-lineage convention (field-level propagation via `engagement:` / `project:` frontmatter fields); `system-governance-spoke` retires with no replacement type (the file is now plain user content). See `retired_types` block."
     },
@@ -103,12 +103,12 @@
       "tier": "1",
       "enforcement_layer": [
         "post-write-verify.sh provides-presence advisory (Tier 1; combined with R-38 blockquote-summary block)",
-        "librarian frontmatter-coverage-audit (audit-time coverage tracking)"
+        "librarian frontmatter-enforce (audit-time coverage tracking)"
       ],
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Long-form files (>200 lines) without a `provides:` declaration become opaque to consumers that route by capability rather than by path. The router cannot determine what concepts the file is canonical for; the librarian cannot detect provides-canonicality drift (R-40) because there is no claim to compare against; downstream agents loading the file have no fast way to decide whether the content is relevant. The advisory surfaces the omission at write-time so the author either declares `provides:` deliberately or accepts the file as content-only.",
-      "rule_text": "Files exceeding 200 lines SHOULD declare a `provides:` array in their YAML frontmatter enumerating the concepts, rules, or capabilities the file is the canonical source for. Post-write-verify emits a Tier 1 advisory `[R-39 PROVIDES PRESENCE]` when a file over the line threshold lacks `provides:` or has `provides: []`. The advisory never blocks — content-only long-form files (raw transcripts, archive imports, daily-note dumps) are legitimate and the author can ignore the advisory. The librarian frontmatter-coverage-audit tracks recurring R-39 firings as `provides-coverage-drift` findings so the operator can triage at session-close.",
+      "rule_text": "Files exceeding 200 lines SHOULD declare a `provides:` array in their YAML frontmatter enumerating the concepts, rules, or capabilities the file is the canonical source for. Post-write-verify emits a Tier 1 advisory `[R-39 PROVIDES PRESENCE]` when a file over the line threshold lacks `provides:` or has `provides: []`. The advisory never blocks — content-only long-form files (raw transcripts, archive imports, daily-note dumps) are legitimate and the author can ignore the advisory. The librarian frontmatter-enforce tracks recurring R-39 firings as `provides-coverage-drift` findings so the operator can triage at session-close.",
       "advisory_only": true,
       "line_threshold": 200,
       "exemptions": [
@@ -124,14 +124,14 @@
       "surface": "plan-governance",
       "tier": "1",
       "enforcement_layer": [
-        "librarian frontmatter-coverage-audit (`provides-canonicality-drift` finding category)",
+        "librarian frontmatter-enforce (`provides-canonicality-drift` finding category)",
         "drift-allowlist override at hooks/drift-allowlist.json (`provides_overlap[]` for deliberate co-canonical pairs)",
         "manifest mirror at librarian-manifest.json `drift_findings.frontmatter.provides_canonicality`"
       ],
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Two or more canonical-scope files claiming the same `provides:` capability fragment authority. A consumer routing to the capability does not know which file to read; updates to one canonical do not propagate to the other; the two files drift into mutually-contradictory statements within months. Without an audit, the drift is invisible — `grep provides:` returns both files and the consumer picks one by accident. The librarian-audit finding surfaces the collision and asks the operator to either consolidate, archive one source, or register the overlap as deliberate in the drift-allowlist.",
-      "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-coverage-audit walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
+      "rule_text": "Within the canonical-scope of the vault (vault root depth-1 + Skills/**), no two files SHOULD declare the same capability in their `provides:` array. The librarian frontmatter-enforce walks every Standard- and Strict-tier file's `provides:` declaration, builds an inverted index, and emits a `provides-canonicality-drift` finding whenever a capability is claimed by 2+ canonical-scope owners. Severity is `blocking` when any owner sits at vault root; `warning` otherwise. Engagement reference docs, meeting notes, project context files, and daily notes are EXCLUDED from canonical-scope — `provides:` is project-scoped vocabulary there, not vault-wide canonical. Deliberate co-canonical pairs (e.g., a research packet plus its consumer-rendered spoke) register at hooks/drift-allowlist.json `provides_overlap[].capability` with rationale + audit-trail entry; allowlist entries mirror into librarian-manifest.json on every run and suppress the finding.",
       "audit_only": true,
       "canonical_scope": [
         "vault root depth-1",
@@ -165,12 +165,12 @@
       "enforcement_layer": [
         "pre-write-guard.sh property-type format-regex branch (Tier 1 advisory; warn-not-DENY under the shipped default)",
         "governance/frontmatter-rules.json `property_types` (value-type declarations)",
-        "librarian frontmatter-coverage-audit (audit-time typing-drift tracking)"
+        "librarian frontmatter-enforce (audit-time typing-drift tracking)"
       ],
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
       "failure_mode": "Cohort fields written with a malformed value type — a free-text `created`, a scalar `tags`, a spaced `id`, a non-integer `schema_version` — are syntactically present but semantically unusable: date-range queries, list membership, slug reconciliation, and schema-version migrations all silently misfire. Obsidian Bases, an MCP server over the vault, and a RAG/GraphRAG exporter read the raw frontmatter and inherit the malformed value. Without a write-time typing signal the drift is invisible until a downstream consumer breaks. The Tier 1 advisory surfaces the type mismatch at the moment of capture so the author can correct the shape; it never blocks — the value is present, only mis-typed.",
-      "rule_text": "Cohort fields declared in governance/frontmatter-rules.json `property_types` MUST carry their declared value type: `created`/`updated` a `date` (^YYYY-MM-DD), `tags` a `list` (YAML sequence), `id` a `slug-string` (^[a-z0-9]+(-[a-z0-9]+)*$), `schema_version` an `int` (^[0-9]+$). Pre-write-guard emits a Tier 1 advisory `[R-64 PROPERTY TYPE]` when a present cohort value does not match its declared type; the advisory never blocks (warn is the shipped default; per-vault hard-DENY is an opt-in override). The new cohort fields (`description`/`created`/`id`/`schema_version`) join `updated` in the soft-tier non-block set — a missing cohort field warns, it does not DENY. The enforceable typing layer is this write-time format regex; the seeded `.obsidian/types.json` is a UX-only mirror (brain-stem cannot enforce Obsidian's own property types). Adding or changing a `property_types` declaration requires R-37 atomic lockstep with the pre-write-guard.sh typing branch.",
+      "rule_text": "Cohort fields declared in governance/frontmatter-rules.json `property_types` MUST carry their declared value type: `created`/`updated` a `date` (^YYYY-MM-DD), `tags` a `list` (YAML sequence), `id` a `slug-string` (^[a-z0-9]+(-[a-z0-9]+)*$), `schema_version` an `int` (^[0-9]+$). Pre-write-guard emits a Tier 1 advisory `[R-64 PROPERTY TYPE]` when a present cohort value does not match its declared type; the advisory never blocks. The new cohort fields (`description`/`created`/`id`/`schema_version`) join `updated` in the soft-tier non-block set — a missing cohort field warns, it does not DENY. The enforceable typing layer is this write-time format regex; the seeded `.obsidian/types.json` is a UX-only mirror (brain-stem cannot enforce Obsidian's own property types). Adding or changing a `property_types` declaration requires R-37 atomic lockstep with the pre-write-guard.sh typing branch.",
       "advisory_only": true,
       "property_types_source": "governance/frontmatter-rules.json#property_types"
     }
@@ -195,7 +195,7 @@
       ]
     },
     "standard": {
-      "description": "User-authored vault content. Soft warning; librarian flags drift via tag-coverage-audit + frontmatter-coverage-audit capabilities.",
+      "description": "User-authored vault content. Soft warning; librarian flags drift via tag-coverage-audit + frontmatter-enforce capabilities.",
       "validation_behavior": "warn",
       "applies_to": "type entries with tier=standard in this pillar's `types` block",
       "universal_required": [
@@ -309,7 +309,7 @@
       "disposition": "path-governed",
       "governed_by": "governance/plans-rules.json#plan_folder_quartet",
       "path_glob": "~/.claude-plans/**/manifest.json",
-      "rationale": "The governed file is JSON and carries no YAML frontmatter at all, so a frontmatter `types` entry has nothing to key on. Full validation delegates to schemas/plan-manifest-schema.json (conditional-on-status). The contract's prose_prohibited rule names no enforcer in the runtime."
+      "rationale": "The governed file is JSON and carries no YAML frontmatter at all, so a frontmatter `types` entry has nothing to key on. Full validation delegates to schemas/plan-manifest-schema.json (conditional-on-status)."
     },
     "spec": {
       "disposition": "path-governed",
@@ -325,7 +325,7 @@
     }
   },
   "types": {
-    "_description": "Canonical type registry — the foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`) — ADD a new type, or SUPERSEDE a shipped one with a FULL replacement entry carrying `_override_reason` (R-52). A `null` overlay entry is NOT a delete and is rejected at load; there is no adopter-facing NULLIFY. Plan-tree types (spec, tasks, handoff) are governed by the plans pillar, not registered here; every file-type contract whose key is not an entry in this registry carries an explicit disposition in `file_type_contract_dispositions`.",
+    "_description": "Canonical type registry — the foundation-shipped vault-side type entries plus retired_types reference. Each entry declares tier + per-type required + optional + conditional_required + (optional) body_structure_contract + canonical_scope (provides-presence advisory membership) + (optional) expected_path (folder-placement advisory; array of {pattern, label} per type) + (optional) required_scope (`expected_path` limits the per-type required-field deny to paths inside an expected_path pattern; a note outside them gets the missing fields as an advisory). Adopters extend the registry via overlay-master.frontmatter.types[] (registered via `/govern register --kind file-type`) — ADD a new type, or SUPERSEDE a shipped one with a FULL replacement entry carrying `_override_reason` (R-52). A `null` overlay entry is NOT a delete and is rejected at load; there is no adopter-facing NULLIFY. Plan-tree types (spec, tasks, handoff) are governed by the plans pillar, not registered here; every file-type contract whose key is not an entry in this registry carries an explicit disposition in `file_type_contract_dispositions`.",
     "index": {
       "tier": "strict",
       "required": [
@@ -478,6 +478,7 @@
           "label": "_library/"
         }
       ],
+      "required_scope": "expected_path",
       "_body_shape_enforcement": "A library article carries no leading in-document section index and no auto-generated table of contents (an in-doc TOC is permitted only above the soft length budget and is never auto-generated). This body-shape rule is NOT write-time-enforced — no write-time body-structure guard exists in the runtime, and the runtime ships NO synchronous write-time line-count cap at all (the former navigational hub-file max-lines guard, R-03, is RETIRED: its block was removed rather than re-pointed; declared size limits are audit-time checks). Enforcement is the library-index re-derive scan (over-threshold / shape findings, audit-time) plus the library-scrub output that synthesizes the article body. The article body-structure contract JSON is a separate file-type-contract that ships alongside the library-article template."
     },
     "note": {

@@ -3,7 +3,7 @@
 This directory is the documented scale-beyond surface for instructions that exceed the `MEMORY.md` 25KB / 200-line cap. Files placed here are loaded by the Claude Code harness using two activation modes:
 
 1. **Unscoped (always-on)** — any `*.md` file in this directory without a `paths:` frontmatter key loads at session start, alongside `CLAUDE.md`.
-2. **Glob-scoped (lazy)** — a `paths:` YAML frontmatter key is intended to restrict loading to sessions where Claude reads matching files, keeping large rule sets out of the always-on context. **Caveat for user-scope `~/.claude/rules/`:** the `paths:` glob is silently ignored here today — see "Known limitation" below. Reserve glob-scoping for **project-scope** `.claude/rules/`, where it loads reliably; in user-scope, rely on the unscoped (always-on) mode.
+2. **Glob-scoped (lazy)** — a `paths:` YAML frontmatter key restricts loading to sessions where Claude reads matching files, keeping large rule sets out of the always-on context. It is honored in both scopes on current binaries. **Caveat:** a `paths:` rule triggers on a READ of a matching file, never on file creation, and it does not survive compaction the way an unscoped rule does — see "Known limitation" below before you scope a rule that must fire on writes.
 
 Reference: `code.claude.com/docs/en/memory` (auto-memory + `.claude/rules/` + `paths:` frontmatter).
 
@@ -15,7 +15,7 @@ Reference: `code.claude.com/docs/en/memory` (auto-memory + `.claude/rules/` + `p
 |---|---|
 | `MEMORY.md` index + topic files at `memory/*.md` | Judgment-class memory (preferences, lessons, project state) under the 25KB cap. Always loaded. |
 | `.claude/rules/*.md` (unscoped) | Cross-cutting rules that should fire every session (style guides, refusal patterns, universal conventions). |
-| `.claude/rules/*.md` with `paths:` (glob-scoped) | Domain-specific rules that only apply when working in matching files (e.g., Python style for `**/*.py`, infra conventions for `infrastructure/**`). **Reliable in project-scope `.claude/rules/` only** — the `paths:` glob is silently ignored in user-scope `~/.claude/rules/` (see "Known limitation"). |
+| `.claude/rules/*.md` with `paths:` (glob-scoped) | Domain-specific rules that only apply when working in matching files (e.g., Python style for `**/*.py`, infra conventions for `infrastructure/**`). Loads on a READ of a matching file, not on creation (see "Known limitation"). |
 
 When in doubt, start in `MEMORY.md`. Promote to `.claude/rules/` when the index hits the cap or a rule is only relevant in a narrow file scope.
 
@@ -38,7 +38,7 @@ paths:
 
 `description:` is read by the harness when scanning rules; keep it short (lead with the trigger, not a topic name).
 
-`paths:` accepts an array of glob patterns. In **project-scope** `.claude/rules/` the rule loads whenever a session reads any file matching any pattern. In **user-scope** `~/.claude/rules/` the `paths:` glob is silently ignored (a known upstream limitation — see "Known limitation" below), so a user-scope rule effectively loads only via the unscoped (always-on) mode. Unscoped rules (no `paths:` key) load at every session start on both scopes.
+`paths:` accepts an array of glob patterns. In both **project-scope** `.claude/rules/` and **user-scope** `~/.claude/rules/` the rule loads when the session READS a file matching any pattern (see "Known limitation" for what a read-only trigger means). Unscoped rules (no `paths:` key) load at every session start on both scopes.
 
 ---
 
@@ -88,7 +88,7 @@ This rule stays out of context until a session touches `infrastructure/**` or a 
 
 ## Hygiene
 
-- Keep individual rule files under ~500 lines (industry convergence: Cursor `.mdc`, GitHub Copilot `applyTo:`).
+- Keep individual rule files under 500 lines. Cursor's rules docs state 500 lines; GitHub Copilot's custom-instructions docs state ~1,000; brain-stem adopts 500 as its own ceiling.
 - One concern per file; split when a file outgrows a single domain.
 - Cross-link related rules and memory files via `[[wikilink]]` cross-references. The
   memory/rules tier is EXEMPT from the corpus link-grammar conversion: a `[[name]]` here
@@ -98,15 +98,31 @@ This rule stays out of context until a session touches `infrastructure/**` or a 
 
 ---
 
+## Maintenance
+
+Three librarian capabilities keep this corpus honest; none of them rewrites a rule body.
+
+- **`librarian rules-hygiene`** (weekly cron) — audits every file here for a valid frontmatter block, the 500-line ceiling and dead `paths:` globs, and carries an informational `hook-redundant` row for a rule whose instruction a registered hook already enforces mechanically. Propose-only: it reports, you decide.
+- **`librarian memory-globalize`** (promotion, interactive) — elevates a project memory carrying `scope: global` into a rule file here, validated against the shipped rules schema before the write. It never overwrites an existing rule file.
+- **`librarian context-budget-index`** (daily cron) — measures the always-on context budget and renders the `rules/` tier as one aggregate GREEN/YELLOW/RED band with a per-file contributor list, so growth here is visible before it crowds the session.
+
+---
+
 <!-- brain-stem: #21858-caveat -->
-## Known limitation — user-scope `paths:` globs are silently ignored
+## Known limitation — a `paths:` rule triggers on READ, not on file creation
 
-In **user-scope** `~/.claude/rules/` (this directory), a `paths:` glob is **silently ignored**: a glob-scoped rule placed here does not lazy-load on matching files — it is simply not picked up by the glob, with no warning. This is a known upstream limitation, tracked in GitHub issues `#21858` and `#25562`.
+The two upstream issues that once made user-scope `paths:` globs unreliable are both closed:
 
-Practical consequence and the reliable alternative:
+- `#21858` — YAML-list `paths:` parsing in `~/.claude/rules/`; CLOSED 2026-03-24 (reporter-closed).
+- `#25562` — a distinct claim: `paths:` rules matched only under the primary working directory; CLOSED.
 
-- A user-scope rule that **must** fire should be **unscoped** (omit the `paths:` key) so it loads always-on at session start.
-- Glob-scoped (`paths:`) rules load reliably only in **project-scope** `.claude/rules/` (inside a repo). Put domain-specific, file-matched rules there.
-- Until the upstream behavior changes, treat a `paths:` key in user-scope as documentation of intent rather than an active loader, and do not rely on it to keep a rule out of the always-on context here.
+On current binaries a `paths:` glob in **user-scope** `~/.claude/rules/` (this directory) is honored exactly as it is in project-scope.
+
+The LIVE limitation is `#93248` (OPEN, filed 2026-09-10): a `paths:` rule triggers when Claude **reads** a file matching the glob, not when it **creates** one. Two consequences:
+
+- A `paths:` rule cannot deliver write-time guidance. A rule that must fire before a matching file is written belongs in the unscoped (always-on) mode, or in a PreToolUse hook.
+- After compaction, unscoped rules are re-injected from disk, but a `paths:` rule reloads only as matching files are read again. A `paths:` rule is therefore not a drop-in for an unscoped rule: it is strictly weaker post-compaction.
+
+Verify the trigger on your own install: author a `paths:`-scoped rule here, READ a file matching its glob, then run `${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/rules-hygiene.sh --check-load <rule-name>`. It reads `$CLAUDE_STATE_ROOT/hooks-state/instructions-loaded.ndjson` and reports whether a row with `load_reason: path_glob_match` names the rule; it filters on rows that carry a `file_path` key, because the file mixes in a second record shape without it.
 
 See the public memory docs at `code.claude.com/docs/en/memory` for the full two-surface model and the auto-memory re-validation interval.

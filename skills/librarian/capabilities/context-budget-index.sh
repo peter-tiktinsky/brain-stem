@@ -29,9 +29,11 @@
 # ROWS
 #   rules-aggregate        every rule that LOADS for this cwd, summed, vs 1 unit,
 #                          rendered with a contributor list (bytes, cumulative %).
-#                          A user-scope paths: glob is ignored by the harness, so
-#                          every user-scope rule counts; a project-scope rule
-#                          counts only when it declares no paths: key.
+#                          A paths: glob is honored in both scopes, but a paths:
+#                          rule loads when a matching file is read, so every
+#                          user-scope rule counts as always-on-eligible; a
+#                          project-scope rule counts only when it declares no
+#                          paths: key.
 #   rule (per file)        INFORMATIONAL. The rules tier is capped in AGGREGATE
 #                          only — a per-file byte threshold would be a second
 #                          invented number, which the governance slot forbids.
@@ -427,32 +429,22 @@ def has_paths_key(text):
     return False
 
 
-def enforced_by(text):
-    for ln in frontmatter_block(text).split('\n'):
-        m = re.match(r'^enforced_by\s*:\s*(.*)$', ln)
-        if m:
-            v = m.group(1).strip().strip('"').strip("'")
-            if v:
-                return v
-    return "none"
-
-
 rules = []
 user_rules_dir = os.path.join(cfg["claude_home"], "rules")
 for p in sorted(glob.glob(os.path.join(user_rules_dir, "*.md"))):
     txt = read_text(p)
     if txt is None:
         continue
-    # User scope: a paths: glob is IGNORED by the harness, so every file loads.
+    # User scope: paths: IS honored on current binaries (#21858/#25562 CLOSED), but a paths: rule loads on READ of a matching file (#93248), so this census counts every user-scope file as always-on-eligible.
     rules.append({"path": p, "scope": "user", "bytes": nbytes(txt),
-                  "enforced_by": enforced_by(txt), "load_reason": load_reason(p)})
+                  "load_reason": load_reason(p)})
 proj_rules_dir = os.path.join(cfg["cwd"], ".claude", "rules")
 for p in sorted(glob.glob(os.path.join(proj_rules_dir, "*.md"))):
     txt = read_text(p)
     if txt is None or has_paths_key(txt):
         continue
     rules.append({"path": p, "scope": "project", "bytes": nbytes(txt),
-                  "enforced_by": enforced_by(txt), "load_reason": load_reason(p)})
+                  "load_reason": load_reason(p)})
 
 rules_bytes = sum(r["bytes"] for r in rules)
 rules_cap = int(T["rules_max_units"]) * UNIT
@@ -551,11 +543,11 @@ RESOLUTION = ("apply the template's two comment-nesting hunks plus the schema no
               "or the opt-in header-refresh capability once it ships")
 
 # Render.
-def row(surface, path, b, cap, status, reason, enf, extra="", tok=None):
+def row(surface, path, b, cap, status, reason, extra="", tok=None):
     p = ("%.1f%%" % pct_of(b, cap)) if cap else "—"
     t = tokens(b) if tok is None else tok
-    return "| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
-        surface, path, b, t, p, reason, enf, status, extra)
+    return "| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+        surface, path, b, t, p, reason, status, extra)
 
 md = []
 md.append("# Context-budget index")
@@ -569,43 +561,43 @@ md.append("")
 md.append("`~tokens` is bytes/3.5 — an estimate, not a tokenizer count. Rows marked INFO "
           "carry no threshold: the rules tier is capped in AGGREGATE only.")
 md.append("")
-md.append("| surface | path | bytes | ~tokens | % of cap | load_reason | enforced_by | status | note |")
-md.append("|---|---|---|---|---|---|---|---|---|")
+md.append("| surface | path | bytes | ~tokens | % of cap | load_reason | status | note |")
+md.append("|---|---|---|---|---|---|---|---|")
 md.append(row("rules-aggregate", "%d file(s) loading for this cwd" % len(rules),
-              rules_bytes, rules_cap, rules_band, "session_start", "—",
+              rules_bytes, rules_cap, rules_band, "session_start",
               "cap = %d unit(s)" % int(T["rules_max_units"])))
 for r in sorted(rules, key=lambda x: (-x["bytes"], x["path"])):
     md.append(row("rule", r["path"], r["bytes"], 0, "INFO",
-                  r["load_reason"], r["enforced_by"], "%s scope" % r["scope"]))
+                  r["load_reason"], "%s scope" % r["scope"]))
 for c in claude_mds:
     md.append(row("claude-md", c["path"], c["bytes"],
                   int(T["claude_md_max_units_file"]) * UNIT, c["status"],
-                  c["load_reason"], "—", "%d lines (cap %d)" % (c["lines"], int(T["claude_md_max_lines"]))))
+                  c["load_reason"], "%d lines (cap %d)" % (c["lines"], int(T["claude_md_max_lines"]))))
 md.append(row("claude-md-chain", "%d file(s) concatenated" % len(claude_mds),
-              chain_bytes, chain_cap, chain_band, "session_start", "—",
+              chain_bytes, chain_cap, chain_band, "session_start",
               "%d lines total" % chain_lines))
 md.append(row("memory-md", "R-59 monitor verdict (not re-measured)", mem_bytes or 0,
-              UNIT if mem_bytes is not None else 0, mem_status, "session_start", "R-59", mem_detail))
+              UNIT if mem_bytes is not None else 0, mem_status, "session_start", mem_detail))
 md.append(row("total-always-on-files", "rules aggregate + CLAUDE.md chain + MEMORY.md",
-              total_bytes, total_cap, total_band, "session_start", "—",
+              total_bytes, total_cap, total_band, "session_start",
               "PARTIAL — MEMORY.md unknown, so the total under-counts" if total_partial
               else "cap = %d unit(s)" % int(T["total_max_units"])))
 md.append(row("hook-spills", "session %s" % spill_sid, (spill_row or {}).get("bytes") or 0, 0,
-              spill_band, "session_end", "—",
+              spill_band, "session_end",
               "%d spill file(s); any spill is RED. Spilled bytes do NOT enter context — the "
               "harness replaces them with a short preview and the file path — so no token "
               "estimate is given. The filename carries an invocation uuid, not a hook name, "
               "so no per-hook attribution is available." % spill_count, tok="—"))
 if residue_row is not None:
     md.append(row("memory-template-residue", residue_row["path"],
-                  residue_row["residue_bytes"], 0, residue_band, "session_start", "—",
+                  residue_row["residue_bytes"], 0, residue_band, "session_start",
                   "harness would load %d B where a nesting-aware strip leaves %d B; floor %d B. "
                   "Resolution: %s." % (residue_row["harness_bytes"],
                                        residue_row["nesting_aware_bytes"], residue_floor,
                                        RESOLUTION)))
 else:
     md.append(row("memory-template-residue", "no MEMORY.md header carrier found", 0, 0,
-                  "UNKNOWN", "—", "—", "nothing to measure"))
+                  "UNKNOWN", "—", "nothing to measure"))
 md.append("")
 md.append("## rules/ contributors (bytes, cumulative %)")
 md.append("")

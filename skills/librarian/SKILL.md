@@ -44,16 +44,20 @@ is the rule CATEGORY axis, not a skill boundary.
 
 ### What `full` runs (the audit-set roster)
 
-`/librarian full` is the MANUAL, ad-hoc audit-set sweep. The **schedulable** subset of that
-roster (every capability declaring a `cron_block` cadence of `daily`/`weekly`/`monday`) ALSO
-runs automatically at each detached **session-close**, gated by `hooks/lib/cadence.sh`'s
-`sweep_due()` rolling-window ledger — there is no standalone background `full` runner; the
-deterministic close-time cadence gate is the automatic trigger.
+`/librarian full` is the MANUAL, ad-hoc audit-set sweep. Schedulable capabilities ALSO run
+automatically at each detached **session-close**, through the close-time **cadence roster**. The
+roster is enumerated from the registry by `hooks/lib/cadence.sh`'s `cadence_roster`, never a
+hardcoded list. It holds every capability declaring a `cron_block` cadence of
+`daily`/`weekly`/`monday`, minus the ones session-close already runs unconditionally at step 2
+(registry `invocation_modes` containing `session-close-step-2`), and each member is gated by
+`sweep_due()`'s rolling-window ledger. The roster includes `managed-surface-census` (daily) and
+`writers-health-audit` (daily, dormant until the operator opts in). There is no standalone
+background `full` runner; the deterministic close-time cadence gate is the automatic trigger.
 
 `full` is the audit-set sweep: it runs every capability whose `capability-registry.json`
 `invocation_modes` includes `librarian-full`. The **registry is the authoritative roster**
-(contract-of-record); the set below is a snapshot of the current release (41
-capabilities) — consult `invocation_modes` for the live membership:
+(contract-of-record); the set below is a snapshot of the current release —
+consult `invocation_modes` for the live membership:
 
 > `governance-parity-audit`, `index-maintain`, `log-subtype-canonical`, `rules-index`,
 > `writers-index-refresh`, `writers-overlap-refresh`, `writers-health-audit`, `plan-index`,
@@ -134,7 +138,9 @@ Runtime: `capabilities/writers-overlap-refresh.sh`.
 Read-only daily sweep of writer-reference files + skill registry + path_routing
 for operational drift (dormant-writer, unresolved-destination,
 orphan-writer-skill-ref, orphan-destination-ref, multi-writer-overlap). No vault
-write.
+write. Runs daily at session-close through the cadence roster, dormant until
+opted in: it fires only when `behavioral.hook_preferences.writers_health_check`
+is `enabled` and at least one vault writer is registered.
 Runtime: `capabilities/writers-health-audit.sh`.
 
 ## Capability: rules-index
@@ -220,6 +226,13 @@ the stamp EVENT relocates the note to the settled home (`_inbox/_settled/`,
 forward-only — already-settled flat notes are never moved), and the `_settled/`
 walk is render-only (settled-ledger rows at the note's real location; residents
 without settlement evidence draw the `inbox-settled-misfiled` advisory).
+A flat NO-BUILD note on a registered re-open gate settles as `parked`; the
+settled-walk then evaluates each settled NO-BUILD note's gate and, when a
+command gate exits 0, moves the note back flat with the disposition cleared
+(`inbox-reopened`). A manual gate is never evaluated. `inbox-reopen-gate-unknown`
+names a blank or unregistered gate (the note stays put), `inbox-reopen-gate-repeat`
+a flat note naming the gate it was last re-opened from, and a re-open whose flat
+destination exists emits `inbox-settled-move-conflict` with direction `reopen`.
 Settlement classifies on terminal-resolution EVIDENCE — an out-of-enum
 `resolution:` corroborated by `resolved_at`/`superseded_by` settles, with the
 `inbox-resolution-out-of-enum` advisory keeping vocabulary drift visible.
@@ -314,7 +327,10 @@ symlink-inert.
 ## Capability: placement-validate
 
 Validates vault file placement against the governance placement rules; emits
-placement findings. Ported as-is.
+placement findings. Ported as-is. In plans scope (`--scope` equal to the plans root) it
+also reports `plan-unmanaged-entry`: a top-level entry of a non-terminal plan outside the
+managed set, not a sub-plan dir, the `architecture_path` target or a dotfile, and with no
+manifest `assets[]` row. The finding names `librarian plan-asset add`.
 Runtime: `capabilities/placement-validate.sh`.
 
 ## Capability: xref-check
@@ -365,9 +381,13 @@ identically on an adopter install — the "live-hash vs manifest-recorded-hash"
 slot `sanctioned-schema-drift-detect` names out of its own scope.
 Detect-never-autofix; tripwire-deduped against the previous run's snapshot
 (`$CLAUDE_STATE_ROOT/census/`); `governance/overlay-master.json` (the sole
-runtime-written member — the locked mutation path owns it) and
-`*.foundation-retired`/`*.foundation-local` sidecars are classified, never
-flagged. Exit 1 while any fork divergence stands; absent manifest clean-skips.
+runtime-written member — the locked mutation path owns it), `.gitignore`
+(class `three-way-merge`: the installer appends its managed block behind a
+sentinel and keeps every adopter rule, so the adopter's lines are expected
+divergence) and `*.foundation-retired`/`*.foundation-local`
+sidecars are classified, never flagged. Exit 1 while any fork divergence
+stands; absent manifest clean-skips.
+Runs daily at session-close through the cadence roster, and on demand.
 Runtime: `capabilities/managed-surface-census.sh`.
 
 ## Capability: context-budget-index
@@ -394,9 +414,51 @@ Runtime: `capabilities/context-budget-index.sh`.
 
 ## Capability: handoff-disposition-check
 
-Checks every close-out follow-up carries one of the 3 dispositions (FIX NOW /
-ABSORB / STANDALONE); emits disposition-gap findings. Ported as-is.
+Blocks session-close when a touched handoff.md carries unresolved follow-up
+language without a disposition tag (FIX NOW / ABSORB / STANDALONE / NO-BUILD /
+deferred-to:). ABSORB and deferred-to: carry a TARGET discipline: the text
+following the tag must name the specific target — a plan slug, a task id, or an
+NN/T-n pair — else the finding is `handoff-disposition-target-unspecific`
+(blocking, same exit-1 contract as a missing tag). A floating target ("the next
+architect run", "a future session") is the remember-this pattern wearing a tag
+and fails the same way. FIX NOW is target-less by contract. Inside the newest
+session entry, a STANDALONE, ABSORB or NO-BUILD tag must also name a target that
+resolves on disk under the plans root (`_inbox/<slug>.md`,
+`_inbox/_settled/<slug>.md`, or a `<key>/manifest.json`, with an optional
+`:: T-N` suffix); otherwise the finding is the blocking
+`handoff-disposition-target-unresolved`. Older entries and a file with no
+session heading keep the lexical check only.
+The trigger words match their plurals too (`SHOULDs`, `follow-ups`), and only
+the uppercase stems `ABSORB` and `NO-BUILD` are tags (`ABSORB`, `ABSORBED`,
+`ABSORBed`): prose such as "not absorbed", "Absorbed into" or "no-build"
+disposes of nothing. The other tags
+match any case. It also emits a warn-level `handoff-launch-prompt-long` finding
+for each launch-prompt block (the fenced block under `### Session <N> launch
+prompt`) in the newest session entry that runs over `LAUNCH_PROMPT_MAX_WORDS`
+(default 300; target 200 or fewer). That finding is reported in its own section
+and is not counted as missing, so it never blocks session-close.
 Runtime: `capabilities/handoff-disposition-check.sh`.
+
+## Capability: inbox-drain-check
+
+Blocks session-close while a flat `_inbox/` note the session captured is still
+undecided. `promote-from-inbox.sh --capture` stamps `captured_session:` with the
+session id (`CLAUDE_SESSION_ID`, else `CLAUDE_CODE_SESSION_ID`, else blank). The
+capability (`--session-id <id>`, repeatable `--files <path>`, `--dry-run`)
+attributes a note to the session by that key or by its path among the touched
+files, and a note is decided only in the three capture shapes: STANDALONE with a
+`release_class` and a `size` from the pillar enums, ABSORB with a resolvable
+`absorbed_into`, or NO-BUILD with a registered `reopen_gate`. Anything else,
+FIX NOW and out-of-enum values included, is a blocking `inbox-undecided-capture`
+finding and the exit is 1 (the handoff-disposition-check contract); the exit is 0
+when clean and 2 on a usage error or a failed scan (fail-closed). Every open
+undecided flat note is also counted against `inbox.undecided_threshold` (default
+10), and each non-dry run writes `drift_findings.inbox_drain` (`last_scan`,
+`session_id`, `findings_count`, `open_entries`, `undecided_total`, `threshold`)
+through `manifest_set`; the SessionStart reader
+`hooks/session-start-placement-findings.sh` surfaces it. session-close runs it in
+`step2_integrity` directly after `handoff-disposition-check`.
+Runtime: `capabilities/inbox-drain-check.sh`.
 
 ## Capability: plan-terminal-lag-check
 
@@ -418,6 +480,7 @@ via `skills/new-plan/lib/spoke-resolve.sh`) and the plan's lineage; a
 disagreement reuses the `parent-plan-path-drift` finding name with a
 `drift_class` (`project-stamp-unregistered` | `project-stamp-vs-lineage`),
 severity warn, for human adjudication — never a silent re-file.
+A chain reports each parent as its resolved directory basename, and a hop that resolves only through the `NN-<slug>` glob (a bare slug, tolerated on read) emits `parent-plan-bare-slug` (info) once per file.
 Runtime: `capabilities/plan-parent-resolve.sh`.
 
 ## Capability: librarian-manifest-validate
@@ -445,6 +508,41 @@ The `.claude/rules` lifecycle auditor — audits rule files against
 `schemas/rules-schema.json` (judgment cap, requires confirmation). DISTINCT
 from the `rules-index` regenerator. Ported as-is.
 Runtime: `capabilities/rules-hygiene.sh`.
+
+Deterministic classes: `size` (body line-count vs the 500-line ceiling),
+`frontmatter` (schema validity), `dead-glob` (a `paths:` glob matching nothing
+on disk), and the informational `hook-redundant` — a rule whose BODY names a
+shipped inline-blocking hook verbatim (`pre-write-guard.sh`,
+`pre-asq-guard.sh`) restates enforcement the hook already delivers at the
+moment it applies; keep only what the hook does not do, or delete the rule.
+The predicate reads the body only — a frontmatter description naming the hook
+is a pointer, not a restatement. All deterministic classes run headless; only
+the `one-concern` judgment class is interactive-gated.
+
+`rules-hygiene.sh --check-load <rule-name> [--log PATH]` answers "did my
+path-scoped rule load" without opening the log by hand. It is read-only: it
+reads the `instructions-loaded.ndjson` log the InstructionsLoaded hook writes
+(under the hooks state directory, resolved the way the hook resolves it) and
+reports whether a row with `load_reason: path_glob_match` names the rule file.
+Exit 0 prints a LOADED line with the count and the latest session, exit 1 a
+NOT loaded line naming the other load reasons it saw, exit 3 that the log is
+absent, and exit 2 a `rules-hygiene: refused:` line for a missing or non-plain
+name, a flag combination it does not allow (`--scope` or `--dry-run` with it,
+`--log` without it) or an empty `--log` value.
+
+`rules-hygiene.sh --compare-retired <rule-basename> [--rules-dir DIR]` prints a
+retired rule beside what now delivers it, for the keep-or-delete call an
+upgrade advisory leaves to you. The name is one of the four rule files the
+installer no longer ships (`00-project-binder-pointer.md`,
+`10-pre-research-library-check.md`, `20-work-project-register.md`,
+`30-durable-artifact-routing.md`). It is read-only: it prints your copy of the
+rule (from `--rules-dir`, default `rules/` under the install), the leading
+comment block of the shipped hook that delivers the same guidance now, for the
+two rules the write guard carries the guard lines naming that rule's tag, and a
+closing line that leaves the ruling to you. Exit 2 is a `rules-hygiene:
+refused:` line (no name, a name outside the four, an empty `--rules-dir`, a rule
+file that is absent, or a flag combination it does not allow) and exit 3 means
+the hook is missing from the install.
 
 ## Capability: log-archive
 
@@ -499,7 +597,49 @@ with bidirectional `originating_plan:`/`library_refs[]` stamps and a
 `workshop/_archive/` move — all in one propose/`--apply` (only `--apply`
 writes). Novel-bet advisory-first; the propose diff is the human backstop;
 empty-article output is block-and-logged.
+A read-only `--census` arm lists each `research_artifacts[]` entry of a top-level
+`completed` plan that carries no `library_refs` (superseded plans excluded): one
+NDJSON finding per entry (plan, RA id, path) plus a count line, and it writes
+nothing. Promotion of a listed entry runs through library-scrub itself (the
+PROMO-4 stamp rail). The judgment fan-out that decides which listed entries are
+worth promoting is the documented recipe under `### Recipe: isolated subagent for the promotion fan-out`.
 Runtime: `capabilities/library-scrub.sh`.
+
+### Recipe: isolated subagent for the promotion fan-out
+
+- **When:** `library-scrub.sh --census` lists completed plans' research that carries no library reference, and the judgment of which entries are worth promoting is to be made apart from the main session.
+- **Dispatch:** one Agent-tool subagent, no fan-out; the prompt is the census output of one plan and nothing else.
+- **Reads:** the `library-scrub.sh --census` output, one batch per plan, and each research artifact it lists.
+- **Returns:** one verdict per listed entry, `promote` or `skip`, with a topic and a reason; the topic is a short library topic name and the reason is one line.
+- **Writes:** none by the subagent; its tools are Read, Grep and Glob.
+- **Then:** the main session copies each `promote` entry whose `research_artifacts[]` entry is `finalized` into the workshop home as `<topic>-<plan-slug>/<basename>`, runs `library-scrub.sh --topic <topic>-<plan-slug>` to propose (it writes nothing), shows the operator the diff, and runs it with `--apply` only on the operator's yes; a `skip` entry changes nothing.
+
+### library-scrub promotion queue
+
+library-scrub also hosts a queue that offers each newly completed plan's
+research for promotion. The mode is
+`behavioral.hook_preferences.library_promotion` in the user manifest: `prompt`,
+`auto` or `off`, and an unset key reads `off`. While it reads `off`, the queue
+modes exit 0 with no model call and no write. The first switch to `prompt` or
+`auto` records a baseline of the plans already completed, which are never
+offered. State lives under `$CLAUDE_STATE_ROOT/library-promotion/`, and every
+state-writing mode runs under the `lockf.sh` re-exec.
+
+- `--candidates` queues each top-level `completed` plan outside the baseline and
+  the queue, with no model call. Sub-plans are never queued.
+- `--triage <plan>` sends the plan's canonical research (declared under
+  `_research/`, status neither `superseded` nor `deferred`, gate records dropped)
+  to `claude --bare -p --model haiku` under a watchdog, and records `promote` or
+  `skip` plus a library topic. An empty canonical set is `skip` with no call; a
+  failed call leaves the candidate pending with the reason.
+- `--next <session-id>` claims one unclaimed `promote` candidate and prints its slug.
+- `--answer <plan> yes|no|always`: `yes` promotes through the `_research/` source
+  arm (the triage topic, no workshop needed, the source never written or moved,
+  both PROMO-4 stamps re-read before success); `no` records the plan declined for
+  good; `always` promotes and sets the mode to `auto`. `yes` and `always` keep the
+  `--apply` non-interactive guard.
+- `--mode get | --mode set prompt|auto|off` reads or writes the mode, and
+  `--pending` lists the unanswered candidates with state, claim, topic and reason.
 
 ## Capability: library-index
 
@@ -588,6 +728,108 @@ write-orchestration). Missing manifest fields render empty, never error
 would-be writes without writing.
 Runtime: `capabilities/plan-research-index.sh`.
 
+## Capability: plan-research-supersede
+
+`plan-research-supersede <plan-dir> <old-RA> <new-RA>` records that one declared research
+artifact supersedes another, and is the only writer of that relation. In the plan's
+`manifest.json` `research_artifacts[]` it sets the old entry's `status` to `superseded` and
+its `superseded_by` to the new id, and the new entry's `supersedes` to the old id. It inserts
+one line directly after the old file's frontmatter:
+`> Superseded by <new path> (<new-RA>) on <YYYY-MM-DD>.` Nothing is moved or deleted. It
+refuses, with no write, an id that is not declared, a self-supersession, an old entry already
+superseded, a cycle, and a missing old file. `plan-research-declare` never writes these
+fields, and `library-scrub`'s PROMO-1 reads only `finalized` entries, so a superseded
+artifact is never a promotion candidate.
+Runtime: `capabilities/plan-research-supersede.sh`.
+
+## Capability: adr-supersede
+
+`adr-supersede <plan-dir> <old-ADR> <new-ADR>` records that one accepted ADR is superseded by
+another, and is the only writer of that relation. An accepted ADR is locked above its first
+amendment heading (`governance/file-type-contracts/adr.md.json` :: `immutable_post_accepted`),
+so a changed decision never edits the old record in place: the new ADR is written first, with
+`plan-rule --spec-change`, and this verb then links the pair. It sets the old ADR's body
+`**Status:**` line to `superseded-by-<new-ADR>`, its frontmatter `status:` to `superseded` when
+the frontmatter has one, and the manifest `decision_records[]` entry's `status` to `superseded`
+and `superseded_by` to the new id. Nothing else changes and the new ADR is not touched. It
+refuses, with no write and exit 2, an id that is not `ADR-NN`, a self-supersession, a manifest
+that is missing or does not parse, an ADR file that is missing or ambiguous, an old ADR whose
+body Status is not `accepted`, and an old id with no `decision_records[]` entry.
+Runtime: `capabilities/adr-supersede.sh`.
+
+## Capability: plan-asset
+
+`plan-asset add <plan-dir> <path> --purpose "<text>"` records what a top-level plan-folder
+entry outside the managed set (`governance/plans-rules.json` :: `plan_folder_managed_set`) is
+for. It appends `{path, purpose}` to the manifest's `assets[]`, or replaces the purpose of the
+row already naming that path, so each path has one row. It refuses, with no write, a path that
+does not exist inside the plan dir (`../x` included), a path of more than one segment, a
+managed-set name and an empty purpose. `placement-validate` in plans scope reports each
+top-level entry of a non-terminal plan that has no row as `plan-unmanaged-entry` and names
+this command.
+Runtime: `capabilities/plan-asset.sh`.
+
+## Capability: workshop
+
+Drives the research workshop at `CLAUDE_WORKSHOP_DIR` (resolved by `hooks/lib/paths.sh`,
+outside the plans tree), where a plan's precursors live so its `_research/` holds only the
+synthesis it keeps. A plan's key is `<topic>-<plan-slug>` (default topic `research`), never a
+bare plan slug, because `library-scrub` resolves a workshop dir's plan only from a trailing
+plan-dir suffix after a non-empty topic.
+- `workshop open <key>` creates the dir and prints its absolute path; re-running changes nothing.
+- `workshop promote <key> <file> --plan <plan-dir>` moves exactly that file into
+  `<plan>/_research/` under the next free `NN-` prefix, then moves the rest of the dir to
+  `_archive/<key>-<YYYY-MM-DD>/`. It refuses a gate-named file (`plans-rules.json` ::
+  `gate_records`), which belongs in `<plan>/_gates/`.
+- `workshop rekey <topic> <plan-slug>` renames a pre-plan `<topic>/` to `<topic>-<plan-slug>/`.
+  Graduation through `promote-from-inbox.sh` re-keys an `<inbox-slug>/` dir the same way.
+
+The workshop keeps no index and no vault view.
+Runtime: `capabilities/workshop.sh`.
+
+## Capability: plan-rule
+
+Records an operator ruling on an open fork in the session record that took it, and routes a
+ruling that changes the spec to a decision record.
+- `plan-rule <plan-dir> <fork> <choice> --quote "<text>"` writes
+  `- <FORK>: ruled <choice> — "<quote>"` under `### Rulings` in the newest handoff entry (the
+  first H2 session heading, read with `hooks/lib/handoff-recognizer.sh`). The heading is
+  created at the end of that entry when absent; no other entry changes.
+- Add `--spec-change --title "<t>"` when the ruling changes Goal, Constraints or Solution. It
+  also mints `decisions/ADR-NN-<slug>.md` (next ordinal; the name matches `plans-rules.json` ::
+  `decision_records.filename_pattern`; sections Context, Decision, Consequences), appends the
+  `decision_records[]` entry with status `accepted`, and appends `- Amended by ADR-NN: <title>`
+  under the spec's `## Amendment register`, a heading created once at the end of spec.md.
+
+Every check runs before the first write; a miss exits 2 and writes nothing. `pre-write-guard.sh`
+names this verb when a spec.md write adds an Amendment, Operator decision points or Rulings
+heading (advisory; the write is allowed).
+Runtime: `capabilities/plan-rule.sh`.
+
+## Capability: plan-context
+
+Prints one slice of a plan's working context, so a resuming agent loads the part it needs rather
+than the whole tree. Read-only. `<plan>` is a plan dir or a slug under the plans root.
+- `plan-context <plan>`: the plan map. It lists the canonical research, the count of
+  `- <FORK>: ruled` lines in handoff.md, the `_gates/` file count, the `assets[]` rows plus the
+  entries outside `plans-rules.json` :: `plan_folder_managed_set`, whether `capability_touch` is
+  present, and the newest handoff entry's heading and Next line.
+- `--task T-n`: the task's title, description, acceptance criteria, `depends_on`,
+  `file_references`, `sot_refs`, and each optional `context_refs[]` entry resolved.
+  `<file>#<heading>` prints that section up to the next heading of equal or higher level, and
+  `ADR-NN` prints the decision file.
+- `--section "<heading>" [--file <rel>]`: one section of spec.md, or of `<rel>`.
+- `--canon`: the canonical research, meaning `research_artifacts[]` entries under `_research/`
+  whose status is neither `superseded` nor `deferred`.
+- `--decisions`: `decision_records[]` entries not superseded.
+- `--handoff latest|<N>|--since <YYYY-MM-DD>`: session entries, ordered by the spoke's
+  `handoff-ledger.jsonl` when it holds rows for the plan, else read from handoff.md with
+  `hooks/lib/handoff-recognizer.sh`.
+
+Output is at most 30,000 characters; longer output is cut and its last line names a narrower
+selector. A missing plan, task, heading, file or ADR exits 1 naming it; a usage error exits 2.
+Runtime: `capabilities/plan-context.sh`.
+
 ## Capability: plan-research-declare
 
 The A1-clause-4 session-close DECLARATION writer (140) — the SINGLE
@@ -633,6 +875,20 @@ never an error. `--spoke <key>` scopes to one spoke; `--dry-run`
 reports findings + would-be writes without writing.
 Runtime: `capabilities/plan-decision-log.sh`.
 
+## Capability: handoff-entry
+
+Opens the next session entry in a plan's `handoff.md`:
+`handoff-entry <plan-dir> --title "<text>" [--kind <token>]`. It inserts, newest-first
+(after the preamble, before the first existing session heading), the heading
+`## Session <N> — <YYYY-MM-DD> (<title>)`, one identity header line directly under it
+(`<!-- session: {"plan":"<NNN>","n":<N>,"at":"<ISO-8601 with offset>","kind":"<token>"} -->`),
+and one `### ` heading per `handoff.md.json` `section_subsections` entry. `N` is the
+highest ordinal the shared recognizer (`hooks/lib/handoff-recognizer.sh`) reads, plus one;
+`kind` defaults to `session`. The header carries identity only and the body stays free
+prose. Atomic write; every existing byte is kept. Refuses (exit 2, no write) a missing
+`handoff.md`, an empty or multi-line title, or a malformed kind token.
+Runtime: `capabilities/handoff-entry.sh`.
+
 ## Capability: plan-handoff-index
 
 Generates the per-spoke binder handoff surface
@@ -652,8 +908,16 @@ SECONDARY-ROLE hook (`hooks/handoff-chronicle-append.sh`) appends ONE block at t
 HEAD of the sentinel region `<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->`
 — DISJOINT surfaces (the hook never re-derives, the librarian never appends a
 routine block). A missing/unreadable/empty/no-session-heading `handoff.md` is a
-defensive skip + finding, never an error. `--spoke <key>` scopes to
-one spoke; `--dry-run` reports findings + would-be writes without writing.
+defensive skip + finding, never an error. Each run first derives
+`_projects/<spoke>/handoff-ledger.jsonl`, one JSON row per session block across the
+spoke's plans (`plan`, `n`, `at`, `date`, `title`, `kind`, `source`, `heading`, plus the
+fields the chronicle block renders), sorted by plan, then `at` or date, then `n`. A block
+stamped by `handoff-entry` takes `n`, `at` and `kind` from its identity header (`source`
+`header`); a legacy block parses through the shared recognizer (`source` `recognizer`).
+The chronicle renders from the ledger rows and keeps the newest N blocks of each plan
+(`--window N`, default 5; `0` = every block); the ledger keeps every block.
+`--spoke <key>` scopes to one spoke; `--dry-run` reports findings + would-be writes
+without writing either file.
 Runtime: `capabilities/plan-handoff-index.sh`.
 
 ## Capability: project-context-situating
@@ -772,24 +1036,15 @@ Runtime: `capabilities/binder-handoff-append-wrapper.sh`.
 
 ## Capability: memory-globalize
 
-Promotes a vault memory entry to a global `.claude/rules/<name>.md` rule (only
-with `--apply`; validates the candidate vs `schemas/rules-schema.json`;
-name-collision guard; requires confirmation). Ported as-is.
+Promotes `scope: global` project memories to rules conforming to
+`schemas/rules-schema.json` (propose-then-confirm; `--apply` is the confirm
+gate). Re-promotion NEVER overwrites an existing rule file — any source memory,
+the same slug included: the promotion is blocked (reason: re-promotion never
+overwrites) and counted as `skipped_existing`, with no `promoted_to:` stamp.
+Delete or rename the rule first, or pass `--replace` — honoured ONLY on an
+attended run; the fully-auto surface (`MEMORY_GLOBALIZE_AUTO=1`) never honours
+it.
 Runtime: `capabilities/memory-globalize.sh`.
-
-## Capability: rules-compact
-
-Compacts a hook-backstopped rule: the operative instruction, the escape hatch
-and the one-line why stay always-on as a short stub, while the source moves
-byte-for-byte to `rules-rationale/` OUTSIDE the rules directory, where nothing
-loads it. A rule qualifies only when its `enforced_by:` frontmatter names a hook
-that is registered in `settings.json`, present on disk, and INLINE-BLOCKING per
-the allowlist the script declares — so a rule is never traded for a backstop
-that is not there. Pipeline-owned seed entries are refused unconditionally. The
-operator marks what survives with trailing `<!-- keep -->` / `<!-- why -->`
-markers; the stub plus the rationale reproduces the source losslessly. Refusals
-are block-and-log with a `reason`; `--apply` is the confirm gate.
-Runtime: `capabilities/rules-compact.sh`.
 
 ## Capability: memory-hygiene
 
@@ -824,53 +1079,96 @@ as an explicit confirm. NEVER auto-fire it — the user decides. The detached
 auto-close (SessionEnd spawn / SessionStart backstop) never reaches this rubric, so
 it never offers and never commits.
 
+## Capability: skill-referrers
+
+`skill-referrers.sh <skill-name> [--root DIR]...` lists what references a skill, so the
+post-change check for downstream effects is one command after a skill is edited. It scans
+`skills`, `hooks`, `governance`, `templates`, `schemas` and `rules` plus `settings.json` under
+each root for the skill's name as a token, skipping `skills/<name>/` itself, any `_archive` or
+`baselines` directory and binary files. Output is `skill-referrers: <name>: <k> file(s)` and one
+`<path>` tab `<matching lines>` row per file, sorted by code point of the path. The default root
+is the tree that holds the script; each `--root` replaces it and may repeat. It is read-only,
+exits 0 with an empty list when nothing references the skill, and exits 2 with a
+`skill-referrers: refused:` line for a missing or non-plain name, an unknown skill, an empty
+`--root` and an unknown flag. It replaces only the grep: reading each referrer and changing it
+stays with the operator.
+Runtime: `capabilities/skill-referrers.sh`.
+
+## Capability: memory-spill
+
+`memory-spill.sh [--memory-dir DIR] [--apply]` relocates the coldest entries of the `MEMORY.md`
+index to an on-demand `MEMORY-archive.md` and leaves one pointer line first under `## Semantic`,
+so an index that nears its cap keeps the entries that matter above the fold. It runs on request
+only, and only once the index reaches the YELLOW band (the larger of the line share and the byte
+share of the caps, as the consolidation runner's budget check computes it). The candidates are the
+`- [` lines under `## Procedural` and then `## Semantic`, taken tail-first; `## Episodic`, the
+pointer line and every other line stay. The default run is a preview: it prints the band, the
+entries it would move and the index share before and after, writes nothing and takes no lock.
+`memory-spill.sh --apply` (requires confirmation, so show the preview first) writes the archive
+and then `MEMORY.md`, each by temp file and `mv -f`, under the consolidation runner's own lock;
+a held lock exits 75 with nothing written. It refuses, with exit 3, at GREEN, when moving every
+non-episodic entry would not bring the index below YELLOW, when `MEMORY.md` has no `## Semantic`
+heading and when the cap config cannot be read. The topic files never move, and the consolidation
+runner and `memory-hygiene` read the archive, so a spilled entry is not an orphan. A stop between
+the two writes leaves a line in both files and loses none; a rerun converges.
+Runtime: `capabilities/memory-spill.sh`.
+
 ## Capability: review
 
 The operator-facing DRAIN of `.review-queue.json` — the consumer
 half of the guaranteed-surfacing mechanism whose producer/banner/mandate/stop-block
 halves already ship. Judgment-tier (an LLM diff-presentation + decision loop, like
-`memory-hygiene`); requires confirmation; never auto-fires `AskUserQuestion`. This
-is a SKILL.md judgment RUBRIC with NO `capabilities/review.sh` disk body — the
-mechanical state writes are the four `hooks/lib/review-queue.sh` primitives
-(`confirm_item`/`reject_item`/`defer_item`/`suppress_item`); the rubric below is the
-judgment loop that decides which to call (a spec-only registry entry without a disk
-body is bijection-legal — the orphan check is the converse).
-Runtime: none (judgment rubric — see the rubric below; the registry `review` entry is
-`implementation_status: spec-only`).
+`memory-hygiene`); requires confirmation; never auto-fires `AskUserQuestion`. The
+script `capabilities/review.sh` runs the mechanical steps of the walk (list, show,
+confirm, reject, defer, report) and calls the four `hooks/lib/review-queue.sh` primitives
+(`confirm_item`/`reject_item`/`defer_item`/`suppress_item`) for the queue writes; the
+rubric below keeps the judgment: reading each item's impact and choosing the one
+disposition stay with the operator.
+Runtime: `capabilities/review.sh`.
 
 ### Rubric (the review walk)
 
-1. **Source the primitives.** `source "$CLAUDE_HOME/hooks/lib/review-queue.sh"` (the
-   `enqueue_item` producer + the four state-transition drains
-   `confirm_item`/`reject_item`/`defer_item`/`suppress_item` + the reader
-   `review_queue_pending_count`). Resolve the queue file via the lib's
-   `_rq_queue_file` (memory-state tier, beside `.consolidation-state.json`).
-2. **Read OPEN items.** Select items with `state == "open"`. Each carries
-   `{id, subject, classification (revalidation|hygiene|conflict|promotion), severity
-   (low|medium|high), defer_count, dismiss_count, diff?, ...}` per
+1. **Run the walk through the script.** `review.sh` sources
+   `$CLAUDE_HOME/hooks/lib/review-queue.sh` itself (the `enqueue_item` producer + the four
+   state-transition drains + the reader `review_queue_pending_count`) and resolves the queue
+   file via the lib's `_rq_queue_file` (memory-state tier, beside
+   `.consolidation-state.json`); nothing is sourced by hand.
+2. **Read the OPEN items.** The OPEN set is every item whose `state` is open or deferred
+   (a bare defer never clears an item). `review.sh list [--limit N]` prints it and
+   `review.sh show <id>` prints one item. Each carries `id`, `class`
+   (revalidation|hygiene|conflict|promotion), `severity` (low|medium|high), `summary`,
+   `memory_ref`, `defer_count`, `dismiss_count`, `enqueued_at` and `payload` per
    `schemas/review-queue-schema.json`.
-3. **Sort + cap.** High-severity first, then oldest-first. Process at most ~20 items
-   per pass (batch cap) — surface the remaining count and stop.
-4. **Auto-suppress (anti-fatigue).** Before presenting, for any LOW-severity `hygiene`
-   item whose `dismiss_count >= 3`, call `suppress_item <id>` and skip it.
-   **Revalidation items are EXEMPT from auto-suppress** — they always surface.
+3. **Sort + cap.** `review.sh list` sorts high severity first, then oldest `enqueued_at`,
+   then id, and prints at most 20 rows per pass (`--limit N` changes the cap) with a footer
+   that names the remaining count — surface it and stop.
+4. **Auto-suppress (anti-fatigue).** `review.sh list` itself calls `suppress_item <id>` for
+   any LOW-severity `hygiene` item whose `dismiss_count >= 3` and prints a
+   `review: suppressed` line for it. **Revalidation items are EXEMPT from auto-suppress** —
+   they always surface.
 5. **Present (per item).** Render a DIFF + a plain-language impact statement — NOT a bare
-   APPROVE. State what changes, where, and why it surfaced.
+   APPROVE. State what changes, where, and why it surfaced. This step is the model's:
+   no script reads the impact.
 6. **Collect exactly one disposition** per item — never auto-fire `AskUserQuestion`:
-   - **CONFIRM** → apply the class-appropriate write INSIDE this walk, then `confirm_item <id>`:
-     - `promotion` → write the buffered proposal to `{system.memory_dir}/*.md` (the ONLY
-       System-B→System-A memory write — Gate 1; `mem-promote` NEVER writes — the apply
-       point is HERE, inside the review walk).
-     - `revalidation` → stamp `last_validated: <today>` on the referenced memory file
-       (resets the 180d clock).
-     - `conflict` → record the operator-chosen resolution (conflicts are operator-decided,
-       never auto-resolved).
-   - **REJECT-WITH-REASON** → `reject_item <id> "<reason>"` (reason MANDATORY).
-   - **DEFER (capped)** → `defer_item <id> "<reason>"` (reason MANDATORY; `defer_count++`).
-     At `defer_count >= 2` force-escalate — the item stays in the queue (a bare defer
-     NEVER clears it).
-7. **Report.** Summarize per class: confirmed / rejected / deferred / suppressed counts +
-   the remaining OPEN count (which the SessionStart banner re-surfaces next session).
+   - **CONFIRM** → `review.sh confirm <id>` applies the class-appropriate write INSIDE this
+     walk, runs the memory-write hooks over any memory file it wrote, then `confirm_item <id>`:
+     - `promotion` → compose the memory file from the item's `payload`, write it to
+       `{system.memory_dir}/<topic>.md`, then `review.sh confirm <id> --written <topic>.md`
+       (the ONLY System-B→System-A memory write — Gate 1; `mem-promote` NEVER writes — the
+       apply point is HERE, inside the review walk).
+     - `revalidation` → `review.sh confirm <id>` stamps `last_validated: <today>` on the file
+       named by `memory_ref` (resets the 180d clock).
+     - `conflict` → `review.sh confirm <id> --resolution <text>` records the operator-chosen
+       resolution as `payload.resolution` (conflicts are operator-decided, never
+       auto-resolved).
+     - `hygiene` → `review.sh confirm <id>` writes nothing else.
+   - **REJECT-WITH-REASON** → `review.sh reject <id> --reason <text>` (reason MANDATORY).
+   - **DEFER (capped)** → `review.sh defer <id> --reason <text>` (reason MANDATORY;
+     `defer_count++`). At `defer_count >= 2` force-escalate — the item stays in the queue
+     (a bare defer NEVER clears it).
+7. **Report.** `review.sh report` prints, per class, the confirmed / rejected / deferred /
+   suppressed counts and the OPEN count, then the OPEN total (which the SessionStart banner
+   re-surfaces next session).
 
 > **Producer asymmetry (v1.0.0, operator-ratified):** the `conflict` + `promotion` classes
 > are fully end-to-end (live producers exist + this drain). For the remaining two classes:

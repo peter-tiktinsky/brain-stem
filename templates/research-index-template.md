@@ -16,7 +16,8 @@ Maintainer: librarian (skills/librarian/capabilities/plan-research-index.sh).
 Viewer contract (operator-ruled): this page's rows are the binder's navigable
 front door — the ONE projection of every declared artifact (no file duplication
 into the binder; the former research/<plan>/ symlink farm beside it is RETIRED;
-the viewer ignore-filter configuration is an operator-side step).
+the viewer ignore-filter configuration is the `userIgnoreFilters` entry that
+build-brain-vault.sh writes into the vault's Obsidian settings at Step 2b).
 
 This template is the instantiation surface for the generated research surface; the
 live file is re-derived from every plan manifest's research_artifacts[] on each run.

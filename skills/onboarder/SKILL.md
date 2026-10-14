@@ -62,6 +62,22 @@ output to a file, and re-invokes with `--resume --extraction-stub <that-file>`.
 Pass 2 validates the extraction (top-level keys ∈ `{identity, behavioral,
 notes}`), wraps it into `user-fragment-B.json`, and the chain continues.
 
+At the pause `onboard.sh` prints the exact next command on stdout. With a
+transcript staged it prints the extraction handoff; with none staged it prints
+the staging handoff (stage the transcript, then run the printed command, which
+prints the extraction handoff in turn). Every value is shell-quoted, so the
+printed `resume-with` command runs verbatim, and the flags the run was given are
+carried over:
+
+```
+# HANDOFF: extract-section-B prompt=<prompt-file> stub=<stub-file> resume-with="bash <onboard.sh> --resume --extraction-stub <stub-file> [flags]"
+# HANDOFF: stage-section-B-transcript transcript=<transcript-file> resume-with="bash <onboard.sh> --resume [flags]"
+```
+
+`--resume` with no `--extraction-stub` and no `EXTRACTION_OUTPUT_OVERRIDE` reads
+the conventional stub, `$CLAUDE_HOME/onboarding/extraction-output-B-slim.json`,
+when it is non-empty; without `--resume` that file is never read.
+
 ### Driver-staging contract (no interactive capture available)
 
 When no capture bin is executable (the GA clean-install state) and no transcript

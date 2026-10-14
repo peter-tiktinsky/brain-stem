@@ -67,7 +67,7 @@
         "string",
         "null"
       ],
-      "description": "Top-level plan slug (no path, no extension). Required at depth ≥ 3 per CLAUDE.md plan-tree convention rule #5 (R-28). Plan-root files (depth 2) exempt; handoff.md exempt at any depth."
+      "description": "The parent plan's directory basename, including its NN- prefix (no path, no extension); a bare slug is tolerated on read (resolved through the NN-<slug> glob) and never written. Required at depth ≥ 3 per CLAUDE.md plan-tree convention rule #5 (R-28). Plan-root files (depth 2) exempt; handoff.md exempt at any depth."
     },
     "sub_plan_id": {
       "type": "string",
@@ -98,9 +98,9 @@
         "FIX NOW",
         "ABSORB",
         "STANDALONE",
-        "DEFERRED"
+        "NO-BUILD"
       ],
-      "description": "Backlog triage disposition. Vocabulary mirrors governance/plans-rules.json :: backlog_row.disposition_enum (the SoT); consumed by the librarian backlog-index read-replica (the Disposition column, validated against that enum) and by backlog-hygiene (which stamps DEFERRED after the stale-advisory window)."
+      "description": "Backlog triage disposition. Vocabulary mirrors governance/plans-rules.json :: backlog_row.disposition_enum (the SoT); consumed by the librarian backlog-index read-replica (the Disposition column, validated against that enum) and by backlog-hygiene (which flags a missing disposition after the stale-advisory window and never stamps one)."
     },
     "superseded_by": {
       "type": [
@@ -196,6 +196,13 @@
               "type": "string"
             },
             "default": []
+          },
+          "context_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. The plan text this task needs, each entry '<file>#<heading>' (that section; file relative to the plan dir) or 'ADR-NN' (the decision file). plan-context <plan> --task T-n prints each one resolved."
           },
           "depends_on": {
             "type": "array",
@@ -865,6 +872,27 @@
         }
       }
     },
+    "assets": {
+      "type": "array",
+      "description": "PLAN-TREE FIELD. Pointer rows for top-level plan-folder entries outside the managed set (governance/plans-rules.json :: plan_folder_managed_set), each naming the entry and one line on what it is for. Optional; written by `librarian plan-asset add`. placement-validate reports a top-level entry of a non-terminal plan that is outside the managed set and has no row here as plan-unmanaged-entry.",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "purpose"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The entry's name, relative to the plan dir (one top-level segment)."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "One line on what the entry holds and why it lives in the plan folder."
+          }
+        }
+      }
+    },
     "research_artifacts": {
       "type": "array",
       "description": "PLAN-TREE FIELD. Pointer array to the plan's declared research SoT — one entry per durable research artifact a plan produces (landing under <plan>/_research/). Optional — absent on plans with no recorded research; existing manifests remain valid (not required; additionalProperties:true). This is the declared-artifact roster the binder projections consume: a research-class entry projects to one research-index row (path / type / status / plan-origin / one-liner plus a Library column derived from library_refs); a decision-class entry (resolved kind decision|adr — declared `type` wins, else filename-stem inference) projects on the decision log's Decision-artifacts section instead, deduped against the same plan's decision_records[] paths. Declaration is the selectivity gate — only declared artifacts earn a row. Body-structure contract: governance/file-type-contracts/library-article.md.json. Consumers MUST treat a missing field as empty, never an error (legacy manifests carry none).",
@@ -890,9 +918,20 @@
             "enum": [
               "active",
               "finalized",
-              "deferred"
+              "deferred",
+              "superseded"
             ],
-            "description": "Lifecycle token. `active` = in progress; `finalized` = settled, eligible for library promotion; `deferred` = paused/parked."
+            "description": "Lifecycle token. `active` = in progress; `finalized` = settled, eligible for library promotion; `deferred` = paused/parked; `superseded` = replaced by the entry its superseded_by names, set only by the librarian plan-research-supersede verb (never eligible for library promotion)."
+          },
+          "superseded_by": {
+            "type": "string",
+            "pattern": "^RA-[0-9]+$",
+            "description": "Optional. The id of the entry that supersedes this one; written by plan-research-supersede together with status superseded."
+          },
+          "supersedes": {
+            "type": "string",
+            "pattern": "^RA-[0-9]+$",
+            "description": "Optional. The id of the entry this one supersedes; written by plan-research-supersede."
           },
           "path": {
             "type": "string",

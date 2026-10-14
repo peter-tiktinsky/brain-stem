@@ -446,7 +446,7 @@ done <<< "$roster"
 [ -z "$degraded" ] && exit 0
 
 banner="[Cron health] One or more background lanes look degraded:${degraded}
-Check launchctl status + ${LOG_DIR}/<lane>-stderr.log."
+Check launchctl status + ${LOG_DIR}/<lane>-audit.log."
 
 if command -v format_output_allow >/dev/null 2>&1; then
   format_output_allow "SessionStart" "$banner" || true

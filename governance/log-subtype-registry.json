@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0.0",
-  "_description": "Canonical enumeration of `#log/*` and `#status/*` system-utility tag subtype values. Source of truth for the pre-write-guard hook's near-match DENY discipline (R-05) and the librarian log-subtype-canonical audit. Foundation seeds the operational subtypes that ship with foundation skills + crons; adopters extend via Layer 3 overlay at `log_subtype_registry_overlay.json` (sibling location post-install).",
+  "_description": "Canonical enumeration of `#log/*` and `#status/*` system-utility tag subtype values. Source of truth for the librarian log-subtype-canonical audit (R-05). Foundation seeds the operational subtypes that ship with foundation skills + crons; adopters extend via Layer 3 overlay at `log_subtype_registry_overlay.json` (sibling location post-install).",
   "_design_notes": {
-    "consumer": "pre-write-guard.sh tag-validation branch (R-05 near-match DENY); librarian log-subtype-canonical capability (audit-time drift detection); skill-side `log_subtype:` SKILL.md declaration contract",
-    "lockstep_pair": "governance/tagging-rules.json R-05 (tag-validation branch) + hooks/pre-write-guard.sh (enforcement) + governance/tagging-rules.json#taxonomy.system_utility_governance",
-    "evolution_protocol": "R-37 documentary lockstep — registry additions move with tagging-rules.json R-05 + pre-write-guard.sh tag-validation branch + tagging-rules.json#taxonomy.system_utility_governance in one commit. NO write-time DENY for R-37, by design (git commit-boundary atomicity + librarian governance-parity-audit). Adopter-side additions land at the sibling overlay (log_subtype_registry_overlay.json); no foundation-repo commit required for adopter operational subtypes."
+    "consumer": "librarian log-subtype-canonical capability (R-05; audit-time drift detection); skill-side `log_subtype:` SKILL.md declaration contract",
+    "lockstep_pair": "governance/tagging-rules.json R-05 + governance/tagging-rules.json#taxonomy.system_utility_governance",
+    "evolution_protocol": "R-37 documentary lockstep — registry additions move with tagging-rules.json R-05 + tagging-rules.json#taxonomy.system_utility_governance in one commit. NO write-time DENY for R-37, by design (git commit-boundary atomicity + librarian governance-parity-audit). Adopter-side additions land at the sibling overlay (log_subtype_registry_overlay.json); no foundation-repo commit required for adopter operational subtypes."
   },
   "dimensions": {
     "log": {
@@ -29,17 +29,10 @@
   "log_subtypes": [
     {
       "subtype": "session-close",
-      "owner_skill": "session-close-and-handoff",
+      "owner_skill": "librarian",
       "owner_cron": null,
       "first_registered_at": "2026-05-12",
       "description": "End-of-session reconciliation artifacts emitted by the session-close skill or its manual invocation. One file per session."
-    },
-    {
-      "subtype": "cron-error",
-      "owner_skill": null,
-      "owner_cron": null,
-      "first_registered_at": "2026-05-12",
-      "description": "Error artifacts emitted by ANY cron wrapper on non-zero exit. owner_cron is null because the subtype is shared across all cron wrappers (each cron emits cron-error on its own failure); no single cron owns the registry entry. One file per failure; preserves stderr + invocation context."
     },
     {
       "subtype": "audit-report",
@@ -49,46 +42,11 @@
       "description": "Librarian audit-capability output (governance-parity-audit, packet-staleness-audit, etc.)."
     },
     {
-      "subtype": "log-archive",
-      "owner_skill": "librarian",
-      "owner_cron": "com.logs-audit",
-      "first_registered_at": "2026-05-12",
-      "description": "Output emitted by the log-archive librarian capability. Documents which files were rotated to state/logs/archive/."
-    },
-    {
-      "subtype": "build",
-      "owner_skill": null,
-      "owner_cron": null,
-      "first_registered_at": "2026-05-12",
-      "description": "Build-progress logs emitted during plan execution (foundation-repo install, scaffold rendering, capability deploy)."
-    },
-    {
-      "subtype": "documentation",
-      "owner_skill": null,
-      "owner_cron": null,
-      "first_registered_at": "2026-05-12",
-      "description": "Documentation-emission logs (capability docs rendered, narrative spokes generated, ADRs authored)."
-    },
-    {
       "subtype": "backlog-hygiene",
       "owner_skill": "backlog-hygiene",
       "owner_cron": null,
       "first_registered_at": "2026-05-12",
       "description": "Backlog-hygiene capability output. Surfaces stale items, lifecycle timeouts, auto-archive candidates."
-    },
-    {
-      "subtype": "digest-run",
-      "owner_skill": "digest-run",
-      "owner_cron": "com.digest-run",
-      "first_registered_at": "2026-05-12",
-      "description": "Digest pipeline run output (calendar + chat + meeting synthesis). Daily cadence typical."
-    },
-    {
-      "subtype": "inventory",
-      "owner_skill": null,
-      "owner_cron": null,
-      "first_registered_at": "2026-05-12",
-      "description": "Inventory-walk outputs (vault filesystem inventory, manifest regeneration runs, packet-coverage scans)."
     },
     {
       "subtype": "library-change",

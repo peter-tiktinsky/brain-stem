@@ -15,10 +15,13 @@
 #   - an AGGREGATE project-level status (there is NO native aggregate field — G1 —
 #     so it is aggregated BY RULE; the rule is documented at AGGREGATE_RULE below),
 #   - active focus: the in-progress plan + its current task/blocker (from the
-#     manifest tasks[] status fields),
+#     manifest tasks[] status fields), its spec (derived from spec_path) and the
+#     `plan-context <slug> --task T-n` command for that task's slice,
 #   - the latest handoff headline (most recent handoff.md across the spoke),
 #   - pointers to research-index.md / decision-log.md / handoff-chronicle.md
-#     (co-located in the binder home) + the deliverables path ~/work/<spoke>/deliverables/.
+#     (co-located in the binder home), each naming its per-plan plan-context query
+#     (--canon / --decisions / --handoff latest), + the deliverables path
+#     ~/work/<spoke>/deliverables/.
 #
 # EXCLUDE (hard): the card NEVER emits the non-derivable library-refs or the free
 # "active SoT" pointer (non-derivable curation the card deliberately omits). The
@@ -106,6 +109,12 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# The session-heading recognizer (exports the HANDOFF_*_PY patterns the headline
+# parser compiles). Unreadable in both homes: exit 2 naming the lib.
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh"; } \
+  || { [ -r "$_REPO_LIB/handoff-recognizer.sh" ] && source "$_REPO_LIB/handoff-recognizer.sh"; } \
+  || { echo "project-context-situating: hooks/lib/handoff-recognizer.sh unreadable under $CLAUDE_HOME_RES and $_REPO_LIB" >&2; exit 2; }
 
 DRY_RUN="false"
 SPOKE_FILTER=""
@@ -128,7 +137,7 @@ WORK_HOME_RES="${WORK_HOME:-$HOME/work}"
 case "$WORK_HOME_RES" in */) WORK_HOME_RES="${WORK_HOME_RES%/}" ;; esac
 
 python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" "$WORK_HOME_RES" <<'PY'
-import json, os, re, sys, tempfile
+import glob, json, os, re, sys, tempfile
 from datetime import date
 
 plans_root, dry_s, spoke_filter, work_home = sys.argv[1:5]
@@ -206,7 +215,7 @@ def walk_manifests(root):
             emit({"finding": "project-context-situating-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
-        # /(): keep only real plans. A real plan has a `status` field
+        # Real-plan shape predicate: keep only real plans. A real plan has a `status` field
         # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
         # accept clause subsumes the corpus_version/slots reject (those fixtures also
         # lack status+spec.md); if a future corpus_version dir ever declares status,
@@ -229,6 +238,31 @@ def field(man, key, default=""):
     if v is None:
         return default
     return v
+
+
+# --- parent_plan resolution -------------------------------------------------
+# The parent_plan rule: the parent plan's directory basename, including its NN-
+# prefix. A bare slug is tolerated on read. resolve_parent() applies the same order
+# as plan-terminal-lag-check.sh resolve_parent_dir: the exact <plans_root>/<literal>
+# directory first, then the first sorted <plans_root>/*-<literal> directory. It
+# returns the key the roster groups under (the literal for an exact match, the
+# matched directory basename for a glob match), or None when nothing resolves.
+# Resolution is plans-root-wide and spoke-agnostic, as is the manifest walk, so a
+# parent owned by another spoke still resolves and supplies its title and status.
+def resolve_parent(literal):
+    if os.path.isdir(os.path.join(plans_root, literal)):
+        return literal
+    matches = sorted(g for g in glob.glob(os.path.join(plans_root, "*-" + literal))
+                     if os.path.isdir(g))
+    return os.path.basename(matches[0]) if matches else None
+
+
+# Top-level plans by directory basename, for a synthesized parent row's title and
+# status.
+top_manifests = {}
+for _pd, _man in manifests:
+    if os.path.abspath(os.path.dirname(_pd.rstrip("/"))) == os.path.abspath(plans_root):
+        top_manifests[slug_of(_pd)] = _man
 
 
 # --- AGGREGATE_RULE (G1): there is NO native project-level aggregate status in
@@ -303,24 +337,20 @@ def current_task(man):
 # handoff.md files in the spoke, selected by parsed session_key (session ordinal
 # DESC, then date DESC) — NOT the freshest-mtime file's FIRST heading. A handoff
 # whose newest block is not its first, or a spoke whose latest work landed in a file
-# with an older mtime, would otherwise publish a stale line. The recognizer is a
-# hand-copied 3rd copy of the chronicle pair's session-heading recognizer
+# with an older mtime, would otherwise publish a stale line. The recognizer is the
+# chronicle pair's session-heading recognizer
 # (skills/librarian/capabilities/plan-handoff-index.sh + hooks/handoff-chronicle-
-# append.sh); the SESSION_HEADING_RE / SESSION_NUM_RE / DATE_RE triple is
-# byte-identical to that pair (the recognizer region is parity-gated) and parses the
+# append.sh): the SESSION_HEADING_RE / SESSION_NUM_RE / DATE_RE triple compiles the
+# patterns hooks/lib/handoff-recognizer.sh exports, as that pair does, and parses the
 # same shapes: the heading is anchored to the heading-text start (a narrative
 # "...(Session N)" is not a boundary); the ordinal parser rejects a YYYY-MM-DD date
 # (the date is the date sort-key) and parses S-prefixed / colon forms.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+"
-    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
-    r"|s[0-9]+\b"
-    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
-    r".*$",
+    os.environ["HANDOFF_SESSION_HEADING_PY"],
     re.IGNORECASE,
 )
-SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
-DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
+SESSION_NUM_RE = re.compile(os.environ["HANDOFF_SESSION_NUM_PY"], re.IGNORECASE)
+DATE_RE = re.compile(os.environ["HANDOFF_DATE_PY"])
 def newest_handoff_headline(plan_dirs):
     # PER-SLUG maxima: for EACH plan slug, scan every session heading in its own
     # handoff.md, parse the session ordinal + date, and keep THAT slug's maximum
@@ -375,8 +405,15 @@ for plan_dir, man in manifests:
     st["plan_dirs"][slug] = plan_dir
     if status.lower() == ACTIVE:
         tid, blocker = current_task(man)
+        # The spec path is derived from the manifest's spec_path (absolute by schema; a
+        # relative value resolves against the plan dir), so it is not the free pointer the
+        # EXCLUDE rule bars. A path that is not a file renders nothing, never a dead link.
+        sp = str(field(man, "spec_path") or "").strip()
+        if sp and not os.path.isabs(sp):
+            sp = os.path.join(plan_dir, sp)
+        spec = os.path.normpath(sp) if sp and os.path.isfile(sp) else ""
         st["active"].append({"slug": slug, "title": title, "task": tid,
-                             "blocker": blocker})
+                             "blocker": blocker, "spec": spec})
 
 
 def esc(cell):
@@ -434,8 +471,16 @@ def render_card(spoke, st):
         for a in active:
             task = ("`%s`" % a["task"]) if a["task"] else "—"
             blocker = esc(a["blocker"]) or "—"
-            lines.append("- **%s** (%s) — current task %s: %s"
-                         % (esc(a["title"]), esc(a["slug"]), task, blocker))
+            bullet = ("- **%s** (%s) — current task %s: %s"
+                      % (esc(a["title"]), esc(a["slug"]), task, blocker))
+            # The spec, as a link relative to this binder home (like every card link), and
+            # the loader command that prints the current task's slice.
+            if a["spec"]:
+                rel = os.path.relpath(a["spec"], binder_home)
+                bullet += " · spec: [spec.md](%s)" % rel
+            if a["task"]:
+                bullet += " · task slice: `plan-context %s --task %s`" % (a["slug"], a["task"])
+            lines.append(bullet)
     else:
         lines.append("_No in-progress plan in this spoke._")
     lines.append("")
@@ -469,17 +514,28 @@ def render_card(spoke, st):
     # curation the card deliberately omits). NO work directory-map.
     lines.append("## Binder surfaces")
     lines.append("")
-    for label, fname in (("Research", "research-index.md"),
-                         ("Decisions", "decision-log.md"),
-                         ("Handoffs", "handoff-chronicle.md")):
+    binder_pointer_count = 0
+    # Each binder pointer also names the plan-context query that returns one plan's slice
+    # of that surface.
+    for label, fname, query in (("Research", "research-index.md", "--canon"),
+                                ("Decisions", "decision-log.md", "--decisions"),
+                                ("Handoffs", "handoff-chronicle.md", "--handoff latest")):
         if os.path.exists(os.path.join(binder_home, fname)):
-            lines.append("- %s: [%s](%s)" % (label, fname, fname))
+            lines.append("- %s: [%s](%s) — per plan: `plan-context <plan> %s`"
+                         % (label, fname, fname, query))
+            binder_pointer_count += 1
     # existence-gate the deliverables pointer, mirroring the
     # binder-surface gate above. A binder-only spoke with no ~/work/<spoke>/deliverables/
     # otherwise force-ingested a DEAD pointer every session. (The hub.md-pointer half of
     # the deliverables-hub pointer is DISSOLVED (de-hub); the card no longer emits a hub.md pointer.)
     if os.path.isdir(os.path.join(work_home, spoke, "deliverables")):
         lines.append("- Deliverables: `~/work/%s/deliverables/`" % spoke)
+        binder_pointer_count += 1
+    # Thrift footer — only when there is something to follow. The pointers above are
+    # on-demand reads; preloading every binder index recreates the always-on context
+    # cost the card exists to bound (~60 B against MAX_CARD_BYTES).
+    if binder_pointer_count:
+        lines.append("_Follow these on demand; never preload every binder index._")
     lines.append("")
 
     # PLAN ROSTER — rendered LAST and STRUCTURALLY BOUNDED. Keyed per-spoke off
@@ -501,13 +557,21 @@ def render_card(spoke, st):
 
     # collapse: a plan whose parent_plan names another plan is a child; group the
     # children under their parent and render ONE row per parent (with a child count)
-    # instead of a row per child.
+    # instead of a row per child. The parent_plan literal is resolved to the parent
+    # plan's directory basename first (resolve_parent), so a bare slug and its
+    # NN-prefixed form group under one row keyed by the numbered directory.
     children_of = {}
+    unresolved = set()
     tops = []
     for p in nonterminal:
         par = str(p.get("parent_plan") or "").strip()
-        if par and par != p["slug"]:
-            children_of.setdefault(par, []).append(p)
+        if par:
+            key = resolve_parent(par)
+            if key is None:
+                key = par
+                unresolved.add(par)
+        if par and key != p["slug"]:
+            children_of.setdefault(key, []).append(p)
         else:
             tops.append(p)
 
@@ -518,12 +582,30 @@ def render_card(spoke, st):
         rows.append((p["slug"], p["title"], p["status"], len(kids)))
         if kids:
             handled.add(p["slug"])
-    # orphan parents: a parent named by children but with no non-terminal top-level
-    # row of its own (its own plan is terminal or absent) — synthesize one row.
+    # orphan parents: a parent named by children but with no non-terminal row on
+    # this card (its own plan is at rest, absent, or owned by another spoke) —
+    # synthesize one row. A resolved parent takes its numbered slug and, when its
+    # manifest is in the plans-root-wide walk, that manifest's title and status. A
+    # literal that resolves to no directory keeps the collapsed row keyed by the
+    # literal, and the mismatch is reported as a finding, never into the card.
     for par in sorted(children_of):
         if par in handled:
             continue
-        rows.append((par, par, "", len(children_of[par])))
+        kids = children_of[par]
+        if par in unresolved:
+            emit({"finding": "project-context-situating-parent-unresolved",
+                  "file": spoke, "spoke": spoke, "parent_plan": par,
+                  "children": sorted(k["slug"] for k in kids),
+                  "level": "warn", "detected_at": today})
+            rows.append((par, par, "", len(kids)))
+            continue
+        pman = top_manifests.get(par)
+        if pman is None:
+            rows.append((par, par, "", len(kids)))
+            continue
+        ptitle = str(field(pman, "title") or "").strip() or par
+        pstatus = str(field(pman, "status") or "").strip()
+        rows.append((par, ptitle, pstatus, len(kids)))
 
     rows.sort(key=lambda r: r[0])
 

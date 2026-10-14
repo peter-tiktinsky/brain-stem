@@ -11,6 +11,7 @@
 #   plan-parent-resolve.sh                 # full corpus walk
 #   plan-parent-resolve.sh --file <path>   # resolve chain for one file
 #   plan-parent-resolve.sh --parent <slug> # list files whose chain includes <slug>
+#                                          # (with or without its NN- prefix)
 #   plan-parent-resolve.sh --classify      # PROPOSE an owning spoke per plan
 #                                          # (T-3; propose-only, NEVER writes)
 #   plan-parent-resolve.sh --dry-run       # (no-op — resolver is already read-only)
@@ -35,6 +36,9 @@
 #   parent-plan-path-drift   — warn  — explicit field disagrees with path; ALSO
 #                                      reused for the project:-stamp-vs-lineage
 #                                      drift case (drift_class field distinguishes)
+#   parent-plan-bare-slug    — info  — a hop resolved only through the NN-<slug>
+#                                      glob (explicit = the literal, resolved = the
+#                                      directory basename); once per file
 #
 # PROJECT-STAMP DRIFT: the auto-stamped project: spoke key
 # (the manifest identity field-triad) is re-validated against the anchored-spoke registry
@@ -111,6 +115,39 @@ if [[ ! -d "$PLANS_ROOT" ]]; then
   exit 3
 fi
 
+# resolve_parent_literal <literal> — look a parent_plan value up. The rule:
+# parent_plan is the parent plan's directory basename, including its NN- prefix;
+# a bare slug is tolerated on read (resolved through the NN-<slug> glob) and never
+# written. Order: an exact directory, a flat <literal>.md plan, then the first
+# <plans_root>/*-<literal> directory. Sets PL_KIND (dir | flat | glob | none),
+# PL_DIR (the directory; empty for a flat plan) and PL_NAME (the chain element:
+# the directory basename, or the literal for a flat plan).
+resolve_parent_literal() {
+  local lit="$1" c
+  PL_KIND="none"; PL_DIR=""; PL_NAME=""
+  if [[ -d "$PLANS_ROOT/$lit" ]]; then
+    PL_KIND="dir"; PL_DIR="$PLANS_ROOT/$lit"
+  elif [[ -f "$PLANS_ROOT/$lit.md" ]]; then
+    PL_KIND="flat"; PL_NAME="$lit"
+  else
+    for c in "$PLANS_ROOT"/*-"$lit"; do
+      if [[ -d "$c" ]]; then
+        PL_KIND="glob"; PL_DIR="$c"
+        break
+      fi
+    done
+  fi
+  if [[ -n "$PL_DIR" ]]; then
+    PL_NAME="$(basename "$PL_DIR")"
+  fi
+  return 0
+}
+
+# resolve_chain <file> — walk the parent_plan chain. Line 1 is the result: ok:<chain>,
+# inferred:<top>, unresolvable, broken:<literal>, cycle:<chain>|<element> or
+# too-deep:<n>. Chain elements are resolved directory basenames (a flat plan keeps
+# its literal). When a hop resolved only through the NN-<slug> glob, line 2 is
+# bare:<literal>|<basename> for the first such hop.
 resolve_chain() {
   local file="$1"
   local visited=""
@@ -118,6 +155,7 @@ resolve_chain() {
   local depth=0
   local max_depth=6
   local parent
+  local bare=""
   # For manifest.json files, parse the JSON for top-level parent_plan.
   # For Markdown files, use the standard YAML frontmatter helper.
   if [[ "$file" == *.json ]]; then
@@ -148,40 +186,27 @@ except Exception:
   fi
 
   while [[ -n "$parent" ]] && [[ $depth -lt $max_depth ]]; do
+    resolve_parent_literal "$parent"
+    if [[ "$PL_KIND" == "none" ]]; then
+      _chain_out "broken:$parent"
+      return
+    fi
+    local parent_dir="$PL_DIR"
+    local name="$PL_NAME"
+    if [[ "$PL_KIND" == "glob" ]] && [[ -z "$bare" ]]; then
+      bare="$parent|$name"
+    fi
     case " $visited " in
-      *" $parent "*)
-        echo "cycle:$chain|$parent"
+      *" $name "*)
+        _chain_out "cycle:$chain|$name"
         return
         ;;
     esac
-    visited="$visited $parent"
+    visited="$visited $name"
     if [[ -z "$chain" ]]; then
-      chain="$parent"
+      chain="$name"
     else
-      chain="$chain|$parent"
-    fi
-
-    # Lookup: direct match, flat .md plan, or NN-<slug> form (per CLAUDE.md
-    # rule #5: parent_plan value is the slug without numeric prefix).
-    local parent_dir=""
-    local resolved=0
-    if [[ -d "$PLANS_ROOT/$parent" ]]; then
-      parent_dir="$PLANS_ROOT/$parent"
-      resolved=1
-    elif [[ -f "$PLANS_ROOT/$parent.md" ]]; then
-      resolved=1
-    else
-      for c in "$PLANS_ROOT"/*-"$parent"; do
-        if [[ -d "$c" ]]; then
-          parent_dir="$c"
-          resolved=1
-          break
-        fi
-      done
-    fi
-    if [[ "$resolved" -eq 0 ]]; then
-      echo "broken:$parent"
-      return
+      chain="$chain|$name"
     fi
 
     local next_parent=""
@@ -202,19 +227,35 @@ except Exception:
     # depth-3 R-28-correct child stamp (parent_plan == its top-level plan) that
     # chains into such a root must terminate ok, not cycle. End the walk here;
     # a real cross-plan cycle has next_parent != parent and still trips below.
+    # The self-pointer may use either form, the bare slug or the NN- basename,
+    # so it is recognized by what it resolves to, not by its spelling.
     if [[ "$next_parent" == "$parent" ]]; then
       next_parent=""
+    elif [[ -n "$next_parent" ]]; then
+      resolve_parent_literal "$next_parent"
+      if [[ "$PL_KIND" != "none" ]] && [[ "$PL_NAME" == "$name" ]]; then
+        next_parent=""
+      fi
     fi
     parent="$next_parent"
     depth=$((depth + 1))
   done
 
   if [[ $depth -ge $max_depth ]]; then
-    echo "too-deep:$depth"
+    _chain_out "too-deep:$depth"
     return
   fi
 
-  echo "ok:$chain"
+  _chain_out "ok:$chain"
+}
+
+# _chain_out <result> — print resolve_chain's result line, then its bare-hop line
+# when the walk recorded one (reads resolve_chain's local `bare`).
+_chain_out() {
+  echo "$1"
+  if [[ -n "$bare" ]]; then
+    echo "bare:$bare"
+  fi
 }
 
 # read_project_field <file> — print the stamped project: value (empty if absent).
@@ -330,7 +371,7 @@ CLASSIFY_ADR=""
 CLASSIFY_PIVOT="93"
 
 # _classify_load_adr — locate the ownership-model artifact and read its
-# ground truth: the blessed 3-spoke set (must be present) + the temporal-axis
+# ground truth: the required spoke names (must be present) + the temporal-axis
 # pivot plan number. Returns non-zero (classifier degrades to no-op) if the ADR
 # is not resolvable — the model is a required input, never assumed.
 _classify_load_adr() {
@@ -344,6 +385,8 @@ _classify_load_adr() {
   fi
   [[ -n "$CLASSIFY_ADR" ]] && [[ -r "$CLASSIFY_ADR" ]] || return 1
   local k
+  # Require only spoke names that survive the public release cleaner, so the
+  # development and shipped copies accept the same ADR.
   for k in brain-stem personal-live-system; do
     grep -q "$k" "$CLASSIFY_ADR" || return 1
   done
@@ -549,18 +592,29 @@ emit_resolution() {
   local file="$1"
   TOTAL=$((TOTAL + 1))
   local rel="${file#$PLANS_ROOT/}"
-  local result
-  result=$(resolve_chain "$file")
+  local out result bare=""
+  out=$(resolve_chain "$file")
+  result="${out%%$'\n'*}"
+  case "$out" in
+    *$'\n'bare:*) bare="${out#*$'\n'bare:}" ;;
+  esac
 
   case "$result" in
     ok:*)
       EXPLICIT=$((EXPLICIT + 1))
       local chain="${result#ok:}"
-      local explicit_parent="${chain%%|*}"
+      # The comparison uses the resolved first element. The finding still reports
+      # the literal the file carries: when the first hop was the bare one, that is
+      # the bare-hop literal.
+      local first="${chain%%|*}"
+      local explicit_parent="$first"
+      if [[ -n "$bare" ]] && [[ "${bare#*|}" == "$first" ]]; then
+        explicit_parent="${bare%%|*}"
+      fi
       local path_top="${rel%%/*}"
-      if [[ "$explicit_parent" != "$path_top" ]] && [[ -n "$path_top" ]] && [[ -e "$PLANS_ROOT/$path_top" ]]; then
+      if [[ "$first" != "$path_top" ]] && [[ -n "$path_top" ]] && [[ -e "$PLANS_ROOT/$path_top" ]]; then
         local path_top_slug="${path_top#*-}"
-        if [[ "$explicit_parent" != "$path_top_slug" ]] && [[ "$explicit_parent" != "$path_top" ]]; then
+        if [[ "$first" != "$path_top_slug" ]] && [[ "$first" != "$path_top" ]]; then
           emit_finding "parent-plan-path-drift" "$rel" \
             "explicit" "$explicit_parent" \
             "path_top" "$path_top" \
@@ -598,6 +652,16 @@ emit_resolution() {
       ;;
   esac
 
+  # BARE-SLUG HOP: one info finding per file whose chain resolved a hop only
+  # through the NN-<slug> glob. The bare form is tolerated, never refused. Like
+  # the project-stamp check below, it is skipped in the --parent listing mode.
+  if [[ -n "$bare" ]] && [[ "$MODE" != "parent" ]]; then
+    emit_finding "parent-plan-bare-slug" "$rel" \
+      "explicit" "${bare%%|*}" \
+      "resolved" "${bare#*|}" \
+      "level" "info"
+  fi
+
   # PROJECT-STAMP DRIFT: re-validate the auto-stamped
   # project: spoke key against the registry + lineage for EVERY in-scope file
   # (independent of parent_plan presence — a top-level plan can carry a stale
@@ -616,9 +680,21 @@ emit_resolution() {
           ok:*) chain="${result#ok:}" ;;
           inferred:*) chain="${result#inferred:}" ;;
         esac
-        case "|$chain|" in
-          *"|$PARENT_FILTER|"*) echo "$rel" ;;
-        esac
+        # A chain element matches as written, or with its leading NN- prefix
+        # removed, so the bare slug and the numbered form list the same files.
+        local el rest="$chain|" nn_re='^[0-9]+-(.+)$'
+        while [[ -n "$rest" ]]; do
+          el="${rest%%|*}"
+          rest="${rest#*|}"
+          if [[ "$el" == "$PARENT_FILTER" ]]; then
+            echo "$rel"
+            break
+          fi
+          if [[ "$el" =~ $nn_re ]] && [[ "${BASH_REMATCH[1]}" == "$PARENT_FILTER" ]]; then
+            echo "$rel"
+            break
+          fi
+        done
         ;;
     esac
   fi
@@ -637,7 +713,8 @@ if [[ "$MODE" == "single" ]]; then
     echo "plan-parent-resolve: --file not found: $FILE_ARG" >&2
     exit 3
   fi
-  resolve_chain "$FILE_ARG"
+  single_out=$(resolve_chain "$FILE_ARG")
+  printf '%s\n' "${single_out%%$'\n'*}"
   exit 0
 fi
 

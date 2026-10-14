@@ -78,7 +78,7 @@ msg="[launch-anchor] This session was launched from your home directory (\$HOME)
   1. Workspace scope: the ENTIRE home tree (~/.ssh, credentials, Downloads, …) is now in the agent's file-operation scope.
   2. Config conflation: the project-level .claude/ resolves onto the global ~/.claude, collapsing project and global scope.
   3. Catch-all bloat: this session writes to the anchorless 'home' catch-all identity instead of a bounded, owned spoke.
-Remedy: launch from a registered spoke (a code repo, or a ~/work project). For cross-cutting personal-system work, create a dedicated bounded directory (e.g. ~/system) and register it as a spoke — a registry entry plus a one-line identity CLAUDE.md — the same way a code-tree spoke is registered; then launch from there, never from \$HOME.
+Remedy: launch from a registered spoke (a code repo, or a ~/work project). For cross-cutting personal-system work, create a dedicated bounded directory (e.g. ~/system) and register it as a spoke — a registry entry plus a one-line identity CLAUDE.md — the same way a code-tree spoke is registered (/govern register --kind project --anchor <dir> writes both); then launch from there, never from \$HOME.
 This is ADVISORY only — the session continues normally."
 
 if command -v format_output_allow >/dev/null 2>&1; then

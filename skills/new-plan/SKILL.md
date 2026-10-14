@@ -8,7 +8,7 @@ description: >
   creation route to /backlog-research. Trigger on: "/new-plan", "new plan", "scaffold a plan",
   "create a plan for ...".
 disable-model-invocation: false
-argument-hint: "<descriptive-slug> [--master --sub <sub-slug>] [--add-subplan <master-NN-slug> --sub <sub-slug>] [--title <title>] [--section <backlog-section>] [--force-slug]"
+argument-hint: "<descriptive-slug> [--master --sub <sub-slug>] [--add-subplan <master-NN-slug> --sub <sub-slug>] [--graduate <flat-NN-slug> --sub <sub-slug> [--dry-run]] [--rollup <master-NN-slug>] [--title <title>] [--section <backlog-section>] [--force-slug]"
 ---
 
 # /new-plan — Scaffolded Plan Creation (research-skip mode)
@@ -33,6 +33,8 @@ The mechanical engine is `new-plan.sh`; the `_inbox` graduation helper is
 | **research-backed** | `/backlog-research <item>` (peer skill) | same quartet, filled brief |
 | **`--master` (OPT-IN)** | `/new-plan --master <slug> --sub <sub-slug>` | master quartet + first sub-plan quartet |
 | **`--add-subplan`** | `/new-plan --add-subplan <master-NN-slug> --sub <sub-slug>` | new sub-plan quartet into an existing master; registers it in the master's `sub_plans[]` |
+| **`--graduate`** | `/new-plan --graduate <flat-NN-slug> --sub <sub-slug> [--dry-run]` | turns a flat plan into a master whose first sub-plan is the plan's own content; the plan keeps its number |
+| **`--rollup`** | `/new-plan --rollup <master-NN-slug>` | rewrites the master `tasks.md` rollup rows from the master's `sub_plans[]` aggregate |
 
 **Flat depth-2 is the DEFAULT emission.** A master structure is NEVER auto-emitted — it
 requires the explicit `--master` flag. The default path produces a single `type: plan`
@@ -43,17 +45,47 @@ quartet and adds a skeleton entry to the master's `sub_plans[]` aggregate (`stat
 `planned`); the librarian reconciler does the pull-based status fill — the scaffolder never
 hand-fills the aggregate beyond the skeleton seed.
 
+## Graduating a flat plan and rolling up a master
+
+Two commands restructure a plan that already exists. Both are mechanical, hold a lock while
+they write, and refuse before they write anything.
+
+`new-plan.sh --graduate <flat-NN-slug> --sub <sub-slug> [--dry-run]` turns a flat plan into a
+master whose first sub-plan is the flat plan's own content. The plan directory keeps its name
+and its number. Its whole content moves into `01-<sub-slug>/`; the directory then holds the
+master quartet, rendered from the master templates, beside that sub-plan. The sub-plan manifest
+and the frontmatter lines of the moved files are rewritten, and the master manifest lists the
+sub-plan. `--dry-run` runs every check, takes no lock and writes nothing. After the restructure
+the command re-derives the binder surfaces once for the master manifest and once for the
+sub-plan manifest, then names `/librarian backlog-index` as the next step. It never writes
+`_backlog.md`.
+
+`new-plan.sh --rollup <master-NN-slug>` pulls the master's `sub_plans[]` aggregate from the
+sub-plan manifests and rewrites the master `tasks.md` rollup rows from it, one row per
+sub-plan. It changes those rows and nothing else in the file.
+
+Exit codes: 0 done or a dry run, 1 aborted, 2 usage.
+
+A graduation refuses, with `new-plan: aborted — <reason>` and the plans tree untouched, when:
+
+- **not a flat plan** — the target is a master or a sub-plan, already lists `sub_plans[]`, or
+  is not a plan directory with a readable manifest.
+- **terminal plan** — its status is `completed` or `superseded`; a terminal plan is a closed
+  record and does not graduate.
+- **armed plan** — it is the plan armed for its spoke; disarm it first.
+- **numbered entry** — the directory already holds an `NN-` entry, which a flat plan never has.
+- **invalid sub slug** — the sub slug breaks the scaffolder's slug rules (shape, length, shame
+  slug).
+- **schema-invalid rewrite** — either rewritten manifest fails `plan-manifest-schema.json`; the
+  master is checked first.
+
+A failure while writing is rolled back, so the plan directory is as it was.
+Graduation changes structure, never lifecycle state.
+
 ## Designed-but-deferred / not built
 
-- **flat→master graduation — DESIGNED-BUT-DEFERRED.** A flat plan that outgrows depth-2 is
-  conceptually graduated to a master by: (1) `--master` scaffolding a new master shell,
-  (2) relocating the flat plan's body into a first sub-plan, (3) re-pointing
-  `parent_plan`/`type`. This graduation PATH is **not built** — there is no `graduate`
-  command. The intended manual route remains: scaffold a master with `--master` and migrate
-  by hand. (Captured here as design intent; the path is deliberately out of MVP scope.)
-- **`--promote-master` — NOT built.** No such flag exists. `--add-subplan` is the only way to
-  add a sub-plan to a master; there is no flag that promotes/auto-grafts a flat plan into a
-  master.
+- **`--promote-master` — NOT built.** No such flag exists. `--add-subplan` adds a sub-plan to
+  a master and `--graduate` turns a flat plan into one.
 
 ## Placeholder ideation brief
 
@@ -85,7 +117,7 @@ amendment-pointer-block, per the ideation-brief body-structure contract.)
 
 | Aspect | Value |
 |---|---|
-| Files written | **flat:** 5 files (`spec.md`, `tasks.md`, `handoff.md`, `manifest.json`, `00-ideation-brief.md`) under `<plans-root>/NN-<slug>/`. **--master:** master quartet (4) + first sub-plan quartet (4) under `NN-<slug>/` and `NN-<slug>/01-<sub-slug>/`. **--add-subplan:** sub-plan quartet (4) under `NN-<slug>/NN-<sub-slug>/` + a `sub_plans[]` skeleton append to the master manifest. |
+| Files written | **flat:** 5 files (`spec.md`, `tasks.md`, `handoff.md`, `manifest.json`, `00-ideation-brief.md`) under `<plans-root>/NN-<slug>/`. **--master:** master quartet (4) + first sub-plan quartet (4) under `NN-<slug>/` and `NN-<slug>/01-<sub-slug>/`. **--add-subplan:** sub-plan quartet (4) under `NN-<slug>/NN-<sub-slug>/` + a `sub_plans[]` skeleton append to the master manifest. **--graduate:** the plan's whole content moves under `NN-<slug>/01-<sub-slug>/`, the master quartet (4) is rendered at `NN-<slug>/`, and the sub-plan manifest, the frontmatter lines of the moved `spec.md` / `tasks.md` / `handoff.md` / `00-ideation-brief.md` and the master manifest are rewritten. **--rollup:** the rollup rows of the master `tasks.md`, plus the master manifest's `sub_plans[]` when the pull changed it. |
 | Schema type | plan manifests validated against `schemas/plan-manifest-schema.json` (`type: plan` / `master` / `sub-plan`; ADR if/then type-binding). Markdown bodies conform to the `governance/file-type-contracts/{spec,tasks,handoff,manifest,ideation-brief}.md.json` contracts. |
 | Pre-write validation | (a) slug shape + shame-slug regex; (b) length 3–60; (c) next-prefix computation; (d) base-slug collision check; (e) template presence; (f) for `--add-subplan`: master exists + `type == master` + sub-slug collision check. All run BEFORE any write. |
 | Failure mode | **block-and-log** — validate fully before any write; on any mid-scaffold write failure, roll back the created directory and report. Never leave partial state; never write-and-hope. |
@@ -100,14 +132,38 @@ amendment-pointer-block, per the ideation-brief body-structure contract.)
 | Target dir already exists | abort before any write |
 | Template missing | abort before any write |
 | `--add-subplan` target not a master | abort before any write |
+| `--graduate` target not a flat plan | abort before any write |
+| `--graduate` target armed or terminal | abort before any write |
+| `--rollup` target not a master | abort before any write |
 | Write failure mid-scaffold | roll back created files, abort, report |
+
+## Recipe: isolate the research reads in one subagent
+
+The research-backed mode (`/backlog-research`) runs ten steps. Steps 2 to 4 (vault context,
+infrastructure dependencies, external research) read material that is not yet in the session,
+so run them as ONE subagent with a fresh context, and only its final result returns to the
+main session. Do not fan out into several subagents or a workflow. Each extra subagent
+re-creates the full instruction block, and these reads have no interrupt or resume value to
+pay for that.
+
+Steps 5 to 10 (feasibility, alternatives, the ideation brief, the draft artifacts, the
+manifest update, the report) stay in the main session, because they judge and write what the
+subagent returned. Step 9 is the one setter command, the same one `skills/backlog-research/SKILL.md`
+names in its step 9:
+`${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh plan set <manifest> status=planned disposition=<disposition>`
 
 ## Related
 
-- `new-plan.sh` — the mechanical scaffolder entrypoint (flat / `--master` / `--add-subplan`).
+- `new-plan.sh` — the mechanical scaffolder entrypoint (flat / `--master` / `--add-subplan` / `--graduate` / `--rollup`).
 - `lib/promote-from-inbox.sh` — the internal R-34 mechanical helper: graduates an `_inbox`
   idea note into a plan dir (version-on-collision at capture; reject-on-collision at
   graduation).
+- `lib/master-rollup.sh` — the `--rollup` engine: pulls the master's `sub_plans[]` and rewrites
+  the rollup rows of the master `tasks.md`.
+- `lib/graduate-plan.sh` — the `--graduate` engine: validates, takes the plans-root lock,
+  restructures the plan and rolls back on any failure.
+- `lib/after-write.sh` — sourced by the two engines: runs the binder refresh and the manifest
+  verify for a manifest a script wrote.
 - `templates/` — the 8 master/sub quartet templates + the placeholder ideation-brief template.
 - `backlog-research` (peer skill) — the research-backed mode of the same scaffolder.
 - `schemas/plan-manifest-schema.json` — the manifest schema the rendered manifests satisfy.

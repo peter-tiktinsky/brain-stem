@@ -11,6 +11,10 @@
 # the exact dir the running harness reads (git-repo-root slug, or the flat
 # autoMemoryDirectory when set). Per-project, lazy, no-clobber.
 #
+# Throwaway-cwd skip: a session launched from a temp dir (a project dir whose slug is
+# -private-tmp*, -tmp*, -private-var-folders-* or -var-folders-*) gets no seeded MEMORY.md;
+# an explicit MEMORY_DIR, a flat override and every other slug seed as before.
+#
 # No-clobber: an existing MEMORY.md (template-shipped or user-curated) is
 # preserved unconditionally. Failure-isolation mirrors session-start.sh:
 # set -uo pipefail (NO -e); mandatory exit 0 (a non-zero SessionStart hook can
@@ -45,6 +49,19 @@ main() {
   local mem_dir target template tmp
   mem_dir="$(resolve_memory_dir 2>/dev/null || echo "")"
   [ -n "$mem_dir" ] || return 0
+
+  # Skip: a throwaway temp-dir slug (-private-tmp, -tmp, -private-var-folders, -var-folders) is never seeded.
+  # Applies only to the default projects/<slug>/memory resolution (MEMORY_DIR unset).
+  if [ -z "${MEMORY_DIR:-}" ]; then
+    local slug_dir slug
+    slug_dir="$(dirname "$mem_dir")"
+    if [ "$(basename "$(dirname "$slug_dir")")" = "projects" ]; then
+      slug="$(basename "$slug_dir")"
+      case "$slug" in
+        -private-tmp|-private-tmp-*|-tmp|-tmp-*|-private-var-folders-*|-var-folders-*) return 0 ;;
+      esac
+    fi
+  fi
 
   target="$mem_dir/MEMORY.md"
   # No-clobber: present, or a symlink (incl. dangling) → leave it.

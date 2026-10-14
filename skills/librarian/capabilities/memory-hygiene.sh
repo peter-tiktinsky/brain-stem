@@ -207,18 +207,26 @@ def emit(payload):
 # inline contract) to $MEMORY_ENQUEUE_OUT; the bash layer calls enqueue_item per line. The
 # judgment classes (#2/#3/#6) stay NDJSON-candidate emit (NOT enqueued). Never in dry-run.
 enqueue_out = os.environ.get("MEMORY_ENQUEUE_OUT", "")
+_SEVERITY_MAP = {"warn": "low", "error": "medium"}
+
 def enqueue_review(cls, subject, summary, severity="warn"):
     if not enqueue_out or dry_run:
         return
+    # review-queue-schema.json's `class` enum is {revalidation, hygiene,
+    # conflict, promotion} and `severity` is {low, medium, high} — these
+    # deterministic checks (#4/#5/#7/#8) are all the schema's "hygiene"
+    # class; the specific check (orphan/index/temporal/budget) is preserved
+    # in `payload.check` rather than smuggled into `class`.
     item = {
         "id": candidate_id("memory-hygiene", cls, subject),
-        "class": "memory-hygiene:" + cls,
-        "severity": severity,
+        "class": "hygiene",
+        "severity": _SEVERITY_MAP.get(severity, "low"),
         "state": "open",
         "defer_count": 0,
         "dismiss_count": 0,
         "subject": subject,
         "summary": summary,
+        "payload": {"capability": "memory-hygiene", "check": cls},
     }
     try:
         with open(enqueue_out, "a") as f:
@@ -272,6 +280,10 @@ for fn in sorted(os.listdir(memory_dir)):
         continue
     if fn == "MEMORY.md":
         continue
+    # the cold-spill archive is index overflow, not a memory: it has no frontmatter, so it is
+    # never inventoried; its links are read into `archived` below for the orphan walk.
+    if fn == "MEMORY-archive.md":
+        continue
     # dot-led files are never memories: the memory-schema naming contract
     # makes a file's name its slug, and a slug cannot begin with a dot — a
     # dot-led .md in a memory dir is an operational/runtime artifact (own or
@@ -302,6 +314,14 @@ if os.path.isfile(index_path):
         indexed[m.group(1)] = True
 else:
     idx_text = ""
+
+# Files whose index line was spilled to the archive: a file linked there is not an orphan (#4 only).
+archived = {}
+archive_path = os.path.join(memory_dir, "MEMORY-archive.md")
+if os.path.isfile(archive_path):
+    with open(archive_path) as f:
+        for m in re.finditer(r'\[([^\]]+\.md)\]\([^)]*\)', f.read()):
+            archived[m.group(1)] = True
 
 counts = {
     "orphan": 0, "index": 0, "temporal": 0, "budget": 0,
@@ -341,7 +361,7 @@ for fn, full in disk_files:
     file_meta[fn] = (fm, body, full)
 
     # #4 Orphan
-    if fn not in indexed:
+    if fn not in indexed and fn not in archived:
         emit({
             "finding": "orphan",
             "file": fn,

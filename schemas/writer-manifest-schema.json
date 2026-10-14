@@ -73,7 +73,7 @@
           },
           "notes": {
             "type": "string",
-            "description": "Free-form operator annotation. Optional — populated by /amend-accept or manual operator intervention. Not consumed by runtime."
+            "description": "Free-form operator annotation. Optional — populated by manual operator intervention. Not consumed by runtime."
           }
         }
       }

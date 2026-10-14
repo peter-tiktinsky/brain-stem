@@ -89,7 +89,7 @@
   "survivorship_policy_detail": {
     "signals": [
       {"name": "operator-edit-wins", "trigger": "Existing operator-edit-wins two-signal detection (last_user_edit timestamp + content-diff against writer's last-known-hash)", "action": "Amender SKIPS LLM call; emits _amender-conflict.json sidecar"},
-      {"name": "amender-conflict-sidecar", "trigger": "Conflict detected via signal 1", "action": "Sidecar file at <destination>.amender-conflict.json; operator triages via /amend-accept <sidecar> skill"},
+      {"name": "amender-conflict-sidecar", "trigger": "Conflict detected via signal 1", "action": "Sidecar file at <destination>.amender-conflict.json; operator triages the sidecar manually"},
       {"name": "amender-paused-frontmatter", "trigger": "Destination file frontmatter declares amender_paused: true", "action": "Amender permanently skips this destination until operator removes the flag"}
     ],
     "boundary": "doc-amender NEVER writes destination directly; round-trips through staging via staging-emit"

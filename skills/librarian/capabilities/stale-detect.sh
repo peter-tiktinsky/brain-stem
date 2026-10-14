@@ -19,9 +19,10 @@
 #   7. Plan files — completion marker without verification evidence (R-16)
 #      Scope: plan-root files ONLY (flat *.md, */spec.md, */00-ideation-brief.md,
 #      */README.md, */manifest.json). Sub-task files (depth ≥ 2) excluded.
-#   8. Plan trinity lag — manifest.status is terminal-complete but any
-#      manifest.tasks[] row's status lags (outside DONE_SET — the CLOSED
-#      terminal vocabulary incl. `cut`, per the schema declaration). Read
+#   8. Plan trinity lag — manifest.status is terminal-complete (in
+#      PLAN_COMPLETE_SET, the plan axis) but any manifest.tasks[] row's status
+#      lags (outside TASK_TERMINAL_SET, the task axis: the declared task
+#      terminal split, per the schema declaration). Read
 #      MANIFEST-DIRECT: manifest.tasks[] is the DERIVE status SoT; tasks.md is a
 #      rendered read-replica (tasks-render.sh owns it) and is never a data
 #      source here — replica freshness is a separate axis (tasks-render.sh
@@ -444,18 +445,23 @@ for dirpath, dirnames, filenames in os.walk(plans_scope):
             counts["stale-status"] += 1
 
 # ---------- plans walk (check #8 — trinity lag) ----------
-# For every manifest.json whose .status is terminal-complete, assert every
-# manifest.tasks[] row's status is terminal (DONE_SET). If any lags, emit a
-# severity-warn finding listing which task IDs lag. MANIFEST-DIRECT: the ledger
-# comes from manifest.tasks[] — the DERIVE status SoT — never from tasks.md.
-# DONE_SET carries the CLOSED terminal vocabulary: the declared terminal split
-# (done/cut) plus the frozen historical-tail synonyms, keyed to the
-# declared_vocabulary annotation in schemas/plan-manifest-schema.json;
-# membership tests normalize on the declared front-token chain (substring
+# For every manifest.json whose .status is terminal-complete (PLAN_COMPLETE_SET),
+# assert every manifest.tasks[] row's status is terminal (TASK_TERMINAL_SET). If
+# any lags, emit a severity-warn finding listing which task IDs lag.
+# MANIFEST-DIRECT: the ledger comes from manifest.tasks[] — the DERIVE status
+# SoT — never from tasks.md.
+# The two axes carry two purpose-named sets, keyed to the declared_vocabulary
+# annotation in schemas/plan-manifest-schema.json. PLAN_COMPLETE_SET serves the
+# plan axis: the plan terminal plus the frozen historical-tail synonyms, so a
+# plan stamped with any of them still reads as complete. TASK_TERMINAL_SET
+# serves the task axis: only the declared task terminal split (done/cut), so a
+# task row at a historical-tail value under a completed plan reads as lagging.
+# Membership tests normalize on the declared front-token chain (substring
 # before '(', stripped, lowered, underscores to hyphens), matching
 # trinity-drift-detect.sh's norm() so the two capabilities' counts agree on
 # the same corpus.
-DONE_SET = {"done", "complete", "completed", "implemented", "cut"}
+PLAN_COMPLETE_SET = {"done", "complete", "completed", "implemented", "cut"}
+TASK_TERMINAL_SET = {"done", "cut"}
 
 # KEPT-IN-STEP TWIN: the def block below is byte-identical to
 # trinity-drift-detect.sh's task_ledger_from_manifest — the two capabilities
@@ -520,13 +526,13 @@ for plan_dir in walk_plan_dirs(plans_scope):
     if not isinstance(mdata, dict):
         continue
     mstatus = str(mdata.get("status", "")).split("(")[0].strip().lower().replace("_", "-")
-    if mstatus not in DONE_SET:
+    if mstatus not in PLAN_COMPLETE_SET:
         continue
     ledger = task_ledger_from_manifest(mdata)
     if not ledger:
         continue
     lagging = [x for x in ledger
-               if x["status"].split("(")[0].strip().lower().replace("_", "-") not in DONE_SET]
+               if x["status"].split("(")[0].strip().lower().replace("_", "-") not in TASK_TERMINAL_SET]
     if not lagging:
         continue
     rel = os.path.relpath(plan_dir, plans_scope)

@@ -109,8 +109,27 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 ensure_coord_dir 2>/dev/null || true
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
-  lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-close "$SESSION_ID" >/dev/null 2>&1 \
-    || close_row "$SESSION_ID"
+  # For this lifecycle row the close gets ONE bounded retry — close_row has
+  # no per-event self-heal, and a lost close leaves a dead-pid `active` row the
+  # next SessionStart backstop misreads as a crash (spurious recovery close).
+  # The retry fires ONLY on rc 75; a non-75 failure skips the retry and logs the
+  # single skip line directly; the row op NEVER runs unlocked (each attempt is
+  # the locked re-exec). Deferred → one skip line; the hook still exits 0 — the
+  # residual is covered by the reaper's heartbeat-authoritative verdict and the
+  # backstop's crash path.
+  _row_rc=75
+  _row_attempt=0
+  while [ "$_row_rc" -eq 75 ] && [ "$_row_attempt" -lt 2 ]; do
+    _row_attempt=$((_row_attempt + 1))
+    _row_rc=0
+    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-close "$SESSION_ID" >/dev/null 2>&1 || _row_rc=$?
+  done
+  if [ "$_row_rc" -ne 0 ]; then
+    _sdr_dir="${LOG_DIR:-}"
+    if [ -z "$_sdr_dir" ] || [ ! -d "$_sdr_dir" ]; then _sdr_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
+    echo "$(date -Iseconds) session-deregister.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; session recovery applies)" \
+      >> "$_sdr_dir/session-deregister-skip.log" 2>/dev/null || true
+  fi
 else
   close_row "$SESSION_ID"
 fi
@@ -143,11 +162,25 @@ fi
 SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
 if [ -f "$SESSION_CLOSE" ]; then
   AC_LOG_DIR="${SESSION_CLOSE_LOG_DIR:-${CLAUDE_STATE_ROOT:-$HOME/.local/state/brain-stem}/logs}"
-  fresh_receipt=""
+  # T-6: the same session-scoped match rule the close's
+  # idempotent_guard applies. A fresh (<60s) receipt suppresses THIS session's
+  # auto-close spawn only when its `session_id:` line equals $SESSION_ID, is
+  # bare, or is absent; a FOREIGN-id receipt does not suppress. Every receipt
+  # the -mmin -1 find returns is checked, not only the first.
+  fresh_suppress=0
   if [ -d "$AC_LOG_DIR" ]; then
-    fresh_receipt=$(find "$AC_LOG_DIR" -name 'session-close-*.md' -type f -mmin -1 2>/dev/null | head -1)
+    while IFS= read -r _f; do
+      [ -n "$_f" ] || continue
+      _rid="$(sed -n 's/^session_id:[[:space:]]*//p' "$_f" 2>/dev/null | head -1)"
+      if [ -z "$_rid" ] || [ "$_rid" = "$SESSION_ID" ]; then
+        fresh_suppress=1
+        break
+      fi
+    done <<EOF
+$(find "$AC_LOG_DIR" -name 'session-close-*.md' -type f -mmin -1 2>/dev/null)
+EOF
   fi
-  if [ -z "$fresh_receipt" ]; then
+  if [ "$fresh_suppress" -eq 0 ]; then
     # T-4: thread THIS session's id explicitly so the detached close self-IDs
     # its OWN registry row (not a sibling's under a shared ancestor pid) instead of the
     # demoted pid ancestor-walk. SESSION_ID is resolved near the top of this file

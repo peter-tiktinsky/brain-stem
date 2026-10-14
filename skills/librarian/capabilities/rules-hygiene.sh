@@ -24,6 +24,10 @@
 #                     base dir (conclusive for project rules; advisory for global
 #                     rules whose globs activate against the runtime project — payload
 #                     carries rule_scope so synthesis weighs it).
+#   hook-redundant   — the rule BODY names a shipped inline-blocking hook verbatim
+#                     (allowlist below): the rule restates enforcement the hook
+#                     already delivers at write/ask time. Informational (valid:true);
+#                     the predicate reads the BODY only, never the frontmatter.
 #
 # Judgment class (emit NDJSON candidate on stdout):
 #   one-concern      — a rule body carrying >1 top-level `# ` heading is usually two
@@ -42,7 +46,29 @@
 #   rules-hygiene.sh                     # scan global (+ cwd project) rules dirs
 #   rules-hygiene.sh --scope <dir>       # scan one rules dir
 #   rules-hygiene.sh --dry-run           # summary counts only
+#   rules-hygiene.sh --check-load <rule-name> [--log PATH]
+#                                        # did a path-scoped rule load (read-only query)
+#   rules-hygiene.sh --compare-retired <rule-basename> [--rules-dir DIR]
+#                                        # a retired rule beside what now delivers it (read-only)
 #   rules-hygiene.sh --help              # usage
+#
+# --check-load answers "did my path-scoped rule load": it reads the instructions-loaded log that
+# the InstructionsLoaded hook writes and reports whether a row with load_reason path_glob_match
+# names the rule file (<rule-name> with or without .md). Output and exit: LOADED (exit 0), NOT
+# loaded (exit 1), no log at the path (exit 3), a refused argument (exit 2). It reads only rows
+# that carry a file_path (the log mixes in a second record shape without one). The log defaults to
+# instructions-loaded.ndjson under the hooks state directory, resolved the way the hook resolves
+# it. It cannot be combined with --scope or --dry-run, and --log needs --check-load.
+#
+# The compare mode takes one of the four retired rule basenames (00-project-binder-pointer.md,
+# 10-pre-research-library-check.md, 20-work-project-register.md, 30-durable-artifact-routing.md) and
+# prints, in order: the rule file (<rules-dir>/<basename>, the rules dir defaulting to
+# $CLAUDE_HOME/rules), the leading comment block of the shipped hook that delivers the same guidance
+# now (at most 60 lines), for the two rules the write guard carries the guard lines naming that rule's
+# tag (at most six, each clipped to 300 bytes), and a closing line that leaves the keep-or-delete
+# ruling to you. Exit 0 printed, 2 refused (no name, a name outside the four, an empty --rules-dir,
+# an absent rule file), 3 the hook is missing from the install. It cannot be combined with --scope,
+# --dry-run or --check-load, and --rules-dir needs it.
 #
 # Env overrides:
 #   RULES_DIR              Single rules dir (sibling convention; --scope wins).
@@ -54,6 +80,8 @@
 #   FOUNDATION_TEST_MODE   Bypass non-interactive guard (test/CI runners).
 #   CLAUDECODE             Set by a Claude Code tool-context session. Marks the run
 #                          ATTENDED, so the judgment class is NOT suppressed.
+#   HOOKS_STATE_OVERRIDE, HOOKS_STATE, CLAUDE_STATE_ROOT, XDG_STATE_HOME
+#                          The state directory chain --check-load reads its default log from.
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredocs per R-24
 # (data via argv, never a piped stdin).
@@ -74,15 +102,150 @@ fi
 
 SCOPE=""
 DRY_RUN="false"
+SCOPE_SET=0; DRY_SET=0; CL_SET=0; CL_NAME=""; LOG_SET=0; LOG_PATH=""
+CR_SET=0; CR_NAME=""; RD_SET=0; RD_PATH=""
+
+# Which flags were named, read before the parse below (a flag's value is skipped, so a value that
+# spells a flag does not count).
+_prev=""
+for _a in "$@"; do
+  case "$_prev" in --scope|--check-load|--log) _prev=""; continue ;; esac
+  case "$_a" in --scope) SCOPE_SET=1 ;; --dry-run) DRY_SET=1 ;; esac
+  _prev="$_a"
+done
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --check-load) CL_SET=1; CL_NAME="${2-}"; if [[ $# -ge 2 ]]; then shift 2; else shift; fi ;;
+    --log) LOG_SET=1; LOG_PATH="${2-}"; if [[ $# -ge 2 ]]; then shift 2; else shift; fi ;;
+    --compare-retired) CR_SET=1; CR_NAME="${2-}"; if [[ $# -ge 2 ]]; then shift 2; else shift; fi ;;
+    --rules-dir) RD_SET=1; RD_PATH="${2-}"; if [[ $# -ge 2 ]]; then shift 2; else shift; fi ;;
+    -h|--help) awk 'NR>1{ if ($0=="") exit; print }' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "rules-hygiene: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
+
+# --- Query modes -------------------------------------------------------------
+# Once the whole argv is read, the mode rules run in a fixed order, each a refusal with exit 2
+# and nothing on stdout: a mode with --scope or --dry-run (--scope named first), then a flag that
+# needs its mode, then the mode's own argument checks.
+_refuse() { echo "rules-hygiene: refused: $1" >&2; exit 2; }
+if [[ "$CL_SET" -eq 1 && "$CR_SET" -eq 1 ]]; then _refuse "--check-load and --compare-retired cannot be combined"; fi
+if [[ "$CL_SET" -eq 1 ]]; then
+  if [[ "$SCOPE_SET" -eq 1 ]]; then _refuse "--check-load cannot be combined with --scope"; fi
+  if [[ "$DRY_SET" -eq 1 ]]; then _refuse "--check-load cannot be combined with --dry-run"; fi
+fi
+if [[ "$CR_SET" -eq 1 ]]; then
+  if [[ "$SCOPE_SET" -eq 1 ]]; then _refuse "--compare-retired cannot be combined with --scope"; fi
+  if [[ "$DRY_SET" -eq 1 ]]; then _refuse "--compare-retired cannot be combined with --dry-run"; fi
+fi
+if [[ "$LOG_SET" -eq 1 && "$CL_SET" -ne 1 ]]; then _refuse "--log needs --check-load"; fi
+if [[ "$RD_SET" -eq 1 && "$CR_SET" -ne 1 ]]; then _refuse "--rules-dir needs --compare-retired"; fi
+
+# --compare-retired: a retired rule file beside the shipped hook that delivers its guidance now. The
+# roster maps each retired rule to that hook and, for the two rules the write guard carries, the tag
+# that guard's lines are found by. Read-only.
+if [[ "$CR_SET" -eq 1 ]]; then
+  export LC_ALL=C
+  [[ -n "$CR_NAME" ]] || _refuse "--compare-retired needs a rule name"
+  CR_CARRIER=""; CR_ANCHOR=""
+  case "$CR_NAME" in
+    00-project-binder-pointer.md) CR_CARRIER="hooks/session-start-project-context.sh" ;;
+    10-pre-research-library-check.md) CR_CARRIER="hooks/pre-research-check.sh" ;;
+    20-work-project-register.md) CR_CARRIER="hooks/pre-write-guard.sh"; CR_ANCHOR="[WORK SPOKE]" ;;
+    30-durable-artifact-routing.md) CR_CARRIER="hooks/pre-write-guard.sh"; CR_ANCHOR="[LIBRARY]" ;;
+    *) _refuse "'$CR_NAME' is not a retired rule (one of: 00-project-binder-pointer.md, 10-pre-research-library-check.md, 20-work-project-register.md, 30-durable-artifact-routing.md)" ;;
+  esac
+  if [[ "$RD_SET" -eq 1 && -z "$RD_PATH" ]]; then _refuse "--rules-dir needs a value"; fi
+  CR_DIR="${RD_PATH:-$CLAUDE_HOME_RES/rules}"
+  case "$CR_DIR" in /*) ;; *) CR_DIR="$PWD/$CR_DIR" ;; esac
+  CR_RULE="${CR_DIR%/}/$CR_NAME"
+  [[ -f "$CR_RULE" && -r "$CR_RULE" ]] || _refuse "rules/$CR_NAME is absent — nothing to compare"
+  CR_HOOK="$CLAUDE_HOME_RES/$CR_CARRIER"
+  if [[ ! -f "$CR_HOOK" || ! -r "$CR_HOOK" ]]; then
+    echo "rules-hygiene: refused: carrier $CR_CARRIER not found at $CR_HOOK" >&2
+    exit 3
+  fi
+  printf '== rule: %s (%s line(s)) ==\n' "$CR_RULE" "$(awk 'END { print NR }' "$CR_RULE")"
+  cat "$CR_RULE"
+  if [[ -n "$(tail -c 1 "$CR_RULE")" ]]; then printf '\n'; fi
+  printf '== delivered by: %s ==\n' "$CR_CARRIER"
+  awk 'NR == 1 && /^#!/ { next } /^#/ { if (++n <= 60) { sub(/^# ?/, ""); print } next } { exit }' "$CR_HOOK"
+  if [[ -n "$CR_ANCHOR" ]]; then
+    printf "== carrier lines naming '%s' ==\n" "$CR_ANCHOR"
+    awk -v a="$CR_ANCHOR" 'index($0, a) && ++n <= 6 { print substr($0, 1, 300) }' "$CR_HOOK"
+  fi
+  printf '== end: the keep-or-delete ruling is yours ==\n'
+  exit 0
+fi
+
+if [[ "$CL_SET" -eq 1 ]]; then
+  export LC_ALL=C
+  [[ -n "$CL_NAME" ]] || _refuse "--check-load needs a rule name"
+  case "$CL_NAME" in
+    [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) _refuse "'$CL_NAME' is not a plain rule name" ;;
+  esac
+  if [[ "$LOG_SET" -eq 1 && -z "$LOG_PATH" ]]; then _refuse "--log needs a value"; fi
+  # The state directory chain of the hook that writes the log, evaluated after the paths lib is
+  # sourced (that lib derives HOOKS_STATE and CLAUDE_STATE_ROOT from the user manifest). The
+  # top of this script skips the source while VAULT_LOGS is set, so do it here in that case.
+  if [[ -n "${VAULT_LOGS:-}" ]]; then
+    # shellcheck source=/dev/null
+    { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
+      || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; } || true
+  fi
+  STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
+  LOAD_LOG="${LOG_PATH:-$STATE_DIR/instructions-loaded.ndjson}"
+  # shellcheck disable=SC2016
+  exec python3 - "$LOAD_LOG" "$CL_NAME" <<'PY'
+import json
+import os
+import sys
+
+log_path, name = sys.argv[1], sys.argv[2]
+target = (name[:-3] if name.endswith(".md") else name) + ".md"
+if not os.path.isfile(log_path):
+    print("rules-hygiene: check-load: no instructions-loaded log at %s" % log_path)
+    sys.exit(3)
+
+naming = []
+with open(log_path, encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("event") != "instructions-loaded":
+            continue
+        fpath = row.get("file_path")
+        if not isinstance(fpath, str) or not fpath:
+            continue
+        if os.path.basename(fpath) == target:
+            naming.append(row)
+
+glob_rows = [r for r in naming if r.get("load_reason") == "path_glob_match"]
+if glob_rows:
+    last = glob_rows[0]
+    for r in glob_rows:
+        if str(r.get("ts", "")) >= str(last.get("ts", "")):
+            last = r
+    print("rules-hygiene: check-load: %s LOADED by path_glob_match %d time(s); last %s session %s file %s"
+          % (target, len(glob_rows), last.get("ts", ""), last.get("session_id", ""), last.get("file_path", "")))
+    sys.exit(0)
+if naming:
+    reasons = sorted(set(str(r.get("load_reason") or "-") for r in naming))
+    print("rules-hygiene: check-load: %s NOT loaded by path_glob_match; %d row(s) name it (load_reason: %s)"
+          % (target, len(naming), ", ".join(reasons)))
+else:
+    print("rules-hygiene: check-load: %s NOT loaded by path_glob_match; no row names it" % target)
+sys.exit(1)
+PY
+fi
 
 # SPLIT the non-interactive gate. The DETERMINISTIC classes
 # (size/frontmatter/dead-glob) RUN headless — an unattended weekly cron MUST audit the rules
@@ -153,6 +316,12 @@ findings_out = os.environ.get("FINDINGS_OUTPUT", "")
 
 FM_KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
 H1_RE = re.compile(r'^#\s+\S', re.MULTILINE)
+
+# The inline-blocking allowlist: shipped hooks whose name appearing verbatim in a
+# rule BODY marks the rule as restating enforcement the hook already delivers at
+# the moment it applies (write-time / ask-time). Kept here — the retired compaction
+# stub contract that used to carry it is gone.
+HOOK_REDUNDANT_ALLOWLIST = ("pre-write-guard.sh", "pre-asq-guard.sh")
 
 
 # ---- optional jsonschema gate (degrade to structural if unavailable) -------
@@ -260,7 +429,7 @@ def scope_of(rule_dir):
 
 counts = {
     "scanned": 0, "size": 0, "frontmatter": 0, "dead_glob": 0,
-    "one_concern": 0, "no_frontmatter": 0,
+    "hook_redundant": 0, "one_concern": 0, "no_frontmatter": 0,
 }
 
 for rule_dir in rule_dirs:
@@ -334,6 +503,22 @@ for rule_dir in rule_dirs:
                     })
                     counts["dead_glob"] += 1
 
+        # ---- hook-redundant (deterministic, informational) -----------------
+        # A rule BODY naming a shipped inline-blocking hook verbatim restates
+        # enforcement the hook already delivers at the moment it applies. The
+        # predicate reads the BODY only — a frontmatter description naming the
+        # hook is a pointer, not a restatement. Informational (valid:true): the
+        # author keeps only what the hook does not do, or deletes the rule.
+        for hook_base in HOOK_REDUNDANT_ALLOWLIST:
+            if hook_base in body:
+                emit({
+                    "finding": "rules-hygiene", "file": entry,
+                    "category": "hook-redundant", "rule_dir": rule_dir,
+                    "rule_scope": rscope, "valid": True, "hook": hook_base,
+                    "reason": "this rule restates a hook that enforces it (%s); keep only what the hook does not do, or delete it" % hook_base,
+                })
+                counts["hook_redundant"] += 1
+
         # ---- one-concern candidate (JUDGMENT) ------------------------------
         # suppressed headless — the judgment class needs interactive adjudication; the
         # deterministic classes above already ran unattended.
@@ -355,7 +540,7 @@ for rule_dir in rule_dirs:
             counts["one_concern"] += 1
 
 if dry_run:
-    total = counts["size"] + counts["frontmatter"] + counts["dead_glob"] + counts["one_concern"] + counts["no_frontmatter"]
+    total = counts["size"] + counts["frontmatter"] + counts["dead_glob"] + counts["hook_redundant"] + counts["one_concern"] + counts["no_frontmatter"]
     print("rules-hygiene: scanned=%d findings=%d counts=%s" % (counts["scanned"], total, dict(counts)), file=sys.stderr)
 PY
 

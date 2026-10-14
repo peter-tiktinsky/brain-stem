@@ -186,7 +186,7 @@ def walk_manifests(root):
             emit({"finding": "plan-decision-log-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
-        # /(): keep only real plans. A real plan has a `status` field
+        # Real-plan shape predicate: keep only real plans. A real plan has a `status` field
         # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
         # accept clause subsumes the corpus_version/slots reject (those fixtures also
         # lack status+spec.md); if a future corpus_version dir ever declares status,

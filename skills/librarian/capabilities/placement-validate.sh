@@ -1,6 +1,8 @@
 #!/bin/bash
 # placement-validate — Check that every file is in the correct location per routing rules.
+#
 # Sources `lib/findings.sh`.
+#
 # Rules per SKILL.md:
 #   1. Vault root allowlist: CLAUDE.md (the only foundation-shipped mandatory
 #      vault-root file; System Backlog.md + System Backlog - Archive.md
@@ -14,13 +16,21 @@
 #      skipped when cluster_folder is unset)
 #   6. Reference/ (Tier 1): no engagement-specific files
 #   (rule 7, Logs/ allowed patterns, retired at G3 — vault Logs/ no longer ships)
+#
+# Plans scope (--scope equal to $PLANS_DIR) runs the plans-tree rules instead:
+# plans-root-namespace-violation, manifest-less-nn-dir, binder-root-stray-entry, and
+# plan-unmanaged-entry (a top-level entry of a non-terminal plan outside the managed set with
+# no manifest assets[] row; the finding names `librarian plan-asset add`).
+#
 # Index File Convention (always allowed):
 #   - _index.md at any directory root
 #   - File-Index.md at cluster + project roots
+#
 # CLI:
 #   placement-validate.sh                     # emit findings
 #   placement-validate.sh --scope <path>      # narrow scope
 #   placement-validate.sh --dry-run           # summary counts only
+#
 # Bash 3.2 clean per R-23.
 
 set -euo pipefail
@@ -50,7 +60,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "placement-validate: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -165,6 +175,158 @@ PYA
         fi
       done
     done
+  fi
+  # Plan-folder unmanaged-entry walk: every non-terminal plan (a plans-root plan dir with a
+  # manifest.json, and each sub-plan dir inside one) keeps at its top level only the managed set
+  # (plans-rules :: plan_folder_managed_set), its sub-plan dirs, the target of its manifest's
+  # architecture_path, dotfiles, and entries its manifest's assets[] names. Any other entry is a
+  # plan-unmanaged-entry, and the finding names the `plan-asset add` command that records it.
+  # Terminal = plans-rules :: lifecycle.terminal_status (a closed plan is never walked). Both sets
+  # read from the .plans slot of the merged foundation + overlay view (hooks/lib/
+  # foundation-overlay-load.sh), then the raw bundle, then the repo pillar; PLANS_RULES_PATH names
+  # a pillar file directly and wins. A managed set unreadable on every leg flags no plan entry (a
+  # broken rules read must not flag them all) but is reported as one sweep-failed finding; a
+  # failed overlay load is reported the same way before the raw-bundle fallback is tried.
+  _pv_sweep_failed() {  # _pv_sweep_failed <error text>
+    local _sf
+    _sf="$(jq -nc --arg p "$SCOPE_ROOT" --arg e "$1" '{finding:"sweep-failed", path:$p, error:$e}')"
+    if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_sf" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_sf"; fi
+    PV_FINDINGS=$((PV_FINDINGS + 1))
+  }
+  _PV_SETS=""
+  _PV_SETS_Q='{m: (.plan_folder_managed_set // empty), t: (.lifecycle.terminal_status // [])}'
+  if [[ -n "${PLANS_RULES_PATH:-}" && -f "${PLANS_RULES_PATH}" ]]; then
+    _PV_SETS=$(jq -c "(.plans // .) | $_PV_SETS_Q" "${PLANS_RULES_PATH}" 2>/dev/null || true)
+  fi
+  if [[ -z "$_PV_SETS" ]]; then
+    _PV_MASTER="${FOUNDATION_MASTER_PATH:-$CLAUDE_HOME_RES/governance/foundation-master.json}"
+    if [[ -f "$_PV_MASTER" ]]; then
+      _PV_OVL="${FOUNDATION_OVERLAY_LOAD:-$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh}"
+      [[ -x "$_PV_OVL" ]] || _PV_OVL="$_REPO_LIB/foundation-overlay-load.sh"
+      if [[ -x "$_PV_OVL" ]]; then
+        # The loader's exit code and stderr are kept, never discarded: a failed or degraded
+        # overlay load is named on stderr (one line, with its rc); a non-zero rc also draws a
+        # sweep-failed finding before the raw-bundle fallback below.
+        _PV_OVL_ERR="$(mktemp -t placement-validate-ovl-XXXXXX)"; _PV_OVL_RC=0
+        _PV_OVL_OUT=$(bash "$_PV_OVL" --foundation-path "$_PV_MASTER" \
+            --overlay-path "$(dirname "$_PV_MASTER")/overlay-master.json" --force-override 2>"$_PV_OVL_ERR") || _PV_OVL_RC=$?
+        if [[ "$_PV_OVL_RC" -ne 0 || -s "$_PV_OVL_ERR" ]]; then
+          _PV_OVL_LINE="$(grep -v '^[[:space:]]*$' "$_PV_OVL_ERR" | tail -1 || true)"
+          echo "placement-validate: overlay load failed (rc $_PV_OVL_RC): ${_PV_OVL_LINE}" >&2
+          [[ "$_PV_OVL_RC" -ne 0 ]] && _pv_sweep_failed "overlay load failed (rc $_PV_OVL_RC): ${_PV_OVL_LINE}"
+        fi
+        rm -f "$_PV_OVL_ERR"
+        # swallow-ok: reports=none a loader failure is reported on stderr above; this jq only extracts one optional key from the output the loader just produced with exit 0, and an absent key reads as empty and falls back to the master read below
+        [[ "$_PV_OVL_RC" -eq 0 ]] && _PV_SETS=$(printf '%s' "$_PV_OVL_OUT" \
+            | jq -c ".plans | $_PV_SETS_Q" 2>/dev/null || true)
+      fi
+      [[ -z "$_PV_SETS" ]] && _PV_SETS=$(jq -c ".plans | $_PV_SETS_Q" "$_PV_MASTER" 2>/dev/null || true)
+    fi
+  fi
+  _PV_PILLAR="$(dirname "$_REPO_LIB")/../governance/plans-rules.json"
+  if [[ -z "$_PV_SETS" && -f "$_PV_PILLAR" ]]; then
+    _PV_SETS=$(jq -c "$_PV_SETS_Q" "$_PV_PILLAR" 2>/dev/null || true)
+  fi
+  if [[ -n "$_PV_SETS" ]]; then
+    _PV_UNM_ERR="$(mktemp -t placement-validate-walker-XXXXXX)"
+    _PV_UNM_RC=0
+    _PV_UNM="$(python3 - "$SCOPE_ROOT" "$_PV_SETS" 2>"$_PV_UNM_ERR" <<'PYU'
+import json, os, re, sys
+
+root, sets_s = sys.argv[1:3]
+sets = json.loads(sets_s)
+managed = set(sets.get("m") or [])
+terminal = set(sets.get("t") or [])
+
+
+# Migration recovery sidecars (manifest.json.pre-<NNNN>) sit beside a mutated manifest; they are
+# not plan entries to record.
+SIDECAR_RE = re.compile(r"^manifest\.json\.pre-[0-9]+$")
+
+
+def load(mp):
+    try:
+        with open(mp, encoding="utf-8") as fh:
+            m = json.load(fh)
+        return m if isinstance(m, dict) else None
+    except Exception:
+        return None
+
+
+def arch_entry(plan_dir, man):
+    ap = man.get("architecture_path")
+    if not isinstance(ap, str) or not ap.strip():
+        return None
+    ap = os.path.expanduser(ap.strip())
+    if not os.path.isabs(ap):
+        ap = os.path.join(plan_dir, ap)
+    base = os.path.realpath(plan_dir)
+    tgt = os.path.realpath(ap)
+    if not tgt.startswith(base + os.sep):
+        return None
+    return os.path.relpath(tgt, base).split(os.sep, 1)[0]
+
+
+def walk(plan_dir, rel):
+    man = load(os.path.join(plan_dir, "manifest.json"))
+    if man is None:
+        return
+    subs = []
+    try:
+        names = sorted(os.listdir(plan_dir))
+    except OSError:
+        return
+    for n in names:
+        if os.path.isdir(os.path.join(plan_dir, n)) and os.path.isfile(os.path.join(plan_dir, n, "manifest.json")):
+            subs.append(n)
+    if man.get("status") not in terminal:
+        rows = set()
+        for r in man.get("assets") or []:
+            if isinstance(r, dict) and isinstance(r.get("path"), str):
+                rows.add(r["path"].strip().rstrip("/"))
+        arch = arch_entry(plan_dir, man)
+        for n in names:
+            if n in managed or n in subs or n == arch or n.startswith(".") or n in rows or SIDECAR_RE.match(n):
+                continue
+            q = rel + "/" + n
+            print(json.dumps({
+                "finding": "plan-unmanaged-entry", "entry": q, "name": n, "plan": rel,
+                "issue": "top-level plan entry outside the managed set with no manifest assets[] row; "
+                         "record what it is for with: librarian plan-asset add %s %s --purpose \"<text>\""
+                         % (os.path.join(root, rel), n),
+                "classification": "manual"}, ensure_ascii=False, separators=(",", ":")))
+    for s in subs:
+        walk(os.path.join(plan_dir, s), rel + "/" + s)
+
+
+for n in sorted(os.listdir(root)):
+    p = os.path.join(root, n)
+    if n.startswith((".", "_")) or not os.path.isdir(p) or not os.path.isfile(os.path.join(p, "manifest.json")):
+        continue
+    walk(p, n)
+PYU
+)" || _PV_UNM_RC=$?
+    if [[ "$_PV_UNM_RC" -ne 0 ]]; then
+      _PV_UNM_LINE="$(grep -v '^[[:space:]]*$' "$_PV_UNM_ERR" | tail -1)"
+      rm -f "$_PV_UNM_ERR"
+      _PV_SF_FINDING="$(jq -nc --arg p "$SCOPE_ROOT" --arg e "${_PV_UNM_LINE:-}" '{finding:"sweep-failed", path:$p, error:$e}')"
+      if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_PV_SF_FINDING" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_PV_SF_FINDING"; fi
+      PV_FINDINGS=$((PV_FINDINGS + 1))
+      _PV_UNM=""
+    else
+      rm -f "$_PV_UNM_ERR"
+    fi
+    if [[ -n "$_PV_UNM" ]]; then
+      while IFS= read -r _line; do
+        [[ -n "$_line" ]] || continue
+        if [[ -n "${FINDINGS_OUTPUT:-}" ]]; then printf '%s\n' "$_line" >> "$FINDINGS_OUTPUT"; else printf '%s\n' "$_line"; fi
+        PV_FINDINGS=$((PV_FINDINGS + 1)); PV_OPEN="$PV_OPEN $(printf '%s' "$_line" | jq -r .entry)"
+      done <<EOF_UNM
+$_PV_UNM
+EOF_UNM
+    fi
+  else
+    _pv_sweep_failed "managed set unreadable: no plan_folder_managed_set from any read leg, so the plan-unmanaged-entry walk did not run"
   fi
   [[ "$DRY_RUN" == "true" ]] && printf 'placement-validate: scanned=%d findings=%d (plans-root-namespace)\n' "$PV_SCANNED" "$PV_FINDINGS"
   _PV_OPEN_JSON=$(printf '%s' "$PV_OPEN" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c . 2>/dev/null || true)

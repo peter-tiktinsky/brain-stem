@@ -22,7 +22,7 @@ This is the source repo. The live install at `~/.claude/` is distributed FROM he
 - `templates/` — render templates (launchd, settings fragments)
 - `vault-init/` — the seed vault structure an adopter starts from
 - `orchestrator/` — dispatch + plan-runner engine
-- `installer/` — render-launchd / render-cron mechanics
+- `installer/` — render-launchd and the cron-wrapper mechanics
 - `tools/` — release-time tooling (not installed)
 - `internal/` — tests, docker, and lima harnesses; maintainer development repo only, not part of the public distribution
 

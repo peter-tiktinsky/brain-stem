@@ -5,7 +5,7 @@
 # Bash-vs-LLM boundary: this capability handles checks resolvable
 # without body interpretation; richer frontmatter proposals (effort calibration,
 # argument-hint, description rewrite, disable-model-invocation heuristics) live
-# in `/skill-optimizer --skill {name}` where LLM judgment is available.
+# outside this capability, where LLM judgment is available.
 #
 # Checks per skill:
 #   1. YAML frontmatter block present (starts with `---` on line 1)
@@ -24,13 +24,14 @@
 # CLI:
 #   skill-parity.sh                      # --check default
 #   skill-parity.sh --check              # emit findings, no writes
-#   skill-parity.sh --fix                # auto-add missing `name:` from dir basename
+#   skill-parity.sh --fix                # print the source-side fix for a missing `name:`; writes nothing
 #   skill-parity.sh --scope <dir>        # narrow to one skill directory
 #   skill-parity.sh --dry-run            # summary counts only
 #
 # `--fix` authority:
-#   AUTO:    add missing `name:` line from directory basename (purely mechanical)
-#   NEVER:   modify existing fields, rewrite descriptions, add other fields
+#   PRINTS:  the file and the `name:` line (the directory basename) to add in the
+#            source repo, where the skill is authored
+#   NEVER:   write any file, modify existing fields, rewrite descriptions
 #
 # Bash 3.2 clean per R-23.
 
@@ -128,7 +129,6 @@ def iter_skill_files(root, skills_root):
 
 total = 0
 findings_count = 0
-fixed_count = 0
 
 for skill_md in iter_skill_files(target_root, skills_root):
     total += 1
@@ -145,19 +145,12 @@ for skill_md in iter_skill_files(target_root, skills_root):
     fields, _ = fm
     name = fields.get("name")
     if name is None:
-        if mode == "fix":
-            lines = text.splitlines()
-            insert_at = 1
-            new_line = f"name: {skill_dir}"
-            lines.insert(insert_at, new_line)
-            with open(skill_md, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
-            fixed_count += 1
-            name = skill_dir
-        else:
-            if not dry_run:
-                emit(finding("skill-parity-missing-name", rel, skill=skill_dir))
-            findings_count += 1
+        if not dry_run:
+            attrs = {}
+            if mode == "fix":
+                attrs["fix"] = f"add the line name: {skill_dir} to skills/{skill_dir}/SKILL.md in the source repo"
+            emit(finding("skill-parity-missing-name", rel, skill=skill_dir, **attrs))
+        findings_count += 1
     if name is not None and name != skill_dir:
         if not dry_run:
             emit(finding("skill-parity-name-mismatch", rel,
@@ -177,14 +170,8 @@ for skill_md in iter_skill_files(target_root, skills_root):
             findings_count += 1
 
 if dry_run:
-    sys.stdout.write(f"skill-parity: scanned={total} findings={findings_count}")
-    if mode == "fix":
-        sys.stdout.write(f" fixed={fixed_count}")
-    sys.stdout.write("\n")
+    sys.stdout.write(f"skill-parity: scanned={total} findings={findings_count}\n")
 else:
-    summary = {"summary": "skill-parity", "scanned": total,
-               "findings": findings_count, "mode": mode}
-    if mode == "fix":
-        summary["fixed"] = fixed_count
-    emit(summary)
+    emit({"summary": "skill-parity", "scanned": total,
+          "findings": findings_count, "mode": mode})
 PY

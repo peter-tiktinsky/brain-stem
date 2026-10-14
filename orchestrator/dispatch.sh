@@ -503,13 +503,23 @@ case "$MODE" in
     ;;
 
   hold)
-    exec_queue_hold "$TARGET"
-    echo "Held: $TARGET (will be skipped by overnight execution)"
+    # A queue RMW that lost the execution-queue lock is a hold that
+    # did NOT land — say so loudly and fail, never print Held: over a no-op.
+    if exec_queue_hold "$TARGET"; then
+      echo "Held: $TARGET (will be skipped by overnight execution)"
+    else
+      echo "WARNING: '$TARGET' not held: execution-queue lock contention." >&2
+      exit 1
+    fi
     ;;
 
   unhold)
-    exec_queue_unhold "$TARGET"
-    echo "Unheld: $TARGET (will be picked up by next execution)"
+    if exec_queue_unhold "$TARGET"; then
+      echo "Unheld: $TARGET (will be picked up by next execution)"
+    else
+      echo "WARNING: '$TARGET' not unheld: execution-queue lock contention." >&2
+      exit 1
+    fi
     ;;
 
   queue-status)

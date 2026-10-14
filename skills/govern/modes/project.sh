@@ -42,6 +42,18 @@
 #     executed; then register the depth-1 spoke + scaffold the MISSING-ONLY work
 #     CLAUDE.md (clobber-refusal relaxed for adopt; README/deliverables/reference
 #     byte-unchanged) + establish the binder home. Lossless; ZERO content-file mutation.
+#   --under <spoke> --retract-sub <sub> : retract the per-sub overlay rule
+#     Work/<spoke>/<sub>/** a promoted sub leaves behind, through the overlay mutation
+#     library's --retract-rule (exact string; one action-log row). The commit BLOCKS
+#     while the sub directory still exists under the spoke.
+#   --under <spoke> --emit-moves <mapping.json> : print the git mv commands that
+#     move a flat spoke's content into its sub-projects, from an operator-written
+#     mapping. The commit prints the commands and runs none: it never moves content.
+#   --anchor <dir> [--spoke-key <key>] : register a launch directory OUTSIDE $WORK_HOME
+#     as a spoke: one registry entry, a one-line identity CLAUDE.md and the binder home.
+#     No scaffold and no overlay rule. The commit stages the identity file, adds the
+#     registry entry (through the locked registry writer), places the file and makes the
+#     binder home; each step is safe to repeat, so a stopped commit is re-run to finish.
 #
 # Sourced by process.sh. Exposes mode_propose() and mode_commit().
 # bash 3.2 compatible. R-23.
@@ -53,6 +65,7 @@ _PROJECT_REPO_ROOT="$(cd "$_PROJECT_SH_DIR/../../.." && pwd)"
 _PROJECT_SCAFFOLD="${PROJECT_SCAFFOLD_SH:-$_PROJECT_SH_DIR/../lib/project-workspace/scaffold.sh}"
 _PROJECT_SPOKE_RESOLVE="${SPOKE_RESOLVE_LIB:-$_PROJECT_REPO_ROOT/skills/new-plan/lib/spoke-resolve.sh}"
 _PROJECT_FOLDER_SH="${PROJECT_FOLDER_SH:-$_PROJECT_SH_DIR/folder.sh}"
+_PROJECT_REGISTRY_ADD="$_PROJECT_SH_DIR/../lib/registry-add-spoke.sh"
 
 # source the shared shape helper so the --add-folder guards can reject the
 # reserved subdir names (deliverables/reference) by REUSING its RESERVED word-list
@@ -144,51 +157,25 @@ PY
 # production $WORK_HOME == ~/work so the anchor is the canonical ~/work/<spoke>.
 # BLOCKS (rc!=0) if the spoke already exists (no dup anchor).
 _proj_registry_add_spoke() {
-  local spoke="$1" reg tmp wh anchor
+  local spoke="$1" reg anchor desc mode
   reg="$(_proj_registry_path)"
-  wh="$(_proj_work_home)"
-  anchor="$wh/$spoke"
-  if [ ! -r "$reg" ]; then
-    printf 'project: registry not readable: %s\n' "$reg" >&2
+  if [ "$#" -ge 4 ]; then
+    anchor="$2"; desc="$3"; mode="$4"
+  else
+    anchor="$(_proj_work_home)/$spoke"
+    desc="Work project spoke '$spoke' (registered via /govern register --kind project)."
+    mode="create"
+  fi
+  if [ ! -r "$_PROJECT_REGISTRY_ADD" ]; then
+    printf 'project: registry writer not readable: %s\n' "$_PROJECT_REGISTRY_ADD" >&2
     return 3
   fi
-  tmp="$reg.tmp.$$"
-  python3 - "$reg" "$spoke" "$tmp" "$anchor" <<'PY'
-import json, sys
-reg_path, spoke, tmp, anchor = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-try:
-    reg = json.load(open(reg_path, encoding="utf-8"))
-except Exception as exc:
-    print("project: cannot read registry %s (%s)" % (reg_path, exc), file=sys.stderr)
-    sys.exit(3)
-spokes = reg.setdefault("spokes", [])
-for sp in spokes:
-    if sp.get("spoke_key", "") == spoke:
-        print("project: spoke '%s' already registered — re-registration BLOCKED "
-              "(no dup anchor, no re-scaffold)" % spoke, file=sys.stderr)
-        sys.exit(4)
-spokes.append({
-    "spoke_key": spoke,
-    "cwd_anchors": [anchor],
-    "description": "Work project spoke '%s' (registered via /govern register --kind project)." % spoke,
-})
-with open(tmp, "w", encoding="utf-8") as fh:
-    json.dump(reg, fh, indent=2, ensure_ascii=False)
-    fh.write("\n")
-sys.exit(0)
-PY
-  local rc=$?
-  if [ "$rc" != "0" ]; then
-    rm -f "$tmp" 2>/dev/null || true
-    return "$rc"
-  fi
-  if ! mv -f "$tmp" "$reg"; then
-    rm -f "$tmp" 2>/dev/null || true
-    printf 'project: atomic registry rename failed: %s\n' "$reg" >&2
-    return 6
-  fi
-  return 0
+  # The write itself (lock, claim and key checks, temp file, one rename) lives in
+  # registry-add-spoke.sh; its stderr lines and exit codes pass through unchanged.
+  bash "$_PROJECT_REGISTRY_ADD" "$reg" "$spoke" "$anchor" "$desc" "$mode"
 }
+# Callers: the create and adopt commits pass the spoke alone (mode create, the work-home
+# anchor); the anchor commit passes <spoke> <anchor> <description> anchor.
 
 # Emit a SIMPLE `<base>/**` path_routing overlay rule for a Work target via the
 # single mutation library, REUSING folder.sh's mode_propose to compose the
@@ -315,18 +302,236 @@ _proj_write_subproject_marker() {
   return 0
 }
 
+# Validate an operator move mapping against the disk and compute the commands that carry
+# it out. $1 = context (mode_propose|mode_commit), $2 = the absolute spoke dir, $3 = a JSON
+# file holding {"moves": [{"from": "<path>", "to": "<path>"}, ...]} (the mapping file for
+# propose, the proposal for commit). Validation stops at the first failure: that one line
+# goes to stderr and the return is 2. On success it sets _PROJ_EM_CMDS (one printf-%q
+# quoted command per line: a mkdir -p for each distinct missing target parent in
+# first-appearance order, then one git mv per move in mapping order) and _PROJ_EM_N (the
+# line count). It writes nothing and runs no command. The moves read through a NUL-
+# separated stream, so a path never comes back through a command substitution.
+_proj_emit_moves_check() {
+  local ctx="$1" abs="$2" file="$3"
+  local n=0 i from to p first r ok ov pa pb parent line dup nmk=0
+  local mk_lines="" mv_lines="" all
+  local _em_from=() _em_to=() _em_mk=()
+  if ! jq -e '(type == "object") and (.moves | type == "array") and (.moves | length > 0)
+      and all(.moves[]; (type == "object") and (.from | type == "string") and (.to | type == "string")
+      and ((.from + .to) | explode | any(. == 0) | not))' "$file" >/dev/null 2>&1; then
+    printf 'project.%s: mapping must be {"moves": [{"from": "<path>", "to": "<path>"}, ...]} with at least one move\n' "$ctx" >&2
+    return 2
+  fi
+  while IFS= read -r -d '' from && IFS= read -r -d '' to; do
+    n=$((n + 1))
+    for p in "$from" "$to"; do
+      case "$p" in
+        ""|/*|..|../*|*/..|*/../*)
+          printf "project.%s: move %s: path '%s' must be relative and free of '..' segments\n" "$ctx" "$n" "$p" >&2
+          return 2
+          ;;
+      esac
+    done
+    if [ ! -e "$abs/$from" ] && [ ! -L "$abs/$from" ]; then
+      printf 'project.%s: move %s: source not found: %s\n' "$ctx" "$n" "$abs/$from" >&2
+      return 2
+    fi
+    # The target sits inside an existing sub-project directory: its first segment names an
+    # existing directory that is not shape-reserved and has no leading dot (a sub-project
+    # name never has one), and a path follows that segment.
+    ok=0
+    case "$to" in */?*) ok=1 ;; esac
+    first="${to%%/*}"
+    case "$first" in .*) ok=0 ;; esac
+    for r in $RESERVED; do
+      if [ "$first" = "$r" ]; then ok=0; fi
+    done
+    if [ ! -d "$abs/$first" ]; then ok=0; fi
+    if [ "$ok" != 1 ]; then
+      printf "project.%s: move %s: target '%s' must sit inside an existing sub-project directory\n" "$ctx" "$n" "$to" >&2
+      return 2
+    fi
+    if [ -e "$abs/$to" ] || [ -L "$abs/$to" ]; then
+      printf 'project.%s: move %s: target exists: %s\n' "$ctx" "$n" "$abs/$to" >&2
+      return 2
+    fi
+    i=1
+    while [ "$i" -lt "$n" ]; do
+      if [ "$to" = "${_em_to[$i]}" ]; then
+        printf 'project.%s: move %s: target repeats move %s\n' "$ctx" "$n" "$i" >&2
+        return 2
+      fi
+      i=$((i + 1))
+    done
+    # Two sources overlap when they are equal or one is a segment-wise prefix of the other
+    # (a plain string prefix such as a.md and a.md.bak is not).
+    pa="${from%/}"
+    i=1
+    while [ "$i" -lt "$n" ]; do
+      pb="${_em_from[$i]%/}"
+      ov=0
+      case "$pa/" in "$pb"/*) ov=1 ;; esac
+      case "$pb/" in "$pa"/*) ov=1 ;; esac
+      if [ "$ov" = 1 ]; then
+        printf 'project.%s: move %s: source overlaps move %s\n' "$ctx" "$n" "$i" >&2
+        return 2
+      fi
+      i=$((i + 1))
+    done
+    _em_from[$n]="$from"
+    _em_to[$n]="$to"
+    parent="${to%/*}"
+    if [ ! -d "$abs/$parent" ]; then
+      dup=0
+      i=1
+      while [ "$i" -le "$nmk" ]; do
+        if [ "${_em_mk[$i]}" = "$parent" ]; then dup=1; fi
+        i=$((i + 1))
+      done
+      if [ "$dup" = 0 ]; then
+        nmk=$((nmk + 1))
+        _em_mk[$nmk]="$parent"
+        printf -v line 'mkdir -p -- %q' "$abs/$parent"
+        mk_lines="$mk_lines$line"$'\n'
+      fi
+    fi
+    printf -v line 'git -C %q mv -- %q %q' "$abs" "$from" "$to"
+    mv_lines="$mv_lines$line"$'\n'
+  done < <(jq -j '.moves[] | .from, "\u0000", .to, "\u0000"' "$file")
+  all="$mk_lines$mv_lines"
+  _PROJ_EM_CMDS="${all%$'\n'}"
+  _PROJ_EM_N=$((nmk + n))
+  return 0
+}
+
+# Check an --anchor directory and settle its identity. $1 = context (mode_propose|
+# mode_commit), $2 = the directory as given, $3 = the spoke key ("" derives it from the
+# directory name when $4 is 1), $4 = 1 to derive. One stderr line and return 2 on the first
+# failed check, in this order: the directory exists, is not the home directory, is not
+# $WORK_HOME or inside it, then the key (derived or given) is valid. On success it sets
+# _PROJ_AN_DIR (the canonical directory), _PROJ_AN_KEY and _PROJ_AN_REG (the registry anchor
+# form: ~/<path> strictly under the canonical home, else the canonical absolute path).
+_proj_anchor_check() {
+  local ctx="$1" dir="$2" key="$3" derive="$4" cdir chome wh cwh base
+  if [ ! -d "$dir" ]; then
+    printf 'project.%s: --anchor directory not found: %s\n' "$ctx" "$dir" >&2
+    return 2
+  fi
+  cdir="$(cd "$dir" && pwd -P)"
+  chome="$(_proj_canon "$HOME")"
+  if [ "$cdir" = "$chome" ]; then
+    printf 'project.%s: --anchor is the home directory (%s) — BLOCKED (launch from a bounded directory, never from $HOME)\n' "$ctx" "$chome" >&2
+    return 2
+  fi
+  wh="$(_proj_work_home)"
+  cwh="$(_proj_canon "$wh")"
+  case "$cdir" in
+    "$cwh"|"$cwh"/*)
+      printf 'project.%s: --anchor %s is inside $WORK_HOME (%s) — BLOCKED (register a work project from its own launch directory, without --anchor)\n' "$ctx" "$cdir" "$cwh" >&2
+      return 2
+      ;;
+  esac
+  if [ -z "$key" ] && [ "$derive" = "1" ]; then
+    base="$(basename "$cdir")"
+    key="$(printf '%s' "$base" | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//')"
+    if [ -z "$key" ]; then
+      printf "project.%s: cannot derive a spoke key from '%s' — pass --spoke-key <key>\n" "$ctx" "$base" >&2
+      return 2
+    fi
+  fi
+  if [ "$key" = "home" ] || ! printf '%s' "$key" | LC_ALL=C grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+    printf "project.%s: invalid spoke key: %s (lowercase letters, digits and hyphens, starting with a letter or digit; 'home' is reserved)\n" "$ctx" "$key" >&2
+    return 2
+  fi
+  _PROJ_AN_DIR="$cdir"
+  _PROJ_AN_KEY="$key"
+  case "$cdir" in
+    "$chome"/*) _PROJ_AN_REG="~/${cdir#"$chome"/}" ;;
+    *) _PROJ_AN_REG="$cdir" ;;
+  esac
+  return 0
+}
+
+# Remove the identity file the anchor commit staged (a no-op once it is placed). The anchor
+# commit also installs this as its EXIT trap, so a signal clears the file too.
+_proj_anchor_unstage() {
+  if [ -n "${_PROJ_AN_STAGED:-}" ]; then
+    rm -f "$_PROJ_AN_STAGED"
+  fi
+}
+
+# Print the key of the spoke whose registry entry already holds the anchor $1 (a leading
+# ~/ expanded to the home directory and the path normalised on both sides, the rule the
+# registry writer applies), or nothing. A missing or unreadable registry has no claimant.
+_proj_anchor_claimant() {
+  local reg
+  reg="$(_proj_registry_path)"
+  [ -r "$reg" ] || return 0
+  python3 - "$reg" "$1" <<'PY'
+import json, os, sys
+
+reg_path, anchor = sys.argv[1], sys.argv[2]
+
+
+def norm(path):
+    if path.startswith("~/"):
+        path = os.environ.get("HOME", "") + "/" + path[2:]
+    return os.path.normpath(path)
+
+
+try:
+    with open(reg_path, encoding="utf-8") as fh:
+        spokes = json.load(fh).get("spokes", [])
+except Exception:
+    sys.exit(0)
+wanted = norm(anchor)
+for sp in spokes:
+    for raw in sp.get("cwd_anchors", []):
+        if norm(raw) == wanted:
+            print(sp.get("spoke_key", ""))
+            sys.exit(0)
+PY
+}
+
 # mode_propose — emit the project-registration proposal JSON to stdout.
 # Project-specific blocks (registry_anchor + scaffold) folder.sh has neither.
 # The depth guard runs here too so an out-of-bound cwd never even proposes.
 mode_propose() {
-  local layout first_sub under add_sub add_folder role adopt cwd
-  layout="flat"; first_sub=""; under=""; add_sub=""; add_folder=""; role=""; adopt="0"; cwd="${PWD}"
+  local layout first_sub under add_sub add_folder role adopt cwd retract_sub emit_moves anchor_dir spoke_key
+  local retract_set="0"
+  local emit_set="0"
+  local anchor_set="0" skey_set="0" seen=" " _a
+  layout="flat"; first_sub=""; under=""; add_sub=""; add_folder=""; role=""; adopt="0"; cwd="${PWD}"; retract_sub=""; emit_moves=""; anchor_dir=""; spoke_key=""
+  # Every argument, for the --anchor conflict check below (the loop that follows consumes them).
+  for _a in "$@"; do seen="$seen$_a "; done
   while [ $# -gt 0 ]; do
     case "$1" in
       --layout)     layout="$2";     shift 2 ;;
       --first-sub)  first_sub="$2";  shift 2 ;;
       --under)      under="$2";      shift 2 ;;
       --add-sub)    add_sub="$2";    shift 2 ;;
+      --retract-sub)
+        # Value-taking flag under `set -u`: ${2-} and a shift past the value only when
+        # one is present, so a trailing flag is refused below instead of looped on.
+        retract_set="1"
+        retract_sub="${2-}"
+        if [ $# -ge 2 ]; then shift 2; else shift; fi
+        ;;
+      --emit-moves)
+        emit_set="1"
+        emit_moves="${2-}"
+        if [ $# -ge 2 ]; then shift 2; else shift; fi
+        ;;
+      --anchor)
+        anchor_set="1"
+        anchor_dir="${2-}"
+        if [ $# -ge 2 ]; then shift 2; else shift; fi
+        ;;
+      --spoke-key)
+        skey_set="1"
+        spoke_key="${2-}"
+        if [ $# -ge 2 ]; then shift 2; else shift; fi
+        ;;
       --add-folder) add_folder="$2"; shift 2 ;;
       --role)       role="$2";       shift 2 ;;
       --adopt)      adopt="1";       shift ;;
@@ -338,6 +543,53 @@ mode_propose() {
 
   local wh; wh="$(_proj_work_home)"
   local wh_canon; wh_canon="$(_proj_canon "$wh")"
+
+  # --anchor sub-mode: register a launch directory outside $WORK_HOME as a spoke (one
+  # registry entry, a one-line identity CLAUDE.md, the binder home; no scaffold, no overlay
+  # rule). No depth guard applies. It dispatches before every other sub-mode, which it
+  # refuses to share a command with. The registry decisions (key taken, anchor claimed) are
+  # made here for the proposal and again by the registry writer at commit.
+  if [ "$anchor_set" = "1" ] || [ "$skey_set" = "1" ]; then
+    local anchor_flag claimant
+    if [ "$anchor_set" = "1" ] && [ -z "$anchor_dir" ]; then
+      printf 'project.mode_propose: --anchor requires a non-empty directory\n' >&2
+      return 2
+    fi
+    if [ "$skey_set" = "1" ] && [ -z "$spoke_key" ]; then
+      printf 'project.mode_propose: --spoke-key requires a non-empty value\n' >&2
+      return 2
+    fi
+    if [ "$anchor_set" != "1" ]; then
+      printf 'project.mode_propose: --spoke-key requires --anchor <dir>\n' >&2
+      return 2
+    fi
+    for anchor_flag in --under --layout --first-sub --adopt --add-sub --add-folder --role --retract-sub --emit-moves; do
+      case "$seen" in
+        *" $anchor_flag "*)
+          printf 'project.mode_propose: --anchor cannot be combined with %s\n' "$anchor_flag" >&2
+          return 2
+          ;;
+      esac
+    done
+    _proj_anchor_check mode_propose "$anchor_dir" "$spoke_key" 1 || return $?
+    if _proj_spoke_registered "$_PROJ_AN_KEY"; then
+      printf "project.mode_propose: spoke '%s' already registered — BLOCKED\n" "$_PROJ_AN_KEY" >&2
+      return 4
+    fi
+    claimant="$(_proj_anchor_claimant "$_PROJ_AN_REG")"
+    if [ -n "$claimant" ]; then
+      printf "project.mode_propose: anchor %s is already claimed by spoke '%s' — BLOCKED\n" "$_PROJ_AN_DIR" "$claimant" >&2
+      return 4
+    fi
+    jq -nc \
+      --arg spoke "$_PROJ_AN_KEY" --arg anchor "$_PROJ_AN_DIR" --arg reg "$_PROJ_AN_REG" \
+      '{kind:"project", op:"anchor", spoke:$spoke, anchor:$anchor, registry_anchor:$reg,
+        identity_line:("This directory is the root of the " + $spoke + " spoke; launch Claude Code from here."),
+        notes:["ANCHOR: registers a launch directory outside the work home as a spoke. Writes one registry entry (cwd anchor = registry_anchor), a one-line identity CLAUDE.md in the directory (kept as is when one exists) and the binder home. No scaffold and no overlay rule.",
+               "The directory is the spoke root: a session launched there, or in any directory below it, resolves to this spoke (a deeper anchor wins).",
+               "The commit stages the identity file, adds the registry entry under a lock, places the file, then makes the binder home. Each step is safe to repeat: re-running the same commit finishes a stopped registration."]}'
+    return 0
+  fi
 
   # --add-folder sub-mode (grow-later): mint a PLAIN top-level folder (NOT a
   # sub-project) under Work/<spoke>. No depth guard on cwd; the spoke is named.
@@ -370,6 +622,69 @@ mode_propose() {
                "Emits its overlay routing rule Work/<spoke>/<name>/** by default (mirrors --add-sub); the routing type-slug is the folder-name slug, or the --role label when given.",
                "Re-derives the master work-map so the folder appears under \"Other top-level folders (not sub-projects):\".",
                "Re-running on an existing folder BLOCKS via the mode own [ -e ] && die guard (non-destructive)."]}'
+    return 0
+  fi
+
+  # --retract-sub sub-mode (grow-later): propose retracting the per-sub overlay rule a
+  # promoted sub leaves behind. No depth guard on cwd; the spoke is named. Dispatches
+  # before the add-sub branch (which fires on --under alone). Writes nothing and does
+  # not need the sub to exist: the existence check belongs to the commit.
+  if [ "$retract_set" = "1" ]; then
+    if [ -z "$under" ]; then
+      printf 'project.mode_propose: --under <spoke> required with --retract-sub <sub>\n' >&2
+      return 2
+    fi
+    if [ -z "$retract_sub" ]; then
+      printf 'project.mode_propose: --retract-sub requires a non-empty name\n' >&2
+      return 2
+    fi
+    case "$retract_sub" in
+      */*|.*) printf 'project.mode_propose: invalid sub-project name: %s (no slashes, no leading dot)\n' "$retract_sub" >&2; return 2 ;;
+    esac
+    jq -nc \
+      --arg spoke "$under" --arg sub "$retract_sub" \
+      '{kind:"project", op:"retract-sub", spoke:$spoke, sub:$sub,
+        pattern:("Work/" + $spoke + "/" + $sub + "/**"),
+        notes:["RETRACT-SUB: removes the per-sub overlay routing rule Work/<spoke>/<sub>/** that a sub-project leaves behind once it has been promoted to a top-level spoke (--adopt). Exact-string match, through the single overlay mutation library (same lock, schema check and atomic rename; one action-log row).",
+               "The commit BLOCKS while Work/<spoke>/<sub> still exists under the spoke: move the sub out first (this tool never moves content); nothing is retracted.",
+               "The master wildcard rule Work/<spoke>/*/{deliverables,reference}/** is not per-sub and is never retracted by a sub name.",
+               "Re-running once the rule is gone changes nothing."]}'
+    return 0
+  fi
+
+  # --emit-moves sub-mode (grow-later): print the git mv commands for an operator-named
+  # mapping. No depth guard on cwd; the spoke is named. Dispatches before the add-sub
+  # branch (which fires on --under alone). The whole mapping is validated before anything
+  # prints, and nothing is written: the moves stay with the operator.
+  if [ "$emit_set" = "1" ]; then
+    if [ -z "$under" ]; then
+      printf 'project.mode_propose: --under <spoke> required with --emit-moves <mapping.json>\n' >&2
+      return 2
+    fi
+    if [ -z "$emit_moves" ]; then
+      printf 'project.mode_propose: --emit-moves requires a non-empty path\n' >&2
+      return 2
+    fi
+    if [ ! -d "$wh/$under" ]; then
+      printf 'project.mode_propose: spoke dir not found: %s\n' "$wh/$under" >&2
+      return 3
+    fi
+    if [ ! -f "$emit_moves" ] || [ ! -r "$emit_moves" ]; then
+      printf 'project.mode_propose: mapping not readable: %s\n' "$emit_moves" >&2
+      return 2
+    fi
+    if ! jq empty "$emit_moves" >/dev/null 2>&1; then
+      printf 'project.mode_propose: mapping is not valid JSON: %s\n' "$emit_moves" >&2
+      return 2
+    fi
+    _proj_emit_moves_check mode_propose "$wh/$under" "$emit_moves" || return $?
+    jq -nc \
+      --arg spoke "$under" --slurpfile map "$emit_moves" --arg cmds "$_PROJ_EM_CMDS" \
+      '{kind:"project", op:"emit-moves", spoke:$spoke, moves:$map[0].moves,
+        commands:($cmds | split("\n")),
+        notes:["EMIT-MOVES: prints the mkdir and git mv commands that carry out the moves named in your mapping. It never moves content and runs no git: you run the printed commands yourself.",
+               "The mapping is {\"moves\": [{\"from\": \"<path>\", \"to\": \"<path>\"}, ...]}, paths relative to Work/<spoke>. Every target must sit inside an existing sub-project directory and must not exist yet.",
+               "The commit validates the mapping against the disk again and prints the same commands on stdout; it writes nothing and appends no action-log row."]}'
     return 0
   fi
 
@@ -583,6 +898,7 @@ mode_commit() {
       if [ -d "$wh/$spoke/deliverables" ]; then
         printf 'project: WARNING — spoke %s is FLAT (has top-level deliverables/). Adding a sub-project starts a flat->master conversion.\n' "$spoke" >&2
         printf 'project: ADVISORY — manually relocate existing Work/%s/deliverables + reference INTO sub-projects. This tool NEVER auto-moves content ().\n' "$spoke" >&2
+        printf 'project: ADVISORY — to print the git mv commands for a mapping you name, run /govern register --kind project --under %s --emit-moves <mapping.json>\n' "$spoke" >&2
       fi
       # 1. Scaffold the sub.
       bash "$_PROJECT_SCAFFOLD" --spoke "$spoke" --work-home "$wh" --subdir "$sub" \
@@ -683,6 +999,99 @@ mode_commit() {
       return 0
       ;;
 
+    retract-sub)
+      local rsub rpat rrc
+      spoke=$(jq -r '.spoke // ""' "$proposal")
+      rsub=$(jq -r '.sub // ""' "$proposal")
+      if [ -z "$spoke" ] || [ -z "$rsub" ]; then
+        printf 'project.mode_commit: retract-sub proposal missing .spoke/.sub\n' >&2
+        return 2
+      fi
+      if [ ! -d "$wh/$spoke" ]; then
+        printf 'project.mode_commit: spoke dir not found for retract-sub: %s\n' "$wh/$spoke" >&2
+        return 3
+      fi
+      # The existence check sits here, not in propose: a proposal composed while the sub
+      # still existed commits once the sub is gone. While the directory is present the
+      # rule is still live, so nothing is retracted.
+      if [ -d "$wh/$spoke/$rsub" ]; then
+        printf "project.mode_commit: sub '%s' still exists under '%s' (%s) — BLOCKED; move it out first, nothing retracted\n" \
+          "$rsub" "$spoke" "$wh/$spoke/$rsub" >&2
+        return 3
+      fi
+      rpat="Work/$spoke/$rsub/**"
+      "$LIB_MUTATE" --retract-rule "$rpat" --kind folder --target "$rpat" --proposed-by user-direct
+      rrc=$?
+      if [ "$rrc" -ne 0 ]; then
+        return "$rrc"
+      fi
+      printf 'project: retract-sub complete — no overlay rule %s remains.\n' "$rpat" >&2
+      return 0
+      ;;
+
+    emit-moves)
+      # Print the commands and nothing else: no write, no git, no action-log row. The
+      # list is recomputed from the proposal's moves against the disk as it is now, so a
+      # stale or hand-edited proposal prints only what is still valid to run.
+      spoke=$(jq -r '.spoke // ""' "$proposal")
+      if [ -z "$spoke" ] || [ ! -d "$wh/$spoke" ]; then
+        printf 'project.mode_commit: spoke dir not found: %s\n' "$wh/$spoke" >&2
+        return 3
+      fi
+      _proj_emit_moves_check mode_commit "$wh/$spoke" "$proposal" || return $?
+      printf '%s\n' "$_PROJ_EM_CMDS"
+      printf 'project: emitted %s command(s) for %s — nothing was moved; run them yourself.\n' "$_PROJ_EM_N" "$spoke" >&2
+      return 0
+      ;;
+
+    anchor)
+      # Register a launch directory outside the work home. The directory, home, work-home
+      # and key checks are re-run on the proposal's own fields; the "already registered" and
+      # "already claimed" decisions are the registry writer's, made under its lock. Steps, in
+      # order: stage the identity file, add the registry entry, place the file, make the
+      # binder home. A stop between any two leaves a state the same commit finishes.
+      local adir akey areg aident arc
+      akey=$(jq -r '.spoke // ""' "$proposal")
+      IFS= read -r -d '' adir < <(jq -j '(.anchor // ""), "\u0000"' "$proposal")
+      _proj_anchor_check mode_commit "$adir" "$akey" 0 || return $?
+      adir="$_PROJ_AN_DIR"; akey="$_PROJ_AN_KEY"; areg="$_PROJ_AN_REG"
+      aident="$adir/CLAUDE.md"
+      _PROJ_AN_STAGED=""
+      if [ ! -e "$aident" ] && [ ! -L "$aident" ]; then
+        _PROJ_AN_STAGED="$adir/.CLAUDE.md.anchor-tmp.$$"
+        # One trap clears the staged file on every exit, a signal included.
+        trap '_proj_anchor_unstage' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        trap 'exit 129' HUP
+        if ! { printf 'This directory is the root of the %s spoke; launch Claude Code from here.\n' "$akey" > "$_PROJ_AN_STAGED"; } 2>/dev/null; then
+          _proj_anchor_unstage
+          printf 'project.mode_commit: cannot stage the identity file in %s\n' "$adir" >&2
+          return 6
+        fi
+      fi
+      _proj_registry_add_spoke "$akey" "$areg" \
+        "Spoke '$akey' anchored at a launch directory outside the work home (registered via /govern register --kind project --anchor)." anchor
+      arc=$?
+      if [ "$arc" -ne 0 ]; then
+        _proj_anchor_unstage
+        return "$arc"
+      fi
+      if [ -n "$_PROJ_AN_STAGED" ]; then
+        if ! mv -f "$_PROJ_AN_STAGED" "$aident" 2>/dev/null; then
+          _proj_anchor_unstage
+          printf 'project.mode_commit: cannot place %s (registry entry for %s was written; re-run the same commit to finish)\n' "$aident" "$akey" >&2
+          return 6
+        fi
+        _PROJ_AN_STAGED=""
+      else
+        printf 'project: NOTE — %s already exists and was kept as is.\n' "$aident" >&2
+      fi
+      _proj_establish_binder_home "$akey" || return $?
+      printf 'project: registered spoke %s anchored at %s — registry entry + identity CLAUDE.md + binder home committed (no scaffold, no overlay rule).\n' "$akey" "$adir" >&2
+      return 0
+      ;;
+
     adopt)
       spoke=$(jq -r '.spoke' "$proposal")
       local cwd
@@ -720,6 +1129,7 @@ mode_commit() {
       # 3. Overlay rule for the promoted top-level spoke.
       _proj_emit_overlay_rule "Work/$spoke" || return $?
       printf 'project: ADVISORY — retract the old Work/<master>/%s/** overlay rule for %s (now a top-level spoke).\n' "$spoke" "$spoke" >&2
+      printf 'project: ADVISORY — once <master> no longer holds %s, run /govern register --kind project --under <master> --retract-sub %s to retract that rule.\n' "$spoke" "$spoke" >&2
       printf 'project: adopted %s as a top-level spoke — registry + missing-only identity + binder home + overlay committed (content byte-unchanged).\n' "$spoke" >&2
       return 0
       ;;

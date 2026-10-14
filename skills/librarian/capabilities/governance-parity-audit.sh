@@ -2,34 +2,44 @@
 # governance-parity-audit — Audit-time self-consistency backstop for the
 # governance pillar JSON surfaces. Walks the pillar JSON registries and emits
 # drift findings categorized by pillar.
-# NET-NEW librarian body (1.1 line 135). Authored from the
-# only —(a): no governance/librarian-capabilities/ doc in brain-stem).
+#
+# Authored in this repository, not ported from another source: this header and
+# the script body are the whole contract for the capability, and no separate
+# per-capability authoring document exists to consult.
+#
 # Two-layer composition: the write-time R-37 atomic lockstep prevents
 # partial-surface commits at the gate; this capability is the audit-time
 # backstop detecting drift that lands DESPITE the gate (manual filesystem
 # edits, bypass scenarios, foundation-upgrade lag). Read-only — emits findings,
 # never writes governance or vault content.
+#
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or
 #     $FINDINGS_OUTPUT. No governance writes; no vault writes.
-#   Finding shape: hooks/lib/findings.sh emit_finding (#2 — the phantom
+#   Finding shape: hooks/lib/findings.sh emit_finding ( — the phantom
 #     librarian-finding-schema.json is reconciled to findings.sh; not created).
 #   Pre-run validation: each pillar JSON must parse (jq); _index.json must
 #     parse. block-and-log on a malformed pillar JSON (pillar-schema-malformed
 #     finding + the pillar is skipped, never silently passed).
 #   Failure mode: block-and-log; never write-and-hope.
+#
 # Finding categories:
 #   source-divergence      (info)    rules[].source: path does not resolve
 #   foundation-upgrade-touches-shadowed-entry (warning) upgrade touched a shadowed overlay entry (--upgrade)
 #   pillar-schema-malformed(warning) a pillar JSON failed parse at audit-time
+#   contract-schema-malformed(warning) a file-type-contract JSON failed parse at audit-time
+#   contract-drift        (warning) a file-type-contract JSON violates the contract schema
+#
 # CLI:
 #   governance-parity-audit.sh             # audit (default)
 #   governance-parity-audit.sh --upgrade   # also run the shadowed-entry walk
 #   governance-parity-audit.sh --dry-run   # summary counts, no findings
 #   governance-parity-audit.sh --help
+#
 # Env overrides (testing):
 #   GOVERNANCE_DIR    governance root (default: foundation-repo -> live install)
 #   FINDINGS_OUTPUT   NDJSON sink (default: stdout)
+#
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
 set -uo pipefail
@@ -47,7 +57,7 @@ while [ $# -gt 0 ]; do
     --upgrade) UPGRADE="true"; shift ;;
     --diff) DIFF_ARG="${2:-}"; shift 2 ;;
     --dry-run) MODE="dry-run"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "governance-parity-audit: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -197,7 +207,7 @@ for pillar, fname, slot in PILLARS:
         if not isinstance(src, str) or not src:
             continue
         # Extract a candidate filesystem path token (before " :: " or " (").
-        token = re.split(r"\s+::\s+|\s+\(", src, 1)[0].strip()
+        token = re.split(r"\s+::\s+|\s+\(", src, maxsplit=1)[0].strip()
         if "/" in token and not token.startswith("governance/"):
             # only resolve repo-relative path-shaped tokens
             cand = os.path.join(os.path.dirname(gov_dir), token)

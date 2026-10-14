@@ -104,6 +104,12 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || { [ -r "$_REPO_LIB/findings.sh" ] && source "$_REPO_LIB/findings.sh"; } || true
+# The session-heading recognizer (exports the HANDOFF_*_PY patterns the parser below
+# compiles). Unreadable in both homes: exit 2 naming the lib, never a silent guess.
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/handoff-recognizer.sh"; } \
+  || { [ -r "$_REPO_LIB/handoff-recognizer.sh" ] && source "$_REPO_LIB/handoff-recognizer.sh"; } \
+  || { echo "handoff-chronicle-append: hooks/lib/handoff-recognizer.sh unreadable under $CLAUDE_HOME_RES and $_REPO_LIB; no write" >&2; exit 2; }
 
 case "${1:-}" in
   -h|--help) sed -n '2,84p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -179,24 +185,24 @@ if not plan_slug.strip():
 # render IDENTICAL block text (idempotent absorption). The appender extracts only
 # the NEWEST session block (the highest session ordinal / latest date / last in
 # document order) and renders it once.
-# SESSION_HEADING_RE / SESSION_NUM_RE are byte-identical to the librarian
-# re-derive (skills/librarian/capabilities/plan-handoff-index.sh) — the recognizer
-# region is parity-gated. Heading shape is ANCHORED to the heading-text start
+# SESSION_HEADING_RE / SESSION_NUM_RE / DATE_RE compile the patterns
+# hooks/lib/handoff-recognizer.sh exports, as the librarian re-derive
+# (skills/librarian/capabilities/plan-handoff-index.sh) does; the rest of this region
+# is parity-gated against it. Heading shape is ANCHORED to the heading-text start
 # (narrative "...(Session N)" is not a false boundary); the ordinal parser
 # rejects a YYYY-MM-DD date and parses S-prefixed / colon forms.
+# ENTRY_HEADER_RE is a stamped entry's one-line identity header; its lines are
+# dropped from a block's body before the summary harvest.
 SESSION_HEADING_RE = re.compile(
-    r"^(#{2,4})\s+"
-    r"((?:alignment\s+)?session\s*(?::|s?[0-9])"
-    r"|s[0-9]+\b"
-    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}\b)"
-    r".*$",
+    os.environ["HANDOFF_SESSION_HEADING_PY"],
     re.IGNORECASE,
 )
 NEXT_RE = re.compile(r"^\s*\**\s*next session\b", re.IGNORECASE)
 LOCKS_RE = re.compile(r"^#{2,4}\s+locks captured\b", re.IGNORECASE)
 DQP_RE = re.compile(r"^#{2,4}\s+decision[- ]quality protocol passes\b", re.IGNORECASE)
-SESSION_NUM_RE = re.compile(r"(?:\bsession\s*:?\s*|^)S?([0-9]+)(?![0-9])(?!-[0-9]{2}-[0-9]{2})", re.IGNORECASE)
-DATE_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})")
+SESSION_NUM_RE = re.compile(os.environ["HANDOFF_SESSION_NUM_PY"], re.IGNORECASE)
+DATE_RE = re.compile(os.environ["HANDOFF_DATE_PY"])
+ENTRY_HEADER_RE = re.compile(os.environ["HANDOFF_ENTRY_HEADER_PY"])
 
 # The harvested next-session line carries its OWN "**Next session…:**" label verbatim,
 # and the renderer then prepends its own "- **Next session:** " label — doubling it. Strip the
@@ -279,7 +285,7 @@ else:
     for k, start in enumerate(bounds):
         end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)
         heading = lines[start].lstrip("# ").strip()
-        body_lines = lines[start + 1:end]
+        body_lines = [l for l in lines[start + 1:end] if not ENTRY_HEADER_RE.match(l)]
         next_line = ""
         for l in lines[start:end]:
             if NEXT_RE.match(l):

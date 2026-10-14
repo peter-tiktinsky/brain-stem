@@ -1,7 +1,9 @@
 # hooks/lib/context-pressure.sh — context-pressure.json producer.
 # Source this file — do not execute it.
+#
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/context-pressure.sh"
 #   write_context_pressure "$TRANSCRIPT_PATH" "$PRESSURE_FILE"
+#
 # THE MISSING WRITER (sweep item 1 /). The R-26 bands (prompt-context.sh
 # warn/mandate; stop-checkpoint-check.sh freshness/existence gates) read
 # `$CLAUDE_STATE_ROOT/sessions/<sid>/context-pressure.json :: .pct`, named by the
@@ -11,18 +13,29 @@
 # (the `transcript_path` every hook receives on stdin) and writes the file the bands
 # read. It is the single SoT for the computation so prompt-context.sh and
 # stop-checkpoint-check.sh never diverge.
+#
 # DESIGN NOTE: net-new (the spec names the consumer, not a producer). pct = the most
 # recent assistant turn's input-side context (input + cache_read + cache_creation
 # tokens) over the model's context window. Window resolution: $CLAUDE_CONTEXT_WINDOW
-# env wins; else a base-model-id -> window table keyed on the transcript's recorded
-# .message.model — the Haiku family resolves 200,000, while the 1M-context fleet
-# (Opus / Sonnet / Fable 4.x+) AND any UNRECOGNISED id default to 1,000,000. The
-# modern fleet is the safe default: dividing a routine 1M-context session by a 200k
+# env wins; else the transcript's recorded .message.model decides. The base-model-id
+# table is claude-only: an id containing claude/Claude (and a transcript with no
+# .message.model) resolves the Haiku family 200,000 and every other Claude id (Opus /
+# Sonnet / Fable 4.x+, recognised or not) 1,000,000 ("model-table"). The modern fleet
+# is the safe default for a Claude id: dividing a routine 1M-context session by a 200k
 # denominator is what manufactured the spurious clamped-100% cry-wolf. A saturation
 # guard then raises any window smaller than the observed input to the covering tier,
 # so a future table mis-bucket can never reproduce that clamp. Resolution is by model
 # FAMILY, not a substring of a mode suffix: the bare transcript id never carries the
 # `[1m]` marker, so a `*1m*` match was dead code.
+# Any NON-Anthropic id (a GLM or local Qwen session compacts far below 1M) resolves, in
+# order: CLAUDE_CODE_AUTO_COMPACT_WINDOW (env), then .autoCompactWindow in
+# ${CLAUDE_HOME:-$HOME/.claude}/settings.json — each a positive integer, treated as an
+# authoritative pin (no saturation raise, pct clamped at 100) — else a 64,000 default
+# raised to the covering tier (200,000, then 1,000,000) when the observed input exceeds
+# it. The output's "window_basis" names the rule that resolved the window: explicit,
+# model-table, auto-compact-env, auto-compact-settings, non-anthropic-default, or
+# fallback-default (a set but unusable pin).
+#
 # FAILURE MODE: graceful no-op. Returns non-zero and writes NOTHING when the
 # transcript is absent/unreadable, jq is missing, or no usage block exists — so the
 # bands degrade to exactly the pre-behavior (pct=0), never an error and never a
@@ -54,27 +67,61 @@ write_context_pressure() {
   # An explicit window arg ($3) or $CLAUDE_CONTEXT_WINDOW is an AUTHORITATIVE operator
   # pin: it wins over the inferred table AND bypasses the saturation guard below (the
   # guard corrects TABLE mis-bucketing, never an explicit human pin).
-  local authoritative=0
-  [ -n "$window" ] && authoritative=1
+  local authoritative=0 window_basis=""
+  [ -n "$window" ] && { authoritative=1; window_basis="explicit"; }
   if [ -z "$window" ]; then
     if [ -n "${CLAUDE_CONTEXT_WINDOW:-}" ]; then
-      window="$CLAUDE_CONTEXT_WINDOW"; authoritative=1
+      window="$CLAUDE_CONTEXT_WINDOW"; authoritative=1; window_basis="explicit"
     else
       local model
       model=$(jq -rs '[ .[]? | objects | (.message? | objects | .model?) // empty ] | last // ""' "$transcript" 2>/dev/null)
-      # Base-model-id -> window table (match by FAMILY; the `[1m]` mode marker never
-      # reaches .message.model). Haiku family = 200k; the 1M fleet (Opus/Sonnet/Fable
-      # 4.x+) AND any unrecognised id default to 1,000,000 (the modern fleet).
       case "$model" in
-        *haiku*|*Haiku*) window=200000 ;;
-        *) window=1000000 ;;
+        ''|*claude*|*Claude*)
+          # Claude table (match by FAMILY; the `[1m]` mode marker never reaches
+          # .message.model). Haiku family = 200k; the 1M fleet (Opus/Sonnet/Fable
+          # 4.x+) AND any unrecognised Claude id default to 1,000,000.
+          window_basis="model-table"
+          case "$model" in
+            *haiku*|*Haiku*) window=200000 ;;
+            *) window=1000000 ;;
+          esac
+          ;;
+        *)
+          # Non-Anthropic id: auto-compact env, then settings (positive integers, the
+          # prompt-context.sh _bb_pos_int rule), else 64000 with the covering-tier raise.
+          case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in
+            ''|0*|*[!0-9]*) : ;;
+            *) window="$CLAUDE_CODE_AUTO_COMPACT_WINDOW"; window_basis="auto-compact-env" ;;
+          esac
+          if [ -z "$window" ] && [ -r "${CLAUDE_HOME:-$HOME/.claude}/settings.json" ]; then
+            local acw_set
+            if ! acw_set=$(jq -r '.autoCompactWindow // empty' "${CLAUDE_HOME:-$HOME/.claude}/settings.json"); then
+              acw_set=""
+              echo "context-pressure: autoCompactWindow unreadable in settings.json; using the default window" >&2
+            fi
+            case "$acw_set" in
+              ''|0*|*[!0-9]*) : ;;
+              *) window="$acw_set"; window_basis="auto-compact-settings" ;;
+            esac
+          fi
+          if [ -n "$window" ]; then
+            authoritative=1
+          else
+            window_basis="non-anthropic-default"
+            window=64000
+            if [ "$used" -gt 64000 ]; then
+              window=200000
+              [ "$used" -gt 200000 ] && window=1000000
+            fi
+          fi
+          ;;
       esac
     fi
   fi
   # A non-numeric / non-positive value (incl. a garbage env pin) is not a usable pin:
   # fall back to the modern-fleet default and drop the authoritative flag.
-  case "$window" in ''|*[!0-9]*) window=1000000; authoritative=0 ;; esac
-  [ "$window" -gt 0 ] || { window=1000000; authoritative=0; }
+  case "$window" in ''|*[!0-9]*) window=1000000; authoritative=0; window_basis="fallback-default" ;; esac
+  [ "$window" -gt 0 ] || { window=1000000; authoritative=0; window_basis="fallback-default"; }
 
   # Saturation guard: an INFERRED window smaller than the observed input can only
   # produce a spurious clamped 100%. Raise any sub-1M inferred window to the covering
@@ -89,7 +136,7 @@ write_context_pressure() {
   [ "$pct" -gt 100 ] && pct=100
 
   mkdir -p "$(dirname "$out")" 2>/dev/null || true
-  printf '{"pct":%s,"input_tokens":%s,"window":%s}\n' "$pct" "$used" "$window" > "$out.tmp" 2>/dev/null \
+  printf '{"pct":%s,"input_tokens":%s,"window":%s,"window_basis":"%s"}\n' "$pct" "$used" "$window" "$window_basis" > "$out.tmp" 2>/dev/null \
     && mv "$out.tmp" "$out" 2>/dev/null || { rm -f "$out.tmp" 2>/dev/null; return 1; }
   return 0
 }

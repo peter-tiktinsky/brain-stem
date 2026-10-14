@@ -1,6 +1,8 @@
 #!/bin/bash
 # hooks/lib/execution-queue.sh — execution-queue persistence for the
-# orchestrator dispatch engine. Source this file — do not execute it.
+# orchestrator dispatch engine. Source this file for the queue API; executing
+# it directly is reserved for the --do self-dispatch entry (the lockf child
+# the RMW lock below spawns) and takes no other action.
 #
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/execution-queue.sh"
 #
@@ -43,9 +45,16 @@ exec_ensure_queue() {
   fi
 }
 
-# Read queue JSON. Creates file if missing.
+# Read queue JSON — a lock-free SNAPSHOT read. The atomic mv-rename in
+# exec_write_queue means a reader sees either the whole previous file or the
+# whole new one, never a torn write, so a read needs no lock. A missing/empty
+# file answers with the empty structure on stdout instead of writing: reads
+# never create the queue file (the create-write runs inside the locked ops).
 exec_read_queue() {
-  exec_ensure_queue
+  if [ ! -s "$EXEC_QUEUE_FILE" ]; then
+    printf '{"queue":[]}\n'
+    return 0
+  fi
   cat "$EXEC_QUEUE_FILE"
 }
 
@@ -56,11 +65,43 @@ exec_write_queue() {
   mv "$tmp" "$EXEC_QUEUE_FILE"
 }
 
+# --- RMW lock ----------------------------------------------------
+# Every queue read-modify-write runs as ONE /usr/bin/lockf -k -t 2 child on the
+# EXEC_QUEUE_LOCK this lib defines (kernel-backed -k, the hooks/lib/lockf.sh
+# idiom; claude_lockf_reexec is inapplicable to a sourced lib — it re-execs $0,
+# the caller's CLI). Contention is LOUD, never a silent skip: a vanished
+# overnight job has no self-heal, unlike the registry rows. Only rc 75 (lockf
+# timeout) is contention; any other non-zero child rc (the lib's documented
+# failures — duplicate add, queue full — or a child error) prints the plain
+# failure line with no contention wording.
+exec_queue_run_locked() {
+  # The four queue env vars ride the environment so the --do child — which
+  # re-sources this lib and would recompute the defaults — sees the caller's
+  # (possibly relocated) queue unchanged.
+  export EXEC_QUEUE_FILE EXEC_QUEUE_LOCK MAX_EXEC_QUEUE_DEPTH EXEC_PRUNE_AGE_DAYS
+  local op="$1" rc=0
+  shift
+  /usr/bin/lockf -k -t 2 "$EXEC_QUEUE_LOCK" "${BASH:-bash}" "${BASH_SOURCE[0]}" --do "$op" "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    return 0
+  fi
+  if [ "$rc" -eq 75 ]; then
+    echo "execution-queue: $op failed: lock contention on $EXEC_QUEUE_LOCK (rc 75)" >&2
+    return 1
+  fi
+  echo "execution-queue: $op failed (rc $rc)" >&2
+  return 1
+}
+
 # Add item to queue.
 # Args: name, type (job|plan), ref (path to job .md or manifest), model,
 #       timeout, budget, priority (normal|urgent), queued_by
 # Returns 0 on success, 1 if queue full or duplicate.
 exec_queue_add() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked add "$@"
+    return
+  fi
   local name="$1" type="$2" ref="$3" model="${4:-sonnet}" timeout="${5:-3600}" budget="${6:-}" priority="${7:-normal}" queued_by="${8:-manual}"
   local queue now depth existing
 
@@ -116,6 +157,10 @@ exec_queue_pick() {
 
 # Update item status. Args: name, new_status, result (optional).
 exec_queue_update() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked update "$@"
+    return
+  fi
   local name="$1" new_status="$2" result="${3:-}"
   local queue now
 
@@ -144,6 +189,10 @@ exec_queue_update() {
 # Hold an item — executor skips it, item keeps its place.
 # Args: name
 exec_queue_hold() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked hold "$@"
+    return
+  fi
   local name="$1"
   local queue
   queue=$(exec_read_queue)
@@ -155,6 +204,10 @@ exec_queue_hold() {
 # Unhold an item — set back to queued.
 # Args: name
 exec_queue_unhold() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked unhold "$@"
+    return
+  fi
   local name="$1"
   local queue
   queue=$(exec_read_queue)
@@ -166,6 +219,10 @@ exec_queue_unhold() {
 # Remove item entirely.
 # Args: name
 exec_queue_remove() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked remove "$@"
+    return
+  fi
   local name="$1"
   local queue
   queue=$(exec_read_queue)
@@ -176,6 +233,10 @@ exec_queue_remove() {
 
 # Prune completed/failed items older than EXEC_PRUNE_AGE_DAYS.
 exec_queue_prune() {
+  if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
+    exec_queue_run_locked prune "$@"
+    return
+  fi
   local queue cutoff_epoch now_epoch
   queue=$(exec_read_queue)
   now_epoch=$(date +%s)
@@ -200,3 +261,27 @@ exec_queue_list() {
     exec_read_queue | jq '.queue'
   fi
 }
+
+# --- Self-dispatch entry -----------------------------------------
+# Guarded so a sourcing caller's own args can never trigger it: only EXECUTING
+# this file directly with --do <op> <args...> lands here — the lockf child
+# exec_queue_run_locked spawns. The child sets the marker (so the same function
+# runs its body inline under the held lock, never recursing into another child),
+# ensures the queue file exists while holding the lock, and exits with the
+# function's rc.
+if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--do" ]; then
+  EXEC_QUEUE_LOCKED=1
+  exec_ensure_queue
+  _do_op="$2"
+  shift 2
+  case "$_do_op" in
+    add)     exec_queue_add "$@" ;;
+    update)  exec_queue_update "$@" ;;
+    hold)    exec_queue_hold "$@" ;;
+    unhold)  exec_queue_unhold "$@" ;;
+    remove)  exec_queue_remove "$@" ;;
+    prune)   exec_queue_prune ;;
+    *) echo "execution-queue: unknown --do op '$_do_op'" >&2; exit 2 ;;
+  esac
+  exit $?
+fi

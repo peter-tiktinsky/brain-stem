@@ -55,6 +55,19 @@
 #   status ({completed, superseded}); the operator may hand-set it on active plans;
 #   plan-research-declare only reads it; plans being rehomed by the durable-artifact census are never bulk-stamped.
 #
+# INFLOW GATE (gate records + prefix collisions, _research/ only). governance/plans-rules.json ::
+# gate_records, read from the .plans slot of the merged foundation + overlay view (PLANS_RULES_PATH
+# names a raw pillar instead, as a test override), is the one key this writer and hooks/pre-write-guard.sh
+# share. An undeclared file directly or deeper under <plan>/_research/ is NOT appended when:
+#   - it is gate-named (a basename token, split on -, _ or ., equals one of gate_records.keywords or
+#     fully matches one of gate_records.keyword_patterns) -> finding research-declare-gate-record
+#     (warn; the record belongs in <plan>/<gate_records.dir>/);
+#   - its gate_records.research_prefix_pattern prefix (NN-) is carried by another file in the same
+#     directory -> finding research-declare-prefix-collision (warn; each colliding undeclared file
+#     gets its own finding).
+# Declared entries are never touched (forward-only). The gate runs after the research_closed branch,
+# so a closed plan keeps its closed-scope finding. Fail-open: an unreadable key skips the gate.
+#
 # Output Contract (per CLAUDE.md skill-creation rule; C-OUT):
 #   Files written:
 #     - each contributing <plan>/manifest.json (research_artifacts[] APPEND-only reconcile;
@@ -65,7 +78,7 @@
 #         durable surface for the closed-scope warn; surfaced at SessionStart by
 #         hooks/session-start-placement-findings.sh; skipped under --dry-run; fail-open).
 #   Schema: schemas/plan-manifest-schema.json (research_artifacts[] item shape: required
-#     id/title/status/path; status enum active|finalized|deferred). Emitted entries seed
+#     id/title/status/path; status enum active|finalized|deferred|superseded). Emitted entries seed
 #     status=active; author edits to status/title/library_refs are preserved.
 #   Pre-write validation: the plans home must resolve to a directory (absent => block-and-log,
 #     no write, exit 0); each manifest read defensively; a missing field is empty, never an error.
@@ -130,11 +143,59 @@ case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 RDCS_SUBTREE_OUT="$(mktemp -t research-declare-subtree-XXXXXX)"
 export RDCS_SUBTREE_OUT
 
-python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" <<'PY'
+# Empty = gate skipped (absent key, fail-open); an UNREADABLE source names the skip on stderr.
+GATE_RULES=""
+GATE_SKIP_LINE=""
+if [[ -n "${PLANS_RULES_PATH:-}" && -f "${PLANS_RULES_PATH}" ]]; then
+  GATE_RULES=$(bash "$CLAUDE_HOME_RES/hooks/lib/governance-read.sh" "${PLANS_RULES_PATH}" '(.gate_records // .plans.gate_records) // empty')
+  GATE_LEG_RC=$?
+  if [[ "$GATE_LEG_RC" -eq 3 ]]; then
+    GATE_SKIP_LINE="research-declare: inflow gate skipped: gate_records unreadable at ${PLANS_RULES_PATH}"
+    GATE_RULES=""
+  fi
+fi
+if [[ -z "$GATE_RULES" && -z "$GATE_SKIP_LINE" ]]; then
+  # The merged view (foundation + adopter overlay) via hooks/lib/foundation-overlay-load.sh, the
+  # union-load primitive; degrades to the raw bundle if the merger is unavailable.
+  GATE_MASTER="${FOUNDATION_MASTER_PATH:-$CLAUDE_HOME_RES/governance/foundation-master.json}"
+  if [[ -f "$GATE_MASTER" ]]; then
+    _OVL="${FOUNDATION_OVERLAY_LOAD:-$CLAUDE_HOME_RES/hooks/lib/foundation-overlay-load.sh}"
+    [[ -x "$_OVL" ]] || _OVL="$_REPO_LIB/foundation-overlay-load.sh"
+    if [[ -x "$_OVL" ]]; then
+      GATE_OVL_OUT=$(mktemp -t research-declare-ovl-XXXXXX)
+      bash "$_OVL" --foundation-path "$GATE_MASTER" \
+          --overlay-path "$(dirname "$GATE_MASTER")/overlay-master.json" --force-override \
+          >"$GATE_OVL_OUT" 2>/dev/null
+      GATE_OVL_RC=$?
+      if [[ "$GATE_OVL_RC" -ne 0 ]]; then
+        GATE_SKIP_LINE="research-declare: inflow gate skipped: gate_records unreadable at ${GATE_MASTER}"
+      else
+        GATE_RULES=$(bash "$CLAUDE_HOME_RES/hooks/lib/governance-read.sh" "$GATE_OVL_OUT" '.plans.gate_records // empty')
+        GATE_LEG_RC=$?
+        if [[ "$GATE_LEG_RC" -eq 3 ]]; then
+          GATE_SKIP_LINE="research-declare: inflow gate skipped: gate_records unreadable at ${GATE_MASTER}"
+          GATE_RULES=""
+        fi
+      fi
+      rm -f "$GATE_OVL_OUT"
+    fi
+    if [[ -z "$GATE_RULES" && -z "$GATE_SKIP_LINE" ]]; then
+      GATE_RULES=$(bash "$CLAUDE_HOME_RES/hooks/lib/governance-read.sh" "$GATE_MASTER" '.plans.gate_records // empty')
+      GATE_LEG_RC=$?
+      if [[ "$GATE_LEG_RC" -eq 3 ]]; then
+        GATE_SKIP_LINE="research-declare: inflow gate skipped: gate_records unreadable at ${GATE_MASTER}"
+        GATE_RULES=""
+      fi
+    fi
+  fi
+fi
+[[ -n "$GATE_SKIP_LINE" ]] && echo "$GATE_SKIP_LINE" >&2
+
+python3 - "$PLANS_ROOT" "$DRY_RUN" "$SPOKE_FILTER" "$GATE_RULES" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date, datetime, timezone
 
-plans_root, dry_s, spoke_filter = sys.argv[1:4]
+plans_root, dry_s, spoke_filter, gate_rules_s = sys.argv[1:5]
 dry_run = (dry_s == "true")
 spoke_filter = spoke_filter or None
 today = date.today().isoformat()
@@ -237,6 +298,53 @@ def discover(plan_dir):
     return hits
 
 
+# --- inflow gate (gate_records; fail-open when the key is absent or unparseable) ------------
+try:
+    GATE = json.loads(gate_rules_s) if gate_rules_s else None
+except Exception:
+    GATE = None
+if not isinstance(GATE, dict):
+    GATE = None
+G_KEYWORDS, G_KPATS, G_PREFIX, G_DIR = [], [], None, "_gates"
+if GATE is not None:
+    G_KEYWORDS = [str(k) for k in (GATE.get("keywords") or [])]
+    for p in (GATE.get("keyword_patterns") or []):
+        try:
+            G_KPATS.append(re.compile(str(p)))
+        except re.error:
+            pass
+    if GATE.get("research_prefix_pattern"):
+        try:
+            G_PREFIX = re.compile(str(GATE["research_prefix_pattern"]))
+        except re.error:
+            G_PREFIX = None
+    G_DIR = str(GATE.get("dir") or "_gates")
+
+
+def gate_named(name):
+    for tok in re.split(r"[-_.]", name):
+        if tok in G_KEYWORDS or any(p.fullmatch(tok) for p in G_KPATS):
+            return True
+    return False
+
+
+def prefix_carriers(plan_dir, rel):
+    """Other files in rel's own directory whose research prefix equals rel's; [] when none."""
+    if G_PREFIX is None:
+        return []
+    name = os.path.basename(rel)
+    m = G_PREFIX.match(name)
+    if not m:
+        return []
+    here = os.path.dirname(os.path.join(plan_dir, rel))
+    try:
+        sibs = sorted(os.listdir(here))
+    except OSError:
+        return []
+    return [f for f in sibs if f != name and os.path.isfile(os.path.join(here, f))
+            and (G_PREFIX.match(f) is not None) and G_PREFIX.match(f).group(0) == m.group(0)]
+
+
 def next_ra_id(existing):
     mx = 0
     for e in existing:
@@ -300,6 +408,20 @@ for plan_dir, mp, man in plans:
                   "artifact_path": rel, "level": "warn", "detected_at": today})
             closed_scope_entries.append("%s: %s" % (plan_slug, rel))
             continue
+        if GATE is not None and rel.startswith("_research" + os.sep):
+            # Inflow gate: a gate record or a prefix-colliding file is never declared.
+            plan_slug = os.path.basename(plan_dir.rstrip("/"))
+            if gate_named(os.path.basename(rel)):
+                emit({"finding": "research-declare-gate-record", "file": mp,
+                      "plan": plan_slug, "spoke": spoke, "artifact_path": rel,
+                      "target_dir": G_DIR, "level": "warn", "detected_at": today})
+                continue
+            carriers = prefix_carriers(plan_dir, rel)
+            if carriers:
+                emit({"finding": "research-declare-prefix-collision", "file": mp,
+                      "plan": plan_slug, "spoke": spoke, "artifact_path": rel,
+                      "collides_with": carriers, "level": "warn", "detected_at": today})
+                continue
         have.add(rel)
         nid += 1
         new_entries.append({

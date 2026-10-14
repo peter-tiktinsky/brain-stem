@@ -1,11 +1,11 @@
 {
   "schema_version": "2.0.0",
   "pillar": "tagging",
-  "_description": "Pillar 2 — Tagging (per-pillar rule model). Loaded by pre-write-guard.sh at runtime. Homes R-05 (deny, tag-validation), R-47 (advisory, tag-presence), R-50 (advisory, 25-tag cap). The R-60 (deny, tag grammar) _rules[] OBJECT is homed in governance/naming-rules.json — it appears in the tagging rule_id_range (category=tagging) only, NOT duplicated here. _rules[] is the per-pillar rule SoT (each object carries home/category/surface?/status). Carries the canonical tag-prefix taxonomy. Tags are the user-side query surface (Obsidian graph view, filter pane, MOC patterns); frontmatter fields are the Claude-side substrate.",
+  "_description": "Pillar 2 — Tagging (per-pillar rule model). Loaded by pre-write-guard.sh at runtime. Homes R-05 (advisory, audit-time canonical subtype check), R-47 (advisory, tag-presence), R-50 (advisory, 25-tag cap). The R-60 (deny, tag grammar) _rules[] OBJECT is homed in governance/naming-rules.json — it appears in the tagging rule_id_range (category=tagging) only, NOT duplicated here. _rules[] is the per-pillar rule SoT (each object carries home/category/surface?/status). Carries the canonical tag-prefix taxonomy. Tags are the user-side query surface (Obsidian graph view, filter pane, MOC patterns); frontmatter fields are the Claude-side substrate.",
   "_design_notes": {
-    "consumer": "pre-write-guard.sh — tag-validation branch (R-05) + tag-presence advisory (R-47); librarian tag-coverage-audit (R-47, R-50); onboarder consolidation prompt (R-50, install-time)",
-    "lockstep_pair": "hooks/pre-write-guard.sh (tag-validation branch) + governance/log-subtype-registry.json (system-utility canonicality discipline)",
-    "evolution_protocol": "R-37 documentary lockstep — tagging-rules.json + pre-write-guard.sh tag-validation branch move in one commit (the r37_coupled_surfaces set declared at governance/_index.json#pillars[tagging]). NO write-time DENY for R-37, by design (R-37 is documentary across the governance surface — git commit-boundary atomicity + librarian governance-parity-audit at session-close; a PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set).",
+    "consumer": "pre-write-guard.sh — tag-taxonomy allowlist check (R32_TAXONOMY_UNION_PREFIXES) + tag-presence advisory (R-47); librarian log-subtype-canonical (R-05, audit-time) and tag-coverage-audit (R-47, R-50); onboarder consolidation prompt (R-50, install-time)",
+    "lockstep_pair": "hooks/pre-write-guard.sh (tag-taxonomy allowlist check and tag-presence advisory) + governance/log-subtype-registry.json (system-utility canonicality discipline)",
+    "evolution_protocol": "R-37 documentary lockstep — tagging-rules.json + the pre-write-guard.sh tag-taxonomy and tag-presence checks move in one commit (the r37_coupled_surfaces set declared at governance/_index.json#pillars[tagging]). NO write-time DENY for R-37, by design (R-37 is documentary across the governance surface — git commit-boundary atomicity + librarian governance-parity-audit at session-close; a PreToolUse hook sees exactly one file per call and cannot inspect a multi-file commit set).",
     "rule_id_range_reconciliation": "_index.json#pillars[tagging].rule_id_range = [R-05, R-60, R-47, R-50]. This pillar's _rules[] = [R-05, R-47, R-50] (3 objects). R-60 is in the range (its tag-grammar substance is category=tagging) but its _rules[] object is HOMED in governance/naming-rules.json. This is the home != range divergence — the tagging surface owns R-60's runtime substance (it validates against this pillar's taxonomy); naming owns R-60's declaration site."
   },
   "taxonomy": {
@@ -31,7 +31,7 @@
       "scope"
     ],
     "cap_25_applies_to": "user_facing_dimensions",
-    "system_utility_governance": "log-subtype-registry (canonical values per dimension; near-match DENY via R-05)",
+    "system_utility_governance": "log-subtype-registry (canonical values per dimension; audit-time near-match check via R-05)",
     "_adopter_extension_path": "overlay-master.tagging.taxonomy.dimension_prefixes[] + .user_facing_dimensions[]",
     "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it."
   },
@@ -40,16 +40,16 @@
       "id": "R-05",
       "home": "tagging",
       "category": "C1",
-      "tier": "deny",
+      "tier": "advisory",
       "enforcement_layer": [
-        "pre-write-guard.sh tag-validation branch (system-utility dimension DENY on near-match)",
+        "librarian log-subtype-canonical (audit-time near-match and unregistered-subtype detection)",
         "governance/log-subtype-registry.json (canonical-values authority)",
         "librarian tag-coverage-audit (registered-value coverage)"
       ],
       "status": "active",
       "source": "governance/tagging-rules.json :: _rules (SoT)",
-      "failure_mode": "Near-match drift in system-utility dimensions fragments operational subtypes within weeks. Two runs of the same routine emit two different tag values (e.g., #log/backlog-hygiene vs #log/backlog-cleanup), and the user-side graph filter splits routine activity across variant spellings. The discipline restores stability: every routine activity uses the STABLE, canonical tag value registered at first emission, and the hook DENIES near-match drift.",
-      "rule_text": "Tags within system-utility dimensions (#log/*, #status/*) must match a value registered in governance/log-subtype-registry.json. Near-match writes (Levenshtein distance <= 2 or substring containment of an existing canonical value) are DENIED with a 'did you mean #<dim>/<canonical>?' suggestion. Genuinely new subtypes register explicitly via the prompt-and-commit pattern at first emission. The discipline mirrors the canonical-tag-per-concept principle on the system-utility surface where LLM stochasticity would otherwise fragment the vocabulary."
+      "failure_mode": "Near-match drift in system-utility dimensions fragments operational subtypes within weeks. Two runs of the same routine emit two different tag values (e.g., #log/backlog-hygiene vs #log/backlog-cleanup), and the user-side graph filter splits routine activity across variant spellings. The discipline restores stability: every routine activity uses the STABLE, canonical tag value registered at first emission, and the librarian audit reports near-match drift.",
+      "rule_text": "Tags within system-utility dimensions (#log/*, #status/*) must match a value registered in governance/log-subtype-registry.json. A value that matches no registered subtype, or two registered subtypes within Levenshtein distance 2 of each other, is reported by the librarian log-subtype-canonical audit; no write-time check blocks it. Genuinely new subtypes register explicitly via the prompt-and-commit pattern at first emission. The discipline mirrors the canonical-tag-per-concept principle on the system-utility surface where LLM stochasticity would otherwise fragment the vocabulary."
     },
     {
       "id": "R-47",
@@ -89,12 +89,11 @@
       ],
       "status": "active",
       "source": "governance/tagging-rules.json :: _rules (SoT; 25-tag cap grounded in Forte/Dubois working-vocabulary research + Hedden faceted-classification literature + Adobe AEM and SharePoint enterprise CMS picklist patterns)",
-      "failure_mode": "Cap-widening defeats the working-memory rationale silently. An adopter activates a new engagement, user-facing tag count approaches 25, and the path of least resistance is 'raise the cap to 30.' Past 25, decision fatigue produces variant-creation rather than canonical-term selection, the vocabulary fragments, and user-side recall collapses. The cap is structural, not aspirational — silent widening is rejected; deliberate Layer 3 override is supported with audit trail.",
-      "rule_text": "Total count of distinct values across user-facing dimensions (declared at runtime by union of foundation-master.tagging.taxonomy.user_facing_dimensions + overlay-master.tagging.taxonomy.user_facing_dimensions) MUST stay under 25. System-utility dimensions (log, status) are exempt — they are machine-emitted and governed by the log-subtype registry (R-05). The librarian tag-coverage-audit emits an advisory when user-facing usage approaches 80% of the cap (>= 20 active values), surfaces a consolidation prompt with retire-candidate recommendations, and requires deliberate Layer 3 override (`overlay-master.json :: tagging_cap_override` with rationale + audit-trail entry) before silent widening can proceed.",
+      "failure_mode": "Cap-widening defeats the working-memory rationale silently. An adopter activates a new engagement, user-facing tag count approaches 25, and the path of least resistance is 'raise the cap to 30.' Past 25, decision fatigue produces variant-creation rather than canonical-term selection, the vocabulary fragments, and user-side recall collapses. The cap is structural, not aspirational — silent widening is rejected.",
+      "rule_text": "Total count of distinct values across user-facing dimensions (declared at runtime by union of foundation-master.tagging.taxonomy.user_facing_dimensions + overlay-master.tagging.taxonomy.user_facing_dimensions) MUST stay under 25. System-utility dimensions (log, status) are exempt — they are machine-emitted and governed by the log-subtype registry (R-05). The librarian tag-coverage-audit emits an advisory when user-facing usage approaches 80% of the cap (>= 20 active values), and surfaces a consolidation prompt with retire-candidate recommendations. The cap is advisory: no write-time check enforces it.",
       "cap_value": 25,
       "advisory_threshold_pct": 80,
-      "scope": "user_facing_dimensions",
-      "override_mechanism": "Layer 3 overlay-master.json :: tagging_cap_override with rationale + audit-trail entry"
+      "scope": "user_facing_dimensions"
     }
   ]
 }

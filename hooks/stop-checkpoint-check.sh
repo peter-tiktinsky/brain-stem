@@ -1,5 +1,6 @@
 #!/bin/bash
-# Hook: Stop — Enforce checkpoint writing before session exit at high context.
+# Hook: Stop — Enforce a checkpoint at high context. Stop fires at every turn end,
+# not only at session exit, so each band below gates every turn end in its range.
 # Exit 2 = force continuation. Exit 0 = allow stop.
 set -euo pipefail
 
@@ -16,6 +17,8 @@ if ! command -v journal_emission >/dev/null 2>&1; then
 fi
 # the context-pressure writer (the .pct producer the bands below read).
 [ -r "$SCRIPT_DIR/lib/context-pressure.sh" ] && source "$SCRIPT_DIR/lib/context-pressure.sh"
+# The shared "is this a Session Continuity Block?" test the 48-80% band reads.
+[ -r "$SCRIPT_DIR/lib/checkpoint-guard.sh" ] && source "$SCRIPT_DIR/lib/checkpoint-guard.sh"
 
 # T-3: the Stop turn-boundary heartbeat needs the registry RMW primitives +
 # REGISTRY_LOCK, so source the coordination lib (graceful-degrade like the peers above;
@@ -78,20 +81,112 @@ if [[ -z "$SESSION_ID" ]]; then
   # per-session checkpoint freshness without knowing which session is stopping).
   exit 0
 fi
+
+# Library promotion: offer a newly completed plan's research for the shared library.
+# The arm runs only where the ladder below would otherwise allow the stop (after the
+# >90% valve, every checkpoint gate and the memory-review CONFLICT block, whether or
+# not memory review is opted out), so it never changes a gate's outcome. It reads the
+# mode first: unset or `off` means no scan and no model call. Every state write stays
+# in the library-scrub.sh modes it calls, under that capability's lock; the claim
+# through --next is the one-shot marker, so a candidate is offered once.
+_DSE="$SCRIPT_DIR/lib/detached-spawn-env.sh"
+# shellcheck source=/dev/null
+if "${BASH:-bash}" -n "$_DSE" 2>/dev/null; then . "$_DSE" 2>/dev/null || true; fi
+if ! command -v pin_detached_spawn_env >/dev/null 2>&1; then pin_detached_spawn_env() { :; }; fi
+LP_QUESTION="This plan is now complete. The research artifacts attached to this plan likely have universal value. Would you like to promote these research artifacts to universal reference material?"
+library_promotion_stop() {
+  local host="" c mode slug="" untriaged
+  for c in "${CLAUDE_HOME:-$HOME/.claude}/skills/librarian/capabilities/library-scrub.sh" \
+           "$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)/skills/librarian/capabilities/library-scrub.sh"; do
+    if [ -f "$c" ]; then host="$c"; break; fi
+  done
+  [ -n "$host" ] || return 0
+  mode="$(bash "$host" --mode get 2>/dev/null </dev/null || true)"
+  case "$mode" in prompt|auto) ;; *) return 0 ;; esac
+  # Re-entry: a stop that a Stop hook already continued is never blocked again.
+  if [ "$(printf '%s' "$STOP_INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || true)" = "true" ]; then
+    return 0
+  fi
+  # Headless (nobody to answer): the candidate stays queued and the next attended
+  # SessionStart names it. CLAUDE_CODE_SESSION_ATTENDED reads 0 headless and 1
+  # attended; where it is absent, an sdk-* entrypoint marks a headless run.
+  if [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ]; then return 0; fi
+  if [ -z "${CLAUDE_CODE_SESSION_ATTENDED:-}" ]; then
+    case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk-*) return 0 ;; esac
+  fi
+  # Pin before the detached chain below. The call sits at column 0, the sanctioned
+  # call-site form that the spawn-roster checks read; it runs only on this path, so the
+  # ladder above keeps its own resolution.
+pin_detached_spawn_env || true
+  # A pre-filtered file scan with no model call: it catches Bash, script, other-session
+  # and vault-spelled writes that no PostToolUse payload saw.
+  bash "$host" --candidates >/dev/null 2>&1 </dev/null || true
+  # Ordering contract: the capability's state-writing modes share one non-blocking lock,
+  # and a contended call logs a skip and exits 0, so its verdict or answer is lost. This
+  # Stop therefore never runs two of them at once, and auto mode never splits a claim
+  # from its answer: the combined --claim-answer mode claims and answers under ONE
+  # lock acquisition, so contention degrades to "never claimed" — which the next Stop
+  # re-offers — instead of a claimed-but-unanswered record stranded past its one-shot
+  # claim. The claim-and-answer runs first in the detached chain (the record the
+  # SessionStart banner reads), then the triage loop, one small-model call per plan.
+  # The chain is spawned before every exit that follows it.
+  untriaged="$(bash "$host" --pending 2>/dev/null </dev/null \
+    | awk -F'\t' '$2 == "state=pending" && $5 == "reason=awaiting triage" { print $1 }' || true)"
+  # The foreground --next claim is the PROMPT-mode surface only (auto mode claims
+  # inside the chain's combined mode below), so a claimed slug can never dangle
+  # past this Stop waiting for an answer a contended chain would lose.
+  if [ "$mode" != "auto" ]; then
+    slug="$(bash "$host" --next "$SESSION_ID" 2>/dev/null </dev/null | head -n 1 || true)"
+  fi
+  if [ "$mode" = "auto" ]; then
+    mkdir -p "$HOOKS_STATE" 2>/dev/null || true
+  fi
+  if [ -n "$untriaged" ] || [ "$mode" = "auto" ]; then
+    ( {
+      # The capability's output is the record the SessionStart banner reads: its
+      # promoted line is printed only after the library_refs stamps are re-read.
+      bash "$host" --claim-answer "$SESSION_ID" yes </dev/null >>"$HOOKS_STATE/library-promotion-auto.log" 2>&1 || true
+      for t in $untriaged; do bash "$host" --triage "$t" </dev/null >/dev/null 2>&1 || true; done
+    } </dev/null >/dev/null 2>&1 & ) || true
+  fi
+  [ -n "$slug" ] || return 0
+  {
+    echo "Library promotion: plan $slug is complete, and triage judged its research worth offering to the shared library."
+    echo "Before stopping, ask the user with AskUserQuestion, using exactly this question: \"$LP_QUESTION\""
+    echo "Offer exactly these three answers as the option labels: \"Yes\", \"No\", \"Yes, and promote automatically from now on\"."
+    echo "Then run: bash $host --answer $slug yes|no|always (Yes = yes, No = no, the third answer = always)."
+  } >&2
+  journal_emission "Stop" "deny-stop:library-promotion:prompt:plan=${slug}" 2
+  exit 2
+}
+# The ladder's allow exits below call this in place of a bare `exit 0`.
+allow_stop() {
+  library_promotion_stop || true
+  exit 0
+}
+
 CHECKPOINT_FILE="$STATE_DIR/sessions/$SESSION_ID/checkpoint.md"
 PRESSURE_FILE="$STATE_DIR/sessions/$SESSION_ID/context-pressure.json"
 
 # T-3: refresh this session's last_heartbeat at the Stop turn-boundary so a
 # long autonomous single-turn run (no new UserPromptSubmit to trigger the per-prompt
 # refresh) still keeps its heartbeat fresh and is not reaped by the T-1 verdict. Holds
-# REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec (fail-open to a
-# direct unlocked upsert). Every path ends in `|| true` so it can NEVER non-zero-exit
-# and wrongly force-continue the Stop gate under `set -euo pipefail`.
+# REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec. A
+# lockf timeout (rc 75) DEFERS the row — one skip line, never an unlocked write
+# (non-75 keeps the silent swallow, T-3a); the skipped heartbeat self-heals at the
+# next Stop fire. Every path can NEVER non-zero-exit and wrongly force-continue the
+# Stop gate under `set -euo pipefail`.
 if command -v heartbeat_row >/dev/null 2>&1; then
   ensure_coord_dir 2>/dev/null || true
   if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
-    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-heartbeat "$SESSION_ID" >/dev/null 2>&1 \
-      || heartbeat_row "$SESSION_ID" || true
+    _scc_rc=0
+    lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-heartbeat "$SESSION_ID" >/dev/null 2>&1 || _scc_rc=$?
+    if [ "$_scc_rc" -eq 75 ]; then
+      _scc_dir="${LOG_DIR:-}"
+      if [ -z "$_scc_dir" ] || [ ! -d "$_scc_dir" ]; then _scc_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
+      echo "$(date -Iseconds) stop-checkpoint-check.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; next fire retries)" \
+        >> "$_scc_dir/stop-checkpoint-check-skip.log" 2>/dev/null || true
+    fi
   else
     heartbeat_row "$SESSION_ID" || true
   fi
@@ -166,7 +261,7 @@ if (( pct_int < 48 )); then
   if [ -r "$_rq_lib" ]; then
     source "$_rq_lib"
     if command -v memory_review_opt_out >/dev/null 2>&1 && memory_review_opt_out; then
-      exit 0
+      allow_stop
     fi
     if command -v review_queue_has_high_severity_conflict >/dev/null 2>&1 \
        && review_queue_has_high_severity_conflict; then
@@ -175,7 +270,7 @@ if (( pct_int < 48 )); then
       exit 2
     fi
   fi
-  exit 0
+  allow_stop
 fi
 
 # Compute checkpoint freshness
@@ -188,12 +283,19 @@ if [[ -f "$CHECKPOINT_FILE" ]] && [[ -s "$CHECKPOINT_FILE" ]]; then
   ckpt_age=$(( now - ckpt_mtime ))
 fi
 
-# 48-80% band: R-26 mtime-freshness gate. Checkpoint must be < 10 min old.
+# 48-80% band: allow the stop over a checkpoint younger than CLEARING_WINDOW_SEC, or
+# over one that carries a Session Continuity Block at any age. Because Stop fires at
+# every turn end, a freshness-only test forced a new write at every turn end past the
+# window, over a handoff record already on disk. A stale stub, a stale panic fallback
+# or a missing checkpoint still blocks.
 if (( pct_int < 80 )); then
   if $ckpt_exists && (( ckpt_age < CLEARING_WINDOW_SEC )); then
-    exit 0
+    allow_stop
   fi
-  echo "Context at ${pct}%. Cannot stop — checkpoint stale (mtime age ${ckpt_age}s, limit ${CLEARING_WINDOW_SEC}s)." >&2
+  if command -v checkpoint_has_block >/dev/null 2>&1 && checkpoint_has_block "$CHECKPOINT_FILE"; then
+    allow_stop
+  fi
+  echo "Context at ${pct}%. Cannot stop — checkpoint stale (mtime age ${ckpt_age}s, limit ${CLEARING_WINDOW_SEC}s) and carries no Session Continuity Block." >&2
   echo "Invoke /session-checkpoint first to refresh $CHECKPOINT_FILE (per-session path). After checkpoint is written, stop will be allowed. (R-26 48-80% band)" >&2
   journal_emission "Stop" "deny-stop:48-80-band:checkpoint-stale:age=${ckpt_age}s:pct=${pct}" 2
   exit 2
@@ -201,7 +303,7 @@ fi
 
 # 80-90% band: checkpoint must at minimum exist (pre-existing rule, preserved)
 if $ckpt_exists; then
-  exit 0
+  allow_stop
 fi
 
 echo "Context at ${pct}%. You must save a checkpoint before stopping. Invoke /session-checkpoint to write $CHECKPOINT_FILE (per-session path). (R-26 80-90% band)" >&2

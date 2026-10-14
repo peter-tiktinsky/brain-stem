@@ -41,7 +41,10 @@
 # Finding categories (2 — §Finding categories):
 #   tasks-md-drift       (warning, --check only) on-disk tasks.md != would-be render;
 #                        carries a `remedy` field naming the sanctioned repair (re-render
-#                        via tasks-render / fix manifest.tasks[]) — never a hand-edit
+#                        via tasks-render / fix manifest.tasks[]) — never a hand-edit;
+#                        carries plan_dir + status_drift_ids, consumed by session-close
+#                        step2d_tasks_md_heal (the close-time status-axis repair that
+#                        re-renders exactly the flagged plans)
 #   tasks-md-regenerated (info-event) tasks.md regenerated (write) or evaluated (--check);
 #                        suppressed under --drift-only (the sweep lane stays silent on
 #                        the steady state)
@@ -238,6 +241,68 @@ def emit(d):
         print(line)
 
 
+def _yq(s):
+    s = " ".join(str(s).split())
+    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+    return s
+
+
+def _cohort_id(suffix):
+    ap = os.path.abspath(plan_dir.rstrip("/"))
+    marker = os.sep + ".claude-plans" + os.sep
+    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
+    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
+    return "plans-" + "-".join([p for p in parts if p] + [suffix])
+
+
+def upsert_fm_cohort(text):
+    """The replica preface carries the full frontmatter cohort plans-schema
+    requires (type,title,description,created,updated,id,schema_version).
+    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
+    'tasks'. Present values are never rewritten; status:/tags: are never added
+    (manifest owns status; tags are an authoring surface). Idempotent. Only the
+    lines up to the closing `---` can change; every later byte round-trips."""
+    fl = text.split("\n")
+    if not fl or fl[0].strip() != "---":
+        return text
+    close = None
+    for i in range(1, len(fl)):
+        if fl[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        return text
+    keys = {}
+    for i in range(1, close):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
+        if m:
+            keys[m.group(1)] = (i, m.group(2).strip())
+    add = []
+    if "type" in keys:
+        if keys["type"][1] != "tasks":
+            fl[keys["type"][0]] = "type: tasks"
+    else:
+        add.append("type: tasks")
+    fallback_title = "%s — Tasks" % title
+    if "title" not in keys:
+        add.append("title: %s" % _yq(fallback_title))
+    if "description" not in keys:
+        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
+        add.append("description: %s" % _yq(dv))
+    if "created" not in keys:
+        add.append("created: %s" % today)
+    if "updated" not in keys:
+        add.append("updated: %s" % today)
+    if "id" not in keys:
+        add.append("id: %s" % _cohort_id("tasks"))
+    if "schema_version" not in keys:
+        add.append("schema_version: 1")
+    if add:
+        fl[close:close] = add
+    return "\n".join(fl)
+
+
 # master-detect-and-skip. tasks-render is the sole writer of the tasks.md
 # sentinel region, but a type:master (or sub_plans-bearing) manifest carries no per-task
 # ledger — its tasks[] is empty (or coordinating-only) and parse_ledger_notes keys only on
@@ -247,9 +312,30 @@ def emit(d):
 # invocation), so the guard lives HERE (not at the hook sites). Reuse the drift-sweep.sh
 # master predicate (the master<->sub reconciler's contract) so the two renderers + the
 # reconciler share ONE detection contract and nothing new drifts. On a master: emit a single
-# observable level:info finding and exit 0 WITHOUT touching tasks.md (the rollup is
+# observable level:info finding and exit 0 WITHOUT rendering tasks.md (the rollup is
 # hand-reconciled, never renderer-owned).
 if manifest.get("type") == "master" or manifest.get("sub_plans"):
+    # heal the master preface cohort. A master's file is never rendered, but its frontmatter
+    # preface still carries the cohort every replica carries. In write mode an existing file
+    # that opens with a frontmatter block gains only its absent cohort keys, written
+    # atomically; every byte after the closing `---` stays identical. --check never writes, an
+    # absent file is not created, and a file with no frontmatter block is left byte-identical
+    # (upsert_fm_cohort returns it unchanged). Status is not stripped on a master.
+    if not check_only and os.path.isfile(tasks_file):
+        with open(tasks_file, encoding="utf-8", newline="") as fh:
+            _current = fh.read()
+        _healed = upsert_fm_cohort(_current)
+        if _healed != _current:
+            _d = os.path.dirname(tasks_file) or "."
+            _fd, _tmp = tempfile.mkstemp(dir=_d, prefix=".tasks.", suffix=".tmp")
+            try:
+                with os.fdopen(_fd, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(_healed)
+                os.replace(_tmp, tasks_file)
+            except Exception:
+                if os.path.exists(_tmp):
+                    os.unlink(_tmp)
+                raise
     emit({
         "finding": "master-render-skipped",
         "level": "info",
@@ -273,6 +359,17 @@ _STRUCK_ID_RE = re.compile(r"^~~(.+)~~$")
 # is NOT a real Note — it must render empty, not be carried forward forever. Whole-cell anchored,
 # so a legitimate Note that merely contains braces mid-string (e.g. "see {config}") is preserved.
 _PLACEHOLDER_NOTE_RE = re.compile(r"^\{\{.*\}\}$|^\{[^{}]*\}$")
+# A column separator is a pipe NOT preceded by a backslash. cell() escapes only `|` and every
+# row pads each cell with one space, so a separator never follows a backslash; a pipe inside a
+# cell always carries the backslash its escape added.
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+
+def split_cells(line):
+    # Split a rendered row on UNESCAPED pipes only and decode each cell's `\|` back to `|`
+    # once, so a carried cell re-escaped by cell() round-trips exactly. A bare split on every
+    # pipe let a pipe-bearing title shift the columns and carry another column into Notes.
+    return [c.strip().replace("\\|", "|") for c in _CELL_SPLIT_RE.split(line.strip().strip("|"))]
 
 
 def _bare_ledger_id(cell_value):
@@ -292,7 +389,7 @@ def parse_ledger_notes(region):
     for line in region.split("\n"):
         if not line.strip().startswith("|"):
             continue
-        cols = [c.strip() for c in line.strip().strip("|").split("|")]
+        cols = split_cells(line)
         if len(cols) < 5:
             continue
         tid = _bare_ledger_id(cols[0])
@@ -437,67 +534,6 @@ def strip_fm_status(text):
     kept = [ln for i, ln in enumerate(fl)
             if not (1 <= i < close and re.match(r"^status:(\s|$)", ln))]
     return "\n".join(kept)
-
-
-def _yq(s):
-    s = " ".join(str(s).split())
-    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
-        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
-    return s
-
-
-def _cohort_id(suffix):
-    ap = os.path.abspath(plan_dir.rstrip("/"))
-    marker = os.sep + ".claude-plans" + os.sep
-    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
-    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
-    return "plans-" + "-".join([p for p in parts if p] + [suffix])
-
-
-def upsert_fm_cohort(text):
-    """The replica preface carries the full frontmatter cohort plans-schema
-    requires (type,title,description,created,updated,id,schema_version).
-    Healer form: adds ONLY absent keys and re-stamps a non-canonical type: to
-    'tasks'. Present values are never rewritten; status:/tags: are never added
-    (manifest owns status; tags are an authoring surface). Idempotent."""
-    fl = text.split("\n")
-    if not fl or fl[0].strip() != "---":
-        return text
-    close = None
-    for i in range(1, len(fl)):
-        if fl[i].strip() == "---":
-            close = i
-            break
-    if close is None:
-        return text
-    keys = {}
-    for i in range(1, close):
-        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", fl[i])
-        if m:
-            keys[m.group(1)] = (i, m.group(2).strip())
-    add = []
-    if "type" in keys:
-        if keys["type"][1] != "tasks":
-            fl[keys["type"][0]] = "type: tasks"
-    else:
-        add.append("type: tasks")
-    fallback_title = "%s — Tasks" % title
-    if "title" not in keys:
-        add.append("title: %s" % _yq(fallback_title))
-    if "description" not in keys:
-        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
-        add.append("description: %s" % _yq(dv))
-    if "created" not in keys:
-        add.append("created: %s" % today)
-    if "updated" not in keys:
-        add.append("updated: %s" % today)
-    if "id" not in keys:
-        add.append("id: %s" % _cohort_id("tasks"))
-    if "schema_version" not in keys:
-        add.append("schema_version: 1")
-    if add:
-        fl[close:close] = add
-    return "\n".join(fl)
 
 
 if not preface.strip():
@@ -678,6 +714,36 @@ def _region_residue(ondisk, generated):
     return residue
 
 
+def _status_drift_ids():
+    """IDs whose on-disk Status cell differs from this render's — the axis
+    step2d_tasks_md_heal repairs. [] when no sentinel region existed (nothing
+    comparable: a legacy replica is never healed into existence) or the on-disk
+    ledger header row differs from the rendered one (an older column set is
+    not row-comparable — format drift stays a flagged, unhealed finding)."""
+    if not sentinel_existed:
+        return []
+    header = "| ID | Title | Status | Depends on | Notes |"
+    if header not in sentinel_region.split("\n"):
+        return []
+    ondisk_status = {}
+    for line in sentinel_region.split("\n"):
+        if not line.strip().startswith("|"):
+            continue
+        cols = split_cells(line)
+        if len(cols) < 5:
+            continue
+        tid = _bare_ledger_id(cols[0])
+        if not _TID_RE.match(tid):
+            continue
+        ondisk_status[tid] = cols[2].strip()
+    ids = []
+    for t in tasks:
+        tid = str(t.get("id") or "")
+        if tid in ondisk_status and ondisk_status[tid] != cell(t.get("status", "")):
+            ids.append(tid)
+    return ids
+
+
 if (not tasks) or all(_is_stub_task(_t) for _t in tasks):
     _residue = _region_residue(sentinel_region, region_inner) if sentinel_existed else []
     if _residue:
@@ -723,6 +789,13 @@ if check_only:
             "remedy": "re-render via tasks-render.sh <plan-dir> (or fix manifest.tasks[] and let post-manifest-binder-refresh re-render); never hand-edit the generated region",
             "detected_at": today,
             "first_seen": today,
+            # Consumed by session-close step2d_tasks_md_heal: plan_dir is the
+            # ABSOLUTE plan dir (the heal re-renders it); status_drift_ids are
+            # the ids whose on-disk Status cell differs from the rendered one —
+            # [] when no sentinel region existed or the on-disk header row
+            # differs from the rendered one (not comparable, never healed).
+            "plan_dir": os.path.abspath(plan_dir),
+            "status_drift_ids": _status_drift_ids(),
         })
     # --drift-only is the sweep-lane shape: a corpus walk invoking this check per
     # plan must stay SILENT on the steady state (no per-plan info-event, no

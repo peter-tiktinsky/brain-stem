@@ -1,6 +1,10 @@
 #!/bin/bash
 # Background consolidation runner — performs mechanical auto-fix operations.
 # Spawned by memory-consolidation-check.sh. Runs detached.
+# Refuses (exit 3) before any write when its state file is absent or unparseable.
+# A completed run records last_result "partial" when an enqueue is refused or an orphan write fails.
+# A run that aborts mid-way stamps last_result "failed" and last_error "<check>: rc <n>" (an EXIT trap),
+# leaves sessions_since untouched so the next session retries, and appends an "## Aborted" log block.
 # Only does auto-fix checks: staleness (read-only flag), orphans, dead refs,
 # temporal hygiene, index-dedup, budget. Manual checks (overlap, status
 # verification, conflicts, supersession adjudication) stay in /librarian.
@@ -32,6 +36,27 @@ STATE_FILE="$MEMORY_DIR/.consolidation-state.json"
 LOCK_FILE="$MEMORY_DIR/.consolidation.lock"
 LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state+lock STAY in MEMORY_DIR
 INDEX_FILE="$MEMORY_DIR/MEMORY.md"
+# The cold-spill archive (the pillar's archive_target): an index overflow file, not a memory.
+ARCHIVE_FILE="$MEMORY_DIR/MEMORY-archive.md"
+
+# State-file guard: the spawner creates the state file before spawning this
+# runner, and every run ends by reading and rewriting it. Without it a run
+# would mutate the index and then abort, so refuse here, before the lock, the
+# index, the memory files or the review queue is touched. No self-heal.
+if [[ ! -f "$STATE_FILE" ]] || ! jq -e . "$STATE_FILE" >/dev/null 2>&1; then
+  if [[ -f "$STATE_FILE" ]]; then
+    _refuse_reason="state file is not parseable JSON"
+  else
+    _refuse_reason="state file is absent"
+  fi
+  printf 'memory-consolidation-run.sh: refused, %s: %s (memory-consolidation-check.sh creates it before spawning this runner)\n' \
+    "$_refuse_reason" "$STATE_FILE" >&2
+  if [[ -d "$(dirname "$LOG_FILE")" ]]; then
+    printf '\n## Refused — %s\n- Reason: %s: %s\n' \
+      "$(date +"%Y-%m-%d %H:%M")" "$_refuse_reason" "$STATE_FILE" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+  exit 3
+fi
 
 # single-instance guard via lockf (.6) — replaces the
 # hand-rolled PID-lock TOCTOU window. The outer call re-execs this script under
@@ -41,6 +66,34 @@ INDEX_FILE="$MEMORY_DIR/MEMORY.md"
 mkdir -p "$MEMORY_DIR"
 mkdir -p "$(dirname "$LOG_FILE")"
 claude_lockf_reexec "$LOCK_FILE" "$@"
+
+# Abort visibility: this runner is spawned detached (nohup, output discarded), so a
+# mid-run abort under set -e would leave no trace. The EXIT trap stamps the state and
+# the log on any non-zero exit after this point (the state-file guard's exit 3 above
+# is untouched). The stamp is read into a variable before any write, then written by
+# temp+mv, else in place (a read-only memory dir blocks the temp file); jq never
+# redirects onto its own input. sessions_since is left alone so the next session retries.
+CURRENT_CHECK="setup"
+_consolidation_on_exit() {
+  local _rc=$?
+  [[ "$_rc" -eq 0 ]] && return 0
+  trap - EXIT
+  local _st="" _stamp_note=""
+  if ! _st=$(jq --arg err "${CURRENT_CHECK}: rc ${_rc}" '.last_result = "failed" | .last_error = $err' "$STATE_FILE" 2>/dev/null); then
+    _st=""
+    _stamp_note=$'\n- State stamp: not written (state file unreadable or not valid JSON)'
+  fi
+  if [[ -n "$_st" ]]; then
+    if ! { printf '%s\n' "$_st" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"; } 2>/dev/null; then
+      rm -f "${STATE_FILE}.tmp" 2>/dev/null || true
+      printf '%s\n' "$_st" > "$STATE_FILE" 2>/dev/null || true
+    fi
+  fi
+  printf '\n## Aborted — %s\n- Check: %s\n- Exit code: %s%s\n' \
+    "$(date +"%Y-%m-%d %H:%M")" "$CURRENT_CHECK" "$_rc" "$_stamp_note" >> "$LOG_FILE" 2>/dev/null || true
+  return 0
+}
+trap _consolidation_on_exit EXIT
 
 # Single 180-day re-validation interval. Honored if exported by the
 # spawning check.sh; falls back to the canonical default otherwise.
@@ -82,7 +135,17 @@ CAP_DEGRADE_CAUSE="loader unavailable (hooks/lib/foundation-overlay-load.sh miss
 _OVERLAY_LOAD="$SCRIPT_DIR/lib/foundation-overlay-load.sh"
 _CAP_QUERY='.mandatory_files.mandates._memory_md_cap.thresholds'
 if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
-  _cap_json=$(bash "$_OVERLAY_LOAD" --force-override --query "$_CAP_QUERY" 2>/dev/null || true)
+  # The loader's stderr is kept for the DEGRADED cause; when the capture file
+  # cannot be made, it is discarded as before. Neither path aborts the run.
+  _cap_err=$(mktemp "${TMPDIR:-/tmp}/memory-consolidation-cap.XXXXXX" 2>/dev/null) || _cap_err=""
+  _cap_err_line=""
+  if [[ -n "$_cap_err" ]]; then
+    _cap_json=$(bash "$_OVERLAY_LOAD" --force-override --query "$_CAP_QUERY" 2>"$_cap_err" || true)
+    _cap_err_line=$(head -n 1 "$_cap_err" 2>/dev/null || true)
+    rm -f "$_cap_err" 2>/dev/null || true
+  else
+    _cap_json=$(bash "$_OVERLAY_LOAD" --force-override --query "$_CAP_QUERY" 2>/dev/null || true)
+  fi
   if [[ -n "$_cap_json" ]] && printf '%s' "$_cap_json" | jq empty >/dev/null 2>&1; then
     _l=$(printf '%s' "$_cap_json" | jq -r '.max_lines // empty' 2>/dev/null || true)
     _b=$(printf '%s' "$_cap_json" | jq -r '.max_bytes // empty' 2>/dev/null || true)
@@ -97,6 +160,9 @@ if [[ -r "$_OVERLAY_LOAD" ]] && command -v jq >/dev/null 2>&1; then
     fi
   else
     CAP_DEGRADE_CAUSE="loader query failed or returned empty (unreadable bundle or parse error; R-52 state cannot cause this — the read passes --force-override)"
+    if [[ -n "$_cap_err_line" ]]; then
+      CAP_DEGRADE_CAUSE="${CAP_DEGRADE_CAUSE}: ${_cap_err_line}"
+    fi
   fi
 fi
 if [[ "$CAP_SOURCE" != "bundle" ]]; then
@@ -127,6 +193,10 @@ DEAD_REFS_REMOVED=0
 TEMPORAL_FIXES=0
 BUDGET_STATUS="GREEN"
 ERRORS=""
+ENQ_ACCEPTED=0
+ENQ_REFUSED=0
+ORPHAN_WRITES_FAILED=0
+TEMPORAL_UNPARSEABLE=0
 
 # No hand-rolled lock cleanup: lockf owns the lock lifecycle (kernel-released
 # on process death). The LOCK_FILE is kept (-k) and reused across invocations.
@@ -141,6 +211,40 @@ type_to_section() {
     episodic)   echo "## Episodic" ;;
     *)          echo "" ;;
   esac
+}
+
+# Print a memory file's retrieval type: its top-level `type:`, else the `type:`
+# inside its `metadata:` block when that value is semantic|episodic|procedural.
+# The Claude Code harness's memory serializer nests every key but name and
+# description under `metadata:`; a nested value outside the triad prints nothing
+# (no mapping, no derivation). Block-aware: the block's keys sit at the width of
+# its first non-blank line, deeper lines belong to the preceding key, and the
+# block ends at the first non-blank line shallower than that width (column 0
+# included).
+# $1 file-path
+memory_type_of() {
+  awk '
+    /^---$/ { n++; if (n >= 2) exit; next }
+    n != 1 { next }
+    {
+      if (inb) {
+        if ($0 ~ /^[ \t]*$/) next
+        match($0, /^[ \t]*/); w = RLENGTH
+        if (w > 0 && ind < 0) ind = w
+        if (w == 0 || w < ind) {
+          inb = 0
+        } else {
+          if (w == ind && nested == "" && $0 ~ /^[ \t]*type:/) { v = $0; sub(/^[ \t]*type:[ \t]*/, "", v); nested = v }
+          next
+        }
+      }
+      if (top == "" && $0 ~ /^type:/) { v = $0; sub(/^type: */, "", v); top = v }
+      if ($0 ~ /^metadata:/) { inb = 1; ind = -1 }
+    }
+    END {
+      if (top != "") print top
+      else if (nested ~ /^(semantic|episodic|procedural)$/) print nested
+    }' "$1"
 }
 
 # (T-09): revalidation-enqueue producer. For each STALE (≥180d) or
@@ -186,11 +290,16 @@ enqueue_revalidation() {
       memory_ref: $memory_ref,
       enqueued_at: $enqueued_at
     }') || return 0
-  enqueue_item "$item" >/dev/null 2>&1 || true
+  if enqueue_item "$item" >/dev/null 2>&1; then
+    ENQ_ACCEPTED=$((ENQ_ACCEPTED + 1))
+  else
+    ENQ_REFUSED=$((ENQ_REFUSED + 1))
+  fi
   return 0
 }
 
 # --- Check 1: Staleness scan (read-only flag; propose-only states) ---
+CURRENT_CHECK="Check 1"
 # decay model (.4): last_validated is the SOLE decay input
 # (required per schema 2.0.0). A SINGLE 180-day interval applies to all
 # non-episodic memory; episodic NEVER decays. States:
@@ -202,10 +311,12 @@ enqueue_revalidation() {
 #. `updated` does NOT reset the clock.
 for f in "$MEMORY_DIR"/*.md; do
   [[ "$(basename "$f")" == "MEMORY.md" ]] && continue
+  # The archive carries no frontmatter and is not a memory: nothing to scan or flag.
+  [[ "$(basename "$f")" == "MEMORY-archive.md" ]] && continue
   [[ ! -f "$f" ]] && continue
   FILES_SCANNED=$((FILES_SCANNED + 1))
 
-  TYPE=$(awk '/^---$/{n++; next} n==1 && /^type:/{sub(/^type: */, ""); print; exit}' "$f")
+  TYPE=$(memory_type_of "$f")
   # Episodic never decays — skip the staleness flag entirely.
   [[ "$TYPE" == "episodic" ]] && continue
 
@@ -234,12 +345,15 @@ for f in "$MEMORY_DIR"/*.md; do
 done
 
 # --- Check 4: Orphan check (additive) ---
+CURRENT_CHECK="Check 4"
 # Memory files not referenced in MEMORY.md get an index entry under their
 # retrieval-type section, read from the `type:` frontmatter (schema enum).
 if [[ -f "$INDEX_FILE" ]]; then
   for f in "$MEMORY_DIR"/*.md; do
     BASE=$(basename "$f")
     [[ "$BASE" == "MEMORY.md" ]] && continue
+    # The cold-spill archive is never an index entry; its links count as indexed below.
+    [[ "$BASE" == "MEMORY-archive.md" ]] && continue
     # Rotated chronicle archives are never index entries. The ## Episodic
     # section is a SINGLE pointer line to the append-only episodic-chronicle.md
     # (foundation-master.json .mandatory_files.mandates._memory_md_cap
@@ -252,23 +366,26 @@ if [[ -f "$INDEX_FILE" ]]; then
     case "$BASE" in episodic-chronicle-archive-*.md) continue ;; esac
     [[ ! -f "$f" ]] && continue
 
-    if ! grep -q "$BASE" "$INDEX_FILE" 2>/dev/null; then
+    if ! grep -q "$BASE" "$INDEX_FILE" 2>/dev/null && ! { [[ -f "$ARCHIVE_FILE" ]] && grep -q "$BASE" "$ARCHIVE_FILE" 2>/dev/null; }; then
       NAME=$(awk '/^---$/{n++; next} n==1 && /^name:/{sub(/^name: */, ""); print; exit}' "$f")
       DESC=$(awk '/^---$/{n++; next} n==1 && /^description:/{sub(/^description: */, ""); print; exit}' "$f")
-      TYPE=$(awk '/^---$/{n++; next} n==1 && /^type:/{sub(/^type: */, ""); print; exit}' "$f")
+      TYPE=$(memory_type_of "$f")
 
       if [[ -n "$NAME" ]]; then
         SECTION_HEADER="$(type_to_section "$TYPE")"
         if [[ -n "$SECTION_HEADER" ]] && grep -q "^$SECTION_HEADER" "$INDEX_FILE"; then
           ENTRY="- [${BASE}](memory/${BASE}) — ${DESC}"
-          awk -v hdr="$SECTION_HEADER" -v entry="$ENTRY" '
+          if awk -v hdr="$SECTION_HEADER" -v entry="$ENTRY" '
             $0 == hdr { in_section=1; print; next }
             in_section && /^$/ { print entry; in_section=0 }
             in_section && /^## / { print entry; print ""; in_section=0 }
             { print }
             END { if (in_section) print entry }
-          ' "$INDEX_FILE" > "${INDEX_FILE}.tmp" && mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
-          ORPHANS_ADDED=$((ORPHANS_ADDED + 1))
+          ' "$INDEX_FILE" > "${INDEX_FILE}.tmp" && mv "${INDEX_FILE}.tmp" "$INDEX_FILE"; then
+            ORPHANS_ADDED=$((ORPHANS_ADDED + 1))
+          else
+            ORPHAN_WRITES_FAILED=$((ORPHAN_WRITES_FAILED + 1))
+          fi
         fi
       fi
     fi
@@ -276,6 +393,7 @@ if [[ -f "$INDEX_FILE" ]]; then
 fi
 
 # --- Check 5: Index accuracy (dead-ref removal) ---
+CURRENT_CHECK="Check 5"
 if [[ -f "$INDEX_FILE" ]]; then
   TEMP_INDEX="${INDEX_FILE}.tmp.$$"
   REMOVED=false
@@ -299,6 +417,7 @@ if [[ -f "$INDEX_FILE" ]]; then
 fi
 
 # --- Check 7: Temporal hygiene ---
+CURRENT_CHECK="Check 7"
 # Only fix the unambiguous yesterday/today/tomorrow patterns outside
 # frontmatter and quotes.
 RELATIVE_PATTERNS='(^|[^"'"'"'])\b(yesterday|today|tomorrow|last week|this week|next week|last month|this month|next month)\b([^"'"'"']|$)'
@@ -315,7 +434,7 @@ for f in "$MEMORY_DIR"/*.md; do
       ANCHOR=$(stat -f "%Sm" -t "%Y-%m-%d" "$f" 2>/dev/null || echo "$TODAY")
     fi
 
-    ANCHOR_EPOCH=$(date -jf "%Y-%m-%d" "$ANCHOR" +%s 2>/dev/null || continue)
+    ANCHOR_EPOCH=$(date -jf "%Y-%m-%d" "$ANCHOR" +%s 2>/dev/null) || { TEMPORAL_UNPARSEABLE=$((TEMPORAL_UNPARSEABLE + 1)); continue; }
     YESTERDAY=$(date -jf "%s" "$((ANCHOR_EPOCH - 86400))" +%Y-%m-%d)
     TOMORROW=$(date -jf "%s" "$((ANCHOR_EPOCH + 86400))" +%Y-%m-%d)
 
@@ -368,6 +487,7 @@ for f in "$MEMORY_DIR"/*.md; do
 done
 
 # --- Check 8: Budget monitor (defect 2: byte-first, both-raw-and-stripped) ---
+CURRENT_CHECK="Check 8"
 # Compute RAW line count, BYTE count, char-line count, and a comment-stripped
 # raw line count; gate on the LARGER ratio. The byte cap is the governing
 # trigger (.5/).
@@ -413,6 +533,7 @@ if [[ -f "$INDEX_FILE" ]]; then
 fi
 
 # --- Write consolidation log ---
+CURRENT_CHECK="log write"
 END_TIME=$(date +%s)
 DURATION_MS=$(( (END_TIME - START_TIME) * 1000 ))
 
@@ -425,9 +546,12 @@ cat >> "$LOG_FILE" <<EOF
 - Files scanned: ${FILES_SCANNED}
 - Stale files flagged (180-360d → propose revalidate): ${STALE_FLAGGED}
 - Expired files flagged (≥360d → propose revalidate|supersede|archive): ${EXPIRED_FLAGGED}
+- Revalidation enqueues: accepted ${ENQ_ACCEPTED}, refused ${ENQ_REFUSED}
 - Orphans added to index: ${ORPHANS_ADDED}
+- Orphan index writes failed: ${ORPHAN_WRITES_FAILED}
 - Dead references removed: ${DEAD_REFS_REMOVED}
 - Temporal fixes applied: ${TEMPORAL_FIXES}
+- Temporal anchors unparseable (skipped): ${TEMPORAL_UNPARSEABLE}
 - Budget status: ${BUDGET_STATUS} (raw ${LINE_COUNT}L / stripped ${STRIPPED_LINE_COUNT}L / ${BYTE_COUNT}B; caps ${CAP_LINES}L/${CAP_BYTES}B; long-lines ${LONG_LINES})
 - Duration: ${DURATION_MS}ms
 EOF
@@ -441,10 +565,23 @@ if [[ "$CAP_SOURCE" != "bundle" ]]; then
 fi
 
 # --- Update state ---
+CURRENT_CHECK="state update"
+# "partial": the run completed, but a revalidation enqueue was refused or an
+# orphan-index write failed. A cap-config fallback is reported through
+# last_cap_source and never changes last_result.
+RUN_RESULT="success"
+if [[ $((ENQ_REFUSED + ORPHAN_WRITES_FAILED)) -gt 0 ]]; then
+  RUN_RESULT="partial"
+fi
 jq \
   --arg ts "$NOW_ISO" \
   --argjson total "$TOTAL" \
-  '.last_consolidation = $ts | .sessions_since = 0 | .total_consolidations = $total | .last_result = "success" | .last_error = null' \
+  --arg result "$RUN_RESULT" \
+  --argjson accepted "$ENQ_ACCEPTED" \
+  --argjson refused "$ENQ_REFUSED" \
+  --argjson writes_failed "$ORPHAN_WRITES_FAILED" \
+  --arg cap_source "$CAP_SOURCE" \
+  '.last_consolidation = $ts | .sessions_since = 0 | .total_consolidations = $total | .last_result = $result | .last_error = null | .last_enqueue_accepted = $accepted | .last_enqueue_refused = $refused | .last_orphan_writes_failed = $writes_failed | .last_cap_source = $cap_source' \
   "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 
 exit 0

@@ -1,6 +1,6 @@
 ---
 name: session-checkpoint
-description: Write the current session state to the per-session checkpoint.md in the Session Continuity Block schema (atomic, idempotent, blocks until written). Invoked via /session-checkpoint or by context-pressure enforcement (R-26) at the warn and mandate thresholds. Use when context pressure approaches limit, before long tool chains, or when the user requests a handoff snapshot.
+description: Write the current session state to the per-session checkpoint.md in the Session Continuity Block schema (atomic, idempotent, blocks until written). Invoked via /session-checkpoint or by context-pressure enforcement (R-26). Use when context pressure approaches limit, before long tool chains, or when the user requests a handoff snapshot.
 disable-model-invocation: false
 argument-hint: "[optional: explicit blocker or context note to include]"
 ---
@@ -51,48 +51,57 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 
 ## Procedure
 
-### Step 0 — Resolve the per-session state dir
+The mechanical steps are one command, `checkpoint-gather.sh`, that ships beside this skill. You write the nine session fields; the command resolves the per-session directory, reads the context pressure, writes the block header and the `## Action Required` tail, validates the fields, writes the file atomically and verifies the result. It sources `paths.sh` itself, the same single source of truth the hooks use, so the dir it writes is the **exact** dir the readers (`stop-checkpoint-check.sh`, `pre-compact-checkpoint.sh`, `session-register.sh`) and the writer (`prompt-context.sh`) resolve. Each Bash tool call is a fresh shell, so run the command in one call.
 
-`$CLAUDE_STATE_ROOT` is **not** present in a bare shell — it is resolved by `paths.sh`, the same single source of truth the hooks use. Source it first so the skill writes to the **exact** dir the readers (`stop-checkpoint-check.sh`, `pre-compact-checkpoint.sh`, `session-register.sh`) and the writer (`prompt-context.sh`) resolve — the writer/reader convergence. Each Bash tool call is a fresh shell, so re-source `paths.sh` in **every** Bash block below.
-
-The session id resolves env-then-env as `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}` (the harness exports `$CLAUDE_CODE_SESSION_ID` into Bash-tool subshells; `$CLAUDE_SESSION_ID` is the test-injection seam). If **both** are empty, do **NOT** write — an empty `<sid>` collapses `sessions/<sid>/` to `sessions/` and overwrites a single shared file (the cross-session-corruption class). When the R-26 mandate/deny message names the exact `sessions/<sid>/checkpoint.md` path, take that path verbatim and write there.
+What the command resolves, for reference (it is not a step to run):
 
 ```bash
-source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-# Resolve this session's id. $CLAUDE_SESSION_ID is the test-injection seam;
-# $CLAUDE_CODE_SESSION_ID is the value the harness exports into Bash-tool subshells.
-# Refuse to write a bare-path checkpoint: an empty <sid> collapses sessions/<sid>/
-# to sessions/ and corrupts a shared file. If neither resolves, STOP and take the
-# exact per-session path from the R-26 mandate/deny message instead.
-SID="${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
-if [ -z "$SID" ]; then
-  echo "session-checkpoint: session id unresolved — refusing to write a bare-path checkpoint. Use the exact sessions/<sid>/checkpoint.md path from the R-26 mandate/deny message." >&2
-  exit 1
-fi
 CKPT_DIR="$CLAUDE_STATE_ROOT/sessions/$SID"   # binding root: / 
 ```
 
-### Step 1 — Gather context pressure
+The session id resolves env-then-env as `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}` (the harness exports `$CLAUDE_CODE_SESSION_ID` into Bash-tool subshells; `$CLAUDE_SESSION_ID` is the test-injection seam). If **both** are empty the command refuses rather than write: an empty `<sid>` collapses `sessions/<sid>/` to `sessions/` and overwrites a single shared file (the cross-session-corruption class). When the Stop-gate message names the exact `sessions/<sid>/checkpoint.md` path, pass that path verbatim as `--path` after the script name; the command then does not consult the session id.
+
+### Step 1 — Gather the fields
+
+Use the conversation history as your primary source. Check TaskList if you've been tracking work. If you know the active plan, read its spec briefly for phase/AC if needed. **Do not spawn research agents** — this skill must complete in under ~15 seconds. You write nine of the ten fields; the command supplies `context_pct_at_checkpoint` from the per-session pressure file (`[MISSING]` when the file is absent or holds no integer).
+
+### Step 2 — Run the command
+
+Run it once, with the nine fields as the heredoc body. The quoted delimiter keeps `$` and backticks in the fields literal. The body is the Template below minus its four header lines and its `## Action Required` tail, in the same shape. Cold-start-readable — a fresh Claude session must be able to resume from this file alone.
 
 ```bash
-source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
-SID="${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
-jq -r '.pct // "[MISSING]"' "$CLAUDE_STATE_ROOT/sessions/$SID/context-pressure.json" 2>/dev/null || echo "[MISSING]"
+bash "${CLAUDE_HOME:-$HOME/.claude}/skills/session-checkpoint/checkpoint-gather.sh" <<'EOF'
+plan_id: <value or [MISSING]>
+phase: <value or [MISSING]>
+task_id: <value or [MISSING]>
+
+## completed_steps
+- <item>
+- <item>
+
+## files_modified
+- <absolute path>
+- <absolute path>
+
+## key_decisions
+- <decision + one-line rationale>
+
+## next_steps
+- <ordered action>
+- <ordered action>
+
+## ac_status
+- [x] <done item>
+- [ ] <pending item>
+
+## current_blocker
+<blocker description or empty>
+EOF
 ```
 
-`$CLAUDE_STATE_ROOT` and the resolved `$SID` (`${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`) are the same values used for the `checkpoint.md` per-session path. The pressure file uses per-session paths (); the legacy bare path was retired the same day.
+The command refuses — exit status 2, a line starting `checkpoint-gather: refused:` on stderr, nothing written — when a field is missing, appears twice or is empty (write `[MISSING]` or `[]`, never a blank), when the session id cannot be resolved, when `--path` is malformed, when a field text carries a line the command writes itself (the header lines or `## Action Required`), or when nothing arrives on stdin. Read the refusal line, fix what it names and run the command again. Exit status 1 with a line starting `checkpoint-gather: write failed:` or `checkpoint-gather: verify failed:` means the file did not land: surface the error to the user immediately.
 
-### Step 2 — Gather the 10 fields
-
-Use the conversation history as your primary source. Check TaskList if you've been tracking work. If you know the active plan, read its spec briefly for phase/AC if needed. **Do not spawn research agents** — this skill must complete in under ~15 seconds.
-
-### Step 3 — Write atomically
-
-Write to a temp file first, then `mv` into place. Use the exact template below. Cold-start-readable — a fresh Claude session must be able to resume from this file alone.
-
-### Step 4 — Verify
-
-Confirm the per-session `checkpoint.md` (at `$CLAUDE_STATE_ROOT/sessions/$SID/checkpoint.md`, the resolved session id) exists, is non-empty, and mtime is fresh (within 5 seconds of now). Report checkpoint write completion and the `context_pct_at_checkpoint` value to the user in one line.
+On success the command prints exactly one line, `checkpoint-gather: wrote <path> (context_pct_at_checkpoint: <pct>)`, after confirming the file exists, is non-empty and has an mtime within 5 seconds of now. Report that line to the user in one line.
 
 ---
 
@@ -136,13 +145,13 @@ task_id: <value or [MISSING]>
 - Verify next_steps still valid against current plan state
 ```
 
-The flat scalar lines `plan_id:` / `phase:` / `task_id:` (each `^[a-z_]+: .+$`) are a **binding invariant** — the header plus ≥3 of these lines is what marks a checkpoint *rich*, and a rich checkpoint is preserved at **any age**. Two hooks write this same file besides you: `pre-compact-checkpoint.sh` (mechanical extraction) and `prompt-context.sh` (the passive 35% context-pressure capture). Both count these lines through one shared helper, `hooks/lib/checkpoint-guard.sh`, and neither will overwrite a checkpoint that carries them. Keep them flat scalar lines — they are what protects your output.
+The flat scalar lines `plan_id:` / `phase:` / `task_id:` (each `^[a-z_]+: .+$`) are a **binding invariant** — the header plus ≥3 of these lines is what marks a checkpoint *rich*, and a rich checkpoint is preserved at **any age**. Two hooks write this same file besides you: `pre-compact-checkpoint.sh` (mechanical extraction) and `prompt-context.sh` (the passive 35% context-pressure capture). Both count these lines through one shared helper, `hooks/lib/checkpoint-guard.sh`, and neither overwrites a model-authored block that carries them. Provenance is the one exception: a block carrying the mechanical provenance line `**Source:** PreCompact hook — mechanical extraction` is a refreshable snapshot and is never rich, so the next compaction rotates it and extracts afresh instead of re-injecting a stale snapshot. Keep them flat scalar lines — they are what protects your output.
 
 ---
 
 ## Checkpoint file contract
 
-`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written by the shared guarded-write helper `hooks/lib/checkpoint-guard.sh` on behalf of BOTH hook writers — `pre-compact-checkpoint.sh` and `prompt-context.sh` — which archive the prior bare `checkpoint.md` to a dated variant before any overwrite they are allowed to make (never over a rich checkpoint: that one is preserved outright rather than rotated). That's legitimate rotation history and should not be disturbed. The legacy bare path under the install root was retired (cross-session-pollution incident class closure).
+`$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` is the single canonical "current session state" pointer PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). **Do not create dated variants from this skill.** Dated files (`sessions/<sid>/checkpoint-YYYYMMDD-HHMMSS.md`) are written by the shared guarded-write helper `hooks/lib/checkpoint-guard.sh` on behalf of BOTH hook writers — `pre-compact-checkpoint.sh` and `prompt-context.sh` — which archive the prior bare `checkpoint.md` to a dated variant before any overwrite they are allowed to make (never over a rich checkpoint: that one is preserved outright rather than rotated). Rich means model-authored: a block this skill writes wins at any age, while a block carrying the provenance line `**Source:** PreCompact hook — mechanical extraction` is a snapshot the next compaction refreshes. That's legitimate rotation history and should not be disturbed. The legacy bare path under the install root was retired to close the cross-session-pollution incident class.
 
 Your scope is strictly the per-session `checkpoint.md`. Overwrite it. Never append. Never write to dated filenames.
 
@@ -157,11 +166,10 @@ This skill writes to `$CLAUDE_STATE_ROOT`-resolved per-session paths (not hardco
 ## Invocation contexts
 
 1. **User-invoked `/session-checkpoint`** — produce the checkpoint and report briefly. Accept an optional argument that should be appended under `current_blocker` or `key_decisions` based on content.
-2. **UserPromptSubmit warn mandate** — you'll see a `CONTEXT PRESSURE` warn additionalContext (default 45%). Checkpoint at the next natural task boundary, before starting new multi-step work.
-3. **UserPromptSubmit mandate** — you'll see `CONTEXT PRESSURE … IMMEDIATE ACTION REQUIRED` (default 48%). Checkpoint *before* responding to anything else. No other tool calls until checkpoint is written.
-4. **Stop hook block (48-80% stale)** — Stop returns exit 2 with instruction to refresh checkpoint. Run this skill, then retry stop.
+2. **After the R-26 context-pressure banner** — the user sees a `CONTEXT PRESSURE <pct>%` banner (the hook's `systemMessage`, once per band entry: warn default 45%, mandate default 48%). It recommends this skill, then `/compact`, or a fresh session. It is a recommendation to the user, not a mandate to you: run the skill when the user asks for it.
+3. **Stop hook block (48-80%)** — Stop returns exit 2 when the checkpoint is missing, or is a header-less stub or panic fallback older than 10 minutes; a Session Continuity Block satisfies the band at any age. Run this skill, then retry stop.
 
-The warn/mandate nudge thresholds are manifest-overridable via `user-manifest.json :: hooks.context_pressure.{warn,mandate}_pct` (defaults 45/48). The stop-gate's 48/80/90 boundaries are fixed constants in `stop-checkpoint-check.sh` by design and are NOT settings-driven (`hard_pct` is schema-parity vocabulary only —).
+The warn/mandate banner thresholds are manifest-overridable via `user-manifest.json :: hooks.context_pressure.{warn,mandate}_pct` (defaults 45/48) and are percentages of the harness auto-compact window, not the model window. The stop-gate's 48/80/90 boundaries are fixed constants in `stop-checkpoint-check.sh` on the raw `.pct` by design and are NOT settings-driven (`hard_pct` is schema-parity vocabulary only —).
 
 ---
 

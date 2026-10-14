@@ -114,6 +114,8 @@ All mechanical work — validation, next-prefix computation, template render, bo
    FOUNDATION_REPO={foundation_repo} bash {foundation_repo}/skills/new-plan/lib/promote-from-inbox.sh <inbox-slug> [--title "..."]
    ```
    On success it emits an `idea-graduated` NDJSON finding (`plan_slug`, `plan_dir`, `tombstoned: true`) and removes the inbox note. On any failure it emits `promote-aborted`, rolls back the partial scaffold, and leaves the inbox note intact — never partial state.
+
+   When the new plan also takes in other inbox notes, graduate them together (N:1): `promote-from-inbox.sh <lead-slug> --absorb <slug> [--absorb <slug> ...]`. The manifest lists each note in `absorbed_notes[]`, and each note is stamped `disposition: ABSORB` with `absorbed_into:` the new plan dir, in the same all-or-nothing run. The absorbed notes stay in `_inbox/` and settle when the plan reaches a terminal status. A note that already carries a target, a resolution or another disposition refuses the whole run.
 3. **Report.** Surface the new plan slug + directory. The new `00-ideation-brief.md` carries the migrated idea verbatim under `## Original Idea`; the remaining brief sections + `spec.md`/`tasks.md` are scaffold stubs — a build or a full research pass fills them. On the next `librarian:backlog-index` regen the unified `_backlog.md` shows the graduated item as a plan row instead of an `_inbox` idea row.
 
 Do NOT run the research flow (Steps 1–9 below) in promote mode — graduation carries the idea forward as-is; research happens afterward against the scaffolded plan.
@@ -201,12 +203,10 @@ Skip this step entirely if the recommendation is DEFER, MERGE-into-another, or K
 ### 9. Update the plan manifest + delegate regeneration
 
 In `{paths.plans_root}/<NN>-<slug>/manifest.json`:
-1. Update `status`: `researching` → `planned` (a 6-state `lifecycle.status_enum` value).
-2. Set/refresh `disposition` (one of `FIX NOW / ABSORB / STANDALONE / DEFERRED`) to reflect the recommendation.
-3. Update `updated` to today and record the recommendation in the manifest's notes/summary field.
-4. Validate the edited manifest against `schemas/plan-manifest-schema.json` before write (block-and-log on failure).
+1. Run the setter, which moves `status` from `researching` to `planned`, sets `disposition` (one of `FIX NOW / ABSORB / STANDALONE / NO-BUILD`) to reflect the recommendation and refreshes `updated`, all in one atomic write: `${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh plan set <manifest> status=planned disposition=<disposition>`. It checks the status against the `lifecycle.transitions` edges and the disposition against the schema enum, and refuses a bad value with the manifest unchanged.
+2. Then record the recommendation in the manifest's notes/summary field.
 
-Do NOT write `{paths.plans_root}/_backlog.md` — it is librarian-owned. After the manifest mutation, recommend `/librarian backlog-index` (or wait for the weekly Monday librarian-cron run) so the unified table re-renders the row with its new status. If the input was a `triaged` inbox idea, graduation in Step 1 already removed the `_inbox/<slug>.md` note, so the next regen shows the item as a plan row — no orphaned inbox note remains.
+Do NOT write `{paths.plans_root}/_backlog.md` — it is librarian-owned. After the manifest mutation, recommend `/librarian backlog-index` so the unified table re-renders the row with its new status. If the input was a `triaged` inbox idea, graduation in Step 1 already removed the `_inbox/<slug>.md` note, so the next regen shows the item as a plan row — no orphaned inbox note remains.
 
 ### 10. Report
 

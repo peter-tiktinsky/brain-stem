@@ -17,19 +17,17 @@
 # under no registered anchor is the `home` catch-all, which reads the plan corpus
 # unfiltered — a single-spoke install sees no behaviour change.
 #
-# Behavior: master/sub plans are first-class (the master-spec payload is
-# load-bearing); the canonical status vocabulary gates firing; agent-reload
-# loads non-superseded decision_records[].
+# Behavior: master/sub plans are first-class; the canonical status vocabulary gates
+# firing; agent-reload names the non-superseded decision_records[].
 #
 # Trigger: keys on the canonical `status == in-progress` (re-points off the
 # retired top_level_status). The hook fires for in-progress plans the foundation ships;
 # completed/superseded/etc. plans are skipped.
 #
-# 3-way payload dispatch:
-#   flat  -> own spec head + manifest AC + non-superseded decision_records[]
-#   sub   -> own spec head + AC + master spec head + master sub_plans[] sibling-status
-#            + master dependencies + non-superseded decision_records[]
-#   master-> own spec head + sub_plans[] rollup + non-superseded decision_records[]
+# Pointer payload (every plan type): the banner, the spec path, the current task id and
+# title, the non-superseded ADR ids and titles, the master id for a sub-plan, and the
+# `plan-context <slug>` command that prints any slice (task, section, canonical research,
+# decisions, handoff). No spec or manifest body is inlined.
 #
 # Sentinel keyed (session x plan x source) so a compaction re-fires (a fresh
 # source:compact gets a distinct sentinel from the original source:startup).
@@ -84,6 +82,23 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || printf '')
 
 [[ -z "$SESSION_ID" ]] && exit 0
+
+# A compaction drops the context the spec-inflection pointer supplied, so SessionStart
+# source=compact clears this session's inflection sentinels (written by
+# hooks/pre-write-guard.sh under $HOOKS_STATE/spec-inflection/) and the next plan write
+# carries the pointer again. Any other source clears nothing. Runs before every exit
+# below, so it holds whether or not a plan resolves.
+if [[ "$SOURCE" == "compact" && -z "$PROMPT" ]]; then
+  _infl_state="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-}}"
+  if [[ -n "$_infl_state" && -d "$_infl_state/spec-inflection" ]]; then
+    _infl_key="$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9_-' '_')--"
+    for _infl_f in "$_infl_state/spec-inflection/$_infl_key"*.flag; do
+      [[ -f "$_infl_f" ]] && rm -f "$_infl_f" 2>/dev/null || true
+    done
+  fi
+  unset _infl_state _infl_key _infl_f
+fi
+
 [[ ! -d "$PLANS_DIR" ]] && exit 0
 
 # Resolve the event when absent (defensive): a prompt present => UserPromptSubmit.
@@ -305,88 +320,59 @@ SENTINEL_KEY="${SESSION_ID:0:8}-$(printf '%s' "$PLAN_REL" | tr '/.' '__')-${SOUR
 SENTINEL="$STATE_DIR/$SENTINEL_KEY.flag"
 [[ -f "$SENTINEL" ]] && exit 0
 
-# Context build — FACTUAL framing.
-emit_decision_records() {
-  # (T-12): on plan resume, load NON-superseded ADRs via the manifest pointer
-  # manifest.decision_records[] (refinement #4). Filters out status
-  # superseded/deprecated entries. Graceful no-op when absent/empty.
-  local mf="$1" recs
-  [[ -f "$mf" ]] || return
-  recs=$(jq -r '
+# Context build — FACTUAL framing, pointers only. No spec body, manifest projection or
+# master spec is inlined: `plan-context` prints any slice on demand, so the payload stays
+# a few hundred bytes whatever the size of the spec.
+# The current task: the first tasks[] entry whose status front token is not done or cut
+# (the predicate the pre-write-guard spec inflection arm uses).
+CUR_TASK=""
+if [[ -f "$TARGET_MANIFEST" ]]; then
+  CUR_TASK=$(jq -r '[.tasks[]? | select(((.status // "") | tostring | split(" (")[0] | ascii_downcase | gsub("_"; "-")) as $s | ($s != "done" and $s != "cut"))][0] | if . then "\(.id // "")\t\(.title // "")" else "" end' "$TARGET_MANIFEST" 2>/dev/null || true)
+fi
+CUR_TID="${CUR_TASK%%$'\t'*}"
+CUR_TTITLE="${CUR_TASK#*$'\t'}"
+
+# Non-superseded ADRs (id and title) via manifest.decision_records[]; superseded and
+# deprecated entries are left out. Graceful no-op when absent or empty.
+ADR_LINES=""
+if [[ -f "$TARGET_MANIFEST" ]]; then
+  ADR_LINES=$(jq -r '
     (.decision_records // [])
     | map(select((.status // "") != "superseded" and (.status // "") != "deprecated"))
-    | .[]? | "- \(.id): \(.title) [\(.status // "?")] -> \(.path // "?")"
-  ' "$mf" 2>/dev/null || true)
-  if [[ -n "$recs" ]]; then
-    context+="
-### Active decision records (non-superseded ADRs, via \`manifest.decision_records[]\`)
-
-$recs
-"
-  fi
-}
+    | .[]? | "- \(.id): \(.title)"
+  ' "$TARGET_MANIFEST" 2>/dev/null || true)
+fi
 
 context="## SPEC AUTHORITY — active plan: \`$PLAN_REL\` ($PLAN_TYPE)
 
 The authoritative spec for the active plan is \`$PLAN_REL/spec.md\`. The spec ranks above any operational brief; if a brief and the spec disagree, the spec is authoritative and the brief is treated as defective. Framing claims should be grounded in spec text (cite line numbers in close-out summaries).
-
-### \`$PLAN_SLUG/spec.md\` — first 80 lines
 "
-context+='```'$'\n'
-context+="$(head -80 "$TARGET_ABS/spec.md" 2>/dev/null || echo '(unreadable)')"
-context+=$'\n''```'$'\n'
-
-# own manifest: status, deps, AC
-if [[ -f "$TARGET_MANIFEST" ]]; then
+if [[ "$PLAN_TYPE" == "sub" && -n "$MASTER_SLUG" ]]; then
   context+="
-### \`$PLAN_SLUG/manifest.json\` — status, deps, AC
-"
-  context+='```json'$'\n'
-  context+="$(jq '{status, type, schema_version, parent_plan, sub_plan_id, dependencies, tasks: ([.tasks[]? | {id, title, status, depends_on, acceptance_criteria}] // [])}' "$TARGET_MANIFEST" 2>/dev/null | head -120 || echo '{}')"
-  context+=$'\n''```'$'\n'
+Master plan: \`$MASTER_SLUG\` (this plan is one of its sub-plans)."
 fi
+if [[ -n "$CUR_TID" ]]; then
+  context+="
+Current task: $CUR_TID — $CUR_TTITLE"
+else
+  context+="
+Current task: none open in \`manifest.json\`."
+fi
+if [[ -n "$ADR_LINES" ]]; then
+  context+="
 
-# agent-reload: own decision_records[]
-emit_decision_records "$TARGET_MANIFEST"
+Active decision records (non-superseded):
+$ADR_LINES"
+fi
+if [[ -n "$CUR_TID" ]]; then
+  context+="
 
-# 3-way payload dispatch additions
-case "$PLAN_TYPE" in
-  sub)
-    # sub -> + master spec head + master sub_plans[] sibling-status + master dependencies.
-    # The master sub_plans[] is's read-replica (subplan-aggregate.sh output),
-    # read directly from the master manifest (reverse-read edge).
-    if [[ -n "$MASTER_ABS" && -f "$MASTER_ABS/spec.md" ]]; then
-      context+="
-### \`$MASTER_SLUG/spec.md\` (master) — first 50 lines
-"
-      context+='```'$'\n'
-      context+="$(head -50 "$MASTER_ABS/spec.md" 2>/dev/null)"
-      context+=$'\n''```'$'\n'
-    fi
-    if [[ -n "$MASTER_ABS" && -f "$MASTER_ABS/manifest.json" ]]; then
-      context+="
-### \`$MASTER_SLUG/manifest.json\` — sibling status (\`sub_plans[]\`) + cross-plan \`dependencies\`
-"
-      context+='```json'$'\n'
-      context+="$(jq '{sub_plans: (.sub_plans // []), dependencies: (.dependencies // {})}' "$MASTER_ABS/manifest.json" 2>/dev/null | head -80 || echo '{}')"
-      context+=$'\n''```'$'\n'
-    fi
-    ;;
-  master)
-    # master -> + sub_plans[] rollup (own read-replica)
-    if [[ -f "$TARGET_MANIFEST" ]]; then
-      context+="
-### \`$PLAN_SLUG/manifest.json\` — sub-plan status rollup (\`sub_plans[]\`)
-"
-      context+='```json'$'\n'
-      context+="$(jq '{sub_plans: (.sub_plans // [])}' "$TARGET_MANIFEST" 2>/dev/null | head -80 || echo '{}')"
-      context+=$'\n''```'$'\n'
-    fi
-    ;;
-esac
+\`plan-context $PLAN_SLUG --task $CUR_TID\` prints the current task's slice. \`plan-context $PLAN_SLUG\` prints the plan map; its --section, --canon, --decisions and --handoff selectors print one slice each."
+else
+  context+="
 
-context+="
-The full \`spec.md\` (and \`00-ideation-brief.md\` if present) is the source of truth for scope, sequencing, and dependency questions."
+\`plan-context $PLAN_SLUG\` prints the plan map; its --task, --section, --canon, --decisions and --handoff selectors print one slice each."
+fi
 
 # Size-cap below the hook-output validator bound (mechanism research-validated).
 ctx_bytes=$(printf '%s' "$context" | wc -c | tr -d ' ')

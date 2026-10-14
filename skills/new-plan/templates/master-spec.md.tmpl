@@ -15,7 +15,7 @@ schema_version: 1
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
 Goal / Problem Statement / Constraints; mutable tail: Solution Approach / Files Modified /
-Success Metrics / Risk). Cap ~500 lines.
+Success Metrics / Risk). Line cap: spec.md.json size_limits.
 MASTER spec: this is the orchestrator-worker ROOT for a multi-sub-plan initiative ().
 It frames the initiative-wide Goal / Problem / Constraints; each sub-plan carries its OWN
 spec (sub-spec.md.tmpl) and reports status UPWARD into this master's manifest sub_plans[]
@@ -49,7 +49,9 @@ The master coordinates these sub-plans (status aggregated into `manifest.json ::
 
 ## Solution Approach
 
-{{SOLUTION — 3-8 sentences. High-level cross-sub-plan strategy. Not a task list — sub-plan tasks live in each sub's tasks.md / manifest.tasks[]. Post-Session-1 amendment blocks land here.}}
+{{SOLUTION — 3-8 sentences. High-level cross-sub-plan strategy. Not a task list — sub-plan tasks live in each sub's tasks.md / manifest.tasks[].}}
+
+{{Amendments: a spec-changing ruling runs `plan-rule --spec-change`, which mints decisions/ADR-NN-<slug>.md and adds one pointer line under `## Amendment register`.}}
 
 ### Key Design Decisions
 

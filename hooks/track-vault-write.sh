@@ -87,8 +87,19 @@ fi
 
 ensure_coord_dir 2>/dev/null || true
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
-  lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-track "$SESSION_ID" "$FILE_PATH" >/dev/null 2>&1 \
-    || track_path "$SESSION_ID" "$FILE_PATH"
+  # A lockf timeout (rc 75) defers the row — ONE skip line, never
+  # an unlocked write (an unlocked RMW taken exactly under contention is what
+  # the lock exists to prevent). Non-75 keeps today's silent swallow (T-3a:
+  # only contention may name itself). The skipped touched-files upsert
+  # self-heals at the next Edit/Write fire.
+  _tvw_rc=0
+  lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-track "$SESSION_ID" "$FILE_PATH" >/dev/null 2>&1 || _tvw_rc=$?
+  if [ "$_tvw_rc" -eq 75 ]; then
+    _tvw_dir="${LOG_DIR:-}"
+    if [ -z "$_tvw_dir" ] || [ ! -d "$_tvw_dir" ]; then _tvw_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
+    echo "$(date -Iseconds) track-vault-write.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; next fire retries)" \
+      >> "$_tvw_dir/track-vault-write-skip.log" 2>/dev/null || true
+  fi
 else
   track_path "$SESSION_ID" "$FILE_PATH"
 fi

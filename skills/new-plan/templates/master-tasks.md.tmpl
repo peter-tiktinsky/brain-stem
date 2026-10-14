@@ -22,7 +22,8 @@ SHAPE CONTRACT — governance/file-type-contracts/tasks.md.json.
 MASTER tasks.md: a master AGGREGATES sub-plan STATUS, not sub-plan TASKS (realign-2
 ). A master carries NO renderer-owned tasks region — librarian:tasks-render DETECTS a
 master (type:master / sub_plans) and SKIPS it, so the sub-plan status rollup below is plain
-HAND-OWNED markdown: maintain it by hand. There is no tasks:start/end sentinel pair on a master
+markdown that new-plan.sh --rollup <master-NN-slug> writes: one row per sub-plan, pulled from
+the master manifest's sub_plans[]. There is no tasks:start/end sentinel pair on a master
 (the never-hand-edit-inside-the-sentinels contract binds a per-plan tasks.md, NOT a master).
 The master manifest.tasks[] MAY be empty; real per-task breakdown lives in each sub-plan's
 tasks.md / manifest.tasks[]. R-37 LOCKSTEP: if the master needs coordinating tasks, keep this

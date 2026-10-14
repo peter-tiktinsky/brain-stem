@@ -25,9 +25,25 @@
 # research-class rows only. The promotion-edge detector below still sweeps every
 # declared artifact regardless of kind.
 #
-# row schema: path / type / status (active|finalized|deferred) /
+# row schema: path / type / status (active|finalized|superseded) /
 # plan-origin / one-liner, PLUS a Library column populated from the entry's
-# library_refs[].
+# library_refs[]. A deferred entry renders no row; the plan's count line takes it.
+#
+# FOUR-BLOCK ORDER (per plan, one table, then the count line):
+#   1. the canonical rows: a declared entry whose path starts with `_research/` and
+#      whose status is neither `superseded` nor `deferred`;
+#   2. the superseded rows, each forward-linked in its Status cell to the row of its
+#      `superseded_by` entry (`superseded → [RA-NN](<link>)`), mirroring
+#      plan-decision-log.sh's forward-link rule for superseded records; a target the
+#      plan does not declare renders as plain text;
+#   3. the remaining declared, non-deferred, research-class rows whose home is outside
+#      `_research/` (the RULED VIEWER CONTRACT below keeps every declared home
+#      resolving a row);
+#   4. one count line: the `.md` files in the plan's declare discovery set (the
+#      plan-research-declare walk over _research/, decisions/, target-state/,
+#      deliverables/) that have no row shown: deferred entries, decision-class entries
+#      and undeclared files.
+# A plan with no row to show contributes no table.
 #
 # row-content selectivity (02:179, "Copy only non-inferable finalized
 # findings (> distilled); otherwise emit a pointer"): a row copies a finalized
@@ -53,7 +69,10 @@
 # exists, every SYMLINK entry inside it is unlinked (the LINK only — never
 # through a target) and the dir is removed once empty. A NON-symlink entry is a
 # stray placed in a binder interior: detect + report, never delete, and the dir
-# is left in place until the stray is re-homed.
+# is left in place until the stray is re-homed. A leftover farm is pruned from
+# every spoke binder on any regen: the prune runs once, after the render loop,
+# over every _projects/*/research, whatever --spoke names, and a render failure
+# on the target spoke does not skip it.
 #
 # RULED VIEWER CONTRACT (operator-ruled):
 #   - Vault-viewer (Obsidian) navigation is carried by the research-index rows'
@@ -71,10 +90,11 @@
 #     - {PLANS_ROOT}/_projects/<spoke>/research-index.md   (atomic temp+os.replace;
 #         full-file regenerate — this is a generated roll-up surface, no
 #         survivorship region).
-#     - TRANSITIONAL REMOVAL: {PLANS_ROOT}/_projects/<spoke>/research/ — a
-#         leftover retired farm dir is pruned on regen (symlink entries unlinked —
-#         the link only, never the target; dir removed when empty; a non-symlink
-#         stray blocks the rmdir and is reported, never deleted).
+#     - TRANSITIONAL REMOVAL: {PLANS_ROOT}/_projects/*/research/ — a leftover
+#         retired farm dir is pruned from every spoke binder on any regen (symlink
+#         entries unlinked — the link only, never the target; dir removed when
+#         empty; a non-symlink stray blocks the rmdir and is reported, never
+#         deleted).
 #     - librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT).
 #   Schema: null (no JSON Schema governs the generated binder roll-up markdown;
 #     research-index.md is a generated human-readable projection — the row shape is
@@ -87,8 +107,8 @@
 #     - each manifest is read defensively; a malformed/missing field is treated as
 #       empty, never an error; a plan with zero matching research_artifacts[]
 #       contributes no rows (and an empty spoke renders a valid empty binder).
-#     - atomic temp-file + os.replace; the transitional farm prune runs only
-#       after the index renders.
+#     - atomic temp-file + os.replace; the transitional farm prune runs once,
+#       after the render loop; a render failure does not skip it.
 #   Failure mode: BLOCK-AND-LOG. A manifest that cannot be parsed emits a finding
 #     and is skipped; no partial/garbage write. Never write-and-hope.
 #   Maintainer-provenance: research-index.md is a
@@ -100,6 +120,8 @@
 # CLI:
 #   plan-research-index.sh                 # regenerate every spoke's binder
 #   plan-research-index.sh --spoke <key>   # regenerate one spoke's binder only
+#                                          #   (the leftover-farm prune still
+#                                          #   reaches every spoke)
 #   plan-research-index.sh --dry-run       # findings + would-be writes, NO write
 #   plan-research-index.sh --help
 #
@@ -200,7 +222,7 @@ def walk_manifests(root):
             emit({"finding": "plan-research-index-blocked", "file": mp,
                   "reason": "manifest-parse-failed", "detected_at": today})
             continue
-        # /(): keep only real plans. A real plan has a `status` field
+        # Real-plan shape predicate: keep only real plans. A real plan has a `status` field
         # OR a sibling spec.md; a corpus/synthetic fixture has neither. The single
         # accept clause subsumes the corpus_version/slots reject (those fixtures also
         # lack status+spec.md); if a future corpus_version dir ever declares status,
@@ -218,6 +240,11 @@ def slug_of(plan_dir):
     return os.path.basename(plan_dir.rstrip("/"))
 
 
+# originating_plan names its plan by plans-root-relative path (<master>/<sub> for a sub-plan); the bare basename is still accepted.
+def qual_of(plan_dir):
+    return os.path.relpath(plan_dir.rstrip("/"), plans_root)
+
+
 def field(man, key, default=""):
     v = man.get(key)
     if v is None:
@@ -231,6 +258,7 @@ def field(man, key, default=""):
 manifest_refs = {}
 for plan_dir, man in manifests:
     slug = slug_of(plan_dir)
+    qual = qual_of(plan_dir)
     ras = man.get("research_artifacts")
     if not isinstance(ras, list):
         continue
@@ -238,7 +266,7 @@ for plan_dir, man in manifests:
         if not isinstance(ra, dict):
             continue
         for lr in (ra.get("library_refs") or []):
-            manifest_refs.setdefault(str(lr).strip(), set()).add(slug)
+            manifest_refs.setdefault(str(lr).strip(), set()).update((slug, qual))
 
 
 # library side: article -> originating_plan back-stamp (read from the library
@@ -339,6 +367,7 @@ def lineage_of(man, slug):
 
 
 spokes = {}             # spoke -> { lineage -> [rows] }
+plan_ra_paths = {}      # plan-slug -> { RA id -> declared path } (superseded forward links)
 
 for plan_dir, man in manifests:
     spoke = str(field(man, "project") or "").strip()
@@ -364,10 +393,14 @@ for plan_dir, man in manifests:
         one_liner = str(field(ra, "title") or "").strip()
         lib_refs = [str(x).strip() for x in (ra.get("library_refs") or []) if str(x).strip()]
         inline = distilled_inline(ra, one_liner)
+        ra_id = str(field(ra, "id") or "").strip()
+        if ra_id and path:
+            plan_ra_paths.setdefault(slug, {})[ra_id] = path
         row = {
             "plan_slug": slug, "path": path, "type": rtype, "status": status,
             "one_liner": one_liner, "library_refs": lib_refs, "inline": inline,
-            "plan_dir": plan_dir,
+            "plan_dir": plan_dir, "ra_id": ra_id,
+            "superseded_by": str(field(ra, "superseded_by") or "").strip(),
         }
         # PARTITION: decision-class rows are the decision log's projection —
         # never emitted here. The detector below still runs for them.
@@ -384,7 +417,7 @@ for plan_dir, man in manifests:
                       "plan": slug, "library_ref": lr,
                       "detector_role": "promotion-edge-crash-window",
                       "detected_at": today})
-            elif back and back != slug:
+            elif back and back not in (slug, qual_of(plan_dir)):
                 emit({"finding": "research-index-one-sided-edge", "file": ref,
                       "issue": "article-backstamp-disagrees-with-manifest",
                       "plan": slug, "library_ref": lr, "article_originating_plan": back,
@@ -443,6 +476,20 @@ def resolve_pcell(path, plan, plan_dir, binder_home):
     return path
 
 
+def status_cell(row, binder_home):
+    # Block 2 forward link: a superseded row points at the row of its superseded_by
+    # entry in the same plan (RA ids are per plan); an undeclared target stays text.
+    status = row["status"] or "—"
+    if status.lower() != "superseded" or not row["superseded_by"]:
+        return status
+    sb = row["superseded_by"]
+    target = plan_ra_paths.get(row["plan_slug"], {}).get(sb)
+    if target and row.get("plan_dir"):
+        dest = os.path.normpath(os.path.join(row["plan_dir"], target))
+        return "%s → %s" % (status, md_link(sb, os.path.relpath(dest, binder_home)))
+    return "%s → %s" % (status, sb)
+
+
 def render_row(row, binder_home):
     path = row["path"] or "—"
     plan = row["plan_slug"]
@@ -451,7 +498,7 @@ def render_row(row, binder_home):
     cells = [
         pcell,
         row["type"] or "—",
-        row["status"] or "—",
+        status_cell(row, binder_home),
         plan,
         one.replace("|", "\\|"),
         render_library_cell(row["library_refs"]).replace("|", "\\|"),
@@ -469,11 +516,47 @@ def write_atomic(dirpath, target, body):
 HDR = "| Path | Type | Status | Plan-origin | One-liner | Library |"
 SEP = "|---|---|---|---|---|---|"
 
+# The plan's declare discovery set, walked as plan-research-declare walks it: these
+# homes, dot-dirs pruned, dot- and underscore-prefixed files skipped, `.md` only.
+DISCOVERY_DIRS = ["_research", "decisions", "target-state", "deliverables"]
+
+
+def discovery_set(plan_dir):
+    found = set()
+    for base in DISCOVERY_DIRS:
+        root = os.path.join(plan_dir, base)
+        if not os.path.isdir(root):
+            continue
+        for dp, dns, fns in os.walk(root):
+            dns[:] = sorted(d for d in dns if not d.startswith("."))
+            for f in fns:
+                if f.endswith(".md") and not f.startswith(".") and not f.startswith("_"):
+                    found.add(os.path.normpath(os.path.relpath(os.path.join(dp, f), plan_dir)))
+    return found
+
+
+def plan_blocks(rows):
+    """The four-block order for one plan's research-class rows: canonical, superseded,
+    the rest (non-deferred, outside _research/). Deferred rows render nowhere."""
+    key = lambda r: (r["path"], r["one_liner"])
+    canon, sup, rest = [], [], []
+    for r in rows:
+        st = r["status"].lower()
+        if st == "deferred":
+            continue
+        if st == "superseded":
+            sup.append(r)
+        elif os.path.normpath(r["path"] or ".").startswith("_research" + os.sep):
+            canon.append(r)
+        else:
+            rest.append(r)
+    return sorted(canon, key=key) + sorted(sup, key=key) + sorted(rest, key=key)
+
 spokes_written = 0
 links_pruned = 0
 
 # When a --spoke filter names a spoke with no contributing plans, still render an
-# empty binder for it (idempotent empty surface), so a leftover farm still prunes.
+# empty binder for it (idempotent empty surface).
 target_spokes = sorted(spokes.keys())
 if spoke_filter and spoke_filter not in spokes:
     target_spokes = [spoke_filter] if not target_spokes else sorted(set(target_spokes) | {spoke_filter})
@@ -482,7 +565,6 @@ for spoke in target_spokes:
     lineages = spokes.get(spoke, {})
     binder_home = os.path.join(PROJECTS, spoke)
     research_idx = os.path.join(binder_home, "research-index.md")
-    farm_home = os.path.join(binder_home, "research")
 
     # tags item-pattern: ^#[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$
     tag_spoke = re.sub(r"[^a-z0-9-]", "-", spoke.lower()).strip("-") or "spoke"
@@ -503,37 +585,51 @@ for spoke in target_spokes:
         "`research_artifacts[]` entry of RESEARCH class across every `%s`-spoke "
         "plan, grouped by `parent_plan` lineage. Decision-class artifacts "
         "(resolved kind `decision`/`adr`) are projected on the decision log "
-        "instead. Inline `> ` finding bodies appear only for non-inferable "
-        "finalized findings; all other rows point at the artifact." % spoke,
+        "instead. Each plan's table lists its canonical `_research/` rows first, "
+        "then superseded rows (forward-linked to their replacement), then its "
+        "other declared homes; a count line after the table covers the research "
+        "files with no row (deferred, decision-class or undeclared). Inline `> ` "
+        "finding bodies appear only for non-inferable finalized findings; all "
+        "other rows point at the artifact." % spoke,
         "",
     ]
 
     total_rows = 0
     for lineage in sorted(lineages.keys()):
-        rows = lineages[lineage]
-        if not rows:
+        by_plan = {}
+        for r in lineages[lineage]:
+            by_plan.setdefault(r["plan_slug"], []).append(r)
+        plans = [(p, plan_blocks(by_plan[p])) for p in sorted(by_plan)]
+        plans = [(p, rows) for p, rows in plans if rows]
+        if not plans:
             continue
         body_lines.append("## Lineage: %s" % lineage)
         body_lines.append("")
-        body_lines.append(HDR)
-        body_lines.append(SEP)
-        # stable row order: by plan-slug then path
-        ordered = sorted(rows, key=lambda r: (r["plan_slug"], r["path"], r["one_liner"]))
-        inlines = []
-        for row in ordered:
-            body_lines.append(render_row(row, binder_home))
-            total_rows += 1
-            if row["inline"] is not None:
-                inlines.append(row)
-        body_lines.append("")
-        # non-inferable finalized findings: a `> ` distilled blockquote per row,
-        # keyed to the artifact path, AFTER the lineage table (the table cells stay
-        # well-formed; the inline body is the copied finding, not a pointer).
-        for row in inlines:
-            distilled = re.sub(r"\s+", " ", row["inline"]).strip()
-            anchor = row["path"] or row["one_liner"] or "(artifact)"
-            body_lines.append("**%s** — finalized finding:" % anchor)
-            body_lines.append("> %s" % distilled)
+        for plan, ordered in plans:
+            body_lines.append(HDR)
+            body_lines.append(SEP)
+            inlines = []
+            for row in ordered:
+                body_lines.append(render_row(row, binder_home))
+                total_rows += 1
+                if row["inline"] is not None:
+                    inlines.append(row)
+            body_lines.append("")
+            # non-inferable finalized findings: a `> ` distilled blockquote per row,
+            # keyed to the artifact path, AFTER the plan's table (the table cells stay
+            # well-formed; the inline body is the copied finding, not a pointer).
+            for row in inlines:
+                distilled = re.sub(r"\s+", " ", row["inline"]).strip()
+                anchor = row["path"] or row["one_liner"] or "(artifact)"
+                body_lines.append("**%s** — finalized finding:" % anchor)
+                body_lines.append("> %s" % distilled)
+                body_lines.append("")
+            # block 4: the count line.
+            shown = set(os.path.normpath(r["path"]) for r in ordered if r["path"])
+            unshown = len(discovery_set(ordered[0]["plan_dir"]) - shown)
+            body_lines.append("_%s: %d research file%s with no row (deferred, "
+                              "decision-class or undeclared)._"
+                              % (plan, unshown, "" if unshown == 1 else "s"))
             body_lines.append("")
 
     if total_rows == 0:
@@ -557,57 +653,76 @@ for spoke in target_spokes:
             continue
     spokes_written += 1
 
-    # --- TRANSITIONAL farm prune (retirement clean-up) ------------------------
-    # The research/<plan-slug>/ dir-symlink farm is RETIRED (header block above).
-    # A leftover farm dir from a pre-retirement regen is pruned on sight: unlink
-    # every SYMLINK entry (the LINK only — NEVER follow or delete through a
-    # target), then remove the dir once empty. A NON-symlink entry is a stray
-    # placed in a binder interior — detect + report, never delete; the dir stays
-    # until the stray is re-homed.
+
+# --- TRANSITIONAL farm prune (retirement clean-up) ----------------------------
+# The research/<plan-slug>/ dir-symlink farm is RETIRED (header block above).
+# A leftover farm dir from a pre-retirement regen is pruned on sight: unlink
+# every SYMLINK entry (the LINK only — NEVER follow or delete through a
+# target), then remove the dir once empty. A NON-symlink entry is a stray
+# placed in a binder interior — detect + report, never delete; the dir stays
+# until the stray is re-homed. Returns the count of links unlinked (or, under
+# --dry-run, that would be).
+def prune_farm(spoke, farm_home):
+    pruned = 0
     if os.path.islink(farm_home):
         # degenerate: the farm name itself is a symlink — remove the link only.
         if dry_run:
-            links_pruned += 1
+            return 1
+        try:
+            os.unlink(farm_home)
+            pruned += 1
+        except Exception as exc:
+            emit({"finding": "plan-research-index-blocked", "file": farm_home,
+                  "reason": "farm-prune-failed", "error": str(exc),
+                  "detected_at": today})
+        return pruned
+    if not os.path.isdir(farm_home):
+        return 0
+    try:
+        existing = sorted(os.listdir(farm_home))
+    except Exception:
+        existing = []
+    strays = 0
+    for name in existing:
+        link = os.path.join(farm_home, name)
+        if not os.path.islink(link):
+            strays += 1
+            emit({"finding": "farm-stray-regular-entry", "file": link,
+                  "spoke": spoke, "name": name,
+                  "reason": "non-symlink entry inside the retired research/ "
+                            "farm dir (a stray placed in a binder interior); "
+                            "re-home to its owning plan — never auto-deleted",
+                  "detected_at": today})
+            continue
+        if dry_run:
+            pruned += 1
         else:
             try:
-                os.unlink(farm_home)
-                links_pruned += 1
+                os.unlink(link)   # unlink the LINK; target untouched.
+                pruned += 1
             except Exception as exc:
-                emit({"finding": "plan-research-index-blocked", "file": farm_home,
+                emit({"finding": "plan-research-index-blocked", "file": link,
                       "reason": "farm-prune-failed", "error": str(exc),
                       "detected_at": today})
-    elif os.path.isdir(farm_home):
+    if not dry_run and strays == 0:
         try:
-            existing = os.listdir(farm_home)
-        except Exception:
-            existing = []
-        strays = 0
-        for name in existing:
-            link = os.path.join(farm_home, name)
-            if not os.path.islink(link):
-                strays += 1
-                emit({"finding": "farm-stray-regular-entry", "file": link,
-                      "spoke": spoke, "name": name,
-                      "reason": "non-symlink entry inside the retired research/ "
-                                "farm dir (a stray placed in a binder interior); "
-                                "re-home to its owning plan — never auto-deleted",
-                      "detected_at": today})
-                continue
-            if dry_run:
-                links_pruned += 1
-            else:
-                try:
-                    os.unlink(link)   # unlink the LINK; target untouched.
-                    links_pruned += 1
-                except Exception as exc:
-                    emit({"finding": "plan-research-index-blocked", "file": link,
-                          "reason": "farm-prune-failed", "error": str(exc),
-                          "detected_at": today})
-        if not dry_run and strays == 0:
-            try:
-                os.rmdir(farm_home)   # empty after the unlinks; rmdir never recurses.
-            except OSError:
-                pass   # non-empty (unlink failure) — left for the next regen.
+            os.rmdir(farm_home)   # empty after the unlinks; rmdir never recurses.
+        except OSError:
+            pass   # non-empty (unlink failure) — left for the next regen.
+    return pruned
+
+
+# One pass after the render loop, over EVERY spoke binder, whatever --spoke
+# named: the farm is pruned from every spoke binder on any regen, and a render
+# failure on the target spoke (its `continue` above) does not skip it.
+try:
+    binder_names = sorted(os.listdir(PROJECTS))
+except Exception:
+    binder_names = []
+for spoke in binder_names:
+    binder_home = os.path.join(PROJECTS, spoke)
+    if os.path.isdir(binder_home):
+        links_pruned += prune_farm(spoke, os.path.join(binder_home, "research"))
 
 print("plan-research-index: spokes=%d rows-source-manifests=%d "
       "links_pruned=%d dry_run=%s"

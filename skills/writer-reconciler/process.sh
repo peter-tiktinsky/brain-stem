@@ -60,8 +60,7 @@ Defaults:
 
 Flags:
   --destination PATH       Process only packets whose destination_path
-                           matches; useful for explicit flushes via
-                           /govern reconcile <destination>.
+                           matches: an explicit flush of one destination.
   --dry-run                Emit reconciliation plan on stdout; no file
                            writes.
 

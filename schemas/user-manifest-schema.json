@@ -149,6 +149,11 @@
               "type": ["string", "null"],
               "enum": ["unset", "enabled", "declined", null],
               "description": "Dormant-until-opt-in activation for the weekly governance-parity-audit cadence dispatch (the sweep_due() cadence-window gate in hooks/lib/cadence.sh). Its 6 governance-PILLAR inputs are build-dogfood-only, so the weekly dispatch is DORMANT on an adopter install unless this key is 'enabled'. Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = fires weekly; 'declined' = dormant + re-proposable. MANUAL opt-in — governance-parity-audit is NOT writer-triggered and has no auto-propose lifecycle event (unlike writers_health_check); the adopter opts in by SETTING THIS KEY BY HAND. Read with `jq // \"unset\"`."
+            },
+            "library_promotion": {
+              "type": ["string", "null"],
+              "enum": ["prompt", "auto", "off", null],
+              "description": "Mode of the library-promotion queue (skills/librarian/capabilities/library-scrub.sh --mode get|set). 'prompt' = each newly completed plan's research is triaged by a small model and offered for a yes/no/always answer; 'auto' = a promote verdict is accepted without asking; 'off' = dormant, no model call and no queue write. Absent or null reads 'off'. The first switch to 'prompt' or 'auto' records the plans already completed, which are never offered."
             }
           }
         }
@@ -189,13 +194,13 @@
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "At-next-boundary warn threshold, as a percentage of the TRUE model context window (the .pct writer resolves the window per model family — Haiku 200k, the 1M fleet 1,000,000). Default 45. Consumed by prompt-context.sh."
+              "description": "Warn banner threshold: entering this band shows the user a context-pressure banner once. A percentage of the harness auto-compact window: CLAUDE_CODE_AUTO_COMPACT_WINDOW in the hook environment, else autoCompactWindow in user settings, else the model window the .pct writer records; the window is capped at the model window. A window set only in project, local or managed settings is not read, so pin it through CLAUDE_CODE_AUTO_COMPACT_WINDOW. When CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is set, keep this value below it, or compaction fires before the banner. Default 45. Consumed by prompt-context.sh."
             },
             "mandate_pct": {
               "type": ["integer", "null"],
               "minimum": 0,
               "maximum": 100,
-              "description": "Immediate-action mandate threshold, as a percentage of the TRUE model context window (Haiku 200k, the 1M fleet 1,000,000). Default 48. Consumed by prompt-context.sh."
+              "description": "Mandate banner threshold: entering this band shows the user a more urgent context-pressure banner once. A percentage of the harness auto-compact window: CLAUDE_CODE_AUTO_COMPACT_WINDOW in the hook environment, else autoCompactWindow in user settings, else the model window the .pct writer records; the window is capped at the model window. A window set only in project, local or managed settings is not read, so pin it through CLAUDE_CODE_AUTO_COMPACT_WINDOW. When CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is set, keep this value below it, or compaction fires before the banner. Default 48. Consumed by prompt-context.sh."
             },
             "hard_pct": {
               "type": ["integer", "null"],

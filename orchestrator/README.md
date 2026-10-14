@@ -17,8 +17,9 @@ without a human reasoning/approval point.
 | `state/decision-quality-events.jsonl` | `DQ_EVENTS_PATH` default state file (decision-quality telemetry; seeded empty). |
 
 The queue-persistence library `execution-queue.sh` lives at `hooks/lib/`
-(`dispatch.sh` sources it for the `--overnight` / `--delay ≥4h` timing modes
-and the queue ops).
+(`dispatch.sh` sources it for the `--overnight` timing mode and the queue ops; a
+`--delay` of four hours or more writes a one-shot launchd job instead, and a shorter
+delay waits in a background process).
 
 ## How a plan runs end-to-end
 
@@ -61,11 +62,11 @@ resolved brief path is handed to `dispatch.sh --job`, which execs
 - **HOTL** (human-on-the-loop): reversible tasks — the runner proposes the
   dispatch and proceeds under human supervision.
 
-This gate is **independent** of the dispatch-governance layer (Pre-Dispatch
-Scoping + brief-lint + circuit-breaker). It is the
-propose-and-gate primitive and the independent v1.0.0 safety
-floor — deferring the governance layer does not
-leave the runner ungated.
+This gate is **independent** of the dispatch-governance layer that
+`dispatch.sh` runs before each job (pre-dispatch scoping, the circuit breaker,
+and the opt-in brief-lint, a model call enabled by `ORCHESTRATOR_BRIEF_LINT=1`).
+It is the propose-and-gate floor: with that layer off, the runner is still
+gated.
 
 ## Sub-peer isolation (R-63)
 

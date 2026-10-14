@@ -1,7 +1,7 @@
 # Starter Obsidian Base (Bases core plugin, Obsidian 1.9.10+).
-# Recently-updated notes as cards, surfacing the cohort `description` as the card
-# subtitle — the human-readable summary line that also feeds RAG/MCP relevance
-# pre-filtering. Bases reads frontmatter only.
+# Recently-updated notes that carry a description, as cards, surfacing the cohort
+# `description` as the card subtitle — the human-readable summary line that also
+# feeds RAG/MCP relevance pre-filtering. Bases reads frontmatter only.
 filters:
   and:
     - 'description != null'

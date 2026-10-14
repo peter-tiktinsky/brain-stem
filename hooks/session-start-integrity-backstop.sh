@@ -31,6 +31,12 @@
 # re-exec'd child that hands its `found` result to the lock-released parent via a
 # sentinel file, and the parent spawns after the lock releases (see the guards below).
 #
+# Crash-recovery checkpoint: a crashed session never reached its PreCompact hook or its
+# own close, so its sessions/<sid>/checkpoint.md is whatever the last compaction left, or
+# nothing. The same detached spawn therefore runs the PreCompact hook's mechanical
+# extraction for EVERY crashed row the sweep marks, in sweep order, and only then the one
+# recovery close (see extract_crashed_checkpoints below).
+#
 # NEVER blocks SessionStart (spawns the close detached); NEVER fail-hard; exits 0
 # on every path. Graceful no-op when jq/lockf/registry are absent.
 set -uo pipefail
@@ -86,6 +92,29 @@ spawn_reconcile() {
   if [ -x "$reconciler" ] || [ -f "$reconciler" ]; then
     ( "$reconciler" >/dev/null 2>&1 & ) || true
   fi
+}
+
+# Crash-recovery checkpoint extraction. $1 holds one "<sid><TAB><transcript_path>" line
+# per crashed row, in sweep order (the path empty when the row has none). For each row the
+# PreCompact hook runs as-is, fed a synthesized {session_id, transcript_path} payload with
+# CLAUDE_SESSION_ID pinned to THAT crashed id, so the write lands in the crashed session's
+# directory and never in the recovering session's. No rich-check here: the hook's own
+# early exit keeps a model-authored checkpoint. Either header it writes is the crash cover
+# (a Session Continuity Block, or the panic checkpoint from the transcript tail when the
+# row has no structured source left). Runs only inside the detached recovery spawn, ahead
+# of the close, so SessionStart never waits on it. Silent no-op when the hook is absent.
+extract_crashed_checkpoints() {
+  local extractor="$SCRIPT_DIR/pre-compact-checkpoint.sh" tab=$'\t' line sid tp
+  [ -f "$extractor" ] || return 0
+  while IFS= read -r line; do
+    sid="${line%%"$tab"*}"
+    tp=""
+    [ "$sid" = "$line" ] || tp="${line#*"$tab"}"
+    sid="$(printf '%s' "$sid" | tr -d '[:space:]')"
+    case "$sid" in ''|*/*) continue ;; esac
+    jq -nc --arg s "$sid" --arg t "$tp" '{session_id: $s, transcript_path: $t}' 2>/dev/null \
+      | CLAUDE_SESSION_ID="$sid" "${BASH:-bash}" "$extractor" >/dev/null 2>&1 || true
+  done <<< "$1"
 }
 
 # --- lockf concurrency guard (auto-close-backstop.lock) ----------------------
@@ -146,6 +175,15 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
     # A path may legitimately contain spaces, so this line is NOT whitespace-stripped the
     # way the id is — only the trailing newline goes, which $( ) removes.
     _crashed_cwd="$(sed -n '2p' "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null)"
+    # From line 3 on: one "<sid><TAB><transcript_path>" line per crashed row, in sweep
+    # order, first row included, for the extraction chain below. Read back defensively,
+    # like the cwd line: missing lines only mean fewer extractions.
+    _crashed_rows="$(sed -n '3,$p' "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null)"
+    # T-7: the touched-files snapshot rides a sidecar beside the sentinel
+    # (read back here, lock-released, and removed with it) so the spawned recovery
+    # close never has to re-read a registry row the reaper may already have deleted.
+    _crashed_touched="$(cat "${AUTO_CLOSE_FOUND_SENTINEL}.touched" 2>/dev/null || true)"
+    rm -f "${AUTO_CLOSE_FOUND_SENTINEL}.touched" 2>/dev/null || true
     rm -f "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
     # WHY $HOME WHEN THE ROW CARRIES NO CWD (the ordinary case today: no registry writer
     # records one). The alternative is to thread nothing — and then the detached close
@@ -157,16 +195,18 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
     [ -n "$_crashed_cwd" ] || _crashed_cwd="$HOME"
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
-      if [ -n "$_crashed_sid" ]; then
-        ( "$SESSION_CLOSE" --session-id "$_crashed_sid" --cwd "$_crashed_cwd" >/dev/null 2>&1 & ) || true
-      else
-        ( "$SESSION_CLOSE" --cwd "$_crashed_cwd" >/dev/null 2>&1 & ) || true
-      fi
+      # ONE detached process: every crashed row's extraction in sweep order, then the
+      # single recovery close, so the close sees the checkpoints already written.
+      # One spawn line (T-7): an empty $_crashed_sid passes --session-id ""
+      # which seeds the close's SELF_SESSION_ID empty — byte-equivalent to the old
+      # no-thread branch — and --touched-files threads the locked snapshot; an empty
+      # CSV keeps the close's documented registry fallback.
+      ( extract_crashed_checkpoints "$_crashed_rows"; "$SESSION_CLOSE" --session-id "$_crashed_sid" --cwd "$_crashed_cwd" --touched-files "$_crashed_touched" ) >/dev/null 2>&1 &
     fi
   fi
   # T-8: SessionStart reconcile trigger, fired here in the LOCK-RELEASED context
-  # (lockf has returned, REGISTRY_LOCK is free). session-register.sh (#1 in the SessionStart
-  # array; this backstop is #7) has already refreshed the own row's heartbeat, so the T-1
+  # (lockf has returned, REGISTRY_LOCK is free). session-register.sh (which runs before this
+  # backstop in the SessionStart array) has already refreshed the own row's heartbeat, so the T-1
   # verdict KEEPS the own row while the sweep reaps stale-hb ghosts on the shared pid.
   spawn_reconcile
   exit 0
@@ -182,6 +222,8 @@ sids=$(printf '%s' "$reg" | jq -r '.sessions // {} | keys[]' 2>/dev/null) || exi
 found=0
 crashed_sid=""
 crashed_cwd=""
+crashed_rows=""
+crashed_touched=""
 for sid in $sids; do
   status=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].status // ""' 2>/dev/null)
   swept=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].auto_close_swept_at // ""' 2>/dev/null)
@@ -221,12 +263,26 @@ for sid in $sids; do
   # own $PWD. The spawn fires once; the first crashed row is the threaded identity.
   # Its cwd rides along WHEN THE ROW HAS ONE — read defensively rather than assumed,
   # because no registry writer records the field today (session-register.sh stores
-  # session_id/source/pid/heartbeat/touched_files). A row that gains one later is threaded
-  # with no further change here; an absent one takes the documented fallback at the spawn.
+  # session_id/source/pid/heartbeat/touched_files/transcript_path). A row that gains one
+  # later is threaded with no further change here; an absent one takes the documented
+  # fallback at the spawn.
   if [ -z "$crashed_sid" ]; then
     crashed_sid="$sid"
     crashed_cwd=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].cwd // ""' 2>/dev/null)
+    # T-7: snapshot the first crashed row's touched_files HERE, under
+    # REGISTRY_LOCK, comma-joined into one CSV. After lockf returns, a concurrent
+    # reaper can delete the row and the spawned close's registry fallback would
+    # race empty — this snapshot is the only durable copy. An entry containing a
+    # comma cannot survive the CSV unambiguously and is dropped.
+    # swallow-ok: reports=none a failed read yields an empty CSV, and an empty CSV is the close's documented registry-fallback path — the degrade is the contract
+    crashed_touched="$(printf '%s' "$reg" | jq -r --arg s "$sid" \
+      '[.sessions[$s].touched_files // [] | .[] | select((type == "string") and (contains(",") | not))] | join(",")' 2>/dev/null)"
   fi
+  # EVERY crashed row, the first included, joins the extraction list in sweep order as
+  # "<sid><TAB><transcript_path>", the path empty when the row has none. Tabs and newlines
+  # are dropped from the path so one row stays one line.
+  crashed_tp=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].transcript_path // "" | tostring' 2>/dev/null | tr -d '\t\n')
+  crashed_rows="${crashed_rows}${sid}"$'\t'"${crashed_tp}"$'\n'
   found=1
 done
 
@@ -245,21 +301,25 @@ if [ "$found" -eq 1 ]; then
     # Locked re-exec: hand the crashed session's id (line 1) and its stored cwd (line 2,
     # empty when the row carries none) to the lock-released parent via the sentinel CONTENT
     # (the parent — which does not run this sweep — reads them back and threads them into
-    # the spawn); DO NOT spawn here (the spawn must run lock-released).
-    printf '%s\n%s\n' "$crashed_sid" "$crashed_cwd" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    # the spawn); DO NOT spawn here (the spawn must run lock-released). Lines 3 on carry the
+    # extraction list, one "<sid><TAB><transcript_path>" line per crashed row.
+    printf '%s\n%s\n%s' "$crashed_sid" "$crashed_cwd" "$crashed_rows" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
+    # T-7: the touched-files snapshot rides a sidecar beside the sentinel —
+    # a plain CSV, so it never collides with the sentinel's line-oriented content.
+    printf '%s' "$crashed_touched" > "${AUTO_CLOSE_FOUND_SENTINEL}.touched" 2>/dev/null || true
   else
     # Unlocked (lockf-absent) inline path: no held lock to release -> spawn here, threading
     # the crashed session's id so the close reconciles the crashed spoke. Same cwd rule as
     # the lock-released spawn above: the row's stored cwd when it has one, else $HOME —
-    # never this recovering session's ambient, which belongs to a different session.
+    # never this recovering session's ambient, which belongs to a different session. The
+    # extraction list stays in $crashed_rows and runs ahead of the close, as above.
     [ -n "$crashed_cwd" ] || crashed_cwd="$HOME"
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
-      if [ -n "$crashed_sid" ]; then
-        ( "$SESSION_CLOSE" --session-id "$crashed_sid" --cwd "$crashed_cwd" >/dev/null 2>&1 & ) || true
-      else
-        ( "$SESSION_CLOSE" --cwd "$crashed_cwd" >/dev/null 2>&1 & ) || true
-      fi
+      # One spawn line (T-7), same shape as the locked-path spawn above:
+      # --session-id threads the crashed id (empty seeds empty, byte-equivalent to
+      # the old no-thread branch) and --touched-files threads the locked snapshot.
+      ( extract_crashed_checkpoints "$crashed_rows"; "$SESSION_CLOSE" --session-id "$crashed_sid" --cwd "$crashed_cwd" --touched-files "$crashed_touched" ) >/dev/null 2>&1 &
     fi
   fi
 fi

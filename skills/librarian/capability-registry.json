@@ -13,7 +13,8 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "weekly",
       "dependencies": [
@@ -119,20 +120,199 @@
       "output_contract": {
         "modes": [
           "(default) regenerate every spoke's binder research-index.md",
-          "--spoke <key> regenerate one spoke's binder only",
+          "--spoke <key> regenerate one spoke's binder only; the leftover-farm prune still reaches every spoke",
           "--dry-run findings + would-be writes, NO file write"
         ],
         "writes": [
           "{plans_root}/_projects/<spoke>/research-index.md (atomic temp+os.replace; full-file regenerate from every spoke plan's RESEARCH-class research_artifacts[] — the kind-driven PARTITION: a decision-class entry (resolved kind decision|adr; declared type wins, else filename-stem inference) projects on the decision log instead, while the promotion-edge detector still sweeps every declared artifact; rows path/type/status/plan-origin/one-liner + Library column from library_refs; grouped by parent_plan lineage; the Path cell is a resolving binder-relative link STRAIGHT TO THE PLAN FILE for every declared home — the CANONICAL route only per the ruled viewer contract; non-inferable finalized findings inline as a > distilled blockquote, else a path pointer)",
-          "TRANSITIONAL REMOVAL: {plans_root}/_projects/<spoke>/research/ — a leftover dir of the RETIRED research/<plan-slug>/ symlink farm is pruned on regen (symlink entries unlinked, the LINK only, never the target; dir removed when empty; a non-symlink stray is reported, never deleted)",
+          "TRANSITIONAL REMOVAL: {plans_root}/_projects/*/research/ — a leftover dir of the RETIRED research/<plan-slug>/ symlink farm is pruned from every spoke binder on any regen (one pass after the render loop, whatever --spoke names; a render failure does not skip it; symlink entries unlinked, the LINK only, never the target; dir removed when empty; a non-symlink stray is reported, never deleted)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. the one-sided-edge DETECTOR findings (detect + report, never repair-write)"
         ],
         "schema": null,
-        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; the transitional farm prune runs only after the index renders and never deletes a non-symlink entry",
+        "validation": "plans home resolves to a directory (absent -> block-and-log, no write, exit 0); manifests read defensively, a missing field is empty not an error; atomic temp+os.replace; the transitional farm prune runs once after the render loop (a render failure does not skip it) and never deletes a non-symlink entry",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
       "script": "capabilities/plan-research-index.sh"
+    },
+    "plan-research-supersede": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<plan-dir> <old-RA> <new-RA> record that <new-RA> supersedes <old-RA> in <plan-dir>/manifest.json research_artifacts[]"
+        ],
+        "writes": [
+          "<plan-dir>/manifest.json (the old entry's status -> superseded and superseded_by -> <new-RA>; the new entry's supersedes -> <old-RA>; nothing else changes; atomic temp + os.replace)",
+          "the old artifact file (one line `> Superseded by <new path> (<new-RA>) on <YYYY-MM-DD>.` inserted directly after its frontmatter; every other byte kept; atomic temp + os.replace)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json (research_artifacts[] item: status enum active|finalized|deferred|superseded; superseded_by and supersedes ^RA-[0-9]+$)",
+        "validation": "both ids match ^RA-[0-9]+$ and are declared; old != new; the old entry is not already superseded; the superseded_by chain from the new entry does not reach the old one (no cycle); the old file exists; any miss exits 2 with no write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-research-supersede.sh"
+    },
+    "adr-supersede": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "schemas/plan-manifest-schema.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<plan-dir> <old-ADR> <new-ADR> record that <new-ADR> supersedes the accepted <old-ADR> in <plan-dir>/decisions/ and <plan-dir>/manifest.json decision_records[]"
+        ],
+        "writes": [
+          "the old ADR file (its body `**Status:**` line -> `superseded-by-<new-ADR>` and its frontmatter `status:` -> `superseded` when present; every other byte kept; atomic temp + os.replace)",
+          "<plan-dir>/manifest.json (the old entry's status -> superseded and superseded_by -> <new-ADR>; nothing else changes; atomic temp + os.replace)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json (decision_records[] item: id ^ADR-[0-9]{2,}$; status enum proposed|accepted|rejected|deprecated|superseded; superseded_by)",
+        "validation": "both ids match ^ADR-[0-9]{2,}$; old != new; manifest.json parses; each id has exactly one decisions/<id>-*.md file; the old ADR's body Status is accepted; the old id has a decision_records[] entry; any miss exits 2 with no write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/adr-supersede.sh"
+    },
+    "plan-asset": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "schemas/plan-manifest-schema.json",
+        "governance/plans-rules.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "add <plan-dir> <path> --purpose \"<text>\" append an assets[] row for a top-level plan entry, or replace the purpose of the row already naming it"
+        ],
+        "writes": [
+          "<plan-dir>/manifest.json (assets[] only: one {path, purpose} row per path; the rest re-serialized unchanged; atomic temp + os.replace)"
+        ],
+        "schema": "schemas/plan-manifest-schema.json (assets[] item: required string path + purpose)",
+        "validation": "the path exists inside the plan dir and is one top-level segment; it is not in plans-rules plan_folder_managed_set; the purpose is non-empty; any miss exits 2 with no write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-asset.sh"
+    },
+    "workshop": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/foundation-overlay-load.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "open <key> create the workshop dir <key> (a plan's key is <topic>-<plan-slug>, default topic research) and print its absolute path; idempotent",
+          "promote <key> <file> --plan <plan-dir> move exactly that file into <plan-dir>/_research/ under the next free NN- prefix and the rest of the key dir to _archive/<key>-<YYYY-MM-DD>/",
+          "rekey <topic> <plan-slug> rename a pre-plan <topic>/ to <topic>-<plan-slug>/"
+        ],
+        "writes": [
+          "$CLAUDE_WORKSHOP_DIR/<key>/ (open; rekey renames it)",
+          "<plan-dir>/_research/<NN>-<file> (promote; the source bytes, moved)",
+          "$CLAUDE_WORKSHOP_DIR/_archive/<key>-<YYYY-MM-DD>/ (promote; the rest of the key dir, moved)"
+        ],
+        "schema": "governance/plans-rules.json gate_records (the gate-name predicate promote refuses)",
+        "validation": "key and topic are single names not starting with . or _; the key dir, source file and plan manifest exist; the source is not gate-named; a rekey target does not exist; any miss exits 2 with no write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/workshop.sh"
+    },
+    "plan-rule": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/handoff-recognizer.sh",
+        "hooks/lib/foundation-overlay-load.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<plan-dir> <fork> <choice> --quote \"<text>\" write `- <FORK>: ruled <choice> — \"<quote>\"` under ### Rulings in the newest handoff entry, the heading created at the end of that entry when absent",
+          "... --spec-change --title \"<t>\" also mint decisions/ADR-NN-<slug>.md, append its decision_records[] entry and append `- Amended by ADR-NN: <title>` under the spec's ## Amendment register, created once"
+        ],
+        "writes": [
+          "<plan-dir>/handoff.md (the ruling line)",
+          "<plan-dir>/decisions/ADR-NN-<slug>.md (--spec-change; new)",
+          "<plan-dir>/manifest.json decision_records[] (--spec-change; one entry appended)",
+          "<plan-dir>/spec.md ## Amendment register (--spec-change; one pointer line)"
+        ],
+        "schema": "governance/plans-rules.json decision_records (dir, filename_pattern, required_sections); governance/file-type-contracts/adr.md.json body shape",
+        "validation": "handoff.md holds an H2 session heading; fork, choice and quote are single non-empty lines; with --spec-change the title is a single line whose ADR filename matches decision_records.filename_pattern, spec.md and manifest.json exist, and the ADR file is new; every check runs before the first write and any miss exits 2 with no write",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-rule.sh"
+    },
+    "plan-context": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/handoff-recognizer.sh",
+        "hooks/lib/foundation-overlay-load.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<plan> (no selector) print the plan map: canonical research, the count of `- <FORK>: ruled` lines, the _gates/ file count, assets[] rows plus unmanaged entries, a capability_touch present/absent line, and the newest handoff entry's heading and Next line",
+          "<plan> --task T-n print the task's title, status, description, acceptance criteria, depends_on, file_references, sot_refs and each context_refs[] entry resolved (<file>#<heading> to that section, ADR-NN to the decision file)",
+          "<plan> --section \"<heading>\" [--file <rel>] print that section of spec.md, or of <rel>",
+          "<plan> --canon print the canonical research: research_artifacts[] entries under _research/ whose status is neither superseded nor deferred",
+          "<plan> --decisions print decision_records[] entries not superseded",
+          "<plan> --handoff latest|<N>|--since <YYYY-MM-DD> print the newest entry, the newest N, or those dated on or after the day; the spoke's handoff-ledger.jsonl orders them when it holds rows for the plan, else handoff.md read with the recognizer"
+        ],
+        "writes": [],
+        "schema": "the plan's manifest.json (tasks[], research_artifacts[], decision_records[], assets[]); governance/plans-rules.json plan_folder_managed_set for the map's unmanaged entries",
+        "validation": "<plan> is a dir holding manifest.json or a slug under the plans root; output is at most 30,000 characters, and longer output is cut with a last line naming a narrower selector; a missing plan, task, heading, file or ADR exits 1 naming it; a usage error exits 2",
+        "failure_mode": "report-only (read-only; exit 1 names the miss)"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/plan-context.sh"
     },
     "plan-research-declare": {
       "tier": "mechanical",
@@ -204,6 +384,34 @@
       "implementation_status": "shipped",
       "script": "capabilities/plan-decision-log.sh"
     },
+    "handoff-entry": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/handoff-recognizer.sh",
+        "governance/file-type-contracts/handoff.md.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<plan-dir> --title \"<text>\" [--kind <token>] insert the next session entry at the top of <plan-dir>/handoff.md"
+        ],
+        "writes": [
+          "<plan-dir>/handoff.md (one new entry after the preamble and before the first existing session heading: the `## Session <N> — <YYYY-MM-DD> (<title>)` heading, the one-line `<!-- session: {\"plan\",\"n\",\"at\",\"kind\"} -->` identity header, and one `### ` heading per handoff.md.json section_subsections entry; atomic temp + os.replace; every existing byte kept)"
+        ],
+        "schema": "governance/file-type-contracts/handoff.md.json (section_schema heading shape; section_subsections skeleton)",
+        "validation": "handoff.md exists; --title is one non-empty line; --kind matches ^[A-Za-z0-9][A-Za-z0-9._-]*$; the contract lists at least one subsection; N = the highest session ordinal the shared recognizer (hooks/lib/handoff-recognizer.sh) reads, plus one",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/handoff-entry.sh"
+    },
     "plan-handoff-index": {
       "tier": "mechanical",
       "invocation_modes": [
@@ -227,9 +435,11 @@
         "modes": [
           "(default) regenerate every spoke's binder handoff-chronicle.md (librarian re-derive role of the composite)",
           "--spoke <key> regenerate one spoke's chronicle only",
-          "--dry-run findings + would-be writes, NO file write"
+          "--window <N> keep the newest N blocks of each plan in the chronicle (default 5; 0 = every block)",
+          "--dry-run findings + would-be writes, NO file write (neither the ledger nor the chronicle)"
         ],
         "writes": [
+          "{plans_root}/_projects/<spoke>/handoff-ledger.jsonl (atomic temp+os.replace; the derived ledger, written first on every run: one JSON row per session block across the spoke's plans, sorted by plan, at-or-date, n; the rows carry every field the chronicle block renders, so the chronicle renders from the rows alone)",
           "{plans_root}/_projects/<spoke>/handoff-chronicle.md (atomic temp+os.replace; FULL-FILE re-derive — the librarian role owns the whole file: frontmatter + intro + the sentinel-bounded chronicle region; newest-first; one block per session across every spoke plan's handoff.md — source path + session number/date + the Next session: line + a one-line summary harvested from ### Locks captured / ### Decision-Quality Protocol passes, else the first ~200 chars of the block body; handoff bodies are NEVER concatenated)",
           "the SECONDARY-ROLE hook (hooks/handoff-chronicle-append.sh) appends ONE block at the HEAD of the EXACT sentinel-bounded region '<!-- handoff-chronicle:start --> … <!-- handoff-chronicle:end -->' (field-1); the two surfaces are DISJOINT — the hook never re-derives, the librarian never appends a routine block",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. handoff-unreadable / handoff-empty / handoff-malformed / no-session-blocks skip findings"
@@ -387,7 +597,8 @@
       "tier": "judgment",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "daily",
       "dependencies": [
@@ -416,7 +627,8 @@
       "tier": "judgment",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "daily",
       "dependencies": [
@@ -618,7 +830,8 @@
       "tier": "mechanical",
       "invocation_modes": [
         "ad-hoc",
-        "librarian-full"
+        "librarian-full",
+        "session-close-step-2"
       ],
       "cron_block": "none",
       "dependencies": [
@@ -711,6 +924,7 @@
         "ad-hoc"
       ],
       "cron_block": "skip-non-interactive",
+      "rerun_safety": "stamp",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -919,7 +1133,7 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created) + schemas/librarian-manifest-schema.json (drift_findings.placement subtree)",
-        "validation": "vault placement rules walked; manifest write is atomic temp+rename",
+        "validation": "vault placement rules walked; in plans scope, plans-root-namespace-violation, manifest-less-nn-dir, binder-root-stray-entry and plan-unmanaged-entry (a top-level entry of a non-terminal plan outside plans-rules plan_folder_managed_set, not a sub-plan dir, the architecture_path target or a dotfile, with no manifest assets[] row; the finding names `librarian plan-asset add`); manifest write is atomic temp+rename",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -1021,7 +1235,7 @@
         "ad-hoc",
         "librarian-full"
       ],
-      "cron_block": "none",
+      "cron_block": "weekly",
       "dependencies": [],
       "emits_findings": true,
       "writes_manifest_subtree": null,
@@ -1055,7 +1269,7 @@
           "managed-surface-fork / managed-surface-classified NDJSON finding lines (FINDINGS_OUTPUT or stdout) + a tripwire snapshot under $CLAUDE_STATE_ROOT/census/"
         ],
         "schema": null,
-        "validation": "sha256 of every live foundation-manifest files[] member vs its recorded sha; overlay-master.json and *.foundation-retired/-local sidecars classified, never flagged as forks; tripwire dedup vs the previous run's snapshot",
+        "validation": "sha256 of every live foundation-manifest files[] member vs its recorded sha; overlay-master.json, .gitignore (three-way-merge) and *.foundation-retired/-local sidecars classified, never flagged as forks; tripwire dedup vs the previous run's snapshot",
         "failure_mode": "block-and-log (exit 1 while any fork divergence stands; absent manifest clean-skips rc 0)"
       },
       "implementation_status": "shipped",
@@ -1094,7 +1308,8 @@
       "cron_block": "none",
       "dependencies": [
         "hooks/lib/paths.sh",
-        "hooks/lib/findings.sh"
+        "hooks/lib/findings.sh",
+        "hooks/lib/launch-prompt-length.sh"
       ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
@@ -1105,11 +1320,44 @@
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)"
         ],
         "schema": "hooks/lib/findings.sh (emit_finding contract; librarian-finding-schema.json is a PHANTOM, not created)",
-        "validation": "handoff disposition (FIX NOW / ABSORB / STANDALONE) presence checked per close-out follow-up",
+        "validation": "handoff disposition (FIX NOW / ABSORB / STANDALONE / NO-BUILD) presence checked per close-out follow-up; in the newest session entry a STANDALONE, ABSORB or NO-BUILD target must resolve on disk under the plans root, else a blocking handoff-disposition-target-unresolved finding; a warn-level handoff-launch-prompt-long finding names each launch-prompt block in the newest session entry over LAUNCH_PROMPT_MAX_WORDS (default 300), not counted as missing",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
       "script": "capabilities/handoff-disposition-check.sh"
+    },
+    "inbox-drain-check": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc",
+        "session-close-step-2"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh",
+        "hooks/lib/findings.sh",
+        "hooks/lib/manifest.sh",
+        "hooks/lib/reopen-gate.sh"
+      ],
+      "emits_findings": true,
+      "writes_manifest_subtree": "drift_findings.inbox_drain",
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "--session-id <id> [--files <path> ...] attribute flat inbox notes by captured_session or touched path",
+          "--dry-run report findings, NO manifest write"
+        ],
+        "writes": [
+          "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT)",
+          "librarian-manifest drift_findings.inbox_drain summary leaf (manifest_set, atomic; last_scan/session_id/findings_count/open_entries/undecided_total/threshold, surfaced at SessionStart by hooks/session-start-placement-findings.sh; written on every non-dry run so a 0-count refresh silences the reader; skipped under --dry-run; fail-open)"
+        ],
+        "schema": "hooks/lib/findings.sh (emit_finding contract)",
+        "validation": "a flat inbox note is decided only as STANDALONE with a release_class and a size from the plans pillar enums, ABSORB with a resolvable absorbed_into, or NO-BUILD with a registered reopen_gate; each attributed undecided note is a blocking inbox-undecided-capture finding and the exit is 1; every open undecided flat note is counted against inbox.undecided_threshold",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/inbox-drain-check.sh"
     },
     "plan-terminal-lag-check": {
       "tier": "mechanical",
@@ -1449,6 +1697,7 @@
         "ad-hoc"
       ],
       "cron_block": "skip-non-interactive",
+      "rerun_safety": "stamp",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1583,6 +1832,7 @@
         "ad-hoc"
       ],
       "cron_block": "skip-non-interactive",
+      "rerun_safety": "stamp",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1608,42 +1858,13 @@
       "implementation_status": "shipped",
       "script": "capabilities/memory-globalize.sh"
     },
-    "rules-compact": {
-      "tier": "judgment",
-      "invocation_modes": [
-        "ad-hoc"
-      ],
-      "cron_block": "skip-non-interactive",
-      "dependencies": [
-        "hooks/lib/paths.sh",
-        "hooks/lib/findings.sh",
-        "schemas/rules-schema.json"
-      ],
-      "emits_findings": true,
-      "emits_ndjson_candidates": true,
-      "synthesis_rubric_section": "SKILL.md#rules-compact",
-      "writes_manifest_subtree": null,
-      "default_flags": [],
-      "requires_confirmation": true,
-      "output_contract": {
-        "writes": [
-          "{system.rules_dir}/<name>.md — the compacted stub, replacing the source (only with --apply)",
-          "$CLAUDE_HOME/rules-rationale/<name>.md — the source file byte-for-byte, outside the rules dir so nothing loads it (only with --apply)",
-          "librarian-finding NDJSON candidates / refusals to stdout"
-        ],
-        "schema": "schemas/rules-schema.json",
-        "validation": "a rule is compactable only when its `enforced_by:` names a hook that is registered in settings.json, present in the hooks dir, and inline-blocking per the allowlist declared in the script; a pipeline-owned seed entry (no frontmatter + installer naming) is refused unconditionally; the stub frontmatter is validated against rules-schema.json before either write",
-        "failure_mode": "block-and-log — a rule whose backstop does not resolve emits a rules-compact-refused finding carrying `reason` and is skipped with no partial write; a TARGETED refusal exits non-zero, a sweep survey exits 0"
-      },
-      "implementation_status": "shipped",
-      "script": "capabilities/rules-compact.sh"
-    },
     "memory-hygiene": {
       "tier": "judgment",
       "invocation_modes": [
         "ad-hoc"
       ],
       "cron_block": "weekly",
+      "rerun_safety": "queue-id",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1673,6 +1894,7 @@
         "ad-hoc"
       ],
       "cron_block": "weekly",
+      "rerun_safety": "propose-only",
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
@@ -1733,6 +1955,61 @@
       "implementation_status": "shipped",
       "script": "capabilities/session-close.sh"
     },
+    "skill-referrers": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": false,
+      "output_contract": {
+        "modes": [
+          "<skill-name> [--root DIR]... list the files under each root (skills, hooks, governance, templates, schemas, rules, settings.json) that name the skill"
+        ],
+        "writes": [],
+        "schema": "none (read-only listing)",
+        "validation": "the name matches ^[a-z0-9][a-z0-9-]*$; at least one root holds skills/<name>/; an empty --root value, an unknown flag and a missing name exit 2 with no output",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/skill-referrers.sh"
+    },
+    "memory-spill": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/foundation-overlay-load.sh",
+        "hooks/lib/paths.sh",
+        "governance/mandatory-files-rules.json"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [],
+      "requires_confirmation": true,
+      "output_contract": {
+        "modes": [
+          "[--memory-dir DIR] preview the cold spill of MEMORY.md (writes nothing, takes no lock)",
+          "[--memory-dir DIR] --apply move the coldest non-episodic entries to MEMORY-archive.md and leave one pointer line in MEMORY.md"
+        ],
+        "writes": [
+          "<memory dir>/MEMORY-archive.md (--apply only; written first by temp file and mv -f; a line already present is skipped)",
+          "<memory dir>/MEMORY.md (--apply only; the moved lines gone, exactly one pointer line first under ## Semantic; temp file and mv -f)",
+          "<memory dir>/.consolidation.lock (the lock call creates it when absent)"
+        ],
+        "schema": "governance/mandatory-files-rules.json _memory_md_cap (thresholds, overflow_routing.fixed_section_order); the caps are read through hooks/lib/foundation-overlay-load.sh and there are no fallback constants",
+        "validation": "refuses with exit 3 at GREEN, when no tail-first prefix of ## Procedural then ## Semantic brings the index below YELLOW, when MEMORY.md has no ## Semantic heading and when the cap config is unreadable (each decided before the lock); exit 2 for an empty --memory-dir, a directory with no MEMORY.md and an unknown flag; exit 75 when the lock is held",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/memory-spill.sh"
+    },
     "review": {
       "tier": "judgment",
       "invocation_modes": [
@@ -1760,8 +2037,9 @@
         "validation": "queue resolved via hooks/lib/review-queue.sh; memory-dir via hooks/lib/paths.sh; requires confirmation on every write; high-sev+oldest-first sort, ~20/pass cap; low-sev hygiene auto-suppress at dismiss_count 3, revalidation EXEMPT",
         "failure_mode": "block-and-log"
       },
-      "implementation_status": "spec-only",
-      "_note": "SKILL side: /librarian review is a judgment-tier rubric (SKILL.md#review), NOT a capabilities/review.sh disk body — review is an LLM diff+impact judgment loop; the four hooks/lib/review-queue.sh queue-drain primitives carry the mechanical state writes. Spec-only registry entry without a disk body is bijection-legal (capability-registry-parity class (b) excludes implementation_status==spec-only, class (e) orphan check is the converse)."
+      "implementation_status": "shipped",
+      "script": "capabilities/review.sh",
+      "_note": "Judgment tier: capabilities/review.sh runs the mechanical steps of the review walk (list, show, confirm, reject, defer, report) and calls the hooks/lib/review-queue.sh queue-drain primitives for the state writes; the SKILL.md rubric keeps the per-item impact read and the one disposition per item with the operator, and the entry keeps requires_confirmation."
     }
   }
 }

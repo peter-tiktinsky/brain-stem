@@ -9,9 +9,14 @@
 # Behavior on memory topic-file writes:
 #   - updated:        always stamped to today (UTC, YYYY-MM-DD); replaces existing value
 #   - created:        bootstrapped to a DERIVED FLOOR if absent; immutable post-bootstrap.
-#                     The floor is claude-mem's `metadata.modified`, else the git-added
+#                     The floor is the nested `metadata.modified`, else the git-added
 #                     date, else today — see the derivation block below for the ordering
 #                     and for why mtime is not a candidate.
+#   - type/scope/tags: re-lifted to the top level when absent there and present under
+#                     `metadata:` with a schema-valid value (the type enum and scope
+#                     pattern are read at runtime from memory-schema.json; tags must be a
+#                     string list). Relocation only: no value is mapped or derived, and
+#                     the `metadata:` block itself is never edited.
 #   - created_provenance: emitted ALONGSIDE a bootstrapped `created:` only, naming which
 #                     branch produced it (derived-metadata-modified / derived-git-added /
 #                     bootstrap-write-date). Absent == the `created:` value was observed,
@@ -70,11 +75,13 @@ command -v python3 >/dev/null 2>&1 || exit 0
 
 # --- created: floor derivation (BOOTSTRAP PATH ONLY) -------------------------
 # DERIVE-A-FLOOR, never MINT-TODAY. Two writers own these files with different
-# frontmatter shapes: claude-mem authors memory nodes with a `metadata:` block and NO
-# `created:`, so the first brain-stem-side Edit/Write used to mint `today` and manufacture
-# a false birth date for content that predates it. Preference order (identical in
-# post-write-verify.sh — keep the two in lockstep):
-#   1. claude-mem's own `metadata.modified` — the other writer's in-band origin claim.
+# frontmatter shapes: the Claude Code harness's memory serializer rewrites a memory file
+# with only `name:` and `description:` at the top level and every other key under a
+# `metadata:` block, so there is NO top-level `created:` and the first brain-stem-side
+# Edit/Write used to mint `today` and manufacture a false birth date for content that
+# predates it. Preference order (identical in post-write-verify.sh — keep the two in
+# lockstep):
+#   1. the serializer's own `metadata.modified` — the other writer's in-band origin claim.
 #   2. the git-added date — an independent external record, where the corpus is tracked.
 #   3. no floor -> today, LABELLED as a bootstrap.
 # mtime is deliberately NOT a candidate: this hook is PostToolUse, so the file was just
@@ -99,14 +106,20 @@ if ! printf '%s\n' "$_mas_fm" | grep -qE '^created:'; then
   fi
 fi
 
-python3 - "$FILE_PATH" "$TODAY" "$CREATED_GIT_FLOOR" <<'PY' 2>/dev/null || true
+# The re-lift validates against the schema the install ships; an unreadable schema
+# means no re-lift at all (fail-safe), never a guess.
+MEMORY_SCHEMA_PATH="${CLAUDE_HOME:-$HOME/.claude}/schemas/memory-schema.json"
+
+python3 - "$FILE_PATH" "$TODAY" "$CREATED_GIT_FLOOR" "$MEMORY_SCHEMA_PATH" <<'PY' 2>/dev/null || true
 import sys
 import os
 import re
+import json
 
 file_path = sys.argv[1]
 today = sys.argv[2]
 git_floor = sys.argv[3] if len(sys.argv) > 3 else ''
+schema_path = sys.argv[4] if len(sys.argv) > 4 else ''
 
 try:
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -146,26 +159,133 @@ def set_key(key, value):
 
 set_key('updated', today)
 
-# ---- created: DERIVE-A-FLOOR (bootstrap path only) -------------------------
-# Preference order + the mtime rejection are stated at the bash-side derivation
-# block above. An existing `created:` is never read, never re-stamped, and never
-# gains a `created_provenance:` — the observed-created cohort is byte-untouched.
 DATE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2})')
 NESTED_RE = re.compile(r'^[ \t]+([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$')
 
 
-def metadata_modified_date():
-    """claude-mem's in-band origin claim: the `modified:` key nested under `metadata:`."""
-    if 'metadata' not in keys_seen:
-        return ''
-    for ln in lines[keys_seen['metadata'] + 1:]:
+def metadata_block(fm_lines, top_keys):
+    """The keys nested directly under the top-level `metadata:` key, as
+    [(key, value, deeper_lines)]. Block-aware: the block runs to the first non-blank
+    column-0 line; its key indent is the width of its first non-blank line; only a line
+    at exactly that width is read as a key; a deeper line (a `- item` or a continuation)
+    belongs to the preceding key and is never read as a key, so a mixed-indent key fails
+    closed; a shallower line ends the block."""
+    if 'metadata' not in top_keys:
+        return []
+    entries = []
+    indent = None
+    for ln in fm_lines[top_keys['metadata'] + 1:]:
         if not ln.strip():
             continue
-        m = NESTED_RE.match(ln)
-        if not m:
-            break  # de-indented — end of the metadata block
-        if m.group(1) == 'modified':
-            d = DATE_RE.match(m.group(2).strip().strip('"').strip("'"))
+        width = len(ln) - len(ln.lstrip(' \t'))
+        if width == 0:
+            break
+        if indent is None:
+            indent = width
+        if width < indent:
+            break
+        m = NESTED_RE.match(ln) if width == indent else None
+        if m:
+            entries.append((m.group(1), m.group(2).strip(), []))
+        elif entries:
+            entries[-1][2].append(ln.strip())
+    return entries
+
+
+# ---- type/scope/tags: relocation re-lift ------------------------------------
+# The harness serializer moves every key but `name:`/`description:` under `metadata:`,
+# which blinds every reader keyed on a top-level field. A field absent at the top level
+# is re-lifted only when its nested value is already schema-valid; harness vocabulary
+# is never mapped, and the `metadata:` lines are never edited.
+NON_STRING_RE = re.compile(
+    r'^(true|false|yes|no|on|off|null|~|[-+]?[0-9][0-9_]*(\.[0-9]*)?([eE][-+]?[0-9]+)?)$',
+    re.IGNORECASE)
+
+
+def unquote_scalar(raw):
+    """A plain or single-line quoted YAML string scalar, else None."""
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in '"\'':
+        inner = raw[1:-1]
+        return inner if inner and raw[0] not in inner and '\\' not in inner else None
+    if (not raw or raw[0] in '[]{}&*!|>%@`#"\'' or ': ' in raw or ' #' in raw
+            or raw.endswith(':') or NON_STRING_RE.match(raw)):
+        return None
+    return raw
+
+
+def nested_string_list(value, deeper):
+    """A block list, a flow list or the empty flow list `[]` of strings, else None."""
+    if value:
+        if deeper or not (value.startswith('[') and value.endswith(']')):
+            return None
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        raw_items = [t.strip() for t in inner.split(',')]
+    else:
+        if not deeper or any(not d.startswith('- ') for d in deeper):
+            return None
+        raw_items = [d[2:].strip() for d in deeper]
+    items = [unquote_scalar(t) for t in raw_items]
+    return None if None in items else items
+
+
+def load_schema_rules():
+    try:
+        with open(schema_path, 'r', encoding='utf-8') as f:
+            props = json.load(f).get('properties')
+        type_enum = props['type']['enum']
+        scope_re = re.compile(props['scope']['pattern'])
+        tags_are_strings = (props['tags'].get('type') == 'array'
+                            and props['tags'].get('items', {}).get('type') == 'string')
+    except (OSError, ValueError, AttributeError, KeyError, TypeError, re.error):
+        return None
+    if not isinstance(type_enum, list):
+        return None
+    return type_enum, scope_re, tags_are_strings
+
+
+def relift_schema_fields():
+    rules = load_schema_rules()
+    if rules is None:
+        return
+    type_enum, scope_re, tags_are_strings = rules
+    counts = {}
+    nested = {}
+    for key, value, deeper in metadata_block(lines, keys_seen):
+        counts[key] = counts.get(key, 0) + 1
+        nested[key] = (value, deeper)
+    for key in ('type', 'scope', 'tags'):
+        if key in keys_seen or counts.get(key) != 1:
+            continue
+        value, deeper = nested[key]
+        if key == 'tags':
+            items = nested_string_list(value, deeper) if tags_are_strings else None
+            if items is not None:
+                set_key('tags', json.dumps(items, ensure_ascii=False))
+            continue
+        scalar = unquote_scalar(value)
+        if scalar is None:
+            continue
+        if key == 'type' and scalar in type_enum:
+            set_key('type', value)
+        elif key == 'scope' and scope_re.search(scalar):
+            set_key('scope', value)
+
+
+relift_schema_fields()
+
+# ---- created: DERIVE-A-FLOOR (bootstrap path only) -------------------------
+# Preference order + the mtime rejection are stated at the bash-side derivation
+# block above. An existing `created:` is never read, never re-stamped, and never
+# gains a `created_provenance:` — the observed-created cohort is byte-untouched.
+
+
+def metadata_modified_date():
+    """The other writer's in-band origin claim: `modified:` nested under `metadata:`."""
+    for key, value, _deeper in metadata_block(lines, keys_seen):
+        if key == 'modified':
+            d = DATE_RE.match(value.strip('"').strip("'"))
             return d.group(1) if d else ''
     return ''
 

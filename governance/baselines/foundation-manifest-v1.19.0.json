@@ -1,0 +1,1873 @@
+{
+  "files": [
+    {
+      "mode": "0644",
+      "path": ".gitignore",
+      "sha256": "2101e9a267723b5c4ccd127d50c2172d4698cc969cbe3a636b1a575f150256d1",
+      "size": 502
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/README.md",
+      "sha256": "edb7fdb206b0da913d6a8d94489a37390657e12b9565afb62e7faa281d86daa9",
+      "size": 3007
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.0.2.json",
+      "sha256": "217d498d1e2aa6db332f4adeeb752056c3bc94e3d08d8e76bb84947a0062587a",
+      "size": 38730
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.1.1.json",
+      "sha256": "3562272b10581d39c4282446ec91adac1e2faedd054548b9c409469408ca13e7",
+      "size": 40322
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.1.2.json",
+      "sha256": "c4791808cfd80044bf013b334655b269394a9958d7be32e8f249950ef39d71e5",
+      "size": 40532
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.1.3.json",
+      "sha256": "d2b0239ccd658523f60eb6e14e0c6d1139b12aa902819b804ca5d4d745024837",
+      "size": 41480
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.1.4.json",
+      "sha256": "a75aabf23666efd80cab4efe8cb6bce6078f272026a7e2bd0a5c1d0583422c20",
+      "size": 42319
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.10.0.json",
+      "sha256": "789b28802b8232e05607e9dca8bdd479242cf32ac6784538773475c7ca14c755",
+      "size": 49454
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.11.0.json",
+      "sha256": "17d0816a91691db3570baae31550e43792def22910d43f02db26aae2c0f03d56",
+      "size": 50662
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.12.0.json",
+      "sha256": "dd2d383f84ac12b03aeedd13cce210b4c77c2881c505500efcb132e9db8de5e0",
+      "size": 51077
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.12.1.json",
+      "sha256": "b81b0bf7c61fdd0cef18d9966312392d58796034e64dcf649f713e2190ca786b",
+      "size": 51287
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.13.0.json",
+      "sha256": "c46728b08914a9e5c2a68606faa6269976d6d34abdd0b6b7b7fcbe0ce9d110b4",
+      "size": 50802
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.13.1.json",
+      "sha256": "181a498341dff6e3b43dfccbbbab9ede43382d46ca8a6dbd340c7163c276d4af",
+      "size": 51223
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.14.0.json",
+      "sha256": "c114b54bc24a71d1803fd53434254c577cb10d62cc6b4bb61c6a3e43fba3bdb6",
+      "size": 51622
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.15.0.json",
+      "sha256": "f473d0b1422cd118af2379dd22b10dc5e6cb4d39a352ce081444e95fcb48e693",
+      "size": 52414
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.16.0.json",
+      "sha256": "795f4c15a1850344338a9cbb566dd8ba457c072b7c323188c29c59f636a72474",
+      "size": 53035
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.17.0.json",
+      "sha256": "09d59e8b74a419273762a23c7f3d459ceec92de6aba44b4a6dec92e4f902ddc4",
+      "size": 53639
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.18.0.json",
+      "sha256": "2ae81e3c840bfac6c93ec6fd536a221bcb1196f68d00ff688dde6ec7a5aa162e",
+      "size": 55068
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.2.0.json",
+      "sha256": "5dbc4c44892f6065f17a87227fbc60d5102cfb3afe47f0a9a2eeabcb1da3d006",
+      "size": 46063
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.3.0.json",
+      "sha256": "0fa7c9451ce5aeb0b90811071a0e0353d4f46dae16d7542039c0d4b2147032ee",
+      "size": 46484
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.4.0.json",
+      "sha256": "c892bc0578466d9736f95fde695b88a37379be9d68550a17f67d423d8b3c7511",
+      "size": 46693
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.5.0.json",
+      "sha256": "34a8e8e81151cd89bf031c0a5199d2956d00675a465e34b8e79a9bbfe9503953",
+      "size": 46182
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.6.0.json",
+      "sha256": "187baabba76bbdce5f0f0d31c6189948dd0e1135707bbad6f0acbe9ad5d33ba2",
+      "size": 46183
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.6.1.json",
+      "sha256": "e819a539ae27c0cd140a7e45f0efde51bdf8e34de333a7417370461729cc5e3f",
+      "size": 46392
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.7.0.json",
+      "sha256": "70b3eafedec573afdaf5d1dc5569caafcfcf20ba749f30e9c58c0aa62ec9a28d",
+      "size": 44678
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.8.0.json",
+      "sha256": "5355c732b66389b78cbb3bbe60eccba43bf73ffc7b0c9054e12d9e3321c66ed1",
+      "size": 45476
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.9.0.json",
+      "sha256": "ba5b15dbd2dd55ec88687ab154b2212bb5e1a70dd3fe6ff0eea631408f198928",
+      "size": 47108
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.9.1.json",
+      "sha256": "96ea57f25480bffb2c5950f55cfb4fe48e5bc8da55b796fe78404af826b01316",
+      "size": 47498
+    },
+    {
+      "mode": "0644",
+      "path": "governance/baselines/foundation-manifest-v1.9.2.json",
+      "sha256": "28570085171e2a4f30d81ff55ada691bd386e763f790e1cf14928e8137858b99",
+      "size": 47512
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/CLAUDE.md.json",
+      "sha256": "ff3fad6c6a25685ad3accbe63f64855e8906b38f264b464bc4d0d841a65fe52d",
+      "size": 2939
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/_index.md.json",
+      "sha256": "b21a5846dec88a37ccc2daab49ffc3bca2423e1ad3c59e7836dfe03169e784d2",
+      "size": 15156
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/adr.md.json",
+      "sha256": "11c0a63a63c9be40065c0ab7af2f5c5168d2502a7ea561a7369915a654a29990",
+      "size": 6245
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/deliverable.md.json",
+      "sha256": "2611b183cd0fb21305cac43fc172f847af4db056957afcae8b04ada095518841",
+      "size": 5749
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/doc-amender-prompt.md.json",
+      "sha256": "414da51a1e63cf5641970f7f370d19c2391be77710379d7e9aecb831481f921b",
+      "size": 6132
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/episodic-chronicle.md.json",
+      "sha256": "06de9c1895048794004fded27611c46e5540b12aafd3cbd3b5d51d7bce01ba46",
+      "size": 4744
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/handoff.md.json",
+      "sha256": "92826c395f715eda23f83463eed985aaf256b35861635a1124ad4e1e325cdde3",
+      "size": 2748
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/ideation-brief.md.json",
+      "sha256": "d03036fd9e755298378a5786c006f141aeebe37f88f87a94ec199cf3d423b135",
+      "size": 2623
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/library-article.md.json",
+      "sha256": "c6fbe6f27632d937df82f6c56d78ddaddf4c35f84194f60a682d014c82f79c28",
+      "size": 6337
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/manifest.json.json",
+      "sha256": "2f1685ce5441aef801b0f03521ac7bf8fbffb924e03f47a2d8811a13c7c27e0c",
+      "size": 1341
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/spec.md.json",
+      "sha256": "b0fd78172879a184fcb988c4306a3eb51cd78451da93717ee9835b6649487b77",
+      "size": 1731
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/tasks.md.json",
+      "sha256": "56061367e07cc3adb1627efd1f6e39cd835ac558308972e17dbe8ce71f3eb329",
+      "size": 1641
+    },
+    {
+      "mode": "0644",
+      "path": "governance/file-type-contracts/vault-writer.md.json",
+      "sha256": "bd21601b5e6ed552a266272a162278125c5ae47ada123fd1ce818db24d70acb5",
+      "size": 5672
+    },
+    {
+      "mode": "0644",
+      "path": "governance/foundation-master.json",
+      "sha256": "4306e10062f32d4b752eb8c7775dae4c7f01c18529f93bba352d59331b67939f",
+      "size": 223367
+    },
+    {
+      "mode": "0644",
+      "path": "governance/log-subtype-registry.json",
+      "sha256": "9d8d98301b95e2d6b45b789835dda4f52c4ef37cd618ad830d287106c55c643a",
+      "size": 4890
+    },
+    {
+      "mode": "0644",
+      "path": "governance/overlay-master.json",
+      "sha256": "99fdd4d2cfd85e8e24f694b6c1de05bd16ccd13245f29d5ff4e5385aef32a2fc",
+      "size": 191
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/README.md",
+      "sha256": "beeedd2cb4ebdf3ee4d301b8bd727bc7e309eb752c379f34bbbfd735edbe9dce",
+      "size": 9198
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/cascade-waiver.sh",
+      "sha256": "e7c586afa8413ead3ae7cfea796a0d4cf13cc293e4d0c9e22245faae68f40497",
+      "size": 5224
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/cron-health-banner.sh",
+      "sha256": "282ae8b6257cefdc05c72e3280298534add4dee8640543af753fcbfb572860c5",
+      "size": 19910
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/handoff-chronicle-append.sh",
+      "sha256": "8d2055ce8d7375fa329ad0d62c1c954198b8cc3a7381679205bbde163b837271",
+      "size": 21531
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/instructions-loaded-log.sh",
+      "sha256": "9f2f2b511a46bd79dad9b40881b44bb7e39ef9458a6b9d5798b05339d38f72dd",
+      "size": 5095
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/active-plan-resolve.sh",
+      "sha256": "21325b8b2be7d74d6e5e35146103741ecc1d50138e93877d86ee386ea8a8adc8",
+      "size": 5866
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/anchored-spoke-registry.sh",
+      "sha256": "e42a7f02643ef67fdfaf970aa51811fa95fd34eb044ecd50e50f2eb15071ed6c",
+      "size": 5901
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/cadence.sh",
+      "sha256": "2e23e339a93d794ce60594e9fa85dd939d531d832edb1dfa7b948fe6c7a8a518",
+      "size": 9680
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/checkpoint-guard.sh",
+      "sha256": "9eeb24d50a969a6abce3a4ef9cab56cb25002e125a3b49d32805efa8a8b9e6a1",
+      "size": 7238
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/context-pressure.sh",
+      "sha256": "9ffaf550e42215efc0000d24fec88dc6a2019c1a61e5968d954c3ccbdc6bec2b",
+      "size": 7406
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/dates.sh",
+      "sha256": "2b6314db76ea33e75f5e9905e847735f60f40eaaf221929ad69fa7a3dbee266b",
+      "size": 3898
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/derive-description.sh",
+      "sha256": "86992909e62c6e9a33b30756b2ee55ae1a4b8ee6c43e4d38b3f7bd35cdd529f6",
+      "size": 3663
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/detached-spawn-env.sh",
+      "sha256": "97b2c0ff308da2713e6bafc891b73f54d9b84bdec31235c4f1ff004f2e705ef0",
+      "size": 14317
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/execution-queue.sh",
+      "sha256": "9467731276e9f8440288127da5a4ee4c35c2a5e464a3fc2d2459df1dc3b70dbb",
+      "size": 10762
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/field-set.sh",
+      "sha256": "e05b391af3a6c55032a629affa9b038e0115ae1e892885143c9459b6d30d4f1b",
+      "size": 43141
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/findings.sh",
+      "sha256": "71af8ee04c6c3b74b29316906902384142d377306204ecf5d20e0596d3d9cbeb",
+      "size": 3040
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/foundation-overlay-load.sh",
+      "sha256": "681fd51f672cb200c368cd132e8ddb058ec5ee0667bfe8887dca6f531b7625e6",
+      "size": 31186
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/frontmatter.sh",
+      "sha256": "dd1570f8c66bf4c9cb3613a68d1b525694e898ca73fe72eec0dd8d8c28231fce",
+      "size": 2145
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/governance-read.sh",
+      "sha256": "22d84300d17b55a94abd405fa87247bf142b4255e9843d4f3bc4b96b35328091",
+      "size": 936
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/handoff-recognizer.sh",
+      "sha256": "95caca53214495490892f83042e68999f38b636961b0f73b46ccbfa28dcf7876",
+      "size": 3173
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/inbox-near-dup.sh",
+      "sha256": "f84ddc262e19319c2fbd1f2ef5c41de3bce94187a541ae05d914df9c874aee49",
+      "size": 11164
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/launch-prompt-length.sh",
+      "sha256": "e58ff0086dcf0e3b17c11f414b679a9e3fd557ef3f436c903c5ed154a7e6a48e",
+      "size": 6122
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/lockf.sh",
+      "sha256": "af3a29cec1fa05e4d611de18a5a7ee9946663557e1f9ee369bb17c6eeb020da1",
+      "size": 5141
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/manifest-migrate.sql",
+      "sha256": "fa5493e0c6f11945410eb52e0f4bf03b9f5b74bc6dab206559eb99708c83cee4",
+      "size": 1557
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/manifest-record.sh",
+      "sha256": "9488a760bcbb071853f55cd2a594096aeb7517cc154fcd3040c9ecf9ee0a1f16",
+      "size": 20417
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/manifest.sh",
+      "sha256": "eb638ae42d3bb88f7251429bfa9ad13dad1b687fa10632ad5ed980e0f91beeab",
+      "size": 17791
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/merge-strategy-registry.json",
+      "sha256": "9f56e7120fb71e22b1124c3c4a3b72d04905882c5458f580a6c1abfc5299346c",
+      "size": 5413
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/overlay-master-mutate.sh",
+      "sha256": "e6bd3ab7913ef79af0e172429b01b0afd8ee3ba1569248d33d35b2469dec87ae",
+      "size": 23282
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/paths.sh",
+      "sha256": "93d66dfe26aff8df4df51cce3eb0068acf1dd2691b957a78576fc5b64beb185c",
+      "size": 13078
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/plan-path.sh",
+      "sha256": "e7a0d93393e8609b768525a85752e1aa443161a9b85cecd0f0717dad239feca5",
+      "size": 12156
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/r45-gate.sh",
+      "sha256": "b07f4967a6b34bbca4015e6e7c6ee6105b38a6dfc058362de568eaea7e8a5dab",
+      "size": 18928
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/registry.sh",
+      "sha256": "aff1f0fd798a67aba36d2eed52c09c1cb2fe90f2972053feec9654d448ee82e3",
+      "size": 18674
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/reopen-gate.sh",
+      "sha256": "f83ac28d8d7df27e392f0e5f7c5b3df3b31843d74c8f108d0bf3e716dda28b15",
+      "size": 5539
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/review-queue.sh",
+      "sha256": "75cf22fa0a56904fc7e067c37fcb522ef1979d8cd58c47fa35d3e2d63aeda4bf",
+      "size": 15661
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/lib/staging-emit.sh",
+      "sha256": "4914fab2f58aa5b67b510c6bbd3716f8ce243fa74b5017707f37cd82f701f8bb",
+      "size": 13257
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/surface-roster.sh",
+      "sha256": "a86ec4b7dfc9ce5ce81c63db6a0dedf6a2154728f5a8526a9d35095a97254a0b",
+      "size": 8632
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/tcc-denylist.sh",
+      "sha256": "54271b829226ebffe16588a84fc322ec6db5967f59a275e9556dbb6764b5d801",
+      "size": 2700
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/user-manifest-read.sh",
+      "sha256": "56429b45c204733167c5965f4d91ddda298145a06c04a4fa91db4d7835bf92a2",
+      "size": 3180
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/vault-view-walk.sh",
+      "sha256": "906b07c2464985b3d08e0290306849e1cdb264edd431ca94f2ed3147057b8fd4",
+      "size": 5559
+    },
+    {
+      "mode": "0644",
+      "path": "hooks/lib/work-spoke-layout.sh",
+      "sha256": "99e620020eef0252d21f7cfd2bf5f46b8c607a90be3b88cd99751ad6d667e8c6",
+      "size": 5403
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/library-log-append.sh",
+      "sha256": "2a6cfd9cafd71db0ce3c26974c8556724bdef8e51dd9a5849d056966fd74468f",
+      "size": 11794
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-auto-stamp.sh",
+      "sha256": "5192a253eac3033622f72d54d72342913da7d3852ec3f70933a914e6eba117bf",
+      "size": 13948
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-consolidation-check.sh",
+      "sha256": "c225e5957f0c043588ddf0a032b670c6febfef6f4157b9fe612cab54e77b0444",
+      "size": 9236
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-consolidation-run.sh",
+      "sha256": "e1148b796d1d3f2d8a3a89dbf3c169792ac892b104ae94f94c50cbe66b6bd63a",
+      "size": 26382
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-globalize-auto.sh",
+      "sha256": "6edec0f0435987862ac536b05e7037ba5e91daa86fdbb0c931ae2269a387a2b4",
+      "size": 5693
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-review-banner.sh",
+      "sha256": "7dc85887a0f6b22e62bfb203c05710e2782cd092d4ec00c745ba265f35cf418a",
+      "size": 6803
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/memory-seed.sh",
+      "sha256": "32476e7aa55b0b73d2a0b14dd416f18bb90976e65d54a26ea149d5042500449a",
+      "size": 3520
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/post-handoff-refresh.sh",
+      "sha256": "f7d7a22ba3de5a558ec5da05e4a7583dbbd5faa2ff90b574cd392440437d943f",
+      "size": 8584
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/post-manifest-binder-refresh.sh",
+      "sha256": "3c7ff1565f4fcd3cf34731c7edc6466c415ed49eaf6241f48483c01f1cd13462",
+      "size": 12210
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/post-tool-use-manifest.sh",
+      "sha256": "bd872417c617cfc10373fa79069a33a59a0080d98258f8baf24b9c8b574cabb7",
+      "size": 14352
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/post-work-map-refresh.sh",
+      "sha256": "ed1d706e4ec00c724cb7b688493ff25e4bd9c9703ffc8c9f3a327abff41b9a37",
+      "size": 9858
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/post-write-verify.sh",
+      "sha256": "7a53304e4e2449b8f8540cef738745f23f996a5323de66135a57c08929015232",
+      "size": 22928
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/pre-asq-guard.sh",
+      "sha256": "6c67b7d5f5a588696541cdbd890da71e49c6332c4a93a29647df2a0dd63414ef",
+      "size": 15970
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/pre-compact-checkpoint.sh",
+      "sha256": "79199cf26983f7fb1baa3dc95eb0558b9f0c98c8ced00a79545f253947ab9a4e",
+      "size": 13312
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/pre-research-check.sh",
+      "sha256": "8bbdd309de08ba4a1e477a7a2bfd41f9f15619bf1149d1c4673a9971817f4532",
+      "size": 17232
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/pre-write-guard.sh",
+      "sha256": "c3a38d1b08209d478b38b658d7f18544398fc4412a0c3f51f107d35ada5f73d8",
+      "size": 230474
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/prompt-context.sh",
+      "sha256": "9626bf0a70f3a491d7cac87962469842f568c1bf61e7fbb3b8dd479254b9a8c2",
+      "size": 20790
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/reconcile-sessions.sh",
+      "sha256": "d0c77e3df93d9c7abcd48087cd5cb369191457c6562e27dddb30a27f77d2fcb2",
+      "size": 6452
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-deregister.sh",
+      "sha256": "8c405401131e9caf72b86718e9fc4cbb95723cb364be5650c977de5f426105ff",
+      "size": 13461
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-episode-write.sh",
+      "sha256": "d99a0e8544488a3bf6f551a40bd988734c65ea949e17113e3b6065bd5529b81c",
+      "size": 15813
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-register.sh",
+      "sha256": "daf589e0281246a34abf2a7eaf1c05376b0508e1e883a3dee13b2ac609f73b28",
+      "size": 13410
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-canary.sh",
+      "sha256": "6b872f546f11f4c9fdd764eca3a89735638a524ed7fc7138886efbfdaeaa017f",
+      "size": 2742
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-home-launch-warn.sh",
+      "sha256": "8d87db0c43f3b191ab75fb69c31084db19b2ce8551de8c5a7826c3d4f6dafd66",
+      "size": 4954
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-integrity-backstop.sh",
+      "sha256": "90f9456b3f03d7379eb1cd1eeb7adb9de215ba1a45172eb599790cd4faf67c63",
+      "size": 21317
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-launchd-bootstrap.sh",
+      "sha256": "2d34b77ab3bfab6cc7dcdbf2cfcb203bb7ff2e14b3c737dc3a14a02b515d0f8b",
+      "size": 7052
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-placement-findings.sh",
+      "sha256": "9a0afe94e74a5765634645f5814f852203b66e020f196240b83da518f5e61447",
+      "size": 6701
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start-project-context.sh",
+      "sha256": "1b7a8ccc3819672ac0f1eb8b4b3d4159e7db1e4b90b2653653fee0842330f824",
+      "size": 10874
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/session-start.sh",
+      "sha256": "1ba81bdda50006d6fad23bc3daa30bbb7f358a5249f905070eed6bc5b53a4412",
+      "size": 3323
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/spec-context-inject.sh",
+      "sha256": "315e9ec159a9c23e2d57aa738a006452b9256e2551b9acdb21d88fadb8f19ac2",
+      "size": 18061
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/stop-checkpoint-check.sh",
+      "sha256": "4756e9190b20e6a196cafabbcec1425104c8aa5d65b8a9d12d984503a2e4b0d5",
+      "size": 17230
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/tasks-md-autosync.sh",
+      "sha256": "c02ec50de7667072e0ae4f1acfe409a44a0b29048bbabdd4c41b909771371338",
+      "size": 9521
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/track-vault-write.sh",
+      "sha256": "0fb3780dbfee359dfbae983d2ab5a42f35f55cc561b7d6a24a44646a6ea626b0",
+      "size": 5048
+    },
+    {
+      "mode": "0755",
+      "path": "hooks/worker-statusline.sh",
+      "sha256": "0c3708c4371cec966e0e8b5a425fa1dfd0fe3c78f04a5b4aefa9998fd6aa8fa9",
+      "size": 2446
+    },
+    {
+      "mode": "0644",
+      "path": "installer/cron-wrappers/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0755",
+      "path": "installer/cron-wrappers/doc-amender-cron.sh",
+      "sha256": "35c7b2ed637d0140c738302b006efc8aa29da860c5d6952e15e38ab89498efe6",
+      "size": 2693
+    },
+    {
+      "mode": "0755",
+      "path": "installer/cron-wrappers/writer-reconciler-cron.sh",
+      "sha256": "e06779e79e46207a04410d6593a692729069ae6b5bad11adce8fa00e8974abc0",
+      "size": 3312
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0001-sqlite-ddl-v1-to-v2.sh",
+      "sha256": "bf8d02c39ff664e453cdaf8c78a22de91fe856c56502da8d4574af62bf16ff5c",
+      "size": 2396
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0002-session-registry-reshape.sh",
+      "sha256": "0422adfab6933d52c91435645247dc92ad317649a48ef8d4c2d5ca94078ea400",
+      "size": 2028
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0003-taxonomy-reproject.sh",
+      "sha256": "9e7540e85e9a64b2a0acbf234b1a8927d8709e4322ba10019bc105675f6b1d87",
+      "size": 4176
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0004-relocate-operational-exhaust.sh",
+      "sha256": "fdfcba6bbe6a07ed65c998f29fd55eeb97f9956f4c08c5a8133db43c82817551",
+      "size": 3707
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0005-dimension-prefixes-reconcile.sh",
+      "sha256": "9f06690fcafce9143b073a3a44f5ab10db2d44bca515f5b91e474130f924a8af",
+      "size": 3731
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0006-plan-status-vocabulary.sh",
+      "sha256": "5e4f3c4827fd43742b70e98a77d39984c814c29412e3e274c9a010b471b3cd42",
+      "size": 7382
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0007-retired-surface-removal.sh",
+      "sha256": "f35e5214cdd5df394e754c3c28ca44cbe3c9cf170fa329d84048aab9d11bca3d",
+      "size": 10184
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0008-retire-legacy-hooks-state.sh",
+      "sha256": "752cfb2c05931bdb88299f005ca2dceaddc725c60c9dd2b037d536847b272dbf",
+      "size": 4791
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0009-task-status-vocabulary.sh",
+      "sha256": "2d470be40c06209f8c2fd0e1664c739331bca801f51c76fc95c3af81f43cb546",
+      "size": 9066
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0010-class-a-rules-refresh.sh",
+      "sha256": "dc1827339c9265aee322754bb9e20f9fe37e9b7952c6f0dfdce89abd954cf374",
+      "size": 8464
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0011-class-a-rules-retire.sh",
+      "sha256": "02bcd3f2d998452ec15594d61139eaf647f1eed8d204d14f0c6965a5ad1f7b90",
+      "size": 6886
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/0012-rules-compact-retire.sh",
+      "sha256": "59113a1caa05669e3de6401d718e72a41777de2fd28a4cdf1051b5d14bc2fcd2",
+      "size": 3710
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/class-a-rules-sha-table.sh",
+      "sha256": "40f3cd73e4c7e758b3da58d736a2b0a7bfedc7267607f17a2334558cc20918bb",
+      "size": 5380
+    },
+    {
+      "mode": "0755",
+      "path": "installer/migrations/run-migrations.sh",
+      "sha256": "f5248791d7259a92038b7b4b8841f065326b4337343415dcc0cf10527e8eea8e",
+      "size": 12781
+    },
+    {
+      "mode": "0755",
+      "path": "installer/relocate-state.sh",
+      "sha256": "a46c050df3708a7122d34f27f5c7dbad211669ae46b785808e219bcd87a91810",
+      "size": 17782
+    },
+    {
+      "mode": "0755",
+      "path": "installer/render-launchd.sh",
+      "sha256": "4c8e639fa73ee0cb6181fe824a3066e8a10c40b3c3ccea99e46ebf8530cebfd3",
+      "size": 12302
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/README.md",
+      "sha256": "cc4701d21b5a42d03ade9d63c0d6b935cecd29f1639770d230ef0093311faed2",
+      "size": 4123
+    },
+    {
+      "mode": "0755",
+      "path": "orchestrator/dispatch.sh",
+      "sha256": "7f122a07b165afb59a8377f4154c4c33049c54b113bdbe2b3bb0f8089f346d78",
+      "size": 19604
+    },
+    {
+      "mode": "0755",
+      "path": "orchestrator/job-runner.sh",
+      "sha256": "7e9a4907429863e105dce8dd4ab12030621e091c7455c1fb7da8f348bc68ad6e",
+      "size": 15575
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/lib/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0755",
+      "path": "orchestrator/lib/brief-lint.sh",
+      "sha256": "b91950aa67997ab37e9c068f7d336cba8f8839607a9c57b12afe388f95ce7cbe",
+      "size": 8816
+    },
+    {
+      "mode": "0755",
+      "path": "orchestrator/lib/brief-meta.py",
+      "sha256": "4369f0e299eba5a21762aedd33b9c1bd811fc630f5df549291bd8873da445614",
+      "size": 27333
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/lib/claude-p.sh",
+      "sha256": "cc2acb3f59f75edb3aeee61e7ddb456a2fc38b1f164e6dcf9010a714ea9e3237",
+      "size": 2312
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/lib/idle-watchdog.sh",
+      "sha256": "1651e6af5ba4c96e239b83e72c279093ef5ea27d98d1e640761a645034790a8a",
+      "size": 5345
+    },
+    {
+      "mode": "0755",
+      "path": "orchestrator/lib/pre-dispatch-scoping.sh",
+      "sha256": "aa0e18500af9c568554d41a93f4eed2793431e0c5df9f1206b22df6e5c06c346",
+      "size": 8266
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/lib/tripwire.sh",
+      "sha256": "58b65ddcc18ef156c76c9761a192422924170f42ab9c8750f3704327abdbba08",
+      "size": 4038
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/lib/verifier.sh",
+      "sha256": "e655784a27b958eb3fb823bc6245b364f5b040243fcfc8fc8232eb8387cf1893",
+      "size": 8246
+    },
+    {
+      "mode": "0644",
+      "path": "orchestrator/plan-runner.sh",
+      "sha256": "f87e69e5a3a2ca06c99a1f25fb7edfd3f6fb5de6e43661f7bc3ba6df6eaa2e30",
+      "size": 11625
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/README.md",
+      "sha256": "b95bfb3e65bf3bba4aed5cfc85fdaa19327691132d801652c27e71d181d4d4f2",
+      "size": 163
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/drift-allowlist-schema.json",
+      "sha256": "1f2a7bdef5b09e93187665be741694d5e4f0181762d571652ac1b9a363376cb6",
+      "size": 1674
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/file-type-contract-schema.json",
+      "sha256": "17c760aacd9787eb2760cc60c29fcbe4142b98a2f31e8ae7ec8fcf394a976ae8",
+      "size": 1258
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/governance-action-log-schema.json",
+      "sha256": "a3a59979cb07fa1c2fc0cc8c94da3aee3719492692926254de9e4edc6e685678",
+      "size": 3058
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/librarian-manifest-schema.json",
+      "sha256": "cf871835cc6d3392fd39921d299346b3d3c946e30e9a76b5f2fed056afb62eb5",
+      "size": 5805
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/memory-schema.json",
+      "sha256": "e4893fa372eb24ad3204a842f473189269e88a6bc634ff4fd92d60b212adf062",
+      "size": 13976
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/orchestration-schema.json",
+      "sha256": "822c7f808421a5dd5a146c6f72437bee18937f57dde420bac4d25caacf1e63b8",
+      "size": 4686
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/overlay-master-schema.json",
+      "sha256": "68be585fd940f214f4e88259f72a65f863a70721d84f9f08668a8d1f046abe49",
+      "size": 5722
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/plan-manifest-schema.json",
+      "sha256": "a1358aa4ebd3d5ee487faee749e8d0506a3ff3a572e15027751e666a6be50337",
+      "size": 43565
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/plans-schema.json",
+      "sha256": "b2fa3bd24f58ee6f70fecac6c170cdf6142c5fa19b736b894f4fa37abe8268c0",
+      "size": 2750
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/review-queue-schema.json",
+      "sha256": "0339bdad9a73269d1e27a25c1a338096123732fecb77f7069af9477d540641cd",
+      "size": 5062
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/rules-schema.json",
+      "sha256": "33f19d21f5cbb7c4dbad512b471f2df12f3dac2efceb1c8081d3fb0f152f4e3b",
+      "size": 10992
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/user-manifest-schema.json",
+      "sha256": "611901b65ca5c701857f884d582dd72ac2e019dc88b04f6ec8e5e8197a8306e4",
+      "size": 17614
+    },
+    {
+      "mode": "0644",
+      "path": "schemas/writer-manifest-schema.json",
+      "sha256": "08bd802eef30fbeb7b870b3d27bb29932a31faf8835a3990a8435c864365a58c",
+      "size": 5849
+    },
+    {
+      "mode": "0644",
+      "path": "skills/backlog-hygiene/SKILL.md",
+      "sha256": "0a8a800a90ae6c4e21e2a49818b9b6a6bc32133e53982547ac7dd89795fcd1ea",
+      "size": 12684
+    },
+    {
+      "mode": "0755",
+      "path": "skills/backlog-hygiene/scripts/hygiene-audit.sh",
+      "sha256": "df8602a34a2897d2f6dfc76e74219045eb03adb8778d3df567cdd82df13ba2cc",
+      "size": 24054
+    },
+    {
+      "mode": "0644",
+      "path": "skills/backlog-research/SKILL.md",
+      "sha256": "7164a39a1abc526a9ae0c17d4bd37745e88ca44a32aba8a8e9fe8246cc6382c9",
+      "size": 17748
+    },
+    {
+      "mode": "0644",
+      "path": "skills/backlog-triage/SKILL.md",
+      "sha256": "3a3b0281f806f8dddcd28cebc910646aad38a9837e6aaaa5b99b906801b803a6",
+      "size": 16151
+    },
+    {
+      "mode": "0755",
+      "path": "skills/backlog-triage/scripts/reopen-idea.sh",
+      "sha256": "ee20f8384d98bc27d77458b7392cd04672341a5f632c41094521697ef056b82e",
+      "size": 11040
+    },
+    {
+      "mode": "0755",
+      "path": "skills/backlog-triage/scripts/triage-apply.sh",
+      "sha256": "9829cf29f2c74a65bbdc314afdae8043f06caeacaa43622715bec4e07887341d",
+      "size": 16302
+    },
+    {
+      "mode": "0644",
+      "path": "skills/doc-amender/SKILL.md",
+      "sha256": "968ab9c395fc596c8ccb372906ab7a78c5aa68c8039e4c7dfa28a9f196921e21",
+      "size": 12857
+    },
+    {
+      "mode": "0755",
+      "path": "skills/doc-amender/compose-deterministic.sh",
+      "sha256": "ad562c061e6540c55ee7d1dd01d8cb826c3fd73cec922b6c2fecd94fac77fbde",
+      "size": 13425
+    },
+    {
+      "mode": "0755",
+      "path": "skills/doc-amender/install-watch.sh",
+      "sha256": "0fac3dfdb2a1e58dadbb31828ab7786a04d3c2ff161056caf4f076363c27fccc",
+      "size": 5497
+    },
+    {
+      "mode": "0755",
+      "path": "skills/doc-amender/process.sh",
+      "sha256": "afcc518b109b42c88f50cb37d9211926d81962869f94d6fd35ffbbb347dbef86",
+      "size": 26667
+    },
+    {
+      "mode": "0644",
+      "path": "skills/govern/SKILL.md",
+      "sha256": "006b86744cca89d549a6da93d3375b6081acbae14240400cd423bf98bd1548b4",
+      "size": 27437
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/lib/assemble-validated.sh",
+      "sha256": "e290e6b7826a79a140e3036b2934ce3b12f7fd231bf4208c8ae9f728b7971421",
+      "size": 12178
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/lib/project-workspace/scaffold.sh",
+      "sha256": "e7d632786be9e5597647fb21e758a3c6272d5ec5a1864ed062b30011278aff0b",
+      "size": 14743
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/lib/registry-add-spoke.sh",
+      "sha256": "b780e2bb53a654537aecb344d5f3c9a168e93203e9fdcd765aafdcf78da909b7",
+      "size": 5081
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/doc-amender-prompt.sh",
+      "sha256": "af834b11a41004b8c943f8466f6107ca655e4be0244f364a79ecd22957eb1fa8",
+      "size": 16948
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/file-type.sh",
+      "sha256": "def89d7d8cfd21f72e23cc2e16ac3bf45f300413ff6ade355ee146ca298ed71a",
+      "size": 5563
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/folder.sh",
+      "sha256": "429f84e24f6cf309ead06b2b3505d68f0647e95da18690977fa4a1fa1ee2013f",
+      "size": 10123
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/project.sh",
+      "sha256": "4b028d8512086b13767c274caa4a54fd18d544dffd8444c185007741ab0d2d88",
+      "size": 60327
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/tag-extension.sh",
+      "sha256": "e42c978369cfe77f6515fe33f32c418da5180f878a67d42116f2c0ee108e7d3b",
+      "size": 3990
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/modes/writer.sh",
+      "sha256": "a0ab18d51d8127fd969b648e807b7775848cdad8282ef4da9c34ae2eece144ba",
+      "size": 15514
+    },
+    {
+      "mode": "0755",
+      "path": "skills/govern/process.sh",
+      "sha256": "a9c7d197e16ea6b12384b04a4035d04c838294d537c238b00fc7be322221e9f3",
+      "size": 9482
+    },
+    {
+      "mode": "0644",
+      "path": "skills/librarian/SKILL.md",
+      "sha256": "818714a9c2a1e5e6385255f0cf7056a61df0fd3bbaad29ecac62aa37c49afae9",
+      "size": 73610
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/adr-supersede.sh",
+      "sha256": "91b280ca5425cc3696e3b638ebe4aab06b4700966fc5790e545ac6dfc44120c7",
+      "size": 6200
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/backlog-index.sh",
+      "sha256": "7ae0f8a8291e1a1b8b6375a05bb97e0b44ec6d03c2042c7239b99582816dbe67",
+      "size": 79419
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/backup.sh",
+      "sha256": "8a088e2802f00fc2f22ad33f62afb595ec22a5981046e3fa597bc097a960997b",
+      "size": 15834
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/binder-handoff-append-wrapper.sh",
+      "sha256": "1e42b8019d4b9dca59c98341b9d997969de6c2e00b38cd8adb42cc669739b677",
+      "size": 10954
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/capability-registry-parity.sh",
+      "sha256": "a0becb6b324414c972dc1a03b923fd734f42a476796161070caa9650e68930ed",
+      "size": 52371
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/chronicle-index.sh",
+      "sha256": "82bb5cc05a0532a265fe6fe0494a863c57823b29d88b9ec5aad2c1c117259261",
+      "size": 13543
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/context-budget-index.sh",
+      "sha256": "2b690c62e98a2af8857429449c1d232d91e570e20a6248d73a9b3f72ece66c2c",
+      "size": 31776
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/coverage-guard.sh",
+      "sha256": "907ee141386fa830048367bf9bc3ec253b96d2d0a7d2bc9a1bed5fd145a15800",
+      "size": 13117
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/drift-sweep.sh",
+      "sha256": "f5ba2b6b7f975dc122887939e8ad3b251f8026a78846b50d2ff199bcce295fa3",
+      "size": 6576
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/frontmatter-enforce.sh",
+      "sha256": "f184ab585e5a1ecef17f2b17dae9378b069bab5b62113f50a2375df09d3a5522",
+      "size": 54794
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/governance-parity-audit.sh",
+      "sha256": "f59a578c550e905c327c1b7b869bf52d0ec91f928784de44569ab46c3a929c19",
+      "size": 14050
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/handoff-disposition-check.sh",
+      "sha256": "2343553ccecb02d858decde19aa28785f5577d9f2c6a6898d07868438d95e4f8",
+      "size": 20677
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/handoff-entry.sh",
+      "sha256": "5b402dd052ac338ad6ee484b9b89cba94b0c6b0a912ab7e5000dabc1c87933cf",
+      "size": 8838
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/inbox-drain-check.sh",
+      "sha256": "bce900083bc8f19f44c34666d458fcfacef9a9a96b1dc08fc5903534bcd5d866",
+      "size": 10424
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/inbox-settle.sh",
+      "sha256": "b1515bbe007c8be306e180dcccd57648e34244e67fd32672a1d26aff889d093b",
+      "size": 9562
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/index-maintain.sh",
+      "sha256": "b54ce7792c58350ac068cd35876f3182eb4b9409690c6b2b4cc9019e8eb065ee",
+      "size": 40718
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/librarian-manifest-validate.sh",
+      "sha256": "329d1e26bb77138b152ce7db9863fbb028bd9b3779c854c018b10cca7eb7189c",
+      "size": 12316
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/library-index.sh",
+      "sha256": "f7ea3934dc4bd68dde64568361ef4e52586eded261a6585c43889965e72adb08",
+      "size": 40517
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/library-log-rotate.sh",
+      "sha256": "dbf5d91a5dab0342cd7b6397e464068acd0ba99ac618cf45ff0f0c42bd115ef4",
+      "size": 17653
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/library-scrub.sh",
+      "sha256": "e8b219488b7db75ff08890ddb420faf0eac2d8a85531a6d3772991005f14f48d",
+      "size": 78701
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/link-grammar-convert.sh",
+      "sha256": "b672ef08f33d6e718f74a224e14f0d0ef4da58db8598a004348cb96a14ccd188",
+      "size": 29354
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/log-archive.sh",
+      "sha256": "b492d816615ee769c4b69a70576d3dae0d7ba20484c36146300142b67fa05a94",
+      "size": 6203
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/log-subtype-canonical.sh",
+      "sha256": "c58b78bfb48a7828a5832c7cd7580f854d097621820994f5a981b2141fedbd3e",
+      "size": 10470
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/managed-surface-census.sh",
+      "sha256": "d7419e5711a7d65f5a879f32db83958501d1ad2ec5b0796b43e325af5d82f4e4",
+      "size": 8987
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/matrix-render.sh",
+      "sha256": "b0fbf7914170bb3b69e9d0645b008fb4d35a7a887c226967ca55138398688f14",
+      "size": 21123
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/memory-globalize.sh",
+      "sha256": "ead607a94d8b8bbffc3a3384b1bf674adc26da70c582c57cb5811609a3b99f9e",
+      "size": 24606
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/memory-hygiene.sh",
+      "sha256": "8573c928ecb18833f7999ae180e880911597d07cf7adcf233bdada707806b2ec",
+      "size": 29441
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/memory-spill.sh",
+      "sha256": "ffc2b002ce0885055a6fa37daf401e50ff095cc7d25022dbb2969ddb3f7b993a",
+      "size": 16478
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/memory-staleness.sh",
+      "sha256": "e3d7dc994cc112550468ecf1fbdd3c5e99c73a04abd66930679d2181388b1e66",
+      "size": 12934
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/placement-validate.sh",
+      "sha256": "59dfe351dd0041da1b47c9782ec6926d4001dc67c101e4ff9916c3020f76b61a",
+      "size": 26724
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-asset.sh",
+      "sha256": "1db0b5bfd76fb21424bc6031d443091f034c43b0bd6d97710d084cfbb0ce59a1",
+      "size": 7059
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-context.sh",
+      "sha256": "6151b3be630949957b79afc18e36029d8908a59a7257a7accbed346ff9bbd869",
+      "size": 20878
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-decision-log.sh",
+      "sha256": "a336f058040c7e2d16db89c83085faedaa7e88204d25d99f15da2c3b82c65a58",
+      "size": 24225
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-handoff-index.sh",
+      "sha256": "5e9523a37ffd1535c48db69db83fdbf13ace465e4b649a3f6b9f3710a6f6f090",
+      "size": 32699
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-index.sh",
+      "sha256": "ca90a32c2395f11188b38b1b844727381efb90a748977b40e8954f8c404c0514",
+      "size": 23504
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-parent-resolve.sh",
+      "sha256": "13d99155df6642b2f122b95ae89b5024567415c863def25c32036cb0a7bc79be",
+      "size": 29367
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-research-declare.sh",
+      "sha256": "5cfe3fd21ac77289c478042906fc9f4bc95ffe7b940d5d7170512f3bbf79b628",
+      "size": 24199
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-research-index.sh",
+      "sha256": "0c46a4022ad03adc6a3b77ead764abd9bc4c3ad6fae423d463e5439aefb1b99d",
+      "size": 33392
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-research-supersede.sh",
+      "sha256": "0f1995a37d93b2cec54f5b235478572d34d4570ed45511c9c15becdf057d9040",
+      "size": 6300
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-rule.sh",
+      "sha256": "6072814442de797531fc7e8682cf6bf32dfd769765daa3d9d59ec57a41bd4a33",
+      "size": 16123
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/plan-terminal-lag-check.sh",
+      "sha256": "b379c4276b2d6808554b44f230228efe3838366f71579d6b913ec5c7b77ea600",
+      "size": 10507
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/pointer-currency-scan.sh",
+      "sha256": "787792dc86ec6dccfbaf3d1c985daa4b7af915380b90a1ab3ef3ca332df092ac",
+      "size": 20713
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/project-context-situating.sh",
+      "sha256": "a8567f029897f7ae701d042441141777e28628d0d9c3c7ce0a2e983eeca04574",
+      "size": 33335
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/rename-cascade.sh",
+      "sha256": "1ba08fcb7a5e9176e7c8ccfebeaa1cb254487b37b4efcd2c65be200a6cda8b4b",
+      "size": 29091
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/rename-detect.sh",
+      "sha256": "cfc24fe9518bfadd3f08a7abe31fab98116832f2bf369f552b7c28a7092c854c",
+      "size": 8395
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/rename-history-sync.sh",
+      "sha256": "441a9797bcc8e71b997003e821be734145dbd3ef63195d09b6736b76a094d46a",
+      "size": 6698
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/review.sh",
+      "sha256": "abe337dcba02c6a32201a25c47b09865399f1855de4aea652a1c0e00bbf1eb8f",
+      "size": 14982
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/rules-hygiene.sh",
+      "sha256": "f4930052b6d1fdcd573e91dd85deafcead32d25303a41ea5021ce8cb95d52bc2",
+      "size": 25649
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/rules-index.sh",
+      "sha256": "7eb354bc0e1cc2aa179906976965600d8d5aa480d039f22b3abb5588397c6b43",
+      "size": 15094
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/sanctioned-schema-drift-detect.sh",
+      "sha256": "6cc023b876e07bf702dac0d4624472cc7ec7fb9839652275e6db99e27957c165",
+      "size": 5066
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/session-close.sh",
+      "sha256": "1bcd480b0325ca3de2b166a978d850581c7edc6ace2fdc88f92a656b6e9554d3",
+      "size": 84255
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/skill-parity.sh",
+      "sha256": "bf83eedadb0db199a57e8367093f00326357f92c48d95b3a7bf8c135d88dc97d",
+      "size": 6452
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/skill-referrers.sh",
+      "sha256": "95bec9122c6587e9559ab10ded4f641285c80f4d7114d7c06ff898ac059c039b",
+      "size": 4904
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/stale-detect.sh",
+      "sha256": "40c058270a88b3e702d6a1fc55c5f3b4b47838a09c7be0db132826a971681a3f",
+      "size": 37652
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/subplan-aggregate.sh",
+      "sha256": "9bca55cb6b938ecd7cf87d8de5a818497cf7a6f07a4cddc63810f05083c5e17c",
+      "size": 12619
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/tag-coverage-audit.sh",
+      "sha256": "b067a2a8bd68ab71878e48ebf2aacbac8bf5c0636e2f1e31f373994319ca4257",
+      "size": 14464
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/tasks-render.sh",
+      "sha256": "31523fa1fa4cdd5dfd91a0e8f1f26257c46ab0410b2c6ec577215f093d7dc394",
+      "size": 37655
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/trinity-drift-detect.sh",
+      "sha256": "a7aa19c45516fc337ecbc247dea509ac2687822e41350b13d7ec6e8396a71815",
+      "size": 18970
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/waiver-audit.sh",
+      "sha256": "ff6f8e30a39445cc51d43994e5d2c34d098fcfbaf197d272960e68bb8a45fdda",
+      "size": 16295
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/wikilink-repair.sh",
+      "sha256": "7171892ff5e25001f1b6552ca921fe403494433ec5738f532c30389ecdbde971",
+      "size": 27130
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/work-index-maintain.sh",
+      "sha256": "fee4e0099077fa70ed8f7010994a03b0474e7d86918afe9b0dab3b29f81ba5ec",
+      "size": 25547
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/work-map-generate.sh",
+      "sha256": "0ba45055a4a881756c57eb787532255ca0d968496d6ed39b948703306d2e30c1",
+      "size": 19231
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/workshop.sh",
+      "sha256": "5132511e721ae0bd9758ca03db39db74e5ed7ec187ea868d3b21bb7f7d17886b",
+      "size": 9717
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/writers-health-audit.sh",
+      "sha256": "ab251526175046ba81b73d6998bd48af81cf762a3148d3226535fbe7f8456b13",
+      "size": 17101
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/writers-index-refresh.sh",
+      "sha256": "411c62552214fdaf90ddb4d947ce47dbbb5300e3d52579298c9a9d7cccaf2b25",
+      "size": 15028
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/writers-overlap-refresh.sh",
+      "sha256": "90bd6592a540855fc626ba5ae87a97e81443d490fe317287e08d0991baf16283",
+      "size": 14242
+    },
+    {
+      "mode": "0755",
+      "path": "skills/librarian/capabilities/xref-check.sh",
+      "sha256": "388a6e0843c18b6224bc0ffbd35362585a27f331e7fcd5f29d5402ef4b8060a2",
+      "size": 29642
+    },
+    {
+      "mode": "0644",
+      "path": "skills/librarian/capability-registry.json",
+      "sha256": "a982887c935d034f1c0264c9e9b759a051349fafe5331555d9e1c921934d495f",
+      "size": 100667
+    },
+    {
+      "mode": "0644",
+      "path": "skills/mem-promote/SKILL.md",
+      "sha256": "a6caac94188cd154ab2f3d7d739406222a56749807329c1fd5bb58d597ad490c",
+      "size": 7321
+    },
+    {
+      "mode": "0755",
+      "path": "skills/mem-promote/scripts/prefilter.sh",
+      "sha256": "023fce719ee54ec6d1aa0e3e0d2337119b544fa5d434a9b4b9e10fa503fedf1c",
+      "size": 11775
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/SKILL.md",
+      "sha256": "c90f408ed5d4a9fd8cb9654756b0a82f4b4649cb4fae64b0640a77701a796c21",
+      "size": 11403
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/after-write.sh",
+      "sha256": "a7caad8ed58ecee907e41a169d8e78d14a80691501ef59c01a786aae169de9a7",
+      "size": 2626
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/graduate-plan.sh",
+      "sha256": "826103124c237d35de2e0ca78e9f437f8d056ffe26a1e0629c6cc052b507ce5b",
+      "size": 19669
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/master-rollup.sh",
+      "sha256": "f596e5e5bd7a7422d3a15a19dc775cb3d81af107202cfe22b6aff9dd8ec0367a",
+      "size": 7626
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/promote-from-inbox.sh",
+      "sha256": "1de10b33fae02d1b5e7591aec6abaf8883f3b21f4b8621fe73fd2810687b2002",
+      "size": 56050
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/rehome-stray.sh",
+      "sha256": "ca04cc93c4e9663d64b4ac42113f3068475a3d6129a5b5972f70ffec1c91b571",
+      "size": 13038
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/lib/spoke-resolve.sh",
+      "sha256": "3f30f8d610d1d5ddd2f1b2c2d7dbefc118cedad7ff34229d2a5c7b763c6437b8",
+      "size": 7948
+    },
+    {
+      "mode": "0755",
+      "path": "skills/new-plan/new-plan.sh",
+      "sha256": "6b1141a70c07ac34c5941348b236755591fffb453928ef17e246e80dd84f6e2b",
+      "size": 33620
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/00-ideation-brief.md.tmpl",
+      "sha256": "eddfc0d9a1ffad1de363c2f9581e412ba08172834881278f70937c29fed15083",
+      "size": 2736
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/master-handoff.md.tmpl",
+      "sha256": "93035a4f3cbe24b28ab99628d6c0ad17868672f761a14f41898a8d037c80e98d",
+      "size": 2093
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/master-manifest.json.tmpl",
+      "sha256": "352c6b8d8ceb378208c7c81be0afe5f7a9fdbe4f236331545a46a79099159c79",
+      "size": 533
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/master-spec.md.tmpl",
+      "sha256": "464a5b292f50b81da29324c0240d8dc286adc310031703ad74cbbb4fde5473ee",
+      "size": 3168
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/master-tasks.md.tmpl",
+      "sha256": "b5108940ddd8f3c6c8b0437dd7f8f04a3dc852a7922250024cfc40d322a2e972",
+      "size": 1623
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/sub-handoff.md.tmpl",
+      "sha256": "22ad3af514d23225dabeff40f3133dd106c719d9e7a63ad0aec345db6436c1d6",
+      "size": 2343
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/sub-manifest.json.tmpl",
+      "sha256": "84726e8480f22ffec27e59ae76d93606846676dc63efb6b7d98f2e8a90476b29",
+      "size": 912
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/sub-spec.md.tmpl",
+      "sha256": "34b9478c5f83fbaad120732c1809a43a0e8046f55c2112c84241206d9a5a4d03",
+      "size": 2970
+    },
+    {
+      "mode": "0644",
+      "path": "skills/new-plan/templates/sub-tasks.md.tmpl",
+      "sha256": "16e00bb3866644bfa9948d267808f7a7d9c8c2e5f706a6d2841409858b3b71d8",
+      "size": 1911
+    },
+    {
+      "mode": "0644",
+      "path": "skills/onboarder/SKILL.md",
+      "sha256": "c7f3abded0a05bc714974faf56a06e5aa498c48e76e609022fab8106d6be5da7",
+      "size": 10287
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/onboard.sh",
+      "sha256": "92c4e214d11daba0972069a543166e7fd57dffe3db7664adabda08d45a34c449",
+      "size": 13288
+    },
+    {
+      "mode": "0644",
+      "path": "skills/onboarder/references/extraction-prompts/section-B-slim.md",
+      "sha256": "d44b919c1b3426c647b2ccd735932f538bc4331ac7087f079e343739f8905970",
+      "size": 3844
+    },
+    {
+      "mode": "0644",
+      "path": "skills/onboarder/references/prompt-cards/section-b-slim.txt",
+      "sha256": "187386eaa932bdaf802a759b12c6e37a11ba0ed4aba84abd50158a6c00931743",
+      "size": 790
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/author-claude-home.sh",
+      "sha256": "1ccf41fb496349c3cc1fd00bc955eb9916c2852b740086e5bc404795c7a51b22",
+      "size": 6950
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/bootstrap-user-manifest.sh",
+      "sha256": "9cc84f18a06a3382c1a6c03f97facfe3e50cf3921f8fc196db795b041163402e",
+      "size": 10110
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/build-brain-vault.sh",
+      "sha256": "3869861c663efba7f5588672e9c3f533cf5bbcd1586120bca296c4f5afc4465d",
+      "size": 19348
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/external-setup-gate.sh",
+      "sha256": "ddc4a96031a24837e0440f258020a395b57e9aa097c98104d98115e2a6add6df",
+      "size": 12801
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/fallback/typed-textarea.sh",
+      "sha256": "b204ed7457b9c02a39f69b3b1a3f66f52e742583248df6110abb89ee7c1f60f0",
+      "size": 4370
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/lib/settings-paths-probe.sh",
+      "sha256": "e787fa54c5696c8c1306e4438b559da58b1d779eb9b6f53b204f53e84330a3e8",
+      "size": 3908
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/section-a-slim.sh",
+      "sha256": "ea151adbdb2196b19f8124bf82e1f9755aba361373ef2166fdf0d2c21a0c7ebd",
+      "size": 11479
+    },
+    {
+      "mode": "0755",
+      "path": "skills/onboarder/scripts/section-b-slim.sh",
+      "sha256": "489421e1bdfee8ebc6539e0daa94abf6e91936832eda44fe1fde3e59e0b83ca9",
+      "size": 12130
+    },
+    {
+      "mode": "0644",
+      "path": "skills/session-checkpoint/SKILL.md",
+      "sha256": "1aca2331befbc19d4eb6cba2ce1888139c65998350765780660d76098d4954e0",
+      "size": 12552
+    },
+    {
+      "mode": "0755",
+      "path": "skills/session-checkpoint/checkpoint-gather.sh",
+      "sha256": "eb0cee8f1afb346c1434dcc977ebf8c33c7a933fed700941a5f1f37304016095",
+      "size": 10213
+    },
+    {
+      "mode": "0755",
+      "path": "skills/writer-reconciler/process.sh",
+      "sha256": "7d4cfa471913ec1ed8b99eadb5907445e343ca17b02ae1ea460766fce116b463",
+      "size": 24210
+    },
+    {
+      "mode": "0644",
+      "path": "templates/MEMORY.md.template",
+      "sha256": "62730ae2114ac26660d43f45fb9cb34b0c55709f0132c179eb48700d50cd519d",
+      "size": 4918
+    },
+    {
+      "mode": "0644",
+      "path": "templates/claude-home-claude-md-template.md",
+      "sha256": "5c5b631bae65f2d71d68fff09065809b44984ab20d7d2417dc3e942c5d5bdd86",
+      "size": 1992
+    },
+    {
+      "mode": "0644",
+      "path": "templates/claude-home-rules-readme-template.md",
+      "sha256": "724f951d935b2311bd6fcf7f19fe6e06029b6f9b091e9fcf0e1dd96924904574",
+      "size": 8094
+    },
+    {
+      "mode": "0644",
+      "path": "templates/decision-log-template.md",
+      "sha256": "2942fdd8b8de45ae88d4eec14a3a9f2253b72ba8f19f94ce36e04ece5d55ea66",
+      "size": 2123
+    },
+    {
+      "mode": "0644",
+      "path": "templates/handoff-chronicle-template.md",
+      "sha256": "6aa593c447653eedf2c6f78ef05807c4da07c7eb331025e3a4d3ddd0b5b94512",
+      "size": 2610
+    },
+    {
+      "mode": "0644",
+      "path": "templates/idea-note-template.md",
+      "sha256": "7452bcbd92372db9a02820b7484499432ac8eae83848a943e02f79ea4d97d63e",
+      "size": 3485
+    },
+    {
+      "mode": "0644",
+      "path": "templates/ideation-brief-template.md",
+      "sha256": "3e52ec0c7087be7352c816283a38633e0508d351907bbf1fe4ff2f9dcde91e82",
+      "size": 2046
+    },
+    {
+      "mode": "0644",
+      "path": "templates/launchd/doc-amender.plist.tmpl",
+      "sha256": "81501ce7b01d88efc9b81a20c8527bd00fe760839b9e793f1595324b88bedae1",
+      "size": 1684
+    },
+    {
+      "mode": "0644",
+      "path": "templates/launchd/writer-reconciler.plist.tmpl",
+      "sha256": "233ee087ea692375b7d9a3e88b9b81bdde56f225f000f12ef4b05fc0dad6f48c",
+      "size": 2042
+    },
+    {
+      "mode": "0644",
+      "path": "templates/librarian-manifest-skeleton.json",
+      "sha256": "366a3e3779b624881b28a5401fc6241d74c6d8e0e400ece8fb919d9ea23c1e98",
+      "size": 342
+    },
+    {
+      "mode": "0644",
+      "path": "templates/library-article-template.md",
+      "sha256": "4b4dc58c4a8b6c9ad2f133b70d7bb10f76f5710364e825ed1087bde62155d07a",
+      "size": 2712
+    },
+    {
+      "mode": "0644",
+      "path": "templates/research-index-template.md",
+      "sha256": "655741dc0b24a0de173b32b50cf603295f25909c623b4198f9ed2a6cf4618f04",
+      "size": 2912
+    },
+    {
+      "mode": "0644",
+      "path": "templates/settings-fragments/multi-session.json",
+      "sha256": "82f803c56950e949b4e625ad0e43972ba5bf162cc56775a83dcb579f0aaef080",
+      "size": 1027
+    },
+    {
+      "mode": "0644",
+      "path": "templates/settings-required-hooks.json",
+      "sha256": "2c2ff98acc15ef7c26478e0f89881dea99dfa52984db9c430db76569f4caed33",
+      "size": 6398
+    },
+    {
+      "mode": "0644",
+      "path": "templates/settings-seeded-permissions.json",
+      "sha256": "a280830ecdeeac2402447fc6a7d7d68c6a7ad984d2ce8a4bbdfd127b43d1fbc9",
+      "size": 1511
+    },
+    {
+      "mode": "0644",
+      "path": "templates/settings.json",
+      "sha256": "79c12cade8495c9c793650ad6e47a4cf3f89c6a06efbb7846d696256c829ccc9",
+      "size": 5309
+    },
+    {
+      "mode": "0644",
+      "path": "templates/topic-index-template.md",
+      "sha256": "36640c855d3ec8624663b78d630c690893b757d1d7ca6955b38aae4ed388b120",
+      "size": 2634
+    },
+    {
+      "mode": "0644",
+      "path": "templates/vault-claude-md-template.md",
+      "sha256": "79e2da58ebf0a2ea87b20a260d76fa38b8cc0e481b31285d1c7e0e984bc7c1b7",
+      "size": 1857
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Bases/_index.md",
+      "sha256": "ccca1daef3a0cbc314ae892e0304331514db0dbe4f6457f48f31cbc9d1434fdb",
+      "size": 1041
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Bases/all-durable-by-type.base",
+      "sha256": "1b459580d82a4602f5c98e5771f7e403b722ac4bcdc6d7a8efcb1e0896ea484b",
+      "size": 619
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Bases/recent-with-summaries.base",
+      "sha256": "2f640ddbbd54aa39da08d6699ad916b08368861dbeff9bb6d6a26eb9082f812c",
+      "size": 552
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Bases/status-board.base",
+      "sha256": "7d8259679f49b692fd6083825eda31872e5b049eb0fecf4197aac3826d44a126",
+      "size": 526
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Vault Writers/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": "vault-init/Vault Writers/_index.md",
+      "sha256": "2ee2f16e0e420850966fa3590b46c6c3028e04d7ba02d9a1cef2602f70c2d995",
+      "size": 1331
+    }
+  ],
+  "generated_at": "2026-09-03T06:34:52Z",
+  "generator_sha256": "6a7fc85b0618d0338382d6f257e8a911de1e4a06a9e86e5fb33738739d210acc",
+  "version": "v1.19.0"
+}
