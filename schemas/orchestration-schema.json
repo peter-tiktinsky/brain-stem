@@ -87,7 +87,7 @@
           "skip_weekends": {
             "type": "boolean",
             "default": true,
-            "description": "If true, the cron wrapper exits 0 on Saturday + Sunday without firing claude. Consumed by librarian-cron.sh via SKIP_WEEKENDS env (exported into the launchd plist EnvironmentVariables block by render-launchd.sh; default true). Architect ignores this field — its weekly schedule is owned by schedule.dow."
+            "description": "Reserved, with no effect: no shipped cron wrapper, launchd renderer or job runner reads this field. Scheduled for removal by migration; do not set it."
           }
         }
       }

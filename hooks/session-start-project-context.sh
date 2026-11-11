@@ -15,9 +15,8 @@
 #      the SessionStart timeout. It does NOT use session-start-integrity-backstop.sh
 #      (that is crash-only — not the staleness vehicle).
 #   4. (T-07) FORCE-INGEST the card {PLANS_ROOT}/_projects/<spoke>/_situating.md as
-#      additionalContext via format_output (NOT format_output_allow): the card is
-#      PRE-BOUNDED < 9728B by the generator (Round A), so no truncation guard is
-#      needed; format_output_allow would re-truncate a card already within budget.
+#      additionalContext via format_output: the generator pre-bounds the card below
+#      9728B, so the bound format_output applies to every context never clips it.
 # Graceful no-op (exit 0, emit NOTHING — never an empty injection, never a crash;
 # degrade to the install.sh rule fallback) when: `.cwd` is absent, no spoke
 # resolves, or no card exists on disk. A SessionStart hook that non-zero-exits or
@@ -197,7 +196,7 @@ fi
 CARD_BODY=$(cat "$CARD" 2>/dev/null || true)
 [ -z "$CARD_BODY" ] && exit 0
 
-# format_output (NOT _allow): the card is pre-bounded < 9728B by the generator, so
-# no truncation guard is wanted; _allow would silently corrupt an in-budget card.
+# The generator bounds the card below 9728B, so the bound in format_output
+# never clips it.
 format_output "$EVENT" "$CARD_BODY" || exit 0
 exit 0

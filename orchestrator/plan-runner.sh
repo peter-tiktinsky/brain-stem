@@ -11,8 +11,9 @@
 # `dispatch.sh --job → job-runner.sh` path.
 #
 # Shape (§Decision): a propose-and-gate orchestrator, the CC-native
-# shape — NOT an autonomous daemon. No task fires without a human
-# reasoning/approval point (see HITL/HOTL gate below).
+# shape — NOT an autonomous daemon. A HITL task stops for human approval (see
+# HITL/HOTL gate below); HOTL tasks proceed, and jobs dispatched without this
+# runner carry no human gate.
 #
 # — tasks[].prompt_file resolution (DEFAULT (A) Convention)
 # Each task's worker brief is resolved by CONVENTION at:
@@ -156,7 +157,7 @@ dispatch_sub() {
     # dispatch.sh resolve_job() finds the validated $brief (exact-name
     # fallback) and execs `job-runner.sh --prompt-file <brief>` (the existing
     # contract). We route through dispatch.sh (not job-runner.sh directly) so
-    # the --immediate/--overnight/--delay queue routing is preserved.
+    # the --immediate and --delay routing is preserved.
     echo "  dispatch: $task_id (brief: $brief)"
     bash "$DISPATCH" --job "$task_id" --immediate || {
       echo "  FAILED: $task_id" >&2

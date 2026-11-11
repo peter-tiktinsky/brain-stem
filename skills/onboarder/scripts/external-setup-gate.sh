@@ -69,7 +69,7 @@ while [ $# -gt 0 ]; do
     --probe-lib)    PROBE_LIB="$2"; shift 2 ;;
     --auto-accept)  AUTO_ACCEPT=1; shift ;;
     --auto-skip)    AUTO_SKIP=1; shift ;;
-    -h|--help)      sed -n '2,52p' "$0"; exit 0 ;;
+    -h|--help)      awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)              diag "unknown arg: $1"; exit 2 ;;
   esac
 done
@@ -157,7 +157,8 @@ EOF
 # file and hands the model a short preview instead — the tokens are spent, the recall is
 # not delivered. The knobs that size it live in the PLUGIN's own settings file, which is
 # adopter-owned third-party configuration: this gate prints the recipe and never writes
-# it. Emitted for every claude-mem disposition (already-present / will-set-up / skipped)
+# it; the command claude-mem-context-set.sh, beside this script, applies it on request (dry
+# run by default). Emitted for every claude-mem disposition (already-present / will-set-up / skipped)
 # so an adopter who installs claude-mem later still has the recipe. Advisory only — it
 # records nothing, changes no disposition, and cannot affect the exit code.
 claude_mem_context_note() {
@@ -179,6 +180,7 @@ claude_mem_context_note() {
         CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT=false
 
   (both counts to 0, and every CLAUDE_MEM_CONTEXT_SHOW_* flag to false.)
+  To have it applied for you: skills/onboarder/scripts/claude-mem-context-set.sh (a dry run unless you add --apply).
 
   Why: hook output is capped at 10,000 characters, and once you have real history
   that index runs well past it. Past the cap the harness writes the whole payload to
@@ -239,7 +241,7 @@ gate_tool() {
 
 printf '\n=== External setup — recommended for the full experience ===\n' >&2
 
-# claude-mem onboarding offer (.2). claude-mem
+# claude-mem onboarding offer. claude-mem
 # is OPTIONAL/recommended, NEVER required (System B is strictly additive). Honest
 # standalone-vs-augmented framing + the concrete marketplace-install command.
 gate_tool claude-mem probe_claude_mem "claude-mem (memory)" \

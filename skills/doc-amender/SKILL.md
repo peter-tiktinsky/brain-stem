@@ -29,7 +29,7 @@ amender-eligible packets from staging, runs an operator-authored prompt asset
 through `claude -p` (or the deterministic composer for
 `persistence.mode=deterministic`), and emits a REPLACEMENT packet back to
 staging via `hooks/lib/staging-emit.sh --packet-kind amender-replacement`. The writer-reconciler
-(WatchPaths-primary + relaxed hourly StartInterval backstop,) then writes
+(WatchPaths-primary + relaxed hourly StartInterval backstop) then writes
 the destination mechanically per R-34.
 
 Doc-amender is **NOT** a cron skill. It is triggered by launchd `WatchPaths`
@@ -44,7 +44,7 @@ self-loop. Concurrent fires are coalesced (or blocked) via a global lockf on
 Doc-amender is **NOT** a destination writer. R-34 is preserved structurally:
 all output round-trips through `hooks/lib/staging-emit.sh`, and the writer-reconciler
 owns the actual destination write on its WatchPaths-hybrid trigger (WatchPaths
-primary + relaxed hourly StartInterval backstop,).
+primary + relaxed hourly StartInterval backstop).
 
 ## Pipeline
 
@@ -62,7 +62,7 @@ writer  ─emit─►  staging packet (packet_kind=writer-emit)
                        ▼
               hooks/lib/staging-emit.sh --packet-kind amender-replacement
                        │
-                       │  (writer-reconciler WatchPaths fire + StartInterval backstop,)
+                       │  (writer-reconciler WatchPaths fire + StartInterval backstop)
                        ▼
               writer-reconciler  ─writes─►  destination
                                               (mechanical-only per R-34)
@@ -80,6 +80,12 @@ writer  ─emit─►  staging packet (packet_kind=writer-emit)
 # Dry-run — see eligibility plan + would-be claude -p invocations; write nothing
 ./process.sh --dry-run
 
+# List the conflict sidecars under the staging root (read-only; no lock)
+./process.sh --list-conflicts
+
+# Triage one sidecar: move it to <writer dir>/_resolved/ (the retained packet is untouched)
+./process.sh --resolve <sidecar>
+
 # Install the launchd WatchPaths agent (renders the doc-amender plist)
 ./install-watch.sh
 
@@ -96,13 +102,15 @@ writer  ─emit─►  staging packet (packet_kind=writer-emit)
 | `--dry-run` | off | Emit eligibility + prompt-resolution plan on stdout; skip LLM calls and staging-emit. |
 | `--once` | off | Single scan + exit (default behavior — WatchPaths fires the process per event). |
 | `--audit-log <path>` | `$CLAUDE_LOG_DIR/doc-amender-audit.log` | Append-only JSONL audit log (one row per amendment attempt). |
+| `--list-conflicts` | off | Print one tab-separated row per conflict sidecar under the staging root: path, `reason`, `destination_path`, candidate count. Takes no lock and writes nothing; exclusive with `--resolve` and takes no scan flags. |
+| `--resolve <sidecar>` | — | Move one conflict sidecar to `<writer dir>/_resolved/` (never deleted; refuses a path that is not a conflict sidecar under a writer dir of the staging root). The retained packet is not touched. Exclusive with `--list-conflicts` and takes no scan flags. |
 
 ## Eligibility filter
 
 Per WatchPaths fire OR explicit `--once` invocation, doc-amender decides which
 packets to amend via the **writer-fan-in join surface** per:
 
-1. Read `governance/doc-dependencies.json`; filter `entries[]` to
+1. Read the effective .doc_dependencies slot (foundation plus overlay, overlay wins; loaded through hooks/lib/foundation-overlay-load.sh); filter `entries[]` to
    `kind == "writer-fan-in"` AND `amendment_strategy == "prompt-guided-amend"`.
 2. Enumerate packets under `$STAGING_ROOT/<writer-id>/*.json`.
 3. For each packet: parse JSON; **self-exclusion filter** —
@@ -158,10 +166,13 @@ context; capture stdout as new body; emit replacement packet via staging-emit.
 - **Replacement packet** at `$STAGING_ROOT/<original-writer-id>+amender/<new-sha>.json`
   via `hooks/lib/staging-emit.sh --packet-kind amender-replacement`. The reconciler
   picks it up on its WatchPaths-hybrid trigger (WatchPaths primary + relaxed
-  hourly StartInterval backstop,) and writes the destination mechanically.
+  hourly StartInterval backstop) and writes the destination mechanically.
 - **Conflict sidecar** at `<original-packet-path>.amender-conflict.json` when
   survivorship signal 2 fires OR when prompt-resolution returns multiple
-  matches. Free-form JSON; operator triages.
+  matches. Free-form JSON; the operator lists the sidecars with
+  `./process.sh --list-conflicts` and moves a triaged one aside with
+  `./process.sh --resolve <sidecar>`. The verbs move a sidecar and nothing else:
+  operator-edit-wins stays, and there is no destination merge.
 - **Audit log** at `$CLAUDE_LOG_DIR/doc-amender-audit.log` (append-only JSONL).
   One row per amendment attempt — including skip / conflict / success /
   failure outcomes.
@@ -193,7 +204,8 @@ survivorship conflict, staging-emit failure): emit `_amender-conflict.json`
 sidecar; emit audit-log row with failure reason; continue to next packet.
 The **original packet is RETAINED in staging** — the reconciler picks it up
 on its next tick and writes the destination via the non-amended path (the
-operator triages the sidecar separately, by hand).
+operator lists the sidecars with `--list-conflicts` and moves a triaged one aside
+with `--resolve <sidecar>`; the retained packet is left in place).
 
 ## Why event-driven, not cron
 
@@ -208,7 +220,7 @@ reconciler cadence — unwanted). NO `doc_amender_tick_minutes_default` field in
 
 ## Limitations and non-goals
 
-- **No classification.** Writer-references + `doc-dependencies.json` decide
+- **No classification.** Writer-references + the effective .doc_dependencies slot decide
   eligibility upstream. Doc-amender does not infer fan-in destinations.
 - **No direct destination writes.** All output round-trips through
   `hooks/lib/staging-emit.sh` per R-34. The reconciler owns the destination write.

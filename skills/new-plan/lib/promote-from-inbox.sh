@@ -34,6 +34,8 @@
 #
 # CLI:
 #   promote-from-inbox.sh <inbox-slug>                  # graduate the note
+#       # a lead note, and each --absorb note, graduates only at a funnel status the plans rules list
+#       # (inbox.graduation_precondition.status); triage-apply.sh moves a new note to one of them.
 #   promote-from-inbox.sh <inbox-slug> --title "X"      # override rendered title
 #   promote-from-inbox.sh <inbox-slug> --project <key>  # override owning-spoke
 #   promote-from-inbox.sh <inbox-slug> --dry-run        # compute + emit; no write
@@ -67,6 +69,7 @@
 # artifact with no owning plan is captured then graduated through this funnel, never written
 # straight to a hand-invented ~/.claude-plans/ root surface:
 #   capture:   promote-from-inbox.sh --capture <slug> --disposition <value>   # write the decided idea note now
+#   triage:    triage-apply.sh <slug> --classification <class> --rationale <line>  # classify it (new -> triaged)
 #   graduate:  promote-from-inbox.sh <slug>                                   # mint the NN-<slug>/ plan when ready
 # then precursors go in a workshop dir (workshop open <topic>-<plan-slug>) and the one synthesis moves into <plan>/_research/ with workshop promote <key> <file> --plan <plan-dir>.
 # These lines are the guard's deny/ask redirect text — keep them in sync with the guard message.
@@ -165,7 +168,7 @@ while [[ $# -gt 0 ]]; do
     --amend) AMEND_SET="1"; AMEND="${2:-}"; shift 2 ;;
     --distinct-from) DISTINCT_SET="1"; DISTINCT_FROM="${DISTINCT_FROM}${2:-}"$'\n'; shift 2 ;;
     --distinct-scope) SCOPE_SET="1"; DISTINCT_SCOPE="${2:-}"; shift 2 ;;
-    -h|--help) /usr/bin/sed -n '2,76p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) /usr/bin/awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     -*) echo "promote-from-inbox: unknown flag '$1'" >&2; exit 2 ;;
     *) if [[ -z "$SLUG" ]]; then SLUG="$1"; else echo "promote-from-inbox: unexpected arg '$1'" >&2; exit 2; fi; shift ;;
   esac
@@ -296,6 +299,18 @@ elif [[ "$ACTION" == "promote" ]]; then
 else
   # capture: cwd auto-resolve (attribution stamped into the note up front).
   SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
+  # A capture run from inside the plans root resolves to `home`, which is rarely the owning spoke:
+  # say so once on stderr. The capture itself continues unchanged (same exit code, same note bytes).
+  if [[ "$SPOKE_KEY" == "home" ]] && [[ -d "$PLANS_ROOT" ]]; then
+    _cwd_phys="$(pwd -P)"
+    if _root_phys="$(cd "$PLANS_ROOT" && pwd -P)"; then
+      case "$_cwd_phys/" in
+        "$_root_phys"/*)
+          echo "promote-from-inbox: NOTE: capture ran from inside the plans root and resolved project 'home'; pass --project <spoke-key> to file the note under its owning spoke" >&2
+          ;;
+      esac
+    fi
+  fi
 fi
 
 # Capture body: a piped stdin is the note body. The python heredoc below takes stdin, so
@@ -343,10 +358,15 @@ for _nd in \
   if [[ -f "$_nd" ]]; then NEAR_DUP_SCRIPT="$_nd"; break; fi
 done
 
+# The triage command a refusal names: a sibling skill of this helper's own location, so a repo run
+# names the repo copy and a live run the live copy.
+TRIAGE_APPLY="$(dirname "$SKILL_DIR")/backlog-triage/scripts/triage-apply.sh"
+
+PLAN_COMMON_DIR="$SCRIPT_DIR" PYTHONDONTWRITEBYTECODE=1 \
 python3 - "$ACTION" "$PLANS_ROOT" "$DRY_RUN" "$TMPL_DIR" "$RULES_PATH" "$SLUG" "$TITLE_OVERRIDE" "$SPOKE_KEY" "$TASKS_RENDER" "$BODY_FILE" "${CLAUDE_WORKSHOP_DIR:-}" \
   "$DISPOSITION_SET" "$DISPOSITION" "$ABSORBED_SET" "$ABSORBED_INTO" "$ABSORB_SLUGS" \
   "$RELEASE_CLASS_SET" "$RELEASE_CLASS" "$SIZE_SET" "$SIZE" "$REOPEN_GATE_SET" "$REOPEN_GATE" "$REOPEN_GATE_SCRIPT" "${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}" \
-  "$AMEND_SET" "$AMEND" "$DISTINCT_FROM" "$SCOPE_SET" "$DISTINCT_SCOPE" "$NEAR_DUP_SCRIPT" <<'PY'
+  "$AMEND_SET" "$AMEND" "$DISTINCT_FROM" "$SCOPE_SET" "$DISTINCT_SCOPE" "$NEAR_DUP_SCRIPT" "$TRIAGE_APPLY" <<'PY'
 import json
 import os
 import re
@@ -355,6 +375,9 @@ import subprocess
 import sys
 import tempfile
 from datetime import date
+
+sys.path.insert(0, os.environ["PLAN_COMMON_DIR"])
+from plan_common import cohort_base, q
 
 action = sys.argv[1]
 plans_root = sys.argv[2]
@@ -390,6 +413,8 @@ distinct_from = [s.strip() for s in (sys.argv[27] if len(sys.argv) > 27 else "")
 scope_set = len(sys.argv) > 28 and sys.argv[28] == "1"
 distinct_scope = (sys.argv[29] if len(sys.argv) > 29 else "").strip()
 near_dup_script = sys.argv[30] if len(sys.argv) > 30 else ""
+# The triage command a graduation refusal names.
+triage_apply = sys.argv[31] if len(sys.argv) > 31 else ""
 
 today = date.today().isoformat()
 
@@ -414,7 +439,7 @@ def abort(reason, **extra):
 
 
 def delegate_render(target_dir):
-    """RULING 2 (): delegate the tasks.md sentinel-region fill to librarian:tasks-render
+    """RULING 2: delegate the tasks.md sentinel-region fill to librarian:tasks-render
     (the SINGLE writer of the region, R-37/) after the graduated manifest.json is on disk,
     so a graduated plan ships one renderer-owned `## Tasks` INSIDE the sentinels rather than a
     statically pre-emitted duplicate. BEST-EFFORT: a render hiccup must NOT undo an already-valid,
@@ -453,12 +478,6 @@ def fm_value(raw):
     return raw
 
 
-def q(value):
-    """A frontmatter free-text value as a YAML double-quoted scalar (a JSON string is one);
-    non-ASCII such as an em dash stays literal."""
-    return json.dumps(value, ensure_ascii=False)
-
-
 def split_frontmatter(content):
     if not content.startswith("---\n"):
         return None, content
@@ -486,6 +505,25 @@ inbox_dir = os.path.join(plans_root, "_inbox")
 # duplicate-slug capture versions instead of re-minting over settled history.
 _settled_rel = inbox_cfg.get("settled_dir", "_inbox/_settled/").strip("/")
 settled_dir = os.path.join(plans_root, *_settled_rel.split("/"))
+# The funnel statuses a graduation or an --absorb needs (read from the rules, never a literal; an
+# absent list stays empty and a graduation then refuses), and the plan statuses that end a plan.
+_precond = inbox_cfg.get("graduation_precondition", {})
+precond_status = _precond.get("status", []) if isinstance(_precond, dict) else []
+if not isinstance(precond_status, list):
+    precond_status = []
+terminal_status = rules.get("lifecycle", {}).get("terminal_status", [])
+if not isinstance(terminal_status, list):
+    terminal_status = []
+
+
+def target_plan_status(manifest_path):
+    """The status key of a target plan's manifest; empty when absent or unreadable (an open plan)."""
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            st = json.load(fh).get("status", "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return st if isinstance(st, str) else ""
 
 
 # (A): version-on-collision at _inbox/ CAPTURE.
@@ -595,6 +633,10 @@ if action == "capture":
                     or not os.path.isfile(os.path.join(plans_root, key, "manifest.json"))):
                 abort("--absorbed-into '%s' does not resolve to a plan dir with a manifest.json "
                       "under the plans root" % absorbed_into)
+            tstatus = target_plan_status(os.path.join(plans_root, key, "manifest.json"))
+            if tstatus and tstatus in terminal_status:
+                abort("--absorbed-into '%s' names a terminal plan (status %s); an absorbed note "
+                      "needs an open target" % (absorbed_into, tstatus))
     # A piped body (drained by the bash wrapper into body_file) replaces the three template
     # sections. The script owns the frontmatter, so a body that opens with its own `---`
     # fence is refused before anything is written, never nested under the stamped one.
@@ -741,6 +783,16 @@ if fm is None:
     abort("inbox note has no frontmatter: %s" % note_path)
 if fm.get("type", "").strip() != "idea":
     abort("inbox note type is '%s', expected 'idea'" % fm.get("type", ""))
+if not precond_status:
+    abort("plans rules carry no inbox.graduation_precondition.status list; the rules bundle "
+          "predates this helper")
+lead_status = fm.get("status", "").strip()
+if lead_status not in precond_status:
+    abort("graduation of %s refused: status is '%s'; a note graduates at status %s (plans rules "
+          "inbox.graduation_precondition); triage it first: bash %s %s --classification "
+          "NOVEL|OVERLAP --rationale \"<one line>\""
+          % (slug, lead_status, " or ".join(precond_status), triage_apply, slug),
+          status=lead_status, precondition="inbox.graduation_precondition")
 
 note_title = fm.get("title", "").strip()
 title = title_override.strip() or note_title or slug.replace("-", " ").title()
@@ -779,6 +831,13 @@ for a in absorb_slugs:
         afm = None
     if afm is None or afm.get("type", "").strip() != "idea":
         abort("--absorb %s: _inbox/%s.md is not a type: idea note" % (a, a), absorb=a)
+    a_status = afm.get("status", "").strip()
+    if a_status not in precond_status:
+        abort("--absorb %s: status is '%s'; a note is absorbed at status %s (plans rules "
+              "inbox.graduation_precondition); triage it first: bash %s %s --classification "
+              "NOVEL|OVERLAP --rationale \"<one line>\""
+              % (a, a_status, " or ".join(precond_status), triage_apply, a),
+              absorb=a, status=a_status, precondition="inbox.graduation_precondition")
     for k in ("absorbed_into", "promoted_to", "resolution"):
         if afm.get(k, "").strip():
             abort("--absorb %s: the note already carries %s" % (a, k), absorb=a)
@@ -816,18 +875,6 @@ for entry in os.listdir(plans_root):
 
 # ---- build the ideation brief (lossless body migration) --------------------
 quoted = "\n".join(("> " + ln) if ln else ">" for ln in note_body.rstrip("\n").split("\n"))
-
-def cohort_base(pdir):
-    """Mint-time id base for the plans-schema frontmatter cohort, mirroring
-    librarian:tasks-render's _cohort_id grammar: 'plans-' + the slugified path
-    parts under the .claude-plans marker (basename fallback). Per-file id =
-    base + '-<suffix>', so mint and renderer upsert derive the SAME id."""
-    ap = os.path.abspath(pdir.rstrip("/"))
-    marker = os.sep + ".claude-plans" + os.sep
-    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
-    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
-    return "plans-" + "-".join([p for p in parts if p])
-
 
 cb = cohort_base(plan_dir)
 

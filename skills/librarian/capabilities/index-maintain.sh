@@ -3,9 +3,9 @@
 # _index.md contents-enum table against filesystem reality. The first canonical
 # self-healing capability under the R-34 boundary.
 #
-# NET-NEW librarian body (1.1 line 136 — replaces the phantom
-# doc-reference). Authored from the authoring-spec index-maintain.md
-# (REFERENCE only —(a)).
+# NET-NEW librarian body. The contract of record is this capability's
+# output_contract block in skills/librarian/capability-registry.json; this header is its
+# operator-facing prose.
 #
 # R-34 self-healing boundary (enforced by code structure):
 #   In bounds (auto-corrected): Lines (wc -l), Type (frontmatter type:),
@@ -40,7 +40,7 @@
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Survivorship: content outside the sentinels preserved verbatim.
 #
-# Finding categories (7 — §Finding categories):
+# Finding categories (7):
 #   bootstrap-auto-created     (info-event) created a missing non-exempt _index.md
 #   index-row-drift-mechanical (info-event) auto-corrected Lines/Type/missing/orphan row
 #   index-row-drift-semantic   (warning, --deep) description/ordering drift — NO auto-overwrite
@@ -94,7 +94,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --deep)    DEEP="true"; shift ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "index-maintain: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

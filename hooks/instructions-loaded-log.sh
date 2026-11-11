@@ -1,13 +1,17 @@
 #!/bin/bash
 # Hook: InstructionsLoaded — memory-reaching-model diagnostic logger.
+#
 # C5-owned body in a C2 slot (canonical/InstructionsLoaded ->
 # instructions-loaded-log.sh;.12: memory-reaching-model
-# diagnostic at the C2<->C5 boundary). Records that instructions (CLAUDE.md /
-# MEMORY.md / rules) reached the model for a session — the diagnostic signal
-# used to verify the curated memory tier is actually loading.
-# Side-effect contract: writes ONE diagnostic row to the state-root diagnostic
-# log and nothing else. No additionalContext, no registry mutation, no vault
-# write. Exits 0 silently. NEVER fail-hard.
+# diagnostic at the C2<->C5 boundary). Records each CLAUDE.md and rules-file
+# load the platform reports, with the loading agent's identity (agent_id,
+# agent_type) for a subagent load. The event does not report auto memory, so
+# that load is not observable here.
+#
+# Side-effect contract: writes one tab row to the diagnostic log and one ndjson
+# row to its sibling log, and, once that ndjson reaches its size bound, renames
+# it to instructions-loaded.ndjson.1; nothing else. No additionalContext, no
+# registry mutation, no vault write. Exits 0 silently. NEVER fail-hard.
 set -uo pipefail
 
 # Portability (LOCK): resolve libs via $SCRIPT_DIR.
@@ -83,12 +87,44 @@ if [ -n "$INPUT" ] && command -v jq >/dev/null 2>&1; then
   if [ -n "$IL_FILE" ] && [ -f "$IL_FILE" ] && [ -r "$IL_FILE" ]; then
     IL_BYTES=$(wc -c < "$IL_FILE" 2>/dev/null | tr -d ' ')
   fi
+  # The loading agent's identity: the payload's string of that name, empty (rendered as JSON null)
+  # when the key is absent or empty, which is a main-session load.
+  IL_AGENT_ID=$(printf '%s' "$INPUT" | jq -r '(.agent_id | select(type == "string")) // empty' 2>/dev/null)
+  IL_AGENT_TYPE=$(printf '%s' "$INPUT" | jq -r '(.agent_type | select(type == "string")) // empty' 2>/dev/null)
+  # Size-bounded rotation of the ndjson: once the live file reaches the bound it is renamed to
+  # <ndjson>.1, replacing any older generation (one generation is kept), and the append below starts
+  # a fresh file. The bound is INSTRUCTIONS_LOADED_MAX_BYTES when that is a positive integer, else
+  # 8388608. Every step ends `|| true`: a failed size read or rename leaves the row appended to the
+  # live file and the hook exiting 0. The tab log is not rotated. Two fires that cross the bound
+  # together can both rename, which loses the older generation; accepted for a diagnostic log.
+  IL_MAX="${INSTRUCTIONS_LOADED_MAX_BYTES:-}"
+  case "$IL_MAX" in
+    ''|*[!0-9]*) IL_MAX=8388608 ;;
+    *[1-9]*) ;;
+    *) IL_MAX=8388608 ;;
+  esac
+  IL_SIZE=""
+  if [ -f "$NDJSON_LOG" ]; then
+    IL_SIZE=$(wc -c < "$NDJSON_LOG" 2>/dev/null | tr -d ' ') 2>/dev/null || true
+  fi
+  IL_ROTATE=0
+  case "$IL_SIZE" in
+    ''|*[!0-9]*) ;;
+    *) [ "$IL_SIZE" -ge "$IL_MAX" ] 2>/dev/null && IL_ROTATE=1 || true ;;
+  esac
+  if [ "$IL_ROTATE" = 1 ]; then
+    # swallow-ok: reports=none a failed rename leaves the row appended to the live file and the hook still exits 0; a diagnostic log never fails the hook
+    mv -f "$NDJSON_LOG" "$NDJSON_LOG.1" 2>/dev/null || true
+  fi
   jq -cn \
     --arg ts "$TS" --arg sid "$SESSION_ID" --arg fp "$IL_FILE" \
     --arg mt "$IL_TYPE" --arg lr "$IL_REASON" --arg by "$IL_BYTES" \
+    --arg aid "$IL_AGENT_ID" --arg aty "$IL_AGENT_TYPE" \
     '{ts: $ts, event: "instructions-loaded", session_id: $sid,
       file_path: $fp, memory_type: $mt, load_reason: $lr,
-      bytes: (if $by == "" then null else ($by | tonumber) end)}' \
+      bytes: (if $by == "" then null else ($by | tonumber) end),
+      agent_id: (if $aid == "" then null else $aid end),
+      agent_type: (if $aty == "" then null else $aty end)}' \
     >> "$NDJSON_LOG" 2>/dev/null || true
 fi
 

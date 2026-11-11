@@ -87,7 +87,7 @@ export HOOKS_STATE
 # substructure." The session-checkpoint skill (writer) and the four C2 hooks
 # (prompt-context, stop-checkpoint-check, pre-compact-checkpoint, session-register)
 # all resolve sessions/<sid>/ through this single SoT so they never re-drift — the
-# to $HOOKS_STATE while the skill + the binding spec stayed on $CLAUDE_STATE_ROOT.
+# to $HOOKS_STATE while the skill + the documented contract stayed on $CLAUDE_STATE_ROOT.
 # HOOKS_STATE_OVERRIDE wins for test isolation (tests point state at a throwaway dir).
 export SESSION_STATE_ROOT="${HOOKS_STATE_OVERRIDE:-$CLAUDE_STATE_ROOT}"
 
@@ -107,6 +107,41 @@ export PLANS_DIR
 # Tripwire path. Held as null-stub by default. Honors env override for
 # test/CI scenarios. Consumers MUST gate on non-empty before using.
 export PLANS_DIR_DEAD="${PLANS_DIR_DEAD:-}"
+
+# --- plans dead-switch (test-harness isolation) ---
+# A test or CI harness that reaches this library with an unsandboxed HOME would resolve the
+# operator's own plans corpus through the fallback above. Two switches mark such a context:
+# PLANS_DIR_DEAD and HOOKS_STATE_OVERRIDE. The switch arms only when one of them is non-empty,
+# the plans root is the one this library (or a parent shell that sourced it) defaulted, and that
+# root is the account home's default root, or the account home could not be looked up (fail
+# closed). A root the caller chose, a manifest root that points elsewhere and a HOME jailed to a
+# sandbox are left alone. Armed, the root becomes an isolated throwaway path that is not created
+# here, exported as both PLANS_DIR and the defaulted-root marker so a child shell keeps it.
+# The account home comes from the account database, not from HOME: HOME is saved and unset, a
+# bare tilde then expands from the database (no fork, no PATH use), and HOME is restored.
+if [ -n "${PLANS_DIR_DEAD:-}${HOOKS_STATE_OVERRIDE:-}" ] \
+   && [ -n "${_PATHS_PLANS_DEFAULTED:-}" ] && [ "$PLANS_DIR" = "$_PATHS_PLANS_DEFAULTED" ]; then
+  _pdd_set=0
+  if [ "${HOME+x}" = "x" ]; then _pdd_set=1; _pdd_home="$HOME"; fi
+  unset HOME
+  _pdd_acct=~
+  if [ "$_pdd_set" = "1" ]; then HOME="$_pdd_home"; export HOME; fi
+  case "$_pdd_acct" in
+    /*) if [ "$PLANS_DIR" = "$_pdd_acct/.claude-plans" ]; then _pdd_arm=1; else _pdd_arm=0; fi ;;
+    *)  _pdd_arm=1 ;;
+  esac
+  if [ "$_pdd_arm" = "1" ]; then
+    if [ -n "${PLANS_DIR_DEAD:-}" ]; then
+      case "$PLANS_DIR_DEAD" in */*) _pdd_anchor="${PLANS_DIR_DEAD%/*}" ;; *) _pdd_anchor="." ;; esac
+    else
+      _pdd_anchor="$HOOKS_STATE_OVERRIDE"
+    fi
+    PLANS_DIR="${_pdd_anchor%/}/.paths-dead-plans.$$"
+    _PATHS_PLANS_DEFAULTED="$PLANS_DIR"
+    export PLANS_DIR _PATHS_PLANS_DEFAULTED
+  fi
+  unset _pdd_set _pdd_home _pdd_acct _pdd_arm _pdd_anchor
+fi
 
 # --- work tree (deliverable layer) ---
 # 3-tier resolver mirroring the plans arm above: env BRAIN_STEM_WORK_HOME >

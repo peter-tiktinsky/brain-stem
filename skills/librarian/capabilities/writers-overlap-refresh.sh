@@ -4,7 +4,9 @@
 # where >=2 writers share a destination, and regenerate
 # Vault Writers/_overlap-matrix.md.
 #
-# Librarian body. Reuses the backlog-index regeneration shell; the new algorithms
+# NET-NEW librarian body. The contract of record is this capability's
+# output_contract block in skills/librarian/capability-registry.json; this header is its
+# operator-facing prose. Reuses the backlog-index regeneration shell; the net-new algorithms
 # are glob-derivation ({{var}}->*), >=2-writer clustering, write-shape-conflict
 # detection, and doc-deps writer-fan-in producer-join validation.
 #

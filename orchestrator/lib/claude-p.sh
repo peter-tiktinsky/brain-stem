@@ -5,8 +5,7 @@
 #   classification=$(classify_claude_p_exit "$call_log")
 #   echo "    classification: $classification" >> "$LOG_FILE"
 #
-# Extracted from an earlier cron pipeline. Reads the ndjson artifact
-# left by a watchdog-
+# Reads the ndjson artifact left by a watchdog-
 # killed `claude -p` invocation and emits one of two classifications to
 # stdout. Caller is responsible for writing the result to the observability
 # error-file surface (morning-brief consumes; tripwire trilayer).

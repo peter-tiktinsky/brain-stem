@@ -76,7 +76,7 @@ Off by default. The installer reads `manifest.behavioral.hook_preferences` and m
 
 The first-party **memory-consolidation** hook is now **default-on** — `memory-consolidation-check.sh` is wired into the default `templates/settings.json` SessionEnd, so it needs no fragment. (This is NOT claude-mem; claude-mem is an optional adopter-installed plugin that self-wires via its own marketplace hooks.) `tasks-md-autosync.sh` is likewise default-wired into `templates/settings.json`. Neither ships a settings fragment.
 
-The installer never strips entries from the default `templates/settings.json`; fragments are additive only. To turn off a default-on hook, run `~/.claude/hooks/lib/field-set.sh settings hook off <hook-basename>` (`hook on` puts it back where it was). Every hook the default `templates/settings.json` wires is foundation-required, and the installer re-lands foundation-required hooks that are missing from `settings.json` on the next upgrade, so turning one of those off lasts until then (`hook off` prints a `NOTE:` saying so); a hook you added yourself, directly or through a fragment, stays off.
+The installer never strips entries from the default `templates/settings.json`; fragments are additive only. To turn off a default-on hook, run `~/.claude/hooks/lib/field-set.sh settings hook off <hook-basename>` (`hook on` puts it back where it was). Every hook the default `templates/settings.json` wires is foundation-required, and the installer re-lands foundation-required hooks that are missing from `settings.json` on the next upgrade unless your user manifest lists them: `hook off` of one records its basename in the `hooks.disabled` array of `user-manifest.json` (and prints a `NOTE:` saying so), the installer then leaves it out on every upgrade, and `hook on` removes it from the list again. With no user manifest, `hook off` of a foundation-required hook lasts only until the next upgrade, and its `NOTE:` says so. A hook you added yourself, directly or through a fragment, stays off.
 
 ## Opt-in advanced (1)
 
@@ -85,7 +85,7 @@ The installer never strips entries from the default `templates/settings.json`; f
 ## State and config
 
 - `$CLAUDE_STATE_ROOT/hooks-state/` — the runtime-state home (`hook-audit.log`, `tripwire.log`, the review queue, etc.), resolved via `lib/paths.sh` on the XDG ephemeral state tier (NOT `$CLAUDE_HOME`). The legacy `$CLAUDE_HOME/hooks/state/` dir is retired — no longer created on install (migration 0008 removes it if empty), kept only as a read-only migration/back-compat fallback for upgraders whose dir may still hold unmigrated files.
-- `hooks/drift-allowlist.json` — hand-editable `provides:` overlap allowlist (`provides_overlap[]` for deliberate co-canonical pairs); read by the librarian frontmatter-enforce. Created lazily; optional.
+- `hooks/drift-allowlist.json` — hand-editable `provides:` overlap allowlist (`provides_overlap[]` for deliberate co-canonical pairs); read by the librarian frontmatter-enforce. Created lazily; optional. Record a pair with `field-set.sh drift-allowlist add <capability> --reason <text>`.
 
 Documentation-cascade dependencies are no longer a hand-edited `hooks/config/` file — they live in `governance/doc-dependencies.json`, composed into `foundation-master.json#doc_dependencies` and read from that bundle by `pre-write-guard.sh`.
 

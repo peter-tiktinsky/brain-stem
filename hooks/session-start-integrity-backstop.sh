@@ -179,7 +179,7 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
     # order, first row included, for the extraction chain below. Read back defensively,
     # like the cwd line: missing lines only mean fewer extractions.
     _crashed_rows="$(sed -n '3,$p' "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null)"
-    # T-7: the touched-files snapshot rides a sidecar beside the sentinel
+    # The touched-files snapshot rides a sidecar beside the sentinel
     # (read back here, lock-released, and removed with it) so the spawned recovery
     # close never has to re-read a registry row the reaper may already have deleted.
     _crashed_touched="$(cat "${AUTO_CLOSE_FOUND_SENTINEL}.touched" 2>/dev/null || true)"
@@ -197,7 +197,7 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
     if [ -f "$SESSION_CLOSE" ]; then
       # ONE detached process: every crashed row's extraction in sweep order, then the
       # single recovery close, so the close sees the checkpoints already written.
-      # One spawn line (T-7): an empty $_crashed_sid passes --session-id ""
+      # One spawn line: an empty $_crashed_sid passes --session-id ""
       # which seeds the close's SELF_SESSION_ID empty — byte-equivalent to the old
       # no-thread branch — and --touched-files threads the locked snapshot; an empty
       # CSV keeps the close's documented registry fallback.
@@ -206,7 +206,7 @@ if [ -z "${AUTO_CLOSE_REGISTRY_LOCKED:-}" ] \
   fi
   # T-8: SessionStart reconcile trigger, fired here in the LOCK-RELEASED context
   # (lockf has returned, REGISTRY_LOCK is free). session-register.sh (which runs before this
-  # backstop in the SessionStart array) has already refreshed the own row's heartbeat, so the T-1
+  # backstop in the SessionStart array) has already refreshed the own row's heartbeat, so the heartbeat-authoritative
   # verdict KEEPS the own row while the sweep reaps stale-hb ghosts on the shared pid.
   spawn_reconcile
   exit 0
@@ -246,7 +246,7 @@ for sid in $sids; do
   # and session-close all agree on the same (pid, hb, started, now) input. A row whose
   # verdict is LIVE is still running -> NOT a crash, skip. Only a DEAD verdict on a
   # non-closed, unswept row qualifies as crashed. This replaces BOTH the pid hard-skip
-  # AND the BSD-only `date -u -jf` fresh-hb check (140) — the epoch parse now lives in the
+  # AND the BSD-only `date -u -jf` fresh-hb check — the epoch parse now lives in the
   # verdict's portable iso8601_to_epoch (BSD + GNU), so a Linux adopter no longer silently
   # degrades. Ownership boundary unchanged: this backstop deletes NO row (reaping stays
   # owned by reconcile-sessions.sh); it only marks auto_close_swept_at + spawns the close.
@@ -269,14 +269,14 @@ for sid in $sids; do
   if [ -z "$crashed_sid" ]; then
     crashed_sid="$sid"
     crashed_cwd=$(printf '%s' "$reg" | jq -r --arg s "$sid" '.sessions[$s].cwd // ""' 2>/dev/null)
-    # T-7: snapshot the first crashed row's touched_files HERE, under
+    # Snapshot the first crashed row's touched_files HERE, under
     # REGISTRY_LOCK, comma-joined into one CSV. After lockf returns, a concurrent
     # reaper can delete the row and the spawned close's registry fallback would
-    # race empty — this snapshot is the only durable copy. An entry containing a
-    # comma cannot survive the CSV unambiguously and is dropped.
+    # race empty — this snapshot is the only durable copy. An entry containing
+    # a comma or a newline cannot survive the CSV unambiguously and is dropped.
     # swallow-ok: reports=none a failed read yields an empty CSV, and an empty CSV is the close's documented registry-fallback path — the degrade is the contract
     crashed_touched="$(printf '%s' "$reg" | jq -r --arg s "$sid" \
-      '[.sessions[$s].touched_files // [] | .[] | select((type == "string") and (contains(",") | not))] | join(",")' 2>/dev/null)"
+      '[.sessions[$s].touched_files // [] | .[] | select((type == "string") and (contains(",") | not) and (contains("\n") | not))] | join(",")' 2>/dev/null)"
   fi
   # EVERY crashed row, the first included, joins the extraction list in sweep order as
   # "<sid><TAB><transcript_path>", the path empty when the row has none. Tabs and newlines
@@ -304,7 +304,7 @@ if [ "$found" -eq 1 ]; then
     # the spawn); DO NOT spawn here (the spawn must run lock-released). Lines 3 on carry the
     # extraction list, one "<sid><TAB><transcript_path>" line per crashed row.
     printf '%s\n%s\n%s' "$crashed_sid" "$crashed_cwd" "$crashed_rows" > "$AUTO_CLOSE_FOUND_SENTINEL" 2>/dev/null || true
-    # T-7: the touched-files snapshot rides a sidecar beside the sentinel —
+    # The touched-files snapshot rides a sidecar beside the sentinel —
     # a plain CSV, so it never collides with the sentinel's line-oriented content.
     printf '%s' "$crashed_touched" > "${AUTO_CLOSE_FOUND_SENTINEL}.touched" 2>/dev/null || true
   else
@@ -316,7 +316,7 @@ if [ "$found" -eq 1 ]; then
     [ -n "$crashed_cwd" ] || crashed_cwd="$HOME"
     SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
     if [ -f "$SESSION_CLOSE" ]; then
-      # One spawn line (T-7), same shape as the locked-path spawn above:
+      # One spawn line, same shape as the locked-path spawn above:
       # --session-id threads the crashed id (empty seeds empty, byte-equivalent to
       # the old no-thread branch) and --touched-files threads the locked snapshot.
       ( extract_crashed_checkpoints "$crashed_rows"; "$SESSION_CLOSE" --session-id "$crashed_sid" --cwd "$crashed_cwd" --touched-files "$crashed_touched" ) >/dev/null 2>&1 &

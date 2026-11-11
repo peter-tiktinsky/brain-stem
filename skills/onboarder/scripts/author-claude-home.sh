@@ -59,7 +59,7 @@ while [ $# -gt 0 ]; do
     --target)        TARGET="$2"; shift 2 ;;
     --force)         FORCE=1; shift ;;
     --dry-run)       DRY_RUN=1; shift ;;
-    -h|--help)       sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help)       awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)               diag "unknown arg: $1"; exit 2 ;;
   esac
 done

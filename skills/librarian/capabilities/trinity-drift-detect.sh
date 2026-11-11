@@ -90,7 +90,7 @@ while [[ $# -gt 0 ]]; do
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     --axis) AXIS="$2"; shift 2 ;;
-    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "trinity-drift-detect: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

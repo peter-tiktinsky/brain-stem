@@ -3,12 +3,7 @@
 # and #status/* subtypes drifting into the vault + near-match drift WITHIN the
 # registry itself.
 #
-# Librarian body.
-#
-# SCOPE GUARD: tag-subtype canonicality has
-# BOTH a Layer-1 write-time hook (pre-write-guard.sh tag-validation branch) AND
-# this Layer-2 librarian capability. The Layer-1 hook lives in
-# pre-write-guard.sh; this body is the Layer-2 audit-time detector.
+# No write-time hook checks a vault subtype; this capability is the audit-time check.
 #
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or
@@ -47,7 +42,7 @@ MODE="audit"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) MODE="dry-run"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "log-subtype-canonical: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

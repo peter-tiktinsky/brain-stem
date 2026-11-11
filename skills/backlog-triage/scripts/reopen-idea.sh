@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# reopen-idea.sh - re-open one parked idea whose re-open gate is manual: the settled note
-# `_inbox/_settled/<slug>.md` (type idea, disposition NO-BUILD, a registered manual gate in
-# reopen_gate) moves back to `_inbox/<slug>.md` as an open, undecided note.
+# reopen-idea.sh - re-open one parked idea whose re-open gate is manual (or, with --force, a
+# registered command gate): the settled note `_inbox/_settled/<slug>.md` (type idea, disposition
+# NO-BUILD, a registered gate in reopen_gate) moves back to `_inbox/<slug>.md` as an open,
+# undecided note.
 #
-#   bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/reopen-idea.sh <slug> [--plans-root DIR]
+#   bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/reopen-idea.sh <slug> [--force] [--plans-root DIR]
 #
 # THE EDIT is the one backlog-index applies when a command gate is met: the resolution and
 # resolved_at lines are dropped, disposition is left bare, updated, reopened_at and
 # reopened_from_gate are set (an existing line replaced in place, an absent one appended in
 # that order), and the body is byte-untouched. The gate kind is read from inbox.reopen_gates in
-# the plans rules; this command never evaluates a gate. A command gate is refused: backlog-index
-# re-opens that note when the gate is met.
+# the plans rules; this command never evaluates a gate. A command gate is refused unless --force
+# is given: backlog-index re-opens that note when the gate is met, and --force is the operator's
+# override for a gate that cannot be met (a retired reader, a decision taken by hand). --force
+# skips only the command-gate refusal: the gate must still be registered in inbox.reopen_gates,
+# no gate is evaluated, and THE EDIT is unchanged. The success line carries `; forced` when
+# --force bypassed a command gate, and is the plain line on a manual gate.
 #
 # STATES: a settled parked note and no flat note: the move runs. A flat note and no settled copy:
 # already open, nothing written, exit 0. Both exist and the flat note's reopened_from_gate equals
@@ -50,7 +55,7 @@ set -u
 TMPF=""
 
 usage() {
-  printf 'usage: reopen-idea <slug> [--plans-root DIR]\n'
+  printf 'usage: reopen-idea <slug> [--force] [--plans-root DIR]\n'
   printf 'exit: 0 reopened or already open; 2 refused (nothing changed); 1 stopped (the message names the re-run)\n'
   printf 'run /librarian backlog-index afterwards to refresh _backlog.md\n'
 }
@@ -69,10 +74,11 @@ refuse() {
   exit 2
 }
 
-SLUG=""; GOT_SLUG=0; ROOT_FLAG=""
+SLUG=""; GOT_SLUG=0; ROOT_FLAG=""; FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
+    --force) FORCE=1; shift ;;
     --plans-root)
       [ $# -ge 2 ] || refuse "--plans-root needs a non-empty value"
       [ -n "$2" ] || refuse "--plans-root needs a non-empty value"
@@ -127,7 +133,7 @@ try:
 except AttributeError:
     pass
 
-root, slug, today, rules_text, tmp = sys.argv[1:6]
+root, slug, today, rules_text, tmp, force = sys.argv[1:7]
 KEY_RE = re.compile(r"^([A-Za-z0-9_-]+):(.*)$")
 
 
@@ -201,9 +207,12 @@ entry = gates.get(gate) if (gate and isinstance(gates, dict)) else None
 if not isinstance(entry, dict) or gate.startswith("_"):
     refuse("reopen gate '%s' is not registered in inbox.reopen_gates" % gate)
 kind = entry.get("kind")
+forced = False
 if kind == "command":
-    refuse("gate '%s' is a command gate; backlog-index re-opens the note when the gate is met" % gate)
-if kind != "manual":
+    if force != "1":
+        refuse("gate '%s' is a command gate; backlog-index re-opens the note when the gate is met" % gate)
+    forced = True
+elif kind != "manual":
     refuse("reopen gate '%s' is not registered in inbox.reopen_gates" % gate)
 
 if os.path.isfile(flat):
@@ -215,7 +224,7 @@ if os.path.isfile(flat):
     flat_fm = fm_dict(flat_lines) if flat_lines is not None else {}
     if flat_lines is not None and flat_fm.get("reopened_from_gate", "") == gate \
             and flat_text[flat_end + 5:] == text[end + 5:]:
-        say("RESUME", gate)
+        say("RESUME", gate + ("\tforced" if forced else ""))
     refuse("_inbox/%s.md already exists and is not this note's reopened copy" % slug)
 
 # the edit backlog-index applies on a met command gate, byte for byte
@@ -248,11 +257,11 @@ try:
         pass
 except OSError:
     say("ERROR", "could not place _inbox/%s.md" % slug)
-say("REOPEN", gate)
+say("REOPEN", gate + ("\tforced" if forced else ""))
 PY
 
 TAB=$'\t'
-RES="$(python3 -c "$PY_REOPEN" "$ROOT" "$SLUG" "$TODAY" "$RULES_JSON" "$TMPF")"
+RES="$(python3 -c "$PY_REOPEN" "$ROOT" "$SLUG" "$TODAY" "$RULES_JSON" "$TMPF" "$FORCE")"
 case "$RES" in
   REFUSE"$TAB"*) refuse "${RES#REFUSE?}" ;;
   OPEN"$TAB"*)
@@ -266,6 +275,11 @@ case "$RES" in
   *)
     printf 'reopen-idea: internal error; nothing changed\n' >&2
     exit 1 ;;
+esac
+
+FORCED_NOTE=""
+case "$GATE" in
+  *"$TAB"*) FORCED_NOTE="; forced"; GATE="${GATE%%"$TAB"*}" ;;
 esac
 
 if [ "$MODE" = reopen ]; then
@@ -283,7 +297,7 @@ if ! rm "$SETTLED"; then
   exit 1
 fi
 
-printf 'reopen-idea: reopened %s (gate %s)\n' "$SLUG" "$GATE"
+printf 'reopen-idea: reopened %s (gate %s%s)\n' "$SLUG" "$GATE" "$FORCED_NOTE"
 printf 'reopen-idea: run /librarian backlog-index to refresh _backlog.md\n'
 
 # The derivation a tool-event write would have fired: the PostToolUse inbox prompt.

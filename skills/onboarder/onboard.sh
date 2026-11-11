@@ -96,7 +96,7 @@ PLANS_HOME_ARG=""
 SKILLS_DIR_ARG=""
 FORCE=0
 
-usage() { sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0; }
+usage() { awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -163,7 +163,7 @@ emit_resume_handoff() {
 
 # Step runners.
 run_section_a() {
-  # --resume re-entry (-onboard-1 + the --resume half of-onboard-4):
+  # --resume re-entry:
   # Section A is deterministic + idempotent pure discovery, and emit_fragment
   # (section-a-slim) atomically OVERWRITES user-fragment-A.json — so a
   # naive re-run on --resume would re-probe the host and wipe any Pass-1 identity
@@ -229,7 +229,7 @@ run_bootstrap() {
   [ "$DRY_RUN" -eq 1 ] && { emit_handoff "would-run bootstrap-user-manifest"; return 0; }
   # Producer-output gate (-onboard-3, DURABLE class fix): bootstrap treats
   # Section B as OPTIONAL (bootstrap-user-manifest merges B only when present)
-  # and latches .system.onboarding_complete=true once A alone validates (196), so
+  # and latches .system.onboarding_complete=true once A alone validates, so
   # ANY path that loses B silently would latch onboarding complete with role/org/
   # behavioral prose dropped. Assert B exists AND is non-empty before bootstrap runs,
   # consistent with the six-producer existence-check pattern above.

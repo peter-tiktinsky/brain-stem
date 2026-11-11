@@ -1,8 +1,13 @@
 # orchestrator/
 
 The autonomous-orchestration + dispatch engine. A propose-and-gate
-orchestrator — HITL/HOTL-gated, NOT an autonomous daemon. No task fires
-without a human reasoning/approval point.
+orchestrator, NOT an autonomous daemon. Human gates exist on one path only:
+a plan run through `dispatch.sh --plan`, or as a plan entry of a `--batch`
+file, reaches `plan-runner.sh`, which stops for human approval at every HITL
+task (one marked irreversible, or any task of a sub-plan whose manifest
+enables `live_mutation_scope`) and proposes then proceeds for HOTL tasks.
+Direct `--job` and `--cron` runs, the other `--batch` entries and scheduled
+wrappers carry no human gate.
 
 ## What's here
 
@@ -16,10 +21,11 @@ without a human reasoning/approval point.
 | `lib/tripwire.sh` | Single choke-point for tripwire-log writes (ISO-prefixed TSV; write-side dedup). |
 | `state/decision-quality-events.jsonl` | `DQ_EVENTS_PATH` default state file (decision-quality telemetry; seeded empty). |
 
-The queue-persistence library `execution-queue.sh` lives at `hooks/lib/`
-(`dispatch.sh` sources it for the `--overnight` timing mode and the queue ops; a
-`--delay` of four hours or more writes a one-shot launchd job instead, and a shorter
-delay waits in a background process).
+The queue-persistence library `execution-queue.sh` lives at `hooks/lib/`.
+`dispatch.sh` sources it for the queue ops (`--hold`, `--unhold`, `--queue-status`) over a queue file
+an earlier release wrote; nothing in this release adds to the queue or runs it, and `--overnight` is refused with a pointer to `--delay`.
+A `--delay` of four hours or more writes a one-shot launchd job, and a shorter
+delay waits in a background process.
 
 ## How a plan runs end-to-end
 

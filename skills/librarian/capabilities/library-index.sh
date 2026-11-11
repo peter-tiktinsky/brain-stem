@@ -127,7 +127,7 @@ while [ $# -gt 0 ]; do
     --topic)   TOPIC_FILTER="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     --query)   QUERY_MODE="true"; QUERY_TOPIC="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,103p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "library-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

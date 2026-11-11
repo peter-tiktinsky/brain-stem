@@ -407,8 +407,9 @@ _proj_emit_moves_check() {
 # Check an --anchor directory and settle its identity. $1 = context (mode_propose|
 # mode_commit), $2 = the directory as given, $3 = the spoke key ("" derives it from the
 # directory name when $4 is 1), $4 = 1 to derive. One stderr line and return 2 on the first
-# failed check, in this order: the directory exists, is not the home directory, is not
-# $WORK_HOME or inside it, then the key (derived or given) is valid. On success it sets
+# failed check, in this order: the directory exists, its name holds no control character (a
+# trailing newline would be dropped by the canonicalising command substitution), it is not the
+# home directory, is not $WORK_HOME or inside it, then the key (derived or given) is valid. On success it sets
 # _PROJ_AN_DIR (the canonical directory), _PROJ_AN_KEY and _PROJ_AN_REG (the registry anchor
 # form: ~/<path> strictly under the canonical home, else the canonical absolute path).
 _proj_anchor_check() {
@@ -417,6 +418,12 @@ _proj_anchor_check() {
     printf 'project.%s: --anchor directory not found: %s\n' "$ctx" "$dir" >&2
     return 2
   fi
+  case "$dir" in
+    *[[:cntrl:]]*)
+      printf 'project.%s: --anchor contains a control character: %q — BLOCKED (rename the directory)\n' "$ctx" "$dir" >&2
+      return 2
+      ;;
+  esac
   cdir="$(cd "$dir" && pwd -P)"
   chome="$(_proj_canon "$HOME")"
   if [ "$cdir" = "$chome" ]; then
@@ -776,7 +783,7 @@ mode_propose() {
         (if $layout == "master"
           then "MASTER: master top (CLAUDE.md+README+updates.md, NO top-level deliverables/reference) + sub-project " + $first_sub + " (README+deliverables+reference, NO CLAUDE.md). wildcard rule covers all current+future subs. The first sub records a persistent .claude-subproject declaration (declaration-first, shape-fallback) so it stays recognized even if deliverables/reference are later removed."
           else "FLAT: flat MVP (CLAUDE.md+README+updates.md+deliverables/+reference/); one rule Work/" + $spoke + "/**." end),
-        "Only the MASTER registers a spoke; sub-projects are organizational units () — no spoke, no anchor, no CLAUDE.md ()."
+        "Only the MASTER registers a spoke; sub-projects are organizational units — no spoke, no anchor, no CLAUDE.md."
       ]
     }
     | with_entries(select(.value != null))
@@ -897,7 +904,7 @@ mode_commit() {
       # relocation; NEVER auto-move (historical data is sacred).
       if [ -d "$wh/$spoke/deliverables" ]; then
         printf 'project: WARNING — spoke %s is FLAT (has top-level deliverables/). Adding a sub-project starts a flat->master conversion.\n' "$spoke" >&2
-        printf 'project: ADVISORY — manually relocate existing Work/%s/deliverables + reference INTO sub-projects. This tool NEVER auto-moves content ().\n' "$spoke" >&2
+        printf 'project: ADVISORY — manually relocate existing Work/%s/deliverables + reference INTO sub-projects. This tool NEVER auto-moves content.\n' "$spoke" >&2
         printf 'project: ADVISORY — to print the git mv commands for a mapping you name, run /govern register --kind project --under %s --emit-moves <mapping.json>\n' "$spoke" >&2
       fi
       # 1. Scaffold the sub.

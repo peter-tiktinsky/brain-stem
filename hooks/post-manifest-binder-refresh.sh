@@ -57,7 +57,9 @@ log() {
 # Fail-open prerequisites.
 command -v python3 >/dev/null 2>&1 || exit 0
 
-# Plans home (the binder root). PLANS_ROOT/PLANS_DIR override, else default.
+# Plans home (the binder root). The paths library resolves PLANS_DIR first and arms the test-harness
+# dead-switch; then PLANS_ROOT/PLANS_DIR override, else default. Fail-open when the library is absent.
+[ -f "$SCRIPT_DIR/lib/paths.sh" ] && . "$SCRIPT_DIR/lib/paths.sh" || true
 PLANS_ROOT="${PLANS_ROOT:-${PLANS_DIR:-$HOME/.claude-plans}}"
 case "$PLANS_ROOT" in */) PLANS_ROOT="${PLANS_ROOT%/}" ;; esac
 

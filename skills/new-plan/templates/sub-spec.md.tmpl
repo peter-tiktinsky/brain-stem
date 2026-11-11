@@ -16,7 +16,7 @@ schema_version: 1
 <!--
 SHAPE CONTRACT — governance/file-type-contracts/spec.md.json (head-immutable post Session 1:
 Goal / Problem Statement / Constraints; mutable tail). Line cap: spec.md.json size_limits.
-SUB-PLAN spec: this is an orchestrator-worker CHILD of the master `{{parent_plan}}` ().
+SUB-PLAN spec: this is an orchestrator-worker CHILD of the master `{{parent_plan}}`.
 It carries its own immutable head + its own canonical status, and reports status + a
 graduation_timestamp UPWARD into the master manifest's sub_plans[] aggregate (the librarian
 reconciler pulls it). It does NOT communicate peer-to-peer with sibling sub-plans — route any

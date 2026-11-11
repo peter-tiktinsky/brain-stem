@@ -1,5 +1,5 @@
 #!/bin/bash
-# plan-research-declare — the A1-clause-4 session-close DECLARATION writer (140).
+# plan-research-declare — the A1-clause-4 session-close DECLARATION writer.
 #
 # plan-manifest-schema degrade-contract: REFERENCE-ONLY — plan-manifest-schema is cited only as a header shape reference; no Draft202012Validator is constructed, so there is no schema-gate degrade path.
 # THE single declaration surface for research_artifacts[] (memo §Amendment-A1 clause 4:
@@ -21,9 +21,9 @@
 # is the ONLY order under which a same-close terminal plan's artifacts get DECLARED; the hoist
 # from after plan-index also cures the latent pair — declare no longer mutates plan manifests
 # after backlog-index/plan-index (1027-1028) have rendered) and thus well BEFORE
-# `run_capability plan-research-index --spoke` (1040) so the render reflects the just-declared
+# `run_capability plan-research-index --spoke` so the render reflects the just-declared
 # artifacts. It is modeled on the drift-sweep --plans --fix per-plan manifest read-replica
-# writer (1022): block-and-log, exit 0, idempotent, single-writer, defensive.
+# writer: block-and-log, exit 0, idempotent, single-writer, defensive.
 #
 # DEFENSIVE / IDEMPOTENT / SINGLE-WRITER contract:
 #   - missing research_artifacts field == empty (never an error);

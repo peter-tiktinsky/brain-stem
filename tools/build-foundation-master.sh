@@ -2,19 +2,19 @@
 # build-foundation-master.sh — composes foundation governance pillars into
 # governance/foundation-master.json at foundation-repo RELEASE time.
 #
-# brain-stem (ABSORB-govern). Release-time tool — NOT in the adopter
-# ship-list (.1:296 'release-time NOT installed'). Adopters never build;
+# Release-time tool — NOT in the adopter
+# ship-list. Adopters never build;
 # install.sh ships the composed artifact as immutable shipped state; the
 # bundle is built here, never on the consumer.
 #
-# CLEAN-ROOM v2 pillar shape (in-transit modifications vs the
-# @— flagged as a closure-discovery):
+# Pillar shape (in-transit modifications vs the earlier, flagged
+# as a closure-discovery):
 #   - Rename (-> brain-stem) throughout.
 #   - R-47 exempt-paths read RE-POINTED to the clean-room register location:
 #     tagging-rules.json#_rules[id=R-47].r47_exempt_paths (NOT the legacy
 #     .rules[id=R-47].r47_exempt_paths). The clean-room tagging pillar
 #     homes R-47 in the `_rules[]` register and its own r47_exempt_paths_provenance
-#     mandates this composition at. The 8-slot bundle shape, the
+#     mandates this composition. The 8-slot bundle shape, the
 #     r32/r47 top-level runtime-contract slots, and the consumer read-paths
 #     (governance/_index.json cross_cutting rules-index lines 502-508;
 #     hooks/pre-write-guard.sh :1046/:1048/:1568) are unchanged.
@@ -116,10 +116,16 @@ iso_utc() {
 }
 
 mtime_iso() {
-  # last git commit time of the pillar (its content version) — reproducible. Falls
-  # back to the build epoch (NOT the filesystem mtime) so determinism holds even
-  # for an untracked pillar.
+  # SOURCE_DATE_EPOCH, when set, is the release's own source time and stamps every
+  # pillar: a build tree whose git history is an earlier release must not stamp that
+  # release's commit times. Unset: last git commit time of the pillar (its content
+  # version) — reproducible. Falls back to the build epoch (NOT the filesystem
+  # mtime) so determinism holds even for an untracked pillar.
   local f="$1" rel ct
+  if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    iso_utc "$SOURCE_DATE_EPOCH"
+    return 0
+  fi
   rel="${f#$SOURCE_REPO/}"
   ct="$(git -C "$SOURCE_REPO" log -1 --format=%ct -- "$rel" 2>/dev/null || true)"
   [ -z "$ct" ] && ct="$BUILD_EPOCH"
@@ -142,7 +148,7 @@ fi
 R47_COMPOSED_JSON=$(printf '%s\n%s\n' "$TAGGING_R47" "$GATE_R47" | LC_ALL=C sort -u | grep -v '^$' | jq -R -s 'split("\n") | map(select(length > 0))')
 
 # --- 4a. Compose seed_taxonomy_exempt_paths_composed (deduped sorted) -------
-# T-3 (fix): DEDICATED tag-TAXONOMY exempt-list, SEPARATE from
+# DEDICATED tag-TAXONOMY exempt-list, SEPARATE from
 # r47_exempt_paths (the tag-PRESENCE list). Composed from the clean-room
 # register tagging-rules.json#_rules[id=R-47].seed_taxonomy_exempt_paths so the
 # 9 day-one shipped-seed tag-not-in-taxonomy violations are exempted without

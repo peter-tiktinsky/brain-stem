@@ -94,10 +94,13 @@ fi
 # shellcheck source=/dev/null
 { [ -r "$CLAUDE_HOME_RES/hooks/lib/findings.sh" ] && . "$CLAUDE_HOME_RES/hooks/lib/findings.sh"; } \
   || . "$_REPO_LIB/findings.sh"
+# shellcheck source=/dev/null
+{ [ -r "$CLAUDE_HOME_RES/hooks/lib/instructions-loaded-rows.sh" ] && . "$CLAUDE_HOME_RES/hooks/lib/instructions-loaded-rows.sh"; } \
+  || . "$_REPO_LIB/instructions-loaded-rows.sh"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "context-budget-index: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -168,8 +171,8 @@ mkdir -p "$STATE_DIR" 2>/dev/null || true
 OUT_MD="$STATE_DIR/context-budget-index.md"
 OUT_JSON="$STATE_DIR/context-budget-index.json"
 
-# The telemetry log the two hooks write (same resolution expression they use).
-TELEMETRY_LOG="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}/instructions-loaded.ndjson"
+# The telemetry log the two hooks write, at the path the shared reader resolves.
+TELEMETRY_LOG="$(ilr_log_path)"
 # The R-59 after-session monitor's durable log — the MEMORY.md verdict source.
 CONSOLIDATION_LOG="${CLAUDE_LOG_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/logs}/.consolidation-log.md"
 
@@ -184,11 +187,20 @@ if command -v resolve_memory_dir >/dev/null 2>&1; then
 fi
 
 CFG="$(mktemp -t ctxbudget)" || exit 0
-trap 'rm -f "$CFG"' EXIT INT TERM
+TL_ROWS=""
+trap 'rm -f "$CFG" "$TL_ROWS"' EXIT INT TERM
+# The log's object rows (the rotated generation first), read through the shared reader into a temp
+# file for the python below. No log, or a temp file that cannot be made, hands python an empty
+# telemetry value, which it reads as no log.
+TELEMETRY_ROWS=""
+TL_ROWS="$(mktemp "${TMPDIR:-/tmp}/ctxbudget-rows.XXXXXX" 2>/dev/null)" || TL_ROWS=""
+if [ -n "$TL_ROWS" ] && ilr_rows "$TELEMETRY_LOG" > "$TL_ROWS" 2>/dev/null; then
+  TELEMETRY_ROWS="$TL_ROWS"
+fi
 jq -n \
   --arg claude_home "$CLAUDE_HOME_RES" \
   --arg cwd "$SCOPE_CWD" \
-  --arg telemetry "$TELEMETRY_LOG" \
+  --arg telemetry "$TELEMETRY_ROWS" \
   --arg consolidation "$CONSOLIDATION_LOG" \
   --arg memdir "$MEM_DIR_RES" \
   --arg template_override "${CONTEXT_BUDGET_TEMPLATE:-}" \

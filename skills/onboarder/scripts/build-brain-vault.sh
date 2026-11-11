@@ -89,7 +89,7 @@ while [ $# -gt 0 ]; do
     --skills-dir)    SKILLS_DIR_ARG="$2"; shift 2 ;;
     --force)         FORCE=1; shift ;;
     --dry-run)       DRY_RUN=1; shift ;;
-    -h|--help)       sed -n '2,52p' "$0"; exit 0 ;;
+    -h|--help)       awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)               diag "unknown arg: $1"; exit 2 ;;
   esac
 done
@@ -164,10 +164,10 @@ build-brain-vault: dry-run summary
   skills_dir:   $SKILLS_DIR
   identity:     $NAME
   would_seed:   vault-init/ tree (Vault Writers/)
-  would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop} ; $WORK_HOME ()
+  would_scaffold: $PLANS_HOME/_library ; $PLANS_HOME/_projects ; \${CLAUDE_WORKSHOP_DIR:-\$CLAUDE_STATE_ROOT/workshop} ; $WORK_HOME
   would_link:   $VAULT_ROOT/Plans -> $PLANS_HOME ; $VAULT_ROOT/Skills -> $SKILLS_DIR
                 $VAULT_ROOT/Wiki -> $PLANS_HOME/_library ; $VAULT_ROOT/Projects -> $PLANS_HOME/_projects
-                $VAULT_ROOT/Work -> $WORK_HOME ()
+                $VAULT_ROOT/Work -> $WORK_HOME
                 (real-dir guard: refuse-with-diagnostic if any name pre-exists as a real dir)
   would_ignore: .obsidian/app.json userIgnoreFilters += Plans/_library, Plans/_projects, /Work\/<spoke>\/reference\// (visibility suppression; no-clobber)
   would_author: $CLAUDE_MD  ({{VAULT_TOP_LEVEL_FOLDER}} -> <USER_CLUSTER_1>)

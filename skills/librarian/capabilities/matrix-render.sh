@@ -187,8 +187,14 @@ def emit(d):
 
 
 def _yq(s):
+    import re
     s = " ".join(str(s).split())
-    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+    if (not s or ": " in s or " #" in s or s.endswith(":") or s[0] in ",#&*[]{}!|>%@`\"'"
+            or re.match(r"^[-?:]( |$)", s)
+            or s.lower() in ("true", "false", "null", "yes", "no", "on", "off", "y", "n", "~", "=", "<<",
+                             ".inf", "-.inf", "+.inf", ".nan")
+            or (" " not in s and re.match(r"^[-+]?\.?[0-9]", s))
+            or re.match(r"^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}[Tt ]", s)):
         return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
     return s
 
@@ -234,8 +240,13 @@ def upsert_fm_cohort(text):
     if "title" not in keys:
         add.append("title: %s" % _yq(fallback_title))
     if "description" not in keys:
-        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
-        add.append("description: %s" % _yq(dv))
+        dv = keys.get("title", (None, ""))[1]
+        if len(dv) >= 2 and dv[0] == '"' and dv[-1] == '"':
+            # a title _yq quoted: drop the outer quotes, then read \" as " and \\ as \
+            dv = re.sub(r'\\(["\\])', r"\1", dv[1:-1])
+        else:
+            dv = dv.strip('"').strip("'")
+        add.append("description: %s" % _yq(dv or fallback_title))
     if "created" not in keys:
         add.append("created: %s" % today)
     if "updated" not in keys:
@@ -398,7 +409,7 @@ if os.path.isfile(matrix_file):
 if not preface.strip():
     preface = (
         "---\n"
-        "title: %s — Traceability Matrix\n"
+        "title: %s\n"
         "type: traceability-matrix\n"
         "created: %s\n"
         "updated: %s\n"
@@ -408,7 +419,7 @@ if not preface.strip():
         "columns (Task/Build-item/SoT clause/Acceptance) from manifest.tasks[]; "
         "\"Build artifact\" + \"Independent verdict\" are downstream-filled (verifier) "
         "and preserved across re-renders.\n\n"
-    ) % (title, today, today, title)
+    ) % (_yq("%s — Traceability Matrix" % title), today, today, title)
 
 # Every render upserts the required frontmatter cohort into the replica preface —
 # absent keys only; canonical type re-stamp; no status/tags (healer form).

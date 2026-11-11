@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_note": "Librarian capability registry. Each entry's output_contract block is the contract-of-record: files-written · schema · validation · failure-mode, plus the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit this file DIRECTLY — no generator regenerates it (the no-hand-edit rule applies to read-replica manifests such as librarian-manifest.json, not to this primary registry). Home: skills/librarian/capability-registry.json. A strict disk↔registry↔SKILL.md bijection over the shipped capability bodies is enforced by capability-registry-parity (classes a/b/e). Read the live registry length rather than any count quoted in prose.",
+  "_note": "Librarian capability registry. Each entry's output_contract block is the contract-of-record: files-written · schema · validation · failure-mode, plus the capability↔schema/path dependency map. HAND-MAINTAINED source-of-truth: edit this file DIRECTLY — no generator regenerates it (the no-hand-edit rule applies to read-replica manifests such as librarian-manifest.json, not to this primary registry). Home: skills/librarian/capability-registry.json. A strict disk↔registry↔SKILL.md bijection over the shipped capability bodies is enforced by capability-registry-parity (classes a/b/e). Read the live registry length rather than any count quoted in prose. rerun_safety is documentary: no shipped script reads it.",
   "_parity_pending_manifest_writes": [],
   "_parity_pending_tag_prefixes": [],
   "_parity_pending_tag_prefixes_note": "Tag prefixes that shipped generators emit but the composed foundation-master.json tagging.taxonomy.dimension_prefixes does not register. capability-registry-parity class (n) emits allowlisted members ADVISORY (warn, not counted in TOTAL) instead of RED, because REGISTERING a prefix is a governance-pillar edit and this audit cannot make one for itself; a NON-allowlisted unregistered prefix fires HARD. Bounded, provably-shrinking pending inventory whose legal target state is EMPTY, on the same contract as _parity_pending_manifest_writes and _parity_pending_session_close_callsites — not a welded floor. The inventory is EMPTY: the former members (episode, library, scope) are registered dimensions in governance/tagging-rules.json — episode and scope as system-utility (generator-stamped), library as user-facing.",
@@ -268,7 +268,8 @@
       "output_contract": {
         "modes": [
           "<plan-dir> <fork> <choice> --quote \"<text>\" write `- <FORK>: ruled <choice> — \"<quote>\"` under ### Rulings in the newest handoff entry, the heading created at the end of that entry when absent",
-          "... --spec-change --title \"<t>\" also mint decisions/ADR-NN-<slug>.md, append its decision_records[] entry and append `- Amended by ADR-NN: <title>` under the spec's ## Amendment register, created once"
+          "... --spec-change --title \"<t>\" also mint decisions/ADR-NN-<slug>.md, append its decision_records[] entry and append `- Amended by ADR-NN: <title>` under the spec's ## Amendment register, created once",
+          "... --spec-change --title \"<t>\" --body-file <path> supply the ADR's Context, Decision and Consequences text as `## <Section>` blocks; an omitted block keeps the generated text"
         ],
         "writes": [
           "<plan-dir>/handoff.md (the ruling line)",
@@ -277,7 +278,7 @@
           "<plan-dir>/spec.md ## Amendment register (--spec-change; one pointer line)"
         ],
         "schema": "governance/plans-rules.json decision_records (dir, filename_pattern, required_sections); governance/file-type-contracts/adr.md.json body shape",
-        "validation": "handoff.md holds an H2 session heading; fork, choice and quote are single non-empty lines; with --spec-change the title is a single line whose ADR filename matches decision_records.filename_pattern, spec.md and manifest.json exist, and the ADR file is new; every check runs before the first write and any miss exits 2 with no write",
+        "validation": "handoff.md holds an H2 session heading; fork, choice and quote are single non-empty lines; with --spec-change the title is a single line whose ADR filename matches decision_records.filename_pattern, spec.md and manifest.json exist, and the ADR file is new; a --body-file is a readable, non-empty file whose `## <Section>` headings are required sections, each named once and each with text; every check runs before the first write and any miss exits 2 with no write",
         "failure_mode": "block-and-log"
       },
       "implementation_status": "shipped",
@@ -548,6 +549,7 @@
         ],
         "writes": [
           "$WORK_HOME/<spoke>/.../{deliverables,reference}/_index.md (atomic temp+os.replace; a NEW work-scoped index pass targeting $WORK_HOME directly — the counterpart to index-maintain which is VAULT_ROOT-scoped and never reaches the external work root; mints a C-IDX-conformant _index.md (frontmatter type:index + tags #project/<spoke> + updated + parent_folder, then a '<!-- contents-enum:start --> … <!-- contents-enum:end -->' block enumerating the directory's .md files in the | Name | Lines | Type | Description | row shape) when absent, else REFRESHES ONLY the contents-enum block (markers + everything outside preserved byte-for-byte); FLAT spoke indexes top-level deliverables/+reference/, MASTER spoke indexes each sub-project's own $WORK_HOME/<spoke>/<sub>/{deliverables,reference}/ — there is NO literal sub-projects/ dir in the shipped scaffold layout, and the master's top-level sub-project navigation is the work-map's domain; deterministic + idempotent, a re-run without a disk change is byte-identical; writes ONLY _index.md files, NEVER README.md, updates.md, CLAUDE.md, deliverable/reference bodies, or anything under the plans root)",
+          "$WORK_HOME/<spoke>/{deliverables,reference}/_index.md (the FLAT spoke layout: a flat spoke's top-level deliverables/ and reference/ indexes sit one path segment below $WORK_HOME, which the master-layout token above never matches because it expands to two segments; this explicit flat token declares them with the same atomic temp+os.replace and refresh-only-the-contents-enum-block contract)",
           "librarian-finding NDJSON to stdout (or $FINDINGS_OUTPUT) — incl. defensive-skip findings (spoke-dir-absent / target-subfolder-absent / no-contents-enum-markers) + mint/refresh/blocked findings"
         ],
         "schema": null,
@@ -1246,7 +1248,7 @@
           "drift finding lines to stdout (PASS/FAIL summary; --json structured)"
         ],
         "schema": null,
-        "validation": "byte-diff of the 2 sanctioned schemas (plans-schema, plan-manifest-schema) between the foundation-repo source and the live install schemas (CLAUDE_HOME/schemas)",
+        "validation": "byte-diff of every shipped schemas/*.json between the foundation-repo source and the live install schemas (CLAUDE_HOME/schemas); on an install with no foundation repo it exits 0 with no findings",
         "failure_mode": "block-and-log (exit 1 on drift)"
       },
       "implementation_status": "shipped",
@@ -1282,7 +1284,9 @@
         "librarian-full"
       ],
       "cron_block": "daily",
-      "dependencies": [],
+      "dependencies": [
+        "hooks/lib/instructions-loaded-rows.sh"
+      ],
       "emits_findings": true,
       "writes_manifest_subtree": null,
       "default_flags": [],
@@ -1509,6 +1513,7 @@
       "dependencies": [
         "hooks/lib/paths.sh",
         "hooks/lib/findings.sh",
+        "hooks/lib/instructions-loaded-rows.sh",
         "schemas/rules-schema.json"
       ],
       "emits_findings": true,
@@ -1977,6 +1982,32 @@
       },
       "implementation_status": "shipped",
       "script": "capabilities/skill-referrers.sh"
+    },
+    "system-map": {
+      "tier": "mechanical",
+      "invocation_modes": [
+        "ad-hoc"
+      ],
+      "cron_block": "none",
+      "dependencies": [
+        "hooks/lib/paths.sh"
+      ],
+      "emits_findings": false,
+      "writes_manifest_subtree": null,
+      "default_flags": [
+        "--check"
+      ],
+      "requires_confirmation": false,
+      "output_contract": {
+        "writes": [
+          "<out>/{hook,capability,skill,job}/*.md and <out>/index.md (one six-line page per member) plus <out>/.system-map-root, on --render only; <out> is --out, else $SYSTEM_MAP_OUT, else $CLAUDE_STATE_ROOT/system-map"
+        ],
+        "schema": "none (plain Markdown pages of six lines; index.md lists the member count per kind)",
+        "validation": "members are read from settings.json, every skills/*/capability-registry.json, every skills/*/SKILL.md and the launchd templates and rendered plists; --render refuses a non-empty root without .system-map-root (exit 2); --check renders to a temp tree and compares it with the root (exit 1 on drift); a source that is not valid JSON exits 1 with nothing written",
+        "failure_mode": "block-and-log"
+      },
+      "implementation_status": "shipped",
+      "script": "capabilities/system-map.sh"
     },
     "memory-spill": {
       "tier": "mechanical",

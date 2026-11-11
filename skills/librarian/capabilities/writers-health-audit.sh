@@ -2,7 +2,9 @@
 # writers-health-audit — Daily read-only sweep of writer-reference files + skill
 # registry + path_routing for operational drift. Emits findings only; never
 # writes vault content.
-# NET-NEW librarian body (1.1 line 138). Authored from the
+# NET-NEW librarian body. The contract of record is this capability's
+# output_contract block in skills/librarian/capability-registry.json; this header is its
+# operator-facing prose. Reuses the tag-coverage-audit read-only multi-class sweep base; the
 # net-new logic is the 5 per-class predicates + the dormant-writer
 # last-run derivation.
 # Output Contract
@@ -14,7 +16,7 @@
 #     vault-writers-rules.json must parse; block-and-log + abort on a malformed
 #     source contract (never emit findings against malformed inputs).
 #   Failure mode: block-and-log; never write-and-hope.
-# Finding categories (5 — §Finding categories; S5 verbatim):
+# Finding categories (5):
 #   dormant-writer            (warning) last_success >30d OR status:active & never-observed
 #   unresolved-destination    (warning) destination glob matches zero folders + no auto_create
 #   orphan-writer-skill-ref   (warning) writer_skill points to a non-existent skill slug
@@ -43,7 +45,7 @@ MODE="audit"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) MODE="dry-run"; shift ;;
-    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "writers-health-audit: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

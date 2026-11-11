@@ -3,10 +3,6 @@
 # governance pillar JSON surfaces. Walks the pillar JSON registries and emits
 # drift findings categorized by pillar.
 #
-# Authored in this repository, not ported from another source: this header and
-# the script body are the whole contract for the capability, and no separate
-# per-capability authoring document exists to consult.
-#
 # Two-layer composition: the write-time R-37 atomic lockstep prevents
 # partial-surface commits at the gate; this capability is the audit-time
 # backstop detecting drift that lands DESPITE the gate (manual filesystem
@@ -16,8 +12,7 @@
 # Output Contract
 #   Files written: findings to stdout (NDJSON via hooks/lib/findings.sh) or
 #     $FINDINGS_OUTPUT. No governance writes; no vault writes.
-#   Finding shape: hooks/lib/findings.sh emit_finding ( — the phantom
-#     librarian-finding-schema.json is reconciled to findings.sh; not created).
+#   Finding shape: emit_finding in hooks/lib/findings.sh.
 #   Pre-run validation: each pillar JSON must parse (jq); _index.json must
 #     parse. block-and-log on a malformed pillar JSON (pillar-schema-malformed
 #     finding + the pillar is skipped, never silently passed).
@@ -57,7 +52,7 @@ while [ $# -gt 0 ]; do
     --upgrade) UPGRADE="true"; shift ;;
     --diff) DIFF_ARG="${2:-}"; shift 2 ;;
     --dry-run) MODE="dry-run"; shift ;;
-    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "governance-parity-audit: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

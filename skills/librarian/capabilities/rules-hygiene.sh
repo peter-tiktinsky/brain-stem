@@ -57,8 +57,9 @@
 # names the rule file (<rule-name> with or without .md). Output and exit: LOADED (exit 0), NOT
 # loaded (exit 1), no log at the path (exit 3), a refused argument (exit 2). It reads only rows
 # that carry a file_path (the log mixes in a second record shape without one). The log defaults to
-# instructions-loaded.ndjson under the hooks state directory, resolved the way the hook resolves
-# it. It cannot be combined with --scope or --dry-run, and --log needs --check-load.
+# the path hooks/lib/instructions-loaded-rows.sh resolves under the hooks state directory, the way
+# the hook resolves it, and the rows are read through that library (the rotated generation first).
+# It cannot be combined with --scope or --dry-run, and --log needs --check-load.
 #
 # The compare mode takes one of the four retired rule basenames (00-project-binder-pointer.md,
 # 10-pre-research-library-check.md, 20-work-project-register.md, 30-durable-artifact-routing.md) and
@@ -109,7 +110,7 @@ CR_SET=0; CR_NAME=""; RD_SET=0; RD_PATH=""
 # spells a flag does not count).
 _prev=""
 for _a in "$@"; do
-  case "$_prev" in --scope|--check-load|--log) _prev=""; continue ;; esac
+  case "$_prev" in --scope|--check-load|--log|--compare-retired|--rules-dir) _prev=""; continue ;; esac
   case "$_a" in --scope) SCOPE_SET=1 ;; --dry-run) DRY_SET=1 ;; esac
   _prev="$_a"
 done
@@ -196,22 +197,32 @@ if [[ "$CL_SET" -eq 1 ]]; then
     { [ -r "$CLAUDE_HOME_RES/hooks/lib/paths.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/paths.sh"; } \
       || { [ -r "$_REPO_LIB/paths.sh" ] && source "$_REPO_LIB/paths.sh"; } || true
   fi
-  STATE_DIR="${HOOKS_STATE_OVERRIDE:-${HOOKS_STATE:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/hooks-state}}"
-  LOAD_LOG="${LOG_PATH:-$STATE_DIR/instructions-loaded.ndjson}"
+  # The log is read through the one shared reader: its path chain, and its rows with the rotated
+  # generation first. The rows go to a temp file, removed on every exit, that the scan below reads.
+  # shellcheck source=/dev/null
+  { [ -r "$CLAUDE_HOME_RES/hooks/lib/instructions-loaded-rows.sh" ] && source "$CLAUDE_HOME_RES/hooks/lib/instructions-loaded-rows.sh"; } \
+    || source "$_REPO_LIB/instructions-loaded-rows.sh"
+  LOAD_LOG="${LOG_PATH:-$(ilr_log_path)}"
+  CL_ROWS="$(mktemp "${TMPDIR:-/tmp}/rules-hygiene-rows.XXXXXX")" || _refuse "cannot create a temp file under ${TMPDIR:-/tmp}"
+  trap 'rm -f "$CL_ROWS"' EXIT
+  CL_RC=0
+  ilr_rows "$LOAD_LOG" > "$CL_ROWS" || CL_RC=$?
+  if [[ "$CL_RC" -eq 3 ]]; then
+    printf 'rules-hygiene: check-load: no instructions-loaded log at %s\n' "$LOAD_LOG"
+    exit 3
+  fi
+  if [[ "$CL_RC" -ne 0 ]]; then exit "$CL_RC"; fi
   # shellcheck disable=SC2016
-  exec python3 - "$LOAD_LOG" "$CL_NAME" <<'PY'
+  python3 - "$CL_ROWS" "$CL_NAME" <<'PY' || exit $?
 import json
 import os
 import sys
 
-log_path, name = sys.argv[1], sys.argv[2]
+rows_path, name = sys.argv[1], sys.argv[2]
 target = (name[:-3] if name.endswith(".md") else name) + ".md"
-if not os.path.isfile(log_path):
-    print("rules-hygiene: check-load: no instructions-loaded log at %s" % log_path)
-    sys.exit(3)
 
 naming = []
-with open(log_path, encoding="utf-8", errors="replace") as fh:
+with open(rows_path, encoding="utf-8", errors="replace") as fh:
     for line in fh:
         line = line.strip()
         if not line:

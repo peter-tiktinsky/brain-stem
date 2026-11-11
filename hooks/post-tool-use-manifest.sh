@@ -35,8 +35,11 @@
 #   never starts with `_`, so _settled/ notes and _index.md stay silent. The note is
 #   re-read from disk: an empty disposition, or one outside the plans-rules
 #   backlog_row.disposition_enum, prints one additionalContext naming the note and
-#   the enum, plus `/backlog-triage --item <slug>` when its status is new or absent.
-#   Any other note prints nothing. A Bash-tool write of the note (a --capture) is
+#   the enum, then one of three tails: `/backlog-triage --item <slug>` for an empty
+#   disposition on a note whose status is new or absent; the redecide-idea.sh command
+#   that sets the disposition, for an empty disposition on any other status; the
+#   redecide-idea.sh command that replaces it, for a disposition outside the enum on
+#   any status. Any other note prints nothing. A Bash-tool write of the note (a --capture) is
 #   invisible here, so the prompt comes on the session's next Edit/Write of the note.
 #
 # Test-isolation env:
@@ -171,10 +174,13 @@ if [[ -n "$_INBOX_NAME" ]]; then
   else
     _CTX="[inbox-triage] _inbox/${_INBOX_NAME} carries disposition '${_INBOX_DISP}', which is not one of: ${_ENUM_LIST}."
   fi
-  if [[ -z "$_INBOX_STATUS" || "$_INBOX_STATUS" == "new" ]]; then
+  _REDECIDE='bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/redecide-idea.sh'
+  if [[ -n "$_INBOX_DISP" ]]; then
+    _CTX="${_CTX} Replace it with: ${_REDECIDE} ${_INBOX_SLUG} --disposition <value> --rationale \"<one line>\" (a DEFERRED note takes --disposition NO-BUILD --reopen-gate manual)."
+  elif [[ -z "$_INBOX_STATUS" || "$_INBOX_STATUS" == "new" ]]; then
     _CTX="${_CTX} Triage it now: /backlog-triage --item ${_INBOX_SLUG}"
   else
-    _CTX="${_CTX} Set the disposition in the note's frontmatter (its status is ${_INBOX_STATUS})."
+    _CTX="${_CTX} Set the disposition with: ${_REDECIDE} ${_INBOX_SLUG} --disposition <value> --rationale \"<one line>\" (its status is ${_INBOX_STATUS})."
   fi
   PAYLOAD=$(jq -n --arg ctx "$_CTX" \
     '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":$ctx}}')

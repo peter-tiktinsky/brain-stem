@@ -29,9 +29,8 @@
 #   dangling per-spoke pointer falls through to the legacy one and a dangling legacy
 #   pointer resolves to unarmed.
 #
-# WHO WRITES THE POINTER. No shipped command writes the pointer: the adopter writes it
-# by hand, so until one is written every reader resolves to unarmed and takes its
-# unarmed path.
+# WHO WRITES THE POINTER. skills/new-plan/lib/active-plan.sh set writes it and clear removes it;
+# until one is written every reader resolves to unarmed and takes its unarmed path.
 #
 # The <plan>/.active-sp leg is unchanged: it names the armed sub-plan, and a '.'
 # value, an absent file or a dangling sub-plan resolves to the plan root.

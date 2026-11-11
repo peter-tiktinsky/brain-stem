@@ -21,6 +21,11 @@
 #        a heading created once at the end of spec.md.
 #   The spec's head sections stay as written; the register is the one pointer list, and the
 #   ADR carries the change.
+#   With --body-file <path> (valid only with --spec-change) the operator supplies the ADR's
+#   text. The file is markdown holding `## <Section>` headings, each a name in the pillar's
+#   required_sections; a section the file omits keeps the generated text byte for byte, and a
+#   supplied section's text, trimmed of leading and trailing blank lines, replaces it. The ADR
+#   keeps `**Status:** accepted`, and the ADR lock still applies to the minted file.
 #
 # Output Contract:
 #   Files written: <plan-dir>/handoff.md. With --spec-change also
@@ -35,12 +40,14 @@
 #     <fork>, <choice> and --quote are non-empty single lines. With --spec-change:
 #     --title is a non-empty single line whose ADR filename matches the pattern, spec.md
 #     and manifest.json exist, manifest.json parses as an object, and the ADR file does
-#     not exist yet. Every check runs before the first write. Any miss exits 2 with a
-#     stderr reason and writes nothing.
+#     not exist yet. With --body-file the file is a readable, non-empty markdown file whose
+#     text starts at a `## <Section>` heading, whose headings are required sections, each
+#     named once and each with text. Every check runs before the first write. Any miss
+#     exits 2 with a stderr reason and writes nothing.
 #   Failure mode: block-and-log (exit 2, no write). Never write-and-hope.
 #
 # CLI:
-#   plan-rule.sh <plan-dir> <fork> <choice> --quote "<text>" [--spec-change --title "<t>"]
+#   plan-rule.sh <plan-dir> <fork> <choice> --quote "<text>" [--spec-change --title "<t>" [--body-file <path>]]
 #   plan-rule.sh --help
 #
 # Env overrides (testing):
@@ -66,20 +73,28 @@ QUOTE=""
 QUOTE_SET="false"
 SPEC_CHANGE="false"
 TITLE=""
+BODY_FILE=""
+BODY_FILE_SET="false"
 while [ $# -gt 0 ]; do
   case "$1" in
     --quote)       QUOTE="${2:-}"; QUOTE_SET="true"; shift 2 ;;
     --spec-change) SPEC_CHANGE="true"; shift ;;
     --title)       TITLE="${2:-}"; shift 2 ;;
+    --body-file)   if [ $# -lt 2 ] || [ -z "$2" ]; then echo "plan-rule: --body-file needs a value" >&2; exit 2; fi
+                   BODY_FILE="$2"; BODY_FILE_SET="true"; shift 2 ;;
     -h|--help)     awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     -*)            echo "plan-rule: unknown flag '$1'" >&2; exit 2 ;;
     *)             POS+=("$1"); shift ;;
   esac
 done
 
-USAGE='plan-rule: usage: plan-rule <plan-dir> <fork> <choice> --quote "<text>" [--spec-change --title "<t>"]'
+USAGE='plan-rule: usage: plan-rule <plan-dir> <fork> <choice> --quote "<text>" [--spec-change --title "<t>" [--body-file <path>]]'
 [ "${#POS[@]}" -eq 3 ] || { echo "$USAGE" >&2; exit 2; }
 [ "$QUOTE_SET" = "true" ] || { echo "plan-rule: --quote is required" >&2; exit 2; }
+if [ "$BODY_FILE_SET" = "true" ] && [ "$SPEC_CHANGE" != "true" ]; then
+  echo "plan-rule: --body-file applies to --spec-change only" >&2
+  exit 2
+fi
 PLAN_DIR="${POS[0]%/}"
 [ -f "$PLAN_DIR/handoff.md" ] || { echo "plan-rule: no handoff.md in $PLAN_DIR" >&2; exit 2; }
 
@@ -142,11 +157,11 @@ if [ "$SPEC_CHANGE" = "true" ] && [ -z "$DR" ]; then
   exit 2
 fi
 
-python3 - "$PLAN_DIR" "${POS[1]}" "${POS[2]}" "$QUOTE" "$SPEC_CHANGE" "$TITLE" "$DR" <<'PY'
+python3 - "$PLAN_DIR" "${POS[1]}" "${POS[2]}" "$QUOTE" "$SPEC_CHANGE" "$TITLE" "$DR" "$BODY_FILE" <<'PY'
 import json, os, re, sys, tempfile
 from datetime import date
 
-plan_dir, fork, choice, quote, spec_change, title, dr_s = sys.argv[1:8]
+plan_dir, fork, choice, quote, spec_change, title, dr_s, body_file = sys.argv[1:9]
 spec_change = spec_change == "true"
 
 
@@ -316,6 +331,43 @@ if spec_change:
         refuse("%s already exists" % adr_path)
     adr_rel = "%s/%s" % (sub, fname)
 
+    # --body-file: `## <Section>` blocks the operator wrote. Parsed and checked here, before any
+    # write; a section the file omits keeps the generated text below.
+    supplied = {}
+    if body_file:
+        try:
+            if not os.path.isfile(body_file):
+                raise OSError("not a regular file")
+            body_text = read(body_file)
+        except (OSError, UnicodeDecodeError):
+            refuse("--body-file %s is not a readable file" % body_file)
+        if not body_text.strip():
+            refuse("--body-file %s is empty" % body_file)
+        section_re = re.compile(r"^##(?!#)[ \t]+(\S.*?)[ \t]*$")
+        cur = None
+        for line in body_text.splitlines():
+            hm = section_re.match(line)
+            if hm:
+                cur = hm.group(1)
+                if cur not in sections:
+                    refuse("--body-file %s has a heading '%s' that is not a required section (%s)"
+                           % (body_file, cur, ", ".join(sections)))
+                if cur in supplied:
+                    refuse("--body-file %s repeats the section '%s'" % (body_file, cur))
+                supplied[cur] = []
+            elif cur is None:
+                if line.strip():
+                    refuse("--body-file %s holds text before its first section heading" % body_file)
+            else:
+                supplied[cur].append(line)
+        for name, lines_ in supplied.items():
+            while lines_ and not lines_[0].strip():
+                lines_.pop(0)
+            while lines_ and not lines_[-1].strip():
+                lines_.pop()
+            if not lines_:
+                refuse("--body-file %s has an empty '%s' section" % (body_file, name))
+
     today = date.today().isoformat()
     plan_base = os.path.basename(os.path.abspath(plan_dir))
     body = {
@@ -328,6 +380,8 @@ if spec_change:
                         "to this decision is a new ADR that supersedes this one; this file is not "
                         "edited in place." % (adr_id, title),
     }
+    for sec, sec_lines in supplied.items():
+        body[sec] = "\n".join(sec_lines)
     adr = ["---\n",
            "title: %s\n" % json.dumps("%s: %s" % (adr_id, title), ensure_ascii=False),
            "type: adr\n",

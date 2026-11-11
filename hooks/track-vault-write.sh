@@ -89,8 +89,8 @@ ensure_coord_dir 2>/dev/null || true
 if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
   # A lockf timeout (rc 75) defers the row — ONE skip line, never
   # an unlocked write (an unlocked RMW taken exactly under contention is what
-  # the lock exists to prevent). Non-75 keeps today's silent swallow (T-3a:
-  # only contention may name itself). The skipped touched-files upsert
+  # the lock exists to prevent). Non-75 keeps today's silent swallow (only
+  # contention may name itself). The skipped touched-files upsert
   # self-heals at the next Edit/Write fire.
   _tvw_rc=0
   lockf -k -t 2 "$REGISTRY_LOCK" "$0" --do-track "$SESSION_ID" "$FILE_PATH" >/dev/null 2>&1 || _tvw_rc=$?

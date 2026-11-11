@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "User Manifest (Tier-2 slim)",
-  "description": "Identity/config manifest for a brain-stem Tier-2 GA install. Instance file: user-manifest.json. Carries the fields the onboarding interview captures (the substitution inputs for the two CLAUDE.md templates plus runtime path/identity fields) plus the runtime hook-threshold extensions. Read-side consumers (hooks/session-start.sh, hooks/prompt-context.sh, lib/paths.sh, skills/librarian/lib/user-manifest-read.sh, install.sh identity substitution) all read with jq '<path> // default' — fields dropped from this slim contract degrade to the consumer's own default; no Tier-2-live consumer validates an instance against this schema. The only write-side validator is onboarding/bootstrap-user-manifest.sh. The `hooks` block is the extension surface (hooks.memory_review thresholds + hooks.context_pressure thresholds).",
+  "description": "Identity/config manifest for a brain-stem Tier-2 GA install. Instance file: user-manifest.json. Carries the fields the onboarding interview captures (the substitution inputs for the two CLAUDE.md templates plus runtime path/identity fields) plus the runtime hook-threshold extensions. Read-side consumers (hooks/session-start.sh, hooks/prompt-context.sh, lib/paths.sh, hooks/lib/user-manifest-read.sh, install.sh identity substitution) all read with jq '<path> // default' — fields dropped from this slim contract degrade to the consumer's own default; no Tier-2-live consumer validates an instance against this schema. The only write-side validator is onboarding/bootstrap-user-manifest.sh. The `hooks` block is the extension surface (hooks.memory_review thresholds + hooks.context_pressure thresholds).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -73,7 +73,7 @@
     "vault": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Tier-2 builds a FRESH 'brain' vault inline at install — so there is no is_fresh branch. User cluster folders and vault-specific rules are NOT captured in the interview: clusters are created organically via the runtime propose-and-validate folder flow, and rules are hand-edited into the vault CLAUDE.md's <USER> section. additionalProperties:true — the librarian capabilities below read these via skills/librarian/lib/user-manifest-read.sh (umr_get_*) with graceful defaults; the block stays open so a new vault-customization knob never trips bootstrap validation (the reject-what-the-reader-supports class).",
+      "description": "Tier-2 builds a FRESH 'brain' vault inline at install — so there is no is_fresh branch. User cluster folders and vault-specific rules are NOT captured in the interview: clusters are created organically via the runtime propose-and-validate folder flow, and rules are hand-edited into the vault CLAUDE.md's <USER> section. additionalProperties:true — the librarian capabilities below read these via hooks/lib/user-manifest-read.sh (umr_get_*) with graceful defaults; the block stays open so a new vault-customization knob never trips bootstrap validation (the reject-what-the-reader-supports class).",
       "properties": {
         "root": {
           "type": ["string", "null"],
@@ -148,12 +148,12 @@
             "governance_parity_audit": {
               "type": ["string", "null"],
               "enum": ["unset", "enabled", "declined", null],
-              "description": "Dormant-until-opt-in activation for the weekly governance-parity-audit cadence dispatch (the sweep_due() cadence-window gate in hooks/lib/cadence.sh). Its 6 governance-PILLAR inputs are build-dogfood-only, so the weekly dispatch is DORMANT on an adopter install unless this key is 'enabled'. Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = fires weekly; 'declined' = dormant + re-proposable. MANUAL opt-in — governance-parity-audit is NOT writer-triggered and has no auto-propose lifecycle event (unlike writers_health_check); the adopter opts in by SETTING THIS KEY BY HAND. Read with `jq // \"unset\"`."
+              "description": "Dormant-until-opt-in activation for the weekly governance-parity-audit cadence dispatch (the sweep_due() cadence-window gate in hooks/lib/cadence.sh). Its 6 governance-PILLAR inputs are build-dogfood-only, so the weekly dispatch is DORMANT on an adopter install unless this key is 'enabled'. Tri-state: absent/'unset' = dormant, never proposed; 'enabled' = fires weekly; 'declined' = dormant + re-proposable. MANUAL opt-in — governance-parity-audit is NOT writer-triggered and has no auto-propose lifecycle event (unlike writers_health_check); the adopter opts in with hooks/lib/field-set.sh user-manifest set behavioral.hook_preferences.governance_parity_audit enabled. Read with `jq // \"unset\"`."
             },
             "library_promotion": {
               "type": ["string", "null"],
               "enum": ["prompt", "auto", "off", null],
-              "description": "Mode of the library-promotion queue (skills/librarian/capabilities/library-scrub.sh --mode get|set). 'prompt' = each newly completed plan's research is triaged by a small model and offered for a yes/no/always answer; 'auto' = a promote verdict is accepted without asking; 'off' = dormant, no model call and no queue write. Absent or null reads 'off'. The first switch to 'prompt' or 'auto' records the plans already completed, which are never offered."
+              "description": "Mode of the library-promotion queue (skills/librarian/capabilities/library-scrub.sh --mode get|set). 'prompt' = each newly completed plan's research is triaged by a small model and offered for a yes/no/always answer; 'auto' = a promote verdict is accepted without asking; 'off' = dormant, no model call and no queue write. Absent or null reads 'off'. Each switch from 'off' to 'prompt' or 'auto' records the plans already completed, which are never offered (--enqueue <plan> is the one exception); answering 'always' also sets 'auto'."
             }
           }
         }
@@ -164,6 +164,11 @@
       "additionalProperties": true,
       "description": "Runtime hook-threshold overrides. extension surface. All fields optional; consumers read with jq '<path> // default' and fall back to the documented defaults when absent.",
       "properties": {
+        "disabled": {
+          "type": ["array", "null"],
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+          "description": "Hook basenames the installer's required-hook reconciler leaves out of settings.json on every upgrade. field-set.sh settings hook off adds a foundation-required hook here and hook on removes it. Absent or null reads as empty."
+        },
         "memory_review": {
           "type": "object",
           "additionalProperties": true,

@@ -88,7 +88,7 @@ while [[ $# -gt 0 ]]; do
     --recent)        MODE="recent"; shift ;;
     --scope)         MODE="scope"; SCOPE_PATH="$2"; shift 2 ;;
     --include-logs)  INCLUDE_LOGS=1; shift ;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "xref-check: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

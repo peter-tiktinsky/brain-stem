@@ -35,3 +35,4 @@ The test harness lives under `internal/tests/` in the maintainer development rep
 - macOS only, single-user, Apache-2.0.
 - Plaintext everywhere; no generated binaries in history.
 - Any foundation source edit requires a manifest regen before release (enforced by a pre-commit hook in the maintainer's development repo).
+- A script's `--help` prints its leading comment block with `awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"`. Do not hard-code a `sed -n 'a,bp'` window: the cleaner shortens headers and the window slides onto code.

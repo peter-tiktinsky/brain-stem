@@ -92,20 +92,47 @@ PWV_FILE_PATH="$(printf '%s' "$PWV_INPUT" | jq -r '.tool_input.file_path // empt
 # Auto-stamp a vault-RESIDENT, frontmatter-bearing .md file with the universal
 # cohort at write-time — but ONLY the fields that are ABSENT (created + an immutable
 # readable id slug are stamped once and never regenerated on a re-write; the stored
-# id survives a later move/rename). Location-based scope: the file must be physically
-# under $VAULT_ROOT. EXCLUDED: memory files (memory-auto-stamp.sh owns the created:
+# id survives a later move/rename). Location-based scope: the written path lies under
+# $VAULT_ROOT, or physically under $WORK_HOME (the Work/ vault view is a symlink to it,
+# so a write spelled with the physical path is the same file). A physical Work file is
+# stamped through its Work/<rel> vault-view id, so both spellings of one file give one
+# id. On the physical spelling a */.claude/* path below $WORK_HOME and any path whose
+# first segment below $WORK_HOME holds a .no-spoke marker are skipped; the vault spelling
+# keeps its base behaviour. EXCLUDED: memory files (memory-auto-stamp.sh owns the created:
 # bootstrap there, under the same derive-a-floor policy this block applies — one writer
 # per cohort, so the two never collide), CLAUDE.md (navigation/context,
 # frontmatter-less), _index.md (the Tier-1/Tier-2 bootstrap stamps its own cohort),
 # and type: log (out-of-folder machine exhaust). Fast pre-gate: no python spawns
-# unless a cohort field is actually missing (steady state = one grep). The symlinked
-# Work/ surface is covered by the scaffolder (cohort-emitting) + the frontmatter-enforce
-# --fix backfill, not here. Fail-open: any error leaves the file untouched.
+# unless a cohort field is actually missing (steady state = one grep). Fail-open: any
+# error leaves the file untouched.
+#
+# _pwv_cohort_rel sets _cs_rel (the vault-relative path the id slug is cut from) and
+# returns 0 for a path the stamp covers, else 1. The physical branch canonicalises both
+# $WORK_HOME and the file's parent with `cd ... && pwd -P`, as the block below does.
+_pwv_cohort_rel() {
+  _cs_rel=""
+  if [ "${PWV_FILE_PATH#$VAULT_ROOT/}" != "$PWV_FILE_PATH" ]; then
+    _cs_rel="${PWV_FILE_PATH#$VAULT_ROOT/}"
+    return 0
+  fi
+  [ -n "${WORK_HOME:-}" ] && [ -d "$WORK_HOME" ] || return 1
+  local _wh _par _below _seg
+  _wh="$(cd "$WORK_HOME" 2>/dev/null && pwd -P 2>/dev/null)" || return 1
+  _par="$(cd "${PWV_FILE_PATH%/*}" 2>/dev/null && pwd -P 2>/dev/null)" || return 1
+  case "$_par/" in "$_wh"/*) ;; *) return 1 ;; esac
+  _below="${_par#$_wh}"; _below="${_below#/}"
+  _below="${_below:+$_below/}${PWV_FILE_PATH##*/}"
+  case "/$_below" in */.claude/*) return 1 ;; esac
+  _seg="${_below%%/*}"
+  [ -f "$_wh/$_seg/.no-spoke" ] && return 1
+  _cs_rel="Work/$_below"
+  return 0
+}
 if [ "${VAULT_CONFIGURED:-0}" = "1" ] && [ -n "${VAULT_ROOT:-}" ] \
-   && [ "${PWV_FILE_PATH#$VAULT_ROOT/}" != "$PWV_FILE_PATH" ] \
    && [ "${PWV_FILE_PATH%.md}" != "$PWV_FILE_PATH" ] \
    && [ -f "$PWV_FILE_PATH" ] \
-   && command -v python3 >/dev/null 2>&1; then
+   && command -v python3 >/dev/null 2>&1 \
+   && _pwv_cohort_rel; then
   _cs_base="${PWV_FILE_PATH##*/}"
   case "$PWV_FILE_PATH" in */memory/*) _cs_skip=1 ;; *) _cs_skip=0 ;; esac
   if [ "$_cs_skip" = "0" ] && [ "$_cs_base" != "CLAUDE.md" ] && [ "$_cs_base" != "_index.md" ] \
@@ -117,7 +144,6 @@ if [ "${VAULT_CONFIGURED:-0}" = "1" ] && [ -n "${VAULT_ROOT:-}" ] \
       printf '%s\n' "$_cs_fm" | grep -qE "^${_cs_k}:" || { _cs_need=1; break; }
     done
     if [ "$_cs_need" = "1" ]; then
-      _cs_rel="${PWV_FILE_PATH#$VAULT_ROOT/}"
       _cs_slug="$(printf '%s' "${_cs_rel%.md}" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//')"
       [ -n "$_cs_slug" ] || _cs_slug="note"
       _cs_today="$(date +%Y-%m-%d)"

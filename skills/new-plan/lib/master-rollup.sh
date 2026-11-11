@@ -122,7 +122,7 @@ fcntl.flock(lock_fd, fcntl.LOCK_EX)
 # 3. Pull: the aggregator rewrites sub_plans[] (atomically). Its findings go to a
 # scratch file so no NDJSON reaches stdout.
 before = read_bytes(manifest_path)
-env = dict(os.environ, PLANS_ROOT=plans_root, PLANS_DIR=plans_root)
+env = dict(os.environ, PLANS_ROOT=plans_root, PLANS_DIR=plans_root, SUBPLAN_AGGREGATE_LOCK_HELD=master_dir)
 fd, findings = tempfile.mkstemp(prefix="rollup-findings.", suffix=".ndjson")
 os.close(fd)
 env["FINDINGS_OUTPUT"] = findings

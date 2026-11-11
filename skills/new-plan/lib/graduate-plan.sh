@@ -75,6 +75,7 @@ if [[ ! -f "$SCHEMA" ]]; then
 fi
 TMPL_DIR="${TEMPLATES_DIR:-$(cd "$LIB_DIR/.." && pwd)/templates}"
 
+PLAN_COMMON_DIR="$LIB_DIR" PYTHONDONTWRITEBYTECODE=1 \
 python3 - "$ARG" "$SUB" "$DRY" "$PLANS_ROOT" "$TMPL_DIR" "$CH/hooks/lib/active-plan-resolve.sh" "$SCHEMA" <<'PY'
 import fcntl
 import json
@@ -85,6 +86,9 @@ import subprocess
 import sys
 import tempfile
 from datetime import date
+
+sys.path.insert(0, os.environ["PLAN_COMMON_DIR"])
+from plan_common import cohort_base, fm_quote_titles, q, render
 
 arg, sub_slug, dry_run, plans_root, tmpl_dir, resolver, schema_path = sys.argv[1:8]
 dry_run = dry_run == "true"
@@ -115,57 +119,14 @@ def title_case(s):
     return s.replace("-", " ").title()
 
 
-# --- copies of the --master renderer helpers (the scaffolder keeps them inside its own heredoc) ---
+# --- the --master renderer helpers: render, cohort_base, q and fm_quote_titles come from plan_common;
+# --- tmpl stays here because it closes over this script's template directory and abort
 def tmpl(name):
     p = os.path.join(tmpl_dir, name)
     if not os.path.isfile(p):
         abort("template missing: %s" % p)
     with open(p, encoding="utf-8") as fh:
         return fh.read()
-
-
-def render(text, **kw):
-    for k, v in kw.items():
-        text = text.replace("{{%s}}" % k, v)
-    return text
-
-
-def cohort_base(pdir):
-    ap = os.path.abspath(pdir.rstrip("/"))
-    marker = os.sep + ".claude-plans" + os.sep
-    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
-    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
-    return "plans-" + "-".join([p for p in parts if p])
-
-
-def q(value):
-    return json.dumps(value, ensure_ascii=False)
-
-
-def fm_quote_titles(text):
-    if not text.startswith("---\n"):
-        return text
-    lines = text.split("\n")
-    end = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line == "---":
-            end = i
-            break
-    if end is None:
-        return text
-    out = []
-    for line in lines[1:end]:
-        m = re.match(r"^(title|description): (.*)$", line)
-        if m:
-            raw = m.group(2).strip()
-            try:
-                quoted = isinstance(json.loads(raw), str) if raw.startswith('"') else False
-            except ValueError:
-                quoted = False
-            if not quoted:
-                line = "%s: %s" % (m.group(1), q(raw))
-        out.append(line)
-    return "---\n" + "\n".join(out + lines[end:])
 
 
 # --- lock: the plans-root directory fd, before the first check, held to the exit ---------------
@@ -250,7 +211,7 @@ master["status"] = status
 for key in ("paused_reason", "disposition", "promoted_from", "absorbed_notes", "phase_2_scaffolded_at"):
     if key in flat:
         master[key] = flat[key]
-master["sub_plans"] = [{"sub_plan_id": "01", "slug": sub_slug, "status": status, "graduation_timestamp": None}]
+master["sub_plans"] = [{"sub_plan_id": "01", "slug": sub_dir_name, "status": status, "graduation_timestamp": None}]
 master["updated"] = today
 
 

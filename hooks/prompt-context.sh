@@ -89,11 +89,11 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
 # T-3: refresh this session's last_heartbeat on EVERY UserPromptSubmit (solo
 # sessions too), BEFORE any early-exit path below, so a live session's heartbeat stays
-# fresh and the T-1 heartbeat-authoritative verdict keeps it — closing the
+# fresh and the heartbeat-authoritative verdict keeps it — closing the
 # inverse under-count. UPSERTS if a peer's reconcile reaped the row. Holds
 # REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec. A
 # lockf timeout (rc 75) DEFERS the row — one skip line via the shared helper above,
-# never an unlocked write (non-75 keeps the silent swallow, T-3a); the skipped
+# never an unlocked write (non-75 keeps the silent swallow); the skipped
 # heartbeat self-heals at the next UserPromptSubmit. Never non-zero-propagates under
 # this hook's `set -euo pipefail` to abort the R-26 safety valve.
 if [[ -n "$SESSION_ID" ]]; then
@@ -334,7 +334,7 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""')
 # appends ONE skip line via the shared helper above so the degrade is diagnosable;
 # any other rc — e.g. cat on a missing registry file, a normal early-session state
 # with the lock free — keeps today's silent pressure-only degrade with NO contention
-# line (T-3a: only contention may name itself).
+# line (only contention may name itself).
 reg=$(lockf -k -t 2 "$REGISTRY_LOCK" cat "$REGISTRY_FILE" 2>/dev/null) || {
   _pc_read_rc=$?
   if [ "$_pc_read_rc" -eq 75 ]; then

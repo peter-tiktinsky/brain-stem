@@ -145,7 +145,11 @@ pin_detached_spawn_env || true
     ( {
       # The capability's output is the record the SessionStart banner reads: its
       # promoted line is printed only after the library_refs stamps are re-read.
-      bash "$host" --claim-answer "$SESSION_ID" yes </dev/null >>"$HOOKS_STATE/library-promotion-auto.log" 2>&1 || true
+      # Only auto mode answers unasked: in prompt mode the user answers the blocked
+      # question, so the chain never claims or answers a second ready plan.
+      if [ "$mode" = "auto" ]; then
+        bash "$host" --claim-answer "$SESSION_ID" yes </dev/null >>"$HOOKS_STATE/library-promotion-auto.log" 2>&1 || true
+      fi
       for t in $untriaged; do bash "$host" --triage "$t" </dev/null >/dev/null 2>&1 || true; done
     } </dev/null >/dev/null 2>&1 & ) || true
   fi
@@ -155,6 +159,7 @@ pin_detached_spawn_env || true
     echo "Before stopping, ask the user with AskUserQuestion, using exactly this question: \"$LP_QUESTION\""
     echo "Offer exactly these three answers as the option labels: \"Yes\", \"No\", \"Yes, and promote automatically from now on\"."
     echo "Then run: bash $host --answer $slug yes|no|always (Yes = yes, No = no, the third answer = always)."
+    echo "The answer is recorded only when $slug no longer appears in: bash $host --pending. If it still appears, the library lock was busy and the answer was skipped; run the same --answer command once more."
   } >&2
   journal_emission "Stop" "deny-stop:library-promotion:prompt:plan=${slug}" 2
   exit 2
@@ -173,7 +178,7 @@ PRESSURE_FILE="$STATE_DIR/sessions/$SESSION_ID/context-pressure.json"
 # refresh) still keeps its heartbeat fresh and is not reaped by the T-1 verdict. Holds
 # REGISTRY_LOCK across the RMW via the --do-heartbeat lockf re-exec. A
 # lockf timeout (rc 75) DEFERS the row — one skip line, never an unlocked write
-# (non-75 keeps the silent swallow, T-3a); the skipped heartbeat self-heals at the
+# (non-75 keeps the silent swallow); the skipped heartbeat self-heals at the
 # next Stop fire. Every path can NEVER non-zero-exit and wrongly force-continue the
 # Stop gate under `set -euo pipefail`.
 if command -v heartbeat_row >/dev/null 2>&1; then
@@ -239,7 +244,7 @@ fi
 pct_int=${pct%.*}
 
 # Safety valve: >90% always allows stop (context too full to continue productively).
-# The memory-review band YIELDS to this valve unconditionally (.7).
+# The memory-review band YIELDS to this valve unconditionally.
 if (( pct_int > 90 )); then
   exit 0
 fi

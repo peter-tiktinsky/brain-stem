@@ -65,8 +65,6 @@
 #     backup-before-merge surface)
 #   - Top-level exit code 22 (rsync-backup actual failure; surface
 #     distinct from G3's prove-the-destination-works check at exit 53)
-#   - Top-level exit code 60 (grep-audit hit on installed tree;
-#     consumer integration of tools/grep-audit.sh)
 #
 # Exit codes:
 #   0   success (includes G9 dry-run JSON emit)
@@ -85,6 +83,9 @@
 #           WITHOUT --migrate-major + the I-UNDERSTAND-OVERWRITE-RISK sentinel.
 #   30  schema parse failure (post-install)
 #   40  settings.json merge conflict requires human resolution (jq error)
+#   41  migration runner failed: the apply halts before the version stamp
+#       is written; re-run after fixing the cause (an upgrade over a
+#       stamped install rolls the transaction back and exits 60 instead)
 #   51  G1-main fired ($HOME/.claude equality + non-foundation content,
 #       missing --force-install or I-UNDERSTAND-OVERWRITE-RISK sentinel).
 #   52  G2 fired (foreign-content sha256 drift in foundation files,
@@ -115,6 +116,9 @@
 #       --apply required to leave dry-run. 59 is allocated per spec but
 #       cannot fire under current implementation (any dry-run violation
 #       would be a code-tampering condition).
+#   60  upgrade rolled back: journaled files restored from --backup-dir
+#       snapshot, journaled creations removed, failures warned; edits
+#       outside the journal stay; version unchanged; re-run after a fix
 #
 # R-23 bash 3.2 compat. R-37 single-deliverable. R-55 zero $HOME/.claude
 # resolution paths in script body (literal $HOME/.claude appears only in
@@ -618,6 +622,19 @@ g4_skip_reason=""
 g4_vault_root=""
 g4_vault_canonical=""
 g4_user_manifest="$CLAUDE_HOME/user-manifest.json"
+
+# reconciler_disabled_hooks: prints a compact JSON array of the string members of .hooks.disabled in the
+# user manifest, the adopter's durable hook opt-out (written by `field-set.sh settings hook off`). Both
+# settings-required-hooks reconciler programs skip a tuple whose command names a listed basename. Prints
+# [] when the manifest is absent or unparseable, holds no .hooks object, or holds no array there.
+reconciler_disabled_hooks() {
+  local out
+  if [ -r "$g4_user_manifest" ] && out="$(jq -c '(.hooks? // null) as $h | if ($h | type) == "object" and ($h.disabled | type) == "array" then [$h.disabled[] | select(type == "string")] else [] end' "$g4_user_manifest" 2>/dev/null)" && [ -n "$out" ]; then
+    printf '%s' "$out"
+  else
+    printf '[]'
+  fi
+}
 
 # Null-safe manifest read — the shape lifted from installer/relocate-state.sh:112-119.
 # Returns the empty string on: unreadable manifest, absent key, JSON null, jq failure.
@@ -1667,6 +1684,7 @@ EOF
     if [ -n "$_rec_after" ]; then
       if jq \
         --slurpfile decl "$_required_hooks_decl" \
+        --argjson disabled "$(reconciler_disabled_hooks)" \
         '
         ($decl[0] | if type == "object" then .required_hooks else . end) as $tuples
         | reduce $tuples[] as $t (
@@ -1680,7 +1698,8 @@ EOF
             # .statusLine.command, not under .hooks[$ev] — so re-land the foundation
             # command when .statusLine is absent or its .command diverges (parity with
             # the apply reconcile below; previews a shadowed statusLine reconcile).
-            | if $ev == "statusLine"
+            | if ($disabled | any(. as $b | $cmd == $b or ($cmd | endswith("/" + $b)))) then .
+            elif $ev == "statusLine"
               then
                 ( if (.statusLine.command // "") == $cmd then .
                   else .statusLine = ({"type":"command","command":$cmd}) end )
@@ -2141,7 +2160,7 @@ EOF
     {"step": 13.5, "op": "validate", "target": ($claude_home + "/governance/foundation-manifest.json"), "rationale": "parse-validate baseline post-Step-8.5-copy (load-bearing for G2 + uninstall fingerprint match); lives at governance/"},
     {"step": 15, "op": "log", "target": ($claude_home + "/logs/install-*.log"), "rationale": "G10 provenance log header emit"}
   ],
-  "deferred": ["G6-install-side-explicit-sentinel", "20-conflict-manifest-v2.1", "22-rsync-backup-v2.1", "60-grep-audit-consumer-v2.1"]
+  "deferred": ["G6-install-side-explicit-sentinel", "20-conflict-manifest-v2.1", "22-rsync-backup-v2.1"]
 }'
   exit 0
 fi
@@ -3040,7 +3059,7 @@ if [ -d "$SOURCE_REPO/installer/migrations" ]; then
     # source-of-truth as the legacy elif below and the G9 preview. Enumerating from
     # the frozen PREVIOUS-release baseline snapshot never listed the target release's
     # NEW migrations, so they were never copied to the flat runtime dir the runner
-    # executes (the delivery gap). NOT the baseline-union walk one screen up (2153):
+    # executes (the delivery gap). NOT the baseline-union walk one screen up:
     # for the flat runtime dir the union is wrong — a migration dropped from the
     # shipped manifest is a retired surface and must not be re-delivered. atomic_apply
     # (stage->validate->mv + journal) + the chmod +x parity below are retained.
@@ -3306,10 +3325,10 @@ for f in m.get("files", []):
   done
 fi
 
-# Step 9: schemas/ — selective named-list. Ships the 12 adopter schemas + README:
+# Step 9: schemas/ — selective named-list. Ships the 13 adopter schemas + README:
 # plans, plan-manifest, librarian-manifest, user-manifest, orchestration,
 # drift-allowlist, overlay-master, governance-action-log, writer-manifest, and
-# the memory, rules, and review-queue schemas.
+# the memory, rules, review-queue and file-type-contract schemas.
 #
 # memory-schema, rules-schema, and review-queue-schema ship because installed
 # consumers resolve them at runtime under $CLAUDE_HOME/schemas/ — the memory-
@@ -3825,6 +3844,9 @@ mv -f "$tmp_settings" "$target_settings" || { diag "atomic mv failed: $target_se
 #       no .matcher key — never produces a DUPLICATE Edit|Write PostToolUse bucket;
 #   (c) carry the template's timeout verbatim (timeout:3/5 on memory-auto-stamp/
 #       memory-globalize-auto/tasks-md-autosync are emitted into the appended tuple).
+#   (d) a tuple whose command names a basename listed in the user manifest's hooks.disabled array is
+#       skipped, in every event and for the statusLine tuple alike (the adopter's durable opt-out,
+#       written by `field-set.sh settings hook off`).
 #
 # POS1 survivorship: ADDS-only — never removes or reorders the adopter's own hooks.
 # Runs AFTER the Step 12 G7-gated atomic mv (above), so its additive mutations
@@ -3837,6 +3859,7 @@ if [ -f "$target_settings" ] && [ -f "$required_hooks_decl" ]; then
   # into its matcher-resolved bucket. Idempotent by per-COMMAND substring presence.
   if ! jq \
     --slurpfile decl "$required_hooks_decl" \
+    --argjson disabled "$(reconciler_disabled_hooks)" \
     '
     # Resolve the declaration array under either the {required_hooks:[...]} wrapper
     # or a bare top-level array (tolerant of both shapes).
@@ -3854,7 +3877,8 @@ if [ -f "$target_settings" ] && [ -f "$required_hooks_decl" ]; then
         # wholesale leaves the foundation worker-statusline.sh unrecoverable). Re-land
         # the foundation command when .statusLine is ABSENT or its .command DIVERGES;
         # adds-only on absence, corrective on divergence.
-        | if $ev == "statusLine"
+        | if ($disabled | any(. as $b | $cmd == $b or ($cmd | endswith("/" + $b)))) then .
+        elif $ev == "statusLine"
           then
             ( if (.statusLine.command // "") == $cmd then .
               else .statusLine = ({"type":"command","command":$cmd}) end )
@@ -4386,9 +4410,15 @@ if [ -f "$manifest_dst" ] && [ -n "$TARGET_VERSION" ]; then
   state_installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   state_install_sha="$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}')"
   state_manifest_sha="$(shasum -a 256 "$manifest_dst" 2>/dev/null | awk '{print $1}')"
+  # settings.json sha256 at stamp time, which uninstall.sh compares before removing the file.
+  state_settings_sha=""
+  if [ -f "$CLAUDE_HOME/settings.json" ]; then
+    state_settings_sha="$(shasum -a 256 "$CLAUDE_HOME/settings.json" 2>/dev/null | awk '{print $1}')"
+  fi
   if ! FV="$TARGET_VERSION" IA="$state_installed_at" SS="$state_install_sha" MS="$state_manifest_sha" \
       PRIOR_MIG="$PRIOR_MIGRATIONS_APPLIED" RAN_MIG="$RAN_MIGRATIONS" \
       PRIOR_SPO="$PRIOR_SEEDED_PERMISSIONS_OFFERED" \
+      SJ="$state_settings_sha" \
       python3 -c '
 import json, os, sys
 # COMBINED high-water log: prior on-disk ids + the ids the Step 13.6 runner
@@ -4425,6 +4455,8 @@ rec = {
     "seeded_permissions_offered": offered,
     "schema_versions": {},
 }
+if os.environ.get("SJ"):
+    rec["settings_json_sha256"] = os.environ["SJ"]
 with open(sys.argv[1], "w") as f:
     json.dump(rec, f, indent=2)
     f.write("\n")
@@ -4633,7 +4665,7 @@ log_path="$CLAUDE_HOME/logs/install-$(date -u +%Y%m%d-%H%M%S)-$$.log"
     done
   fi
   printf 'scope: 14-asset write-sequence + LABEL_PREFIX preservation + settings.json atomic merge + G1-pre + G1-main equality gate + G2 foreign-content detector + I-UNDERSTAND-OVERWRITE-RISK sentinel (single-ceremony G1+G2) + G3 backup proof-of-life + G4 vault-symlink check + G5 plans-dir guard + G8 UID-0 refuse + G9 dry-run-as-default (--apply transitions out) + state classification (fresh|foundation-only|mixed|user-only; user-only refuse at 21) + --force-all flag (cp -n→cp -f for foundation files) + --no-preserve-config flag (gated on --force-install) + G10 provenance-write-failure-as-11 + governance/foundation-manifest.json baseline copy\n'
-  printf 'deferred: G6 install-side explicit label sentinel (transitively preserved); claude-mem preservation full implementation; top-level exit codes 20 (conflict-manifest) / 22 (rsync-backup) / 60 (grep-audit consumer)\n'
+  printf 'deferred: G6 install-side explicit label sentinel (transitively preserved); claude-mem preservation full implementation; top-level exit codes 20 (conflict-manifest) / 22 (rsync-backup)\n'
 } > "$log_path" || { diag "G10: provenance log write failed at $log_path"; exit 11; }
 
 # OPT-IN frontmatter cohort backfill. Reached only on a
@@ -4648,12 +4680,14 @@ if [ "$FRONTMATTER_FIX" = "1" ]; then
   fi
 fi
 
-# The next-steps must reference ONLY shipped runnables. The minimum-viable foundation
-# ships render-launchd.sh (a SINGLE-job renderer: `render-launchd.sh <job>`, job in
-# {writer-reconciler, doc-amender}); the multi-job render-all-launchd.sh iterator was
-# NEVER authored into the ship surface, so instructing the adopter to run it handed out
-# a command that cannot run on a clean install. The for-each-job loop over the shipped
-# single-job renderer is the resolution.
+# The next-steps below name ONLY runnables that ship. The minimum-viable foundation
+# ships one renderer, render-launchd.sh: `render-launchd.sh <job>` renders a single job
+# (job in {writer-reconciler, doc-amender}), and `render-launchd.sh --all` renders every
+# shipped job in one call. A separate `render-all-launchd.sh` iterator was NEVER
+# authored into the ship surface, so telling the adopter to run it (the earlier next-step)
+# printed a command that cannot run on a clean install. The `--all` form of the shipped
+# renderer is the resolution. A release-gate check asserts that every adopter-run
+# $CLAUDE_HOME/... next-step resolves to a shipped manifest entry.
 #
 # Completion + closing guidance are LANE-DIFFERENTIATED.
 # The upgrade lane leads with its verification surfaces; the install lane leads
@@ -4672,7 +4706,7 @@ if [ "$UPGRADE_BASELINE_PRESENT" = "1" ]; then
   info "  - verify: the post-apply self-check verdict is printed above (PASS expected); the pre-upgrade backup is at ${BACKUP_DIR:-<your --backup-dir>}"
   info "  - re-running the same command any time is safe (idempotent); exit 56 on a future run means run it once more to converge"
   info "  - launchd lanes: only if this release changed plist templates — re-render + bootstrap (the SessionStart hook bootstraps a plist this command rendered, in your next Aqua session; the hook never renders one):"
-  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") \"\$job\"; done"
+  info "    $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --all"
   info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
   info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --full --dry-run  # preview proposed created/id/schema_version/description"
   info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --fix --full       # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"
@@ -4687,12 +4721,12 @@ else
     done
   fi
   info "  - START HERE: open a Claude Code session and run /onboard — a short interview writes user-manifest.json + your global CLAUDE.md and builds your vault"
-  info "  - render plists for ALL declared jobs (post-onboarding) — loop the shipped single-job renderer:"
-  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --staging-dir $(printf '%q' "$CLAUDE_HOME/Library/LaunchAgents.staging") \"\$job\"; done"
+  info "  - render plists for ALL declared jobs (post-onboarding) — render every shipped job in one command:"
+  info "    $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --all --staging-dir $(printf '%q' "$CLAUDE_HOME/Library/LaunchAgents.staging")"
   info "  - render a single job manually:"
   info "    $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --staging-dir $(printf '%q' "$CLAUDE_HOME/Library/LaunchAgents.staging") <job-id>"
   info "  - load the lanes NOW (real launchctl bootstrap): the SessionStart hook (session-start-launchd-bootstrap.sh) does this automatically in your next Aqua session; this is the manual fallback for a headless / non-session install — the production (no --staging-dir) render bootstraps each label:"
-  info "    for job in writer-reconciler doc-amender; do $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") \"\$job\"; done"
+  info "    $(printf '%q' "$CLAUDE_HOME/installer/render-launchd.sh") --all"
   info "  - OPT-IN frontmatter cohort backfill (migrate existing notes to the typed cohort): dry-run preview then apply:"
   info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --full --dry-run  # preview proposed created/id/schema_version/description"
   info "    $(printf '%q' "$CLAUDE_HOME/skills/librarian/capabilities/frontmatter-enforce.sh") --fix --full       # apply the backfill (or re-run install.sh --upgrade --apply --frontmatter-fix)"

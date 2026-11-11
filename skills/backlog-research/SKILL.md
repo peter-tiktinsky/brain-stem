@@ -13,7 +13,7 @@ argument-hint: "<backlog-item-name> [--budget <dollars>] [--promote <inbox-slug>
 # Backlog Research
 
 The research-backed mode of the ONE plan scaffolder, and the deep-feasibility stage
-of the orchestration funnel (): `capture → backlog-triage → backlog-research →
+of the orchestration funnel: `capture → backlog-triage → backlog-research →
 graduate to a plan → backlog-hygiene`. Once an idea has been triaged as NOVEL, the
 next question is "is this actually buildable, and what would it take?" This skill does
 the full pass in one session: it loads vault context, walks infrastructure
@@ -27,10 +27,10 @@ immediately. A per-session budget cap keeps research from spiralling.
 the **same** scaffolder; the mechanical scaffold/graduation is the landed R-34 helper
 `skills/new-plan/lib/promote-from-inbox.sh`. This skill does NOT re-implement
 graduation — `--promote` delegates to that one helper (no second copy). Flat depth-2 is
-the v1 DEFAULT (): backlog-research does NOT select a master-vs-flat target —
+the v1 DEFAULT: backlog-research does NOT select a master-vs-flat target —
 the scaffolder owns master/sub creation via its `--master` / `--add-subplan` modes.
 
-This skill operates on the **manifest-derived backlog** (): pre-plan ideas live
+This skill operates on the **manifest-derived backlog**: pre-plan ideas live
 as `{paths.plans_root}/_inbox/<slug>.md` notes (funnel status `new / triaged / briefed`);
 in-flight plans are `{paths.plans_root}/<NN>-<slug>/manifest.json` (`lifecycle.status`,
 the canonical 6-state enum). The unified pickup view `{paths.plans_root}/_backlog.md` is
@@ -63,7 +63,7 @@ When `vault.context_documents[]` is unset, it defaults to `["CLAUDE.md"]`.
 **Schema:** `ideation-brief` against `governance/frontmatter-rules.json#types`; `plan-spec`, `plan-tasks`, `plan-handoff`, `plan-manifest` against `schemas/plans-schema.json` / `schemas/plan-manifest-schema.json`. Manifest `status` is one of the canonical 6-state `lifecycle.status_enum` (`researching / planned / in-progress / paused / completed / superseded`).
 
 **Pre-write validation:**
-1. The target is a `triaged` inbox idea note (`{paths.plans_root}/_inbox/<slug>.md`, funnel `status: triaged`) or a plan manifest in `researching` status — refuse `new`-status inbox notes (must triage first).
+1. The target is a `triaged` inbox idea note (`{paths.plans_root}/_inbox/<slug>.md`, funnel `status: triaged`) or a plan manifest in `researching` status — refuse `new`-status inbox notes (must triage first) (the helper refuses it: plans rules inbox.graduation_precondition).
 2. Next-available `NN-` prefix is computed by the helper (inspecting `{paths.plans_root}/`).
 3. Slug rejected if it matches the auto-generated meaningless-slug pattern (the helper enforces).
 4. Plan-artifact frontmatter emitted on every generated file (validated against the plan schemas before write).
@@ -74,7 +74,7 @@ When `vault.context_documents[]` is unset, it defaults to `["CLAUDE.md"]`.
 
 ## Hard rules
 
-1. **Only research triaged ideas or researching plans.** Accept a `triaged` inbox idea note or a `researching` plan manifest. Refuse `new`-status inbox notes; tell the user to run `/backlog-triage` first. Never write `_backlog.md` — it is librarian-owned.
+1. **Only research triaged ideas or researching plans.** Accept a `triaged` inbox idea note or a `researching` plan manifest. Refuse `new`-status inbox notes (the helper refuses it: plans rules inbox.graduation_precondition); tell the user to run `/backlog-triage` first. Never write `_backlog.md` — it is librarian-owned.
 2. **Budget cap.** Default $8 per research session. Override with `--budget`. Never exceed.
 3. **Concrete file paths.** Every vault impact and infrastructure dependency must reference specific paths, not vague descriptions.
 4. **Delegate graduation.** `--promote` (and the PROCEED-time scaffold) call the shared `promote-from-inbox.sh` — never ship or re-implement a second graduation copy.
@@ -127,7 +127,7 @@ Do NOT run the research flow (Steps 1–9 below) in promote mode — graduation 
 ### 1. Validate input + graduate-if-needed
 
 Resolve the named item against the backlog substrate:
-- **Inbox idea note** `{paths.plans_root}/_inbox/<slug>.md`: if it doesn't exist, abort and tell the user to capture + triage it via `/backlog-triage` first. If funnel `status` is `new`, refuse and tell the user to triage first. If `triaged` (or `briefed`), this is a graduation-then-research: run the helper (`--promote <slug>`, Promote mode) to scaffold the flat plan quartet + migrate the body losslessly into `00-ideation-brief.md`, then continue the research flow against the new plan dir.
+- **Inbox idea note** `{paths.plans_root}/_inbox/<slug>.md`: if it doesn't exist, abort and tell the user to capture + triage it via `/backlog-triage` first. If funnel `status` is `new`, refuse (the helper refuses it: plans rules inbox.graduation_precondition) and tell the user to triage first. If `triaged` (or `briefed`), this is a graduation-then-research: run the helper (`--promote <slug>`, Promote mode) to scaffold the flat plan quartet + migrate the body losslessly into `00-ideation-brief.md`, then continue the research flow against the new plan dir.
 - **Plan manifest** `{paths.plans_root}/<NN>-<slug>/manifest.json`: if `status` is `researching`, continue (resuming a prior session). Other statuses are not research targets.
 
 ### 2. Gather vault context
@@ -204,7 +204,7 @@ Skip this step entirely if the recommendation is DEFER, MERGE-into-another, or K
 
 In `{paths.plans_root}/<NN>-<slug>/manifest.json`:
 1. Run the setter, which moves `status` from `researching` to `planned`, sets `disposition` (one of `FIX NOW / ABSORB / STANDALONE / NO-BUILD`) to reflect the recommendation and refreshes `updated`, all in one atomic write: `${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh plan set <manifest> status=planned disposition=<disposition>`. It checks the status against the `lifecycle.transitions` edges and the disposition against the schema enum, and refuses a bad value with the manifest unchanged.
-2. Then record the recommendation in the manifest's notes/summary field.
+2. Then record the recommendation in the plan's handoff.md (the plan manifest declares no notes or summary field).
 
 Do NOT write `{paths.plans_root}/_backlog.md` — it is librarian-owned. After the manifest mutation, recommend `/librarian backlog-index` so the unified table re-renders the row with its new status. If the input was a `triaged` inbox idea, graduation in Step 1 already removed the `_inbox/<slug>.md` note, so the next regen shows the item as a plan row — no orphaned inbox note remains.
 

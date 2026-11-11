@@ -461,22 +461,23 @@
   "_meta": {
     "_provenance": "Composed foundation governance bundle. Same source files (by content) -> same bundle_version. built_at + source_file_mtimes are pinned to git commit time (SOURCE_DATE_EPOCH-honoring), so the shipped master is byte-reproducible: two builds of identical pillars produce an identical file. _meta is still excluded from the bundle_version hash.",
     "build_tool": "tools/build-foundation-master.sh",
-    "built_at": "2026-09-03T06:34:52Z",
-    "bundle_version": "e78b7f27898d0d7ccdd9ba8b7e9aa3155bfa6e9481b92a17112cf20f4864b571",
+    "built_at": "2026-11-11T15:54:48Z",
+    "bundle_version": "822e7806ad47d9237a246442a362a18d350dcfe1a2714d82ba8f1d5ff0b8bc99",
     "deterministic_serialization": "jq -S sorted-keys canonical JSON; bundle_version excludes _meta block from hash input",
     "source_file_mtimes": {
-      "governance/_index.json": "2026-08-31T21:11:18Z",
-      "governance/doc-dependencies.json": "2026-08-25T22:49:07Z",
-      "governance/frontmatter-rules.json": "2026-08-31T21:11:18Z",
-      "governance/mandatory-files-rules.json": "2026-09-03T06:34:52Z",
-      "governance/naming-rules.json": "2026-08-25T22:49:07Z",
-      "governance/plans-rules.json": "2026-08-31T21:11:18Z",
-      "governance/tagging-rules.json": "2026-08-25T22:49:07Z",
-      "governance/vault-writers-rules.json": "2026-06-13T04:52:51Z"
+      "governance/_index.json": "2026-11-11T15:54:48Z",
+      "governance/doc-dependencies.json": "2026-11-11T15:54:48Z",
+      "governance/frontmatter-rules.json": "2026-11-11T15:54:48Z",
+      "governance/mandatory-files-rules.json": "2026-11-11T15:54:48Z",
+      "governance/naming-rules.json": "2026-11-11T15:54:48Z",
+      "governance/plans-rules.json": "2026-11-11T15:54:48Z",
+      "governance/tagging-rules.json": "2026-11-11T15:54:48Z",
+      "governance/vault-writers-rules.json": "2026-11-11T15:54:48Z"
     },
     "source_files_count": 8
   },
   "doc_dependencies": {
+    "_entries_note": "entries[] ships EMPTY BY DESIGN, and an empty array here is the correct state of a fresh install — not a defect and not a stripped registry. A cascade edge names two concrete documents in one adopter's tree, so the foundation has none to declare: entries[] is the ADOPTER-REGISTERED slot (an R-52 entity slot under doc_dependencies, extended via overlay-master.json), and the foundation-side coupling it would otherwise carry is already the forward vault-writer fan-out (R-58 / the writer-reference contract), of which R-54 is the thin/legacy companion. Consumers read it defensively: the write-time cascade advisory in pre-write-guard.sh and the doc-amender writer-fan-in lane both no-op on zero eligible entries. A file-type contract must therefore NOT name a slot in this array as a lockstep pair — there is nothing shipped to move with it.",
     "_path_placeholders": {
       "_description": "Path placeholders are substituted at install time. Foundation-repo ships paths in this parameterized form; install.sh resolves each placeholder against the adopter's environment.",
       "{hooks_root}": "Adopter's hooks directory (typical: $CLAUDE_HOME/hooks)",
@@ -795,6 +796,7 @@
           }
         },
         "generated_exemption": {
+          "_rationale": "A regenerated read-replica derives its identity from its writer and is rebuilt in place, so a minted created/id would churn or demand per-writer state; the identity cohort binds the hand-authored/mandate-bootstrapped flow, whose post-write-verify Tier-1 bootstrap mints all seven required fields.",
           "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list.",
           "exempt_fields": [
             "description",
@@ -1664,7 +1666,7 @@
         "enforcement_layer": [
           "pre-write-guard.sh folder-placement advisory branch (Tier 1; never blocks)",
           "governance/frontmatter-rules.json `path_routing` (per-archetype lineage rules)",
-          "librarian placement-validation (audit-time)"
+          "librarian placement-validate (audit-time)"
         ],
         "failure_mode": "Files written outside the canonical folder for their declared `type:` produce structural drift that compounds — the file is invisible to type-scoped queries, lives in a folder that does not match its archetype, and creates the impression that 'this type lives anywhere.' Once the precedent lands, follow-on writes drift further. The Tier 1 advisory fires at write-time rather than waiting for weekly audit so the operator sees the misplacement at the moment of capture and can move the file before publishing wikilinks.",
         "home": "frontmatter",
@@ -1934,6 +1936,7 @@
         "validation_behavior": "warn"
       },
       "strict": {
+        "_universal_required_note": "DOCUMENTARY only — the FROZEN universal typed cohort. The REAL enforcement surface is each strict type's per-type required[]; this list mirrors the cohort for legibility. The four soft-tier cohort fields (description/created/id/schema_version) join `updated` in the warn-not-DENY non-block set at pre-write-guard.sh (R-64).",
         "applies_to": "type entries with tier=strict in this pillar's `types` block",
         "conditional_required": [
           "status"
@@ -2008,6 +2011,7 @@
           }
         },
         "generated_exemption": {
+          "_rationale": "A regenerated read-replica derives its identity from its writer and is rebuilt in place, so a minted created/id would churn or demand per-writer state; the identity cohort binds the hand-authored/mandate-bootstrapped flow, whose post-write-verify Tier-1 bootstrap mints all seven required fields.",
           "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list.",
           "exempt_fields": [
             "description",
@@ -2264,6 +2268,7 @@
       },
       "_description": "Per-file-type mandate registry. Each entry is a `matcher` (file type + path/scope conditions) bound to its `body_structure_contract` (the paramKind resource). Hooks consume mandates[<file_type>] to determine WHETHER a mandate fires; consume body_structure_contract to determine WHAT the file's contract is. The two-resource separation follows the k8s ValidatingAdmissionPolicy pattern.",
       "_index_md": {
+        "_cohort_location_scope": "The universal typed frontmatter cohort (frontmatter-rules.json#cohort) applies LOCATION-BASED to the whole brain folder including symlink-followed subtrees: the librarian frontmatter walk + index-maintain descend Work/ with followlinks; out-of-folder machine files (logs, XDG state) are exempt by location (no per-emitter edits, no log-type carve-out); memory files are exempt by location too (memory-auto-stamp.sh owns created=today — a git-date backfill would collide). Write-time versus audit-time: the cohort fires WRITE-TIME on a REGISTERED-spoke Work/ write (pre-write-guard.sh remap prelude rewrites the registered Work/<spoke>/ path onto the vault view before the 3-tier block); post-write-verify stamps the cohort at write time on a Markdown file under the physical $WORK_HOME as well as under the vault view (the Work/ symlink), taking the id from the Work/<rel> vault-view path; the audit-time pass (the scoped librarian frontmatter-enforce) is --check only, and frontmatter-enforce --fix is the manual backfill, which no hook or close step runs. The strict/standard/minimal tier semantics (frontmatter-rules.json#tier_compliance) are preserved — the cohort is layered onto the strict per-type required[], not a tier flatten.",
         "_de_exemption_via_overlay": "A folder covered by a static exemption (Work/**) is RE-INCLUDED in the _index.md mandate when it is registered via the overlay's frontmatter.path_routing.rules[] — registration in the overlay IS the de-exemption, and a registered glob WINS over a static exemption that also matches the path. The overlay's path_routing rule set is the SINGLE SOURCE OF TRUTH for which Work-subtree folders carry the mandate; there is NO separate de-exemption list. Globs are matched by fnmatch so nested and wildcard-spoke patterns (Work/<spoke>/<sub>/**) de-exempt correctly at depth. Consumers: skills/librarian/capabilities/index-maintain.sh (audit-time bootstrap) and hooks/post-write-verify.sh (write-time bootstrap).",
         "_generated_index_cohort_exemption": "Writer-owned machine indexes — the same writes[]-derived ownership as the exemption-conflict skip set (skills/librarian/capability-registry.json :: output_contract.writes[]) — are exempt from the identity cohort [description, created, id, schema_version] per frontmatter-rules.json#types.index.generated_exemption (mirrored in the file-type contract); the cohort binds the mandate-bootstrapped/hand-authored flow, whose post-write-verify Tier-1 bootstrap mints all seven fields.",
         "body_structure_contract": "governance/file-type-contracts/_index.md.json",
@@ -2363,7 +2368,7 @@
         "enforcement_layer": [
           "pre-write-guard.sh known-root allowlist",
           "pre-write-guard.sh single-file exemption block",
-          "librarian placement-validation"
+          "librarian placement-validate"
         ],
         "failure_mode": "File written to an undocumented vault-root drifts structure; navigation guides go stale. Advisory: write proceeds; operator told to move the file or register the directory via /govern register.",
         "home": "naming",
@@ -2393,7 +2398,7 @@
           "Declare consumer — which skill, hook, capability, or query parses this path",
           "Add governance/frontmatter-rules.json#types entry + governance/file-type-contracts/<file>.json body-structure contract (the latter only if the new root carries a foundation-shipped mandatory file)",
           "Add the root to governance/naming-rules.json :: _rules[R-04].known_roots (the SoT the guard reads from the composed bundle at write time) + rebuild the composed master; the hook's hardcoded list is only the bundle-less fallback mirror and moves with the pillar",
-          "Add librarian-capability entry (placement-validation / plan-index / walker)",
+          "Add librarian-capability entry (placement-validate / plan-index / walker)",
           "Commit R-37 documentary lockstep — all surfaces move in one commit"
         ],
         "enforcement_layer": [
@@ -2537,7 +2542,7 @@
     "schema_version": "2.0.0"
   },
   "plans": {
-    "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
+    "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31 librarian-tier, R-56 skill-tier, R-61/R-62 master/sub reconciler-tier, R-63 advisory-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
     "_design_notes": {
       "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; librarian-only root-file writes), skills/librarian/capabilities/{plan-index,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
       "evolution_protocol": "R-37 documentary lockstep — there is NO write-time DENY for R-37; enforcement = git commit-boundary atomicity + librarian governance-parity-audit at session-close. This pillar + its schema + contracts + hook move in one commit.",
@@ -2547,44 +2552,44 @@
       {
         "category": "C3",
         "enforcement_layer": [
-          "skill:backlog-hygiene"
+          "librarian:backlog-index"
         ],
-        "failure_mode": "Unbounded backlog rows accrete session narrative inline; the index becomes a log; scan-readability collapses. Skill-enforced (backlog-hygiene), never write-time.",
+        "failure_mode": "Unbounded backlog rows accrete session narrative inline; the index becomes a log; scan-readability collapses. Held by construction (backlog-index), never write-time and not a skill check.",
         "home": "plans",
         "id": "R-29",
-        "rule_text": "Backlog row size is bounded — a row in the unified _backlog.md carries only a current-state pointer; session history lives in the satellite, not the row. backlog-hygiene flags over-long rows.",
+        "rule_text": "Backlog row size is bounded — a row in the unified _backlog.md carries only a current-state pointer; session history lives in the satellite, not the row. Held by construction by the librarian backlog-index capability for every generated column; the Notes column is carried forward unchanged and is the one unbounded column.",
         "source": "governance/plans-rules.json :: _rules (SoT)",
         "status": "active",
         "surface": "plan-governance",
-        "tier": "skill"
+        "tier": "librarian"
       },
       {
         "category": "C3",
         "enforcement_layer": [
-          "skill:backlog-hygiene"
+          "librarian:backlog-index"
         ],
-        "failure_mode": "Drift between row and satellite; history scattered. Skill-enforced (backlog-hygiene), never write-time.",
+        "failure_mode": "Drift between row and satellite; history scattered. Held by construction (backlog-index), never write-time and not a skill check.",
         "home": "plans",
         "id": "R-30",
-        "rule_text": "Backlog sentinel pattern — the row carries the current-state pointer; the satellite at the plan dir / handoff.md is the single source of session history. backlog-hygiene validates the pattern.",
+        "rule_text": "Backlog sentinel pattern — the row carries the current-state pointer; the satellite at the plan dir / handoff.md is the single source of session history. Held by construction: the librarian backlog-index capability renders the sentinel-bounded regions from the plan manifests.",
         "source": "governance/plans-rules.json :: _rules (SoT)",
         "status": "active",
         "surface": "plan-governance",
-        "tier": "skill"
+        "tier": "librarian"
       },
       {
         "category": "C3",
         "enforcement_layer": [
-          "skill:backlog-hygiene"
+          "librarian:backlog-index"
         ],
-        "failure_mode": "Hand-edits inside sentinel regions are clobbered on regen, or stale regions diverge. Skill-enforced (backlog-hygiene), never write-time.",
+        "failure_mode": "Hand-edits inside sentinel regions are clobbered on regen, or stale regions diverge. Held by construction (backlog-index), never write-time and not a skill check.",
         "home": "plans",
         "id": "R-31",
-        "rule_text": "Backlog sentinel pattern (companion to R-30) — sentinel-bounded row regions are librarian-regenerated; operator narrative is preserved outside the sentinels. backlog-hygiene validates parity.",
+        "rule_text": "Backlog sentinel pattern (companion to R-30) — sentinel-bounded row regions are librarian-regenerated; operator narrative is preserved outside the sentinels. Held by construction: the librarian backlog-index capability renders the sentinel-bounded regions from the plan manifests.",
         "source": "governance/plans-rules.json :: _rules (SoT)",
         "status": "active",
         "surface": "plan-governance",
-        "tier": "skill"
+        "tier": "librarian"
       },
       {
         "category": "C3",
@@ -2662,6 +2667,7 @@
     ],
     "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 6-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 6-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
     "backlog_row": {
+      "_required_fields_note": "Project Dir carries the row's owning Claude project-home directory, resolved from the manifest/note `project:` spoke key via governance/anchored-spoke-registry.json cwd_anchors (the same per-row ownership standard the plan index uses); Target carries the machine-joinable promoted_to/absorbed_into plan-dir key.",
       "_stale_advisory_days_note": "[advisory_threshold, escalation_threshold] in days for a backlog row missing a disposition. backlog-index emits backlog-row-missing-disposition once per run; backlog-hygiene escalates severity Warning->Alert by stale_for_days against these thresholds (R-56).",
       "disposition_enum": [
         "FIX NOW",
@@ -2735,6 +2741,7 @@
       ]
     },
     "gate_records": {
+      "_rationale": "Gate records (validation charges, round records, verdicts) live in one flat <plan>/_gates/ folder, so validation exhaust never enters a plan's declared research. Both ends of the research inflow guard read this key: hooks/pre-write-guard.sh refuses a new gate-named or prefix-colliding file under _research/, and plan-research-declare refuses to declare either. Gate-named: a basename token, split on -, _ or ., equals a keyword or fully matches a keyword pattern.",
       "dir": "_gates",
       "filename_pattern": "^[0-9]{2}-gate[12]-[a-z0-9-]+\\.md$",
       "keyword_patterns": [
@@ -2749,8 +2756,15 @@
       "research_prefix_pattern": "^[0-9]{2}-"
     },
     "inbox": {
+      "_capture_freeze_record_note": "Path pattern (plans-root-relative, <spoke> standing for the spoke key) of a spoke's capture-freeze record: one line start_sha=<40-hex>, the plans-repo commit that recorded the opening ruling. While the file exists, backlog-index reports every open flat note of that spoke added to _inbox/ after that commit that carries no target (an ABSORB into a plan or sub-plan key that resolves to a manifest.json, or a STANDALONE disposition with release_class post-release, the next patch release); an absent file means no freeze is in force. hooks/lib/field-set.sh capture-freeze open|lift <spoke> writes and removes the record.",
       "_description": "Pre-plan idea capture surface. Lightweight per-idea notes at ~/.claude-plans/_inbox/<slug>.md — cheap capture, extended-form body that grows in place, hook-unblocked (hooks/lib/plan-path.sh::classify_plan_path returns is_plan=0 so R-27 prefix/status never fires). Rendered into the unified _backlog.md by librarian:backlog-index. Graduates to a full plan via the idea->plan promote path (migrates body -> 00-ideation-brief.md, scaffolds the NN- quartet, tombstones the note).",
+      "_index_file_note": "Machine-written inbox index (active roster + settled roster + remediation highlights) rendered by librarian:backlog-index in the same pass as _backlog.md; excluded from the note walk.",
+      "_near_duplicate_note": "Thresholds the near-duplicate scorer (hooks/lib/inbox-near-dup.sh) applies to a pair of idea notes. overlap_min is the Jaccard overlap of title plus Idea-section tokens (template placeholder lines excluded) at which a pair is flagged on its own; corroborated_overlap_min applies when the pair also shares a path:line cite or a slug stem of stem_min_tokens (at least 2) leading hyphen tokens. A shared cite or stem alone never flags, and the overlap signal counts only when the pair shares at least min_shared_tokens tokens (a floor against two short titles that share one word). A note carrying a resolution is not open and is never scored as one. Calibrated over the real inbox so that both notes of each known duplicate pair flag. An overlay re-tunes a value by a plain deep-merge. A capture that matches an open note refuses unless --amend <existing> or --distinct-from <existing> with --distinct-scope names the difference.",
+      "_reopen_gates_note": "Closed registry of re-open gates a NO-BUILD note may name through its reopen_gate key, an object keyed by gate id so an overlay can ADD an id. A gate is {\"kind\": \"manual\"} (an operator re-opens the note with skills/backlog-triage/scripts/reopen-idea.sh <slug>; backlog-index never evaluates it) or {\"kind\": \"command\", \"argv\": [<path>, <args>...], \"timeout_s\": <n>}. argv[0] is an absolute path or a path relative to the foundation root (no leading slash, no .. component); the command runs without a shell, and exit 0 means the gate is met. hooks/lib/reopen-gate.sh is the reader.",
+      "_resolution_note": "Terminal settlement vocabulary, orthogonal to funnel_status_enum: stamped write-if-changed by the librarian:backlog-index closure loop when a note's target plan reaches lifecycle.terminal_status — settled notes render in the settled ledger and leave the active table. 'superseded' records replaced-by-other-work (pair with superseded_by); 'discharged' records need-eliminated-at-source by a named fix. Classification precedence: terminal-resolution EVIDENCE wins over funnel status — a note also settles on an out-of-enum resolution when corroborated by resolved_at or superseded_by (operator-judgment settlement an enum cannot enumerate), and that path emits the inbox-resolution-out-of-enum advisory so vocabulary drift stays visible instead of mis-rendering the note. 'parked' records a NO-BUILD decision settled under a re-open gate: unlike 'dropped' it is re-openable (see reopen_gates).",
+      "_settled_dir_note": "Settled home for funnel notes, FORWARD-ONLY: a settlement EVENT (the librarian:backlog-index closure-loop stamp, or the librarian:inbox-settle manual channel) relocates the note here in the same run; already-settled notes sitting flat are never moved by the renderer. The one carve-out is a parked NO-BUILD note: when its registered reopen_gate is met, backlog-index moves it back to the flat inbox with the disposition and resolution cleared (reopen_gates, resolution parked). The settled ledger renders residents of this folder at their real location; a resident without settlement evidence draws the inbox-settled-misfiled advisory. A settled note keeps owning its slug — capture collision-versioning probes this folder too.",
       "_slug_pattern_note": "Inbox notes have NO NN- numeric prefix (distinct from plan slugs). The prefix is assigned at graduation, not at capture — avoids prefix burn on discarded ideas.",
+      "_undecided_threshold_note": "The count of open undecided flat inbox notes (a note is decided only as STANDALONE with a release_class and a size, ABSORB with a resolvable absorbed_into, or NO-BUILD with a registered reopen_gate) above which the SessionStart reader surfaces an inbox-drain line. The librarian:inbox-drain-check capability persists the count and this value; a session close blocks only on that session's own undecided captures, never on this total.",
       "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation",
       "capture_freeze_record": "_projects/<spoke>/.capture-freeze",
       "dir": "_inbox/",
@@ -2759,6 +2773,12 @@
         "triaged",
         "briefed"
       ],
+      "graduation_precondition": {
+        "status": [
+          "triaged",
+          "briefed"
+        ]
+      },
       "index_file": "_inbox/_index.md",
       "near_duplicate": {
         "corroborated_overlap_min": 0.3,
@@ -2767,6 +2787,10 @@
         "stem_min_tokens": 2
       },
       "note_frontmatter": {
+        "_class_keys_note": "A STANDALONE disposition is decided at capture with a release_class from release_class_enum and a size from size_enum; the promote-from-inbox helper refuses either value outside its enum and stamps both keys. They apply to STANDALONE only.",
+        "_project_note": "Registry-resolved owning-spoke key (governance/anchored-spoke-registry.json), stamped mechanically at capture by the promote-from-inbox helper; graduation precedence is the --project flag, then the note key, then cwd auto-resolution.",
+        "_reopen_keys_note": "A NO-BUILD disposition carries reopen_gate: the id of a gate in inbox.reopen_gates. A note's frontmatter only ever names an id; the gate itself is registered here. backlog-index stamps reopened_at and reopened_from_gate when it re-opens a parked note.",
+        "_target_keys_note": "promoted_to/absorbed_into are machine-joinable plan-dir keys — NN-<slug> or a sub-plan NN-<slug>/SS-<subslug>, with an optional ' :: T-N' task suffix — resolvable against the plans root; an ABSORB disposition requires a resolvable absorbed_into at triage.",
         "optional": [
           "updated",
           "disposition",
@@ -2834,7 +2858,7 @@
       ]
     },
     "lifecycle": {
-      "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; archival is a display-only view filter over completed plans, never a status.",
+      "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; superseded is also terminal and is set by a hand edit of the manifest status (the status setter refuses it), so no transition edge leads into it; archival is a display-only view filter over completed plans, never a status.",
       "guards": {},
       "status_enum": [
         "researching",
@@ -2906,6 +2930,8 @@
     },
     "root_namespace": {
       "_description": "CLOSED plans-root namespace. The plans-tree root admits ONLY the entry classes enumerated in allowed_entry_classes — nothing else. This is the single source of truth read by the write-time root-allowlist guard (hooks/pre-write-guard.sh, positioned before R-27), the sweep-side rule (skills/librarian/capabilities/placement-validate.sh), and the shared classifier hooks/lib/plan-path.sh::classify_root_entry. A root entry matching no allowed class is non-conforming: ask->deny at write-time (advisory-to-blocking rollout), flagged by the sweep. Rationale: session outputs with no owning plan otherwise invent root surfaces whose records get no lifecycle; a closed namespace routes durable artifacts to their owning context instead.",
+      "_grandfathered_note": "TRANSITIONAL-ONLY; ad-hoc dirs are never grandfathered — non-conforming stock is re-homed to its owning context, not blessed as a durable root surface. An entry names a still-present historical root file pending relocation out of the plans root: the write guard must never deny writes to a file that still lives at the root. The re-homing pass that relocates a file removes its entry in the same change. Currently EMPTY — every historical root file has been relocated to its owning context; an empty list is the completed state, and the mechanism stays for any future transitional need.",
+      "_rollout_note": "Advisory-to-blocking (ask->deny) rollout idiom — FLIPPED to deny at the re-home completion (the non-conforming ad-hoc root stock now lives in its owning plan; the ask phase ran clean). PLANS_ROOT_ROLLOUT=ask restores the advisory path; PLANS_ROOT_OK=1 is the per-write, audit-logged escape hatch.",
       "allowed_entry_classes": {
         "dot_entries": {
           "_description": "Leading-dot entries (.git, .gitignore, .DS_Store, .active-plan, dotfiles) are class-exempt so the closed namespace does not fight VCS/OS/pointer machinery.",
@@ -3054,6 +3080,7 @@
         "tier": "advisory"
       },
       {
+        "_retired_exempt_note": "The System Governance/** seed-taxonomy exemption was retired because the foundation no longer ships the in-vault System Governance/ folder; only the Vault Writers/_index.md seed surface remains exempt.",
         "category": "C1",
         "enforcement_layer": [
           "pre-write-guard.sh tag-presence advisory (Tier 1; never blocks)",
@@ -3103,6 +3130,8 @@
     "taxonomy": {
       "_adopter_extension_path": "overlay-master.tagging.taxonomy.dimension_prefixes[] + .user_facing_dimensions[]",
       "_description": "Faceted tag taxonomy (canonical authority). Foundation ships taxonomy SHAPE + the system-utility dimensions (status, log — governed by log-subtype-registry — plus the generator-stamped episode and scope, which mark durable session records and generated/writer pages respectively and carry no canonical-value registry) + the user-facing dimensions: project (see _project_dimension_note) and library (#library/<topic> — topic navigation over authored library articles; topic slugs are identifiers, not vocabulary terms). Additional user-facing dimensions belong to the adopter overlay — overlay-master.tagging.taxonomy.dimension_prefixes + .user_facing_dimensions — populated by the adopter's onboarding/extension flow. Runtime allowlist = the read-time foundation+overlay union (see _runtime_allowlist_resolution).",
+      "_generated_page_tagging_rationale": "Generated and index pages MAY carry taxonomy tags: a machine-stamped dimension is registered rather than stripped, so the write-time tag check and the tag panel agree on one allowlist. episode and scope are the machine-stamped members; their values are set by the emitting generators, not by hand.",
+      "_project_dimension_note": "project is a foundation-tier, user-facing dimension (#project/<slug>) — it tags work-project material to its project identity and is queryable in the user-side graph. It is NOT a system-utility dimension (no canonical-value registry) and is EXEMPT from the user-facing-dimension cap because a project slug is an identifier, not a vocabulary term.",
       "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it.",
       "canonical_authority": "governance/tagging-rules.json#taxonomy (the dissolved-schema anchors _tag_prefixes / _tag_prefixes_meta resolve to dimension_prefixes / (system_utility_dimensions + user_facing_dimensions + cap_25_applies_to) here)",
       "cap_25_applies_to": "user_facing_dimensions",

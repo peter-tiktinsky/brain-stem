@@ -46,7 +46,7 @@
       "owner_skill": "backlog-hygiene",
       "owner_cron": null,
       "first_registered_at": "2026-05-12",
-      "description": "Backlog-hygiene capability output. Surfaces stale items, lifecycle timeouts, auto-archive candidates."
+      "description": "Reserved subtype. The backlog-hygiene skill writes its report to the hooks-state file backlog-hygiene-report.md and emits no #log/ entry of this subtype. R-29, R-30 and R-31 are held by construction by backlog-index, not by this skill."
     },
     {
       "subtype": "library-change",

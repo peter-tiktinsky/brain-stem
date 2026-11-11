@@ -13,6 +13,15 @@
 #   3. `name:` value matches directory basename
 #   4. `description:` field present
 #   5. `description:` value length 1–1024 chars
+#   6. every top-level frontmatter key is one Claude Code recognizes (the twenty
+#      listed in RECOGNIZED_KEYS below) or one of the named extension keys
+#      (EXTENSION_KEYS: `type`); the platform ignores any other key without a
+#      warning, so a misspelled key silently does nothing. Free-form data of
+#      your own belongs under the `metadata:` map, whose nested keys are not read.
+#   7. `description:` plus `when_to_use:` (joined by one space) fits the 1,536
+#      characters the skill listing keeps by default; plain, single-quoted,
+#      double-quoted and block (`>`, `|` and their `-`/`+` forms) scalars are
+#      resolved before counting
 #
 # Findings (one per skill, per check failure):
 #   - skill-parity-missing-frontmatter
@@ -20,6 +29,8 @@
 #   - skill-parity-name-mismatch         (attrs: expected, actual)
 #   - skill-parity-missing-description
 #   - skill-parity-description-length    (attrs: length, limit)
+#   - skill-parity-unknown-frontmatter-key  (attrs: skill, key)
+#   - skill-parity-listing-length        (attrs: skill, length, limit)
 #
 # CLI:
 #   skill-parity.sh                      # --check default
@@ -74,6 +85,20 @@ target_root, skills_root, mode, dry_run_s = sys.argv[1:5]
 dry_run = (dry_run_s == "true")
 findings_out = os.environ.get("FINDINGS_OUTPUT", "")
 
+# The twenty top-level SKILL.md frontmatter keys Claude Code recognizes; it ignores any other key
+# without reporting an error, so a misspelling would silently do nothing.
+RECOGNIZED_KEYS = frozenset((
+    "name", "description", "when_to_use", "argument-hint", "arguments",
+    "disable-model-invocation", "user-invocable", "allowed-tools", "disallowed-tools",
+    "model", "effort", "context", "agent", "background", "hooks", "paths", "shell",
+    "metadata", "license", "compatibility",
+))
+# The named extension set: the one key outside the recognized list that a shipped skill carries.
+EXTENSION_KEYS = ("type",)
+# The skill listing keeps this many characters of description plus when_to_use by default
+# (the platform setting skillListingMaxDescChars).
+LISTING_LIMIT = 1536
+
 def emit(payload):
     line = json.dumps(payload, ensure_ascii=False)
     if findings_out:
@@ -107,6 +132,37 @@ def parse_frontmatter(text):
     if end is None:
         return None
     return fields, end
+
+BLOCK_RE = re.compile(r"^[>|](?:[-+][1-9]?|[1-9][-+]?)?$")
+
+def resolve_scalar(lines, key):
+    """The value of a top-level key as the skill listing reads it, or None when the key is absent.
+
+    Plain scalars as written. Single-quoted scalars read a doubled quote as one quote.
+    Double-quoted scalars read an escaped quote as a quote and an escaped backslash as a
+    backslash, and leave any other escape as written. Block scalars (the folded and literal
+    indicators with their strip and keep forms) are the indented continuation lines joined by
+    one space. When a key repeats, the last one wins."""
+    for i in range(len(lines) - 1, -1, -1):
+        m = FIELD_RE.match(lines[i])
+        if not m or m.group(1) != key:
+            continue
+        val = m.group(2)
+        if BLOCK_RE.match(val):
+            parts = []
+            for nxt in lines[i + 1:]:
+                if nxt.strip() == "":
+                    continue
+                if not nxt[0].isspace():
+                    break
+                parts.append(nxt.strip())
+            return " ".join(parts)
+        if len(val) >= 2 and val[0] == "'" and val[-1] == "'":
+            return val[1:-1].replace("''", "'")
+        if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+            return re.sub(r'\\(["\\])', r"\1", val[1:-1])
+        return val
+    return None
 
 def iter_skill_files(root, skills_root):
     if os.path.isfile(root) and root.endswith("SKILL.md"):
@@ -142,7 +198,7 @@ for skill_md in iter_skill_files(target_root, skills_root):
             emit(finding("skill-parity-missing-frontmatter", rel, skill=skill_dir))
         findings_count += 1
         continue
-    fields, _ = fm
+    fields, fm_end = fm
     name = fields.get("name")
     if name is None:
         if not dry_run:
@@ -168,6 +224,20 @@ for skill_md in iter_skill_files(target_root, skills_root):
                 emit(finding("skill-parity-description-length", rel,
                              skill=skill_dir, length=dlen, limit=1024))
             findings_count += 1
+    for key in fields:
+        if key not in RECOGNIZED_KEYS and key not in EXTENSION_KEYS:
+            if not dry_run:
+                emit(finding("skill-parity-unknown-frontmatter-key", rel,
+                             skill=skill_dir, key=key))
+            findings_count += 1
+    fm_lines = text.splitlines()[1:fm_end]
+    listing = " ".join(v for v in (resolve_scalar(fm_lines, "description"),
+                                   resolve_scalar(fm_lines, "when_to_use")) if v)
+    if len(listing) > LISTING_LIMIT:
+        if not dry_run:
+            emit(finding("skill-parity-listing-length", rel,
+                         skill=skill_dir, length=len(listing), limit=LISTING_LIMIT))
+        findings_count += 1
 
 if dry_run:
     sys.stdout.write(f"skill-parity: scanned={total} findings={findings_count}\n")

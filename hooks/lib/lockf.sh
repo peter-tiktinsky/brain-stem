@@ -30,7 +30,7 @@
 #   and HOOKS_STATE is the single sanctioned hooks-runtime-state directory.
 #   Callers are responsible for `mkdir -p "$(dirname "$LOCK_FILE")"` before
 #   invoking this helper; this is unconditional best practice and matches
-#   the live librarian-cron.sh convention.
+#   the convention of the cron wrappers under installer/cron-wrappers/.
 #
 # Exit semantics:
 #   - Outer (no sentinel) call: re-execs $0 under lockf and exits with the
@@ -42,7 +42,7 @@
 # Caller environment requirements:
 #   $LOG_DIR (or $LOG_FILE → caller's $(dirname "$LOG_FILE") substitute):
 #     Must be set before invoking the helper. Skip-log path is
-#     "$LOG_DIR/<basename>-skip.log" (matches existing librarian-cron
+#     "$LOG_DIR/<basename>-skip.log" (matches existing cron-wrapper
 #     convention). Helper falls back to "$HOOKS_STATE/<basename>-skip.log"
 #     if $LOG_DIR is unset or empty, so it never errors at log-time.
 #
@@ -85,7 +85,7 @@ claude_lockf_reexec() {
   export CLAUDE_LOCKF_REEXECED=1
 
   # Resolve skip-log location. Prefer caller's $LOG_DIR (matches existing
-  # librarian-cron convention). Fall back to $HOOKS_STATE if unset; final
+  # cron-wrapper convention). Fall back to $HOOKS_STATE if unset; final
   # fallback to the lockfile's parent directory so the helper never errors.
   local skip_log_dir="${LOG_DIR:-${HOOKS_STATE:-}}"
   if [ -z "$skip_log_dir" ]; then

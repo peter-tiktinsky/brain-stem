@@ -29,13 +29,14 @@
 # Env:  TRANSCRIPT_DIR (output dir; default $CLAUDE_HOME/onboarding/transcripts)
 # Exit: 0 transcript captured + written | 2 bad invocation/dep
 #       | 3 write error | 5 no input staged → driver-staging handoff
+#
+# --- source paths.sh if present (post-install runtime); fall back to env ---
 
 set -u
 
 diag() { printf 'typed-textarea FAIL: %s\n' "$1" >&2; }
 info() { printf 'typed-textarea: %s\n' "$1" >&2; }
 
-# --- source paths.sh if present (post-install runtime); fall back to env ---
 PATHS_SH="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 if [ -r "$PATHS_SH" ]; then
   # shellcheck source=/dev/null
@@ -50,7 +51,7 @@ PROMPT_CARD_PATH=""
 # --- arg parsing (positional: section id, then prompt-card path) ---
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     -*)        diag "unknown flag: $1"; exit 2 ;;
     *)
       if [ -z "$SECTION_ID" ]; then

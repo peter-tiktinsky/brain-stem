@@ -521,7 +521,7 @@ report = ["# Backlog Hygiene Report", "",
 report += table(["Item", "Source", "Status", "Days stale", "Severity", "Issue", "Recommended action"],
                 [[r["item"], r["source"], r["status"], "-" if r["days"] is None else r["days"],
                   r["sev"], r["issue"], r["action"]] for r in rows_f])
-report += ["", "## Disposition + lifecycle issues (R-56 / R-29/30/31)", ""]
+report += ["", "## Disposition + lifecycle issues (R-56; R-29/30/31 held by construction by backlog-index)", ""]
 report += table(["Item", "Issue", "Severity", "Detail"],
                 [[r["item"], r["issue"], r["sev"], r["detail"]] for r in rows_d])
 report += ["", "## Auto-maintenance applied (--fix)", ""]

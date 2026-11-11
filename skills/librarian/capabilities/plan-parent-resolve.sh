@@ -103,7 +103,7 @@ while [[ $# -gt 0 ]]; do
     --parent)  MODE="parent"; PARENT_FILTER="$2"; shift 2 ;;
     --classify) MODE="classify"; shift ;;  # T-3 propose-only classifier
     --dry-run) shift ;;  # No-op; accepted for chain-cleanliness
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-parent-resolve: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -577,7 +577,7 @@ in_scope() {
   # NOT plan-state (they were over-reaching 106+ binder/library files into the lineage).
   # TOP-LEVEL-specific (top=${rel%%/*}) so a <plan>/_research/ artifact (research_
   # artifacts[] pointers, header :24-25) stays walkable — its top segment
-  # is the plan dir, not one of these three. Mirrors run_classify's leading-_ prune (469).
+  # is the plan dir, not one of these three. Mirrors run_classify's leading-_ prune.
   # note: this is wrong-root-walk over-reach ONLY; broken:null (resolve_chain :180)
   # is dissolved by and is NOT touched here.
   local top="${rel%%/*}"

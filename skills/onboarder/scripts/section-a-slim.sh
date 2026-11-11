@@ -56,7 +56,7 @@ while [ $# -gt 0 ]; do
     --inputs-dir) INPUTS_DIR="$2"; shift 2 ;;
     --audit-log)  AUDIT_LOG="$2"; shift 2 ;;
     --auto-accept) AUTO_ACCEPT=1; shift ;;
-    -h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)    awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)            diag "unknown arg: $1"; exit 2 ;;
   esac
 done

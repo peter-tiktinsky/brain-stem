@@ -17,7 +17,10 @@
 #                    an existing master and register it in the master's
 #                    sub_plans[] aggregate skeleton. The librarian reconciler does
 #                    the pull-based status fill, NOT this scaffolder.
-#   --rollup         Pull the sub-plans' status into an existing master's
+#                    It then runs the master rollup (lib/master-rollup.sh), so the
+#                    master tasks.md rows are current when it returns; a rollup that
+#                    fails prints a NOTE and the exit code stays 0.
+#   --rollup        Pull the sub-plans' status into an existing master's
 #                    sub_plans[] and rewrite the rows of the master tasks.md
 #                    rollup table from it, in one locked pass (lib/master-rollup.sh).
 #   --graduate       Turn a flat plan into a master whose first sub-plan is the
@@ -95,7 +98,7 @@ PROJECT_OVERRIDE=""
 FORCE_SLUG="false"
 DRY_RUN="false"
 
-usage() { /usr/bin/sed -n '2,45p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; }
+usage() { /usr/bin/awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; }
 
 # --rollup and --graduate grammar, checked on the raw argv before the flat / --master /
 # --add-subplan parser below (which stays as it is). --rollup takes one master NN-slug and
@@ -211,8 +214,10 @@ else
   SPOKE_KEY="$(spoke_resolve_from_cwd "$PWD")" || exit 1
 fi
 
+PY_RC=0
+PLAN_COMMON_DIR="$SCRIPT_DIR/lib" PYTHONDONTWRITEBYTECODE=1 \
 python3 - "$MODE" "$SLUG" "$SUB_SLUG" "$TITLE_OVERRIDE" "$SUB_TITLE_OVERRIDE" \
-  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" "$SPOKE_KEY" "$TASKS_RENDER" <<'PY'
+  "$FORCE_SLUG" "$DRY_RUN" "$PLANS_ROOT" "$TMPL_DIR" "$SPOKE_KEY" "$TASKS_RENDER" <<'PY' || PY_RC=$?
 import json
 import os
 import re
@@ -221,6 +226,9 @@ import subprocess
 import sys
 import tempfile
 from datetime import date
+
+sys.path.insert(0, os.environ["PLAN_COMMON_DIR"])
+from plan_common import cohort_base, fm_quote_titles, q, render
 
 (mode, slug, sub_slug, title_override, sub_title_override,
  force_slug, dry_run, plans_root, tmpl_dir, spoke_key, tasks_render) = sys.argv[1:12]
@@ -297,25 +305,6 @@ def tmpl(name):
         return fh.read()
 
 
-def render(text, **kw):
-    for k, v in kw.items():
-        text = text.replace("{{%s}}" % k, v)
-    return text
-
-
-def cohort_base(pdir):
-    """Mint-time id base for the plans-schema frontmatter cohort, mirroring
-    librarian:tasks-render's _cohort_id grammar: 'plans-' + the slugified path
-    parts under the .claude-plans marker (basename fallback). The per-file id
-    is this base + '-<suffix>' (spec/tasks/handoff/ideation-brief), so a mint
-    and a later renderer upsert derive the SAME id for the same file."""
-    ap = os.path.abspath(pdir.rstrip("/"))
-    marker = os.sep + ".claude-plans" + os.sep
-    rel = ap.split(marker, 1)[1] if marker in ap else os.path.basename(ap)
-    parts = [re.sub(r"[^a-z0-9]+", "-", p.lower()).strip("-") for p in rel.split(os.sep)]
-    return "plans-" + "-".join([p for p in parts if p])
-
-
 def write_atomic(plan_dir, files):
     """Block-and-log batch write with rollback. files = {relpath: content}."""
     created_root = None
@@ -341,7 +330,7 @@ def write_atomic(plan_dir, files):
 
 
 def delegate_render(target_dir):
-    """RULING 2 (): delegate the tasks.md sentinel-region fill to librarian:tasks-render
+    """RULING 2: delegate the tasks.md sentinel-region fill to librarian:tasks-render
     (the SINGLE writer of the region, R-37/) after manifest.json is on disk, so a fresh
     scaffold ships one renderer-owned `## Tasks` INSIDE the sentinels rather than a statically
     pre-emitted duplicate. BEST-EFFORT by design: a render hiccup must NOT roll back an
@@ -471,6 +460,7 @@ def flat_files(title, plan_dir):
         # math requires `updated`, which nothing maintained). Mechanical seeding at every
         # manifest-creation surface (flat / master / sub / promote-from-inbox).
         "updated": today,
+        "disposition": "STANDALONE",
         # Scaffold the EMPTY research_artifacts[] seed the
         # per-spoke research-index renderer (plan-research-index.sh) already reads. Missing
         # field == empty (never an error), but declaring the empty seed makes the affordance
@@ -506,41 +496,6 @@ def flat_files(title, plan_dir):
         "manifest.json": json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         "00-ideation-brief.md": brief,
     }
-
-
-def q(value):
-    """A frontmatter free-text value as a YAML double-quoted scalar (a JSON string is one);
-    non-ASCII such as an em dash stays literal."""
-    return json.dumps(value, ensure_ascii=False)
-
-
-def fm_quote_titles(text):
-    """Quote the title:/description: lines of the leading frontmatter block as YAML
-    double-quoted scalars unless the value already is a JSON-decodable double-quoted
-    string; body lines (e.g. `# <title> — Spec`) are untouched."""
-    if not text.startswith("---\n"):
-        return text
-    lines = text.split("\n")
-    end = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line == "---":
-            end = i
-            break
-    if end is None:
-        return text
-    out = []
-    for line in lines[1:end]:
-        m = re.match(r"^(title|description): (.*)$", line)
-        if m:
-            raw = m.group(2).strip()
-            try:
-                quoted = isinstance(json.loads(raw), str) if raw.startswith('"') else False
-            except ValueError:
-                quoted = False
-            if not quoted:
-                line = "%s: %s" % (m.group(1), q(raw))
-        out.append(line)
-    return "---\n" + "\n".join(out + lines[end:])
 
 
 def quote_md_files(files):
@@ -709,7 +664,7 @@ elif mode == "add-subplan":
     # register the new sub-plan in the master's sub_plans[] aggregate SKELETON.
     # The librarian reconciler does the pull-based status fill; the
     # scaffolder writes only the skeleton entry (status seed = planned).
-    skeleton = {"sub_plan_id": sub_id, "slug": sub_slug, "status": "planned", "graduation_timestamp": None}
+    skeleton = {"sub_plan_id": sub_id, "slug": "%s-%s" % (sub_id, sub_slug), "status": "planned", "graduation_timestamp": None}
     master.setdefault("sub_plans", [])
     master["sub_plans"].append(skeleton)
     tmp = master_manifest_path + ".tmp.%d" % os.getpid()
@@ -723,3 +678,15 @@ elif mode == "add-subplan":
     print(json.dumps({"mode": "add-subplan", "master_slug": master_slug,
                       "sub_plan_id": sub_id, "sub_slug": sub_slug, "sub_plan_dir": sub_plan_dir}))
 PY
+if [[ "$PY_RC" -ne 0 ]]; then
+  exit "$PY_RC"
+fi
+# --add-subplan leaves the master rollup current: the python process has exited 0 and its numbering lock
+# is released, so the rollup (which takes the same lock) runs now. Its stdout goes to stderr (stdout stays the one
+# add-subplan JSON line); a failed rollup never fails the add: one NOTE names the command to run by hand.
+if [[ "$MODE" == "add-subplan" && "$DRY_RUN" != "true" ]]; then
+  if ! bash "$SCRIPT_DIR/lib/master-rollup.sh" "$SLUG" >&2; then
+    echo "new-plan: NOTE: the sub-plan was added but the master rollup did not run; run: bash $0 --rollup $SLUG" >&2
+  fi
+fi
+exit 0

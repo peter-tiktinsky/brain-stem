@@ -61,7 +61,7 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
 `governance/plans-rules.json :: inbox.note_frontmatter` before write — `type: idea`;
 required `{title, type, status, created, project}` (`project:` is the registry-resolved
 owning-spoke key, stamped mechanically at capture); optional
-`{updated, disposition, tags, related, promoted_to, absorbed_into, resolution, resolved_at}`;
+`{updated, disposition, tags, related, promoted_to, absorbed_into, resolution, resolved_at, reopen_gate, reopened_at, reopened_from_gate, release_class, size, captured_session, distinct_from, distinct_scope}`;
 `status ∈ inbox.funnel_status_enum` (`new / triaged / briefed`);
 `disposition ∈ backlog_row.disposition_enum` (`FIX NOW / ABSORB / STANDALONE / NO-BUILD`)
 when set; a NO-BUILD note also carries `reopen_gate:`, an id in
@@ -131,7 +131,8 @@ Re-run safety: stamp
 |---|---|---|
 | Inline idea | Free-text description | Captures a new `_inbox/<slug>.md` note (helper) and classifies it |
 | Existing item | `--item <inbox-slug>` | Classifies an existing inbox note currently in `new` funnel status |
-| Parked idea | `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/reopen-idea.sh <inbox-slug>` | Re-opens a parked NO-BUILD note whose `reopen_gate` is a manual gate: moves `_inbox/_settled/<slug>.md` back to `_inbox/<slug>.md` with the disposition cleared; a command gate re-opens through `librarian:backlog-index` instead |
+| Parked idea | `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/reopen-idea.sh <inbox-slug>` | Re-opens a parked NO-BUILD note whose `reopen_gate` is a manual gate: moves `_inbox/_settled/<slug>.md` back to `_inbox/<slug>.md` with the disposition cleared; a command gate re-opens through `librarian:backlog-index` instead, unless you add `--force` to re-open it by hand (the gate is not evaluated and must still be registered) |
+| Re-decide | `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/redecide-idea.sh <inbox-slug> (--disposition <value> [class flags] \| --clear) --rationale "<one line>"` | Replaces, or with `--clear` removes, the decided disposition of one flat idea note, with a dated REDECIDE line under its `## Notes`; a cleared note is undecided and can be taken by `promote-from-inbox.sh <lead> --absorb <slug>`. A settled, graduated or targeted note is refused |
 
 ---
 
@@ -184,7 +185,7 @@ Classification rules:
 
 **Existing-item mode + the in-place classification edit:**
 1. Read the existing note (or the just-captured note).
-2. Run `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/triage-apply.sh <slug> --classification <NOVEL|DUPLICATE|OVERLAP|DEFERRED> --rationale "<one line>" [--related a,b,c] [--reopen-gate <id>]` — it applies the classification table above to the note in place (`status`, `disposition`, `related` and `updated` only), appends the rationale line to the note's `## Notes` section without touching existing body content, and writes the note in one atomic step. Never edit the note by hand.
+2. Run `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-triage/scripts/triage-apply.sh <slug> --classification <NOVEL|DUPLICATE|OVERLAP|DEFERRED> --rationale "<one line>" [--related a,b,c] [--reopen-gate <id>]` — it applies the classification table above to the note in place (`status`, `disposition`, `related` and `updated` only), appends the rationale line to the note's `## Notes` section (created when the note has none) without touching existing body content, and writes the note in one atomic step. Never edit the note by hand.
 3. **The command validates the edited note against `inbox.note_frontmatter` and the plans rules before the write; a refusal exits 2, changes nothing and logs to `backlog-triage-errors.jsonl` (block-and-log).** After a write it runs the inbox hook, so an empty disposition prompts the next step, and it never writes `_backlog.md`: run `/librarian backlog-index` to refresh the view.
 
 Do NOT touch `_backlog.md` in either mode — the next `librarian:backlog-index` regen re-renders the unified table from the note.

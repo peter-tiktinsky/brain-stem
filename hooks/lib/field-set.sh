@@ -8,6 +8,7 @@
 #   field-set.sh settings env set <KEY> <value> [--settings PATH]
 #   field-set.sh plan set <manifest.json> [status=<status>] [paused_reason=<reason>] [disposition=<d>]
 #   field-set.sh capture-freeze open|lift <spoke> [--plans-root DIR]
+#   field-set.sh drift-allowlist add <capability> --reason <text> [--allowlist PATH]
 #   field-set.sh --help
 #
 # PROFILES. The first argument names a profile. Each profile is an in-script function behind
@@ -42,9 +43,21 @@
 #     `on` with no record refuses. `off` also refuses (exit 3) a call that would leave the file
 #     with no `memory-consolidation-check.sh` or `claude-mem` entry, the pre-write guard's R-24
 #     rule, unless CLAUDE_MEM_DISABLE_OK=1, which appends one `| field-set | CLAUDE_MEM_DISABLE_OK
-#     override |` line to ${CLAUDE_STATE_ROOT}/audit/hook-audit.log. The rule binds `off` only. A
-#     hook listed in ${CLAUDE_HOME:-$HOME/.claude}/templates/settings-required-hooks.json prints a
-#     `NOTE:` on stderr, because the installer re-lands a required hook on the next upgrade.
+#     override |` line to ${CLAUDE_STATE_ROOT}/audit/hook-audit.log. The rule binds `off` only.
+#     A hook listed in ${CLAUDE_HOME:-$HOME/.claude}/templates/settings-required-hooks.json is
+#     foundation-required: the installer re-lands it on every upgrade unless the user manifest lists
+#     it under `.hooks.disabled`. For such a hook `off` also appends the basename to that array in
+#     ${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}, after the settings write
+#     (the `.hooks` object and the array are created when absent, a basename already listed is not
+#     repeated), and prints a `NOTE:` on stderr saying the opt-out is recorded there. The manifest is
+#     read before any write: a `.hooks` that is present and not an object, or a `.hooks.disabled` that
+#     is present, not null and not an array of strings, refuses (exit 2), nothing written. With no
+#     manifest, or one that does not parse as a JSON object, `off` writes only settings.json and prints
+#     the `NOTE:` that the installer re-lands the hook, so the opt-out does not last. `on` removes the
+#     basename from the array after it restores the entry; with no off-state record but the basename
+#     listed, `on` removes it, touches no settings and says so on stdout (exit 0). The installer reads
+#     $CLAUDE_HOME/user-manifest.json, so a USER_MANIFEST_PATH naming another file is not read by it.
+#     A hook that is not foundation-required reads and writes no manifest.
 #     --settings PATH replaces that file; one record per basename, so `on` restores into its own --settings file.
 #
 #   settings env set <KEY> <value>
@@ -99,6 +112,19 @@
 #     a spoke with no _projects/<spoke> directory (these three exit 2), and a freeze already open
 #     (exit 3). No tool-event derivation is bound to the record; backlog-index --freeze-check reads it.
 #
+#   drift-allowlist add <capability> --reason <text> [--allowlist PATH]
+#     Records a deliberate co-canonical pair: appends {"capability", "reason", "added_at"} to
+#     provides_overlap[] of the drift allowlist (default ${CLAUDE_HOME:-$HOME/.claude}/hooks/
+#     drift-allowlist.json; --allowlist PATH overrides). added_at is today, SESSION_CLOSE_TODAY
+#     overriding. The file is created as {"provides_overlap": [...]} when absent, in a directory
+#     that must already exist; a capability already listed is a no-op that says so and leaves the
+#     bytes alone. It refuses, in this order and with the arguments parsed whole first: a verb
+#     other than add, an unknown flag, --allowlist without a path, a second positional, no
+#     capability, a capability that is empty, padded with space or holds a control character, a
+#     missing or empty --reason, a missing directory, a file that is not a JSON object, and a
+#     provides_overlap that is not an array.
+#     No tool-event derivation is bound to hooks/drift-allowlist.json (no hooks/post-*.sh names it), so none runs after the write; frontmatter-enforce reads it at its next run.
+#
 # EXIT CODES. 0 done or a documented no-op. 2 refused: bad input, validation or precondition;
 # nothing is written and the target's bytes are unchanged. 3 refused by a governance gate. 75
 # lock contention. Every refusal line starts `field-set: refused:`.
@@ -147,6 +173,7 @@ fs_usage() {
   printf '       field-set.sh settings env set <KEY> <value> [--settings PATH]\n'
   printf '       field-set.sh plan set <manifest.json> [status=<status>] [paused_reason=<reason>] [disposition=<d>]\n'
   printf '       field-set.sh capture-freeze open|lift <spoke> [--plans-root DIR]\n'
+  printf '       field-set.sh drift-allowlist add <capability> --reason <text> [--allowlist PATH]\n'
   printf '       field-set.sh --help\n'
   printf 'exit: 0 done or no-op; 2 refused (nothing written); 3 refused by a governance gate; 75 lock contention\n'
 }
@@ -442,9 +469,27 @@ fs_hook_basename_check() {
   [[ "$1" =~ ^[A-Za-z0-9._+-]+$ ]] || fs_refuse "'$1' is not a hook basename (letters, digits and . _ + -)"
 }
 
+# fs_hook_is_required <basename>: rc 0 when the installed required-hooks list names a command that is the
+# basename or ends in /<basename>.
+fs_hook_is_required() {
+  local req="${CLAUDE_HOME:-$HOME/.claude}/templates/settings-required-hooks.json"
+  [ -f "$req" ] && jq -e --arg b "$1" '[.required_hooks[]? | .command // empty | select(. == $b or endswith("/" + $b))] | length > 0' "$req" >/dev/null 2>&1
+}
+
+# fs_user_manifest_path: the user manifest the hook opt-out is recorded in.
+fs_user_manifest_path() {
+  printf '%s\n' "${USER_MANIFEST_PATH:-${CLAUDE_HOME:-$HOME/.claude}/user-manifest.json}"
+}
+
+# fs_manifest_lists <manifest> <basename>: rc 0 when the manifest parses as a JSON object whose
+# .hooks.disabled array holds the basename.
+fs_manifest_lists() {
+  [ -f "$1" ] && jq -e --arg b "$2" '(.hooks? // null) | if type == "object" then (.disabled // null) | if type == "array" then any(. == $b) else false end else false end' "$1" >/dev/null 2>&1
+}
+
 # settings hook off <hook-basename>
 fs_settings_hook_off() {
-  local b="${1:-}" settings sidecar_dir sidecar records count new req log
+  local b="${1:-}" settings sidecar_dir sidecar records count new log manifest required=0 opt_out=0
   [ $# -eq 1 ] && [ -n "$b" ] || fs_refuse "usage: field-set.sh settings hook off <hook-basename> [--settings PATH]"
   fs_hook_basename_check "$b"
   fs_need_tools
@@ -461,6 +506,17 @@ fs_settings_hook_off() {
       return 0
     fi
     fs_refuse "no hook entry matches '$b'"
+  fi
+  # A foundation-required hook is also recorded in the user manifest, so the manifest is validated here,
+  # before the first write: a refusal leaves both files unchanged.
+  if fs_hook_is_required "$b"; then
+    required=1
+    manifest="$(fs_user_manifest_path)"
+    if [ -f "$manifest" ] && jq -e 'type == "object"' "$manifest" >/dev/null 2>&1; then
+      jq -e '(has("hooks") | not) or ((.hooks | type) == "object")' "$manifest" >/dev/null 2>&1 || fs_refuse "$manifest .hooks is not an object"
+      jq -e '(.hooks // {}) | (if has("disabled") then .disabled else null end) | . == null or (type == "array" and all(type == "string"))' "$manifest" >/dev/null 2>&1 || fs_refuse "$manifest .hooks.disabled is not an array of strings"
+      opt_out=1
+    fi
   fi
   new="$(jq --arg b "$b" "$FS_JQ_HOOK_DEFS $FS_JQ_HOOK_OFF" "$settings")" || fs_refuse "jq could not compute the edit of $settings"
   if ! printf '%s\n' "$new" | grep -qE 'memory-consolidation-check\.sh|claude-mem'; then
@@ -482,22 +538,34 @@ fs_settings_hook_off() {
   fs_jq_write "$settings" --arg b "$b" "$FS_JQ_HOOK_DEFS $FS_JQ_HOOK_OFF"
   FS_SIDECAR_NEW=""
   printf 'field-set: %s off\n' "$b"
-  req="${CLAUDE_HOME:-$HOME/.claude}/templates/settings-required-hooks.json"
-  if [ -f "$req" ] && jq -e --arg b "$b" '[.required_hooks[]? | .command // empty | select(. == $b or endswith("/" + $b))] | length > 0' "$req" >/dev/null 2>&1; then
+  if [ "$opt_out" = 1 ]; then
+    fs_jq_write "$manifest" --arg b "$b" '(.hooks.disabled // []) as $d | .hooks.disabled = (if ($d | any(. == $b)) then $d else $d + [$b] end)'
+    printf 'NOTE: %s is a foundation-required hook; it is recorded in %s under hooks.disabled, so the installer does not re-land it on an upgrade\n' "$b" "$manifest" >&2
+  elif [ "$required" = 1 ]; then
     printf 'NOTE: %s is a foundation-required hook; the installer re-lands it on the next upgrade, so this opt-out does not survive an upgrade\n' "$b" >&2
   fi
 }
 
 # settings hook on <hook-basename>
 fs_settings_hook_on() {
-  local b="${1:-}" settings sidecar records
+  local b="${1:-}" settings sidecar records manifest
   [ $# -eq 1 ] && [ -n "$b" ] || fs_refuse "usage: field-set.sh settings hook on <hook-basename> [--settings PATH]"
   fs_hook_basename_check "$b"
   fs_need_tools
   settings="$(fs_settings_path)"
   [ -n "${HOOKS_STATE:-}" ] || fs_refuse "HOOKS_STATE is unresolved (paths.sh is missing beside this script)"
   sidecar="$HOOKS_STATE/field-set-hook-off/$b.json"
-  [ -f "$sidecar" ] || fs_refuse "no recorded off-state for '$b'"
+  manifest="$(fs_user_manifest_path)"
+  if [ ! -f "$sidecar" ]; then
+    # No off-state record: a basename still listed in the manifest is removed from it (the settings are
+    # not touched); otherwise the refusal stands.
+    if fs_manifest_lists "$manifest" "$b"; then
+      fs_jq_write "$manifest" --arg b "$b" '.hooks.disabled |= map(select(. != $b))'
+      printf 'field-set: %s has no recorded off-state; removed it from hooks.disabled in %s, so the next upgrade re-lands it\n' "$b" "$manifest"
+      return 0
+    fi
+    fs_refuse "no recorded off-state for '$b'"
+  fi
   jq -e 'type == "array"' "$sidecar" >/dev/null 2>&1 || fs_refuse "the off-state record $sidecar is not a JSON array"
   fs_settings_check "$settings"
   records="$(jq -c . "$sidecar")" || fs_refuse "cannot read the off-state record $sidecar"
@@ -505,6 +573,9 @@ fs_settings_hook_on() {
   printf '%s\n' "$records" | jq -r --arg b "$b" '.[] | select(.dup) | "NOTE: \($b) already present under \(.event); not restored twice"' >&2
   records="$(printf '%s\n' "$records" | jq -c 'map(select(.dup | not) | del(.dup))')" || fs_refuse "jq could not filter the off-state record"
   if [ "$records" != "[]" ]; then fs_jq_write "$settings" --argjson r "$records" "$FS_JQ_HOOK_ON"; fi
+  if fs_manifest_lists "$manifest" "$b"; then
+    fs_jq_write "$manifest" --arg b "$b" '.hooks.disabled |= map(select(. != $b))'
+  fi
   if ! rm -f "$sidecar"; then
     printf 'field-set: NOTE: %s is back on, but the off-state record %s could not be removed\n' "$b" "$sidecar" >&2
   fi
@@ -824,6 +895,67 @@ profile_capture_freeze() {
   printf 'field-set: capture-freeze open %s start_sha=%s\n' "$spoke" "$sha"
 }
 
+# profile_drift_allowlist add <capability> --reason <text> [--allowlist PATH]
+# The reader (frontmatter-enforce.sh :: load_drift_allowlist) keeps the provides_overlap[] entries that
+# carry a `capability` key, so the entry written here is the shape it accepts.
+profile_drift_allowlist() {
+  local verb="${1:-}" cap="" cap_set=0 reason="" reason_set=0 path="" unknown="" need_path=0 extra="" today dir
+  [ "$verb" = "add" ] || fs_refuse "drift-allowlist takes 'add <capability> --reason <text> [--allowlist PATH]'"
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason)
+        if [ $# -ge 2 ]; then reason="$2"; reason_set=1; shift 2; else shift; fi ;;
+      --reason=*)
+        reason="${1#--reason=}"; reason_set=1; shift ;;
+      --allowlist)
+        if [ $# -ge 2 ] && [ -n "$2" ]; then path="$2"; shift 2; else need_path=1; shift; fi ;;
+      --allowlist=*)
+        path="${1#--allowlist=}"
+        [ -n "$path" ] || need_path=1
+        shift ;;
+      --*)
+        [ -n "$unknown" ] || unknown="$1"
+        shift ;;
+      *)
+        if [ "$cap_set" -eq 0 ]; then cap="$1"; cap_set=1
+        elif [ -z "$extra" ]; then extra="$1"; fi
+        shift ;;
+    esac
+  done
+  [ -z "$unknown" ] || fs_refuse "unknown flag '$unknown'"
+  [ "$need_path" -eq 0 ] || fs_refuse "--allowlist needs a path"
+  [ -z "$extra" ] || fs_refuse "unexpected argument '$extra'"
+  [ "$cap_set" -eq 1 ] || fs_refuse "drift-allowlist add needs a <capability>"
+  if [ -z "$cap" ] || [[ "$cap" == " "* ]] || [[ "$cap" == *" " ]] || [[ "$cap" == *[[:cntrl:]]* ]]; then
+    fs_refuse "the capability is empty, padded with space or holds a control character"
+  fi
+  { [ "$reason_set" -eq 1 ] && [ -n "$reason" ]; } || fs_refuse "drift-allowlist add needs a non-empty --reason"
+  [ -n "$path" ] || path="${CLAUDE_HOME:-$HOME/.claude}/hooks/drift-allowlist.json"
+  dir="$(dirname "$path")"
+  [ -d "$dir" ] || fs_refuse "the directory of $path does not exist"
+  fs_need_tools
+  today="${SESSION_CLOSE_TODAY:-$(date '+%Y-%m-%d')}"
+  if [ ! -e "$path" ]; then
+    FS_TMP="$(mktemp "$dir/.field-set.XXXXXX")" || fs_refuse "cannot create a temp file in $dir"
+    jq -n --arg c "$cap" --arg r "$reason" --arg d "$today" '{provides_overlap: [{capability: $c, reason: $r, added_at: $d}]}' > "$FS_TMP" \
+      || fs_refuse "cannot write the allowlist $path"
+    mv -f "$FS_TMP" "$path" || fs_refuse "cannot place the allowlist $path"
+    FS_TMP=""
+    printf 'field-set: drift-allowlist add %s\n' "$cap"
+    return 0
+  fi
+  jq -e 'type == "object"' "$path" >/dev/null 2>&1 || fs_refuse "$path is not a JSON object"
+  jq -e '(.provides_overlap // []) | type == "array"' "$path" >/dev/null 2>&1 || fs_refuse "$path: provides_overlap is not an array"
+  if jq -e --arg c "$cap" '(.provides_overlap // []) | any(.[]; type == "object" and .capability == $c)' "$path" >/dev/null 2>&1; then
+    printf 'field-set: drift-allowlist: %s already allowlisted\n' "$cap"
+    return 0
+  fi
+  fs_jq_write "$path" --arg c "$cap" --arg r "$reason" --arg d "$today" \
+    '.provides_overlap = ((.provides_overlap // []) + [{capability: $c, reason: $r, added_at: $d}])'
+  printf 'field-set: drift-allowlist add %s\n' "$cap"
+}
+
 # fs_run_write <profile function> <args...>: the one door every profile's write path goes through.
 # Unless this already is the locked child, re-exec the script (profile name and arguments
 # unchanged) as one /usr/bin/lockf -k -t 2 child on $HOOKS_STATE/field-set.lock and pass its rc
@@ -858,6 +990,7 @@ main() {
     settings) fs_run_write profile_settings "$@" ;;
     plan) fs_run_write profile_plan "$@" ;;
     capture-freeze) fs_run_write profile_capture_freeze "$@" ;;
+    drift-allowlist) fs_run_write profile_drift_allowlist "$@" ;;
     *) printf "field-set: unknown profile '%s'\n" "$profile" >&2; exit 2 ;;
   esac
 }

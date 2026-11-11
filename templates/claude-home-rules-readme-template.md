@@ -118,7 +118,7 @@ The two upstream issues that once made user-scope `paths:` globs unreliable are 
 
 On current binaries a `paths:` glob in **user-scope** `~/.claude/rules/` (this directory) is honored exactly as it is in project-scope.
 
-The LIVE limitation is `#93248` (OPEN, filed 2026-09-10): a `paths:` rule triggers when Claude **reads** a file matching the glob, not when it **creates** one. Two consequences:
+The LIVE limitation is `#93248`: a `paths:` rule triggers when Claude **reads** a file matching the glob, not when it **creates** one. Two consequences:
 
 - A `paths:` rule cannot deliver write-time guidance. A rule that must fire before a matching file is written belongs in the unscoped (always-on) mode, or in a PreToolUse hook.
 - After compaction, unscoped rules are re-injected from disk, but a `paths:` rule reloads only as matching files are read again. A `paths:` rule is therefore not a drop-in for an unscoped rule: it is strictly weaker post-compaction.

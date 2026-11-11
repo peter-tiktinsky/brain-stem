@@ -65,7 +65,7 @@
       "enforcement_layer": [
         "pre-write-guard.sh folder-placement advisory branch (Tier 1; never blocks)",
         "governance/frontmatter-rules.json `path_routing` (per-archetype lineage rules)",
-        "librarian placement-validation (audit-time)"
+        "librarian placement-validate (audit-time)"
       ],
       "status": "active",
       "source": "governance/frontmatter-rules.json :: _rules (SoT)",
@@ -181,6 +181,7 @@
       "description": "System files (scaffold-emitted, /ingest-routed, scraper-aggregated to Inbox/). Hard fail at write-time (R-32 Tier 2 DENY).",
       "validation_behavior": "deny",
       "applies_to": "type entries with tier=strict in this pillar's `types` block",
+      "_universal_required_note": "DOCUMENTARY only — the FROZEN universal typed cohort. The REAL enforcement surface is each strict type's per-type required[]; this list mirrors the cohort for legibility. The four soft-tier cohort fields (description/created/id/schema_version) join `updated` in the warn-not-DENY non-block set at pre-write-guard.sh (R-64).",
       "universal_required": [
         "type",
         "description",
@@ -351,7 +352,8 @@
           "id",
           "schema_version"
         ],
-        "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list."
+        "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list.",
+        "_rationale": "A regenerated read-replica derives its identity from its writer and is rebuilt in place, so a minted created/id would churn or demand per-writer state; the identity cohort binds the hand-authored/mandate-bootstrapped flow, whose post-write-verify Tier-1 bootstrap mints all seven required fields."
       },
       "optional": [
         "provides",

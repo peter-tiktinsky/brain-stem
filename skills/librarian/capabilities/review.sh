@@ -14,7 +14,8 @@
 # the queue, so `list` and `report` count it and `confirm`, `reject` and `defer` accept it.
 #
 # Derivations (what else must run when this capability writes a memory file): after the
-# revalidation stamp and after a promotion's --written file, the two memory-write hooks run
+# revalidation stamp and after a promotion's file (the --written one, or the one written from
+# its reshaped_memory object), the two memory-write hooks run
 # from <root>/hooks/, memory-auto-stamp.sh and then memory-globalize-auto.sh, each fed the
 # one-line PostToolUse payload a Write of that file would send. A missing hook is a NOTE and
 # the run goes on, and so is a hook that exits non-zero. No hook is bound to the queue file
@@ -33,7 +34,10 @@
 #       conflict resolution as payload.resolution by one temp-and-replace)
 #     - <memory dir>/<topic>.md  (revalidation: last_validated stamped by one
 #       temp-and-replace, <memory dir>/.<topic>.md.review-tmp; promotion: the file the
-#       operator composed and named with --written, written before this script runs)
+#       operator composed and named with --written, written before this script runs;
+#       with no --written, the file this script writes from the item's payload
+#       reshaped_memory object by one temp-and-move, <memory dir>/.<file>.review-tmp,
+#       after checking the object (a refusal writes nothing))
 #   stdout: the list rows and footer, the item for `show`, the report lines, or one success
 #     line: `review: confirmed <id> (<class>)`, `review: rejected <id>`,
 #     `review: deferred <id> (defer_count <n>)`, `review: suppressed <id> (...)` (list).
@@ -168,7 +172,7 @@ check_cleared() { # <id> <state>
 
 # --- memory file helpers ------------------------------------------------------
 PYSRC='
-import os, re, sys
+import json, os, re, sys
 
 def split_fm(data):
     lines = data.split(b"\n")
@@ -211,6 +215,46 @@ elif cmd == "stamp":
     with os.fdopen(fd, "wb") as out:
         out.write(b"\n".join(lines))
     os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+elif cmd == "reshaped":
+    # reshaped <queue file> <item id> <memory dir>: check the item payload reshaped_memory object, in the
+    # pinned order, and stage the memory file as a temp beside the target. Prints "refuse<TAB>reason", or
+    # "ok<TAB>file" once the temp is written; the caller moves it into place.
+    qf, iid, mem = sys.argv[2], sys.argv[3], sys.argv[4]
+    with open(qf, encoding="utf-8") as fh:
+        queue = json.load(fh)
+    item = [i for i in queue.get("items", []) if isinstance(i, dict) and i.get("id") == iid][0]
+    rm = item["payload"]["reshaped_memory"]
+
+    def no(why):
+        print("refuse\t" + why)
+        sys.exit(0)
+
+    if not isinstance(rm, dict):
+        no("reshaped_memory is not an object")
+    for k in ("file", "name", "description", "type", "body"):
+        v = rm.get(k)
+        if not isinstance(v, str) or not v.strip():
+            no("reshaped_memory.%s is missing or empty" % k)
+    f = rm["file"]
+    if f == "MEMORY.md" or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*[.]md", f):
+        no("reshaped_memory.file must name a .md topic file directly inside the memory directory (not MEMORY.md)")
+    if rm["type"] not in ("semantic", "procedural", "episodic"):
+        no("reshaped_memory.type must be one of semantic, procedural, episodic")
+    tags = rm.get("tags", [])
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        no("reshaped_memory.tags must be a list of strings")
+    if os.path.lexists(os.path.join(mem, f)):
+        no("%s already exists in the memory directory" % f)
+
+    def q(s):
+        return json.dumps(s, ensure_ascii=False)
+
+    text = "---\nname: %s\ndescription: %s\ntype: %s\ntags: %s\n---\n\n%s\n" % (
+        q(rm["name"]), q(rm["description"]), q(rm["type"]), q(tags), rm["body"])
+    fd = os.open(os.path.join(mem, "." + f + ".review-tmp"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666)
+    with os.fdopen(fd, "wb") as out:
+        out.write(text.encode("utf-8"))
+    print("ok\t" + f)
 '
 
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]*[.]md$'
@@ -263,6 +307,24 @@ run_derivations() { # <file path> — the two memory-write hooks, in the PostToo
     rc=$?
     [ "$rc" -eq 0 ] || note "$h failed (rc $rc)"
   done
+}
+
+write_reshaped() { # sets TOPIC_FILE — write the memory file of the item's payload.reshaped_memory object
+  local res kind rest tmp
+  res="$(python3 -c "$PYSRC" reshaped "$QF" "$ID" "$MEM_DIR" 2>/dev/null)" || fail3 "reshaped_memory could not be read"
+  kind="${res%%$'\t'*}"
+  rest="${res#*$'\t'}"
+  case "$kind" in
+    refuse) refuse "$rest" ;;
+    ok) ;;
+    *) fail3 "reshaped_memory could not be read" ;;
+  esac
+  tmp="$MEM_DIR/.$rest.review-tmp"
+  if ! mv -f "$tmp" "$MEM_DIR/$rest"; then
+    rm -f "$tmp"
+    fail3 "write of $rest failed"
+  fi
+  TOPIC_FILE="$rest"
 }
 
 write_resolution() {
@@ -354,11 +416,17 @@ cmd_confirm() {
   fi
   case "$cls" in
     promotion)
-      [ "$HAVE_WRITTEN" -eq 1 ] || refuse "promotion needs --written"
-      case "$WRITTEN" in *.md) ;; *) refuse "$written_msg" ;; esac
-      resolve_topic "$WRITTEN" || refuse "$written_msg"
-      file="$MEM_DIR/$TOPIC_FILE"
-      [ -f "$file" ] || refuse "$written_msg"
+      if [ "$HAVE_WRITTEN" -eq 1 ]; then
+        case "$WRITTEN" in *.md) ;; *) refuse "$written_msg" ;; esac
+        resolve_topic "$WRITTEN" || refuse "$written_msg"
+        file="$MEM_DIR/$TOPIC_FILE"
+        [ -f "$file" ] || refuse "$written_msg"
+      elif [ "$(item_str "$ID" '(.payload // {}) | if type=="object" then has("reshaped_memory") else false end')" = "true" ]; then
+        write_reshaped
+        file="$MEM_DIR/$TOPIC_FILE"
+      else
+        refuse "promotion needs --written"
+      fi
       fm_check "$file" "$TOPIC_FILE"
       run_derivations "$file"
       fm_check "$file" "$TOPIC_FILE"

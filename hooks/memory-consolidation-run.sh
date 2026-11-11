@@ -14,7 +14,7 @@
 #       (## Semantic / ## Procedural / ## Episodic), mapping the `type:`
 #       frontmatter value to its section, instead of the old top-level
 #       provenance sections (## User/## Feedback/...) that match nothing
-#       post-reorg (.6).
+#       post-reorg.
 #   (2) cap-count computes raw wc -l AND byte count AND char-line count, with a
 #       comment-stripped raw count, and gates on the LARGER (
 #       .5/.6/) instead of raw wc -l only.
@@ -58,7 +58,7 @@ if [[ ! -f "$STATE_FILE" ]] || ! jq -e . "$STATE_FILE" >/dev/null 2>&1; then
   exit 3
 fi
 
-# single-instance guard via lockf (.6) — replaces the
+# single-instance guard via lockf — replaces the
 # hand-rolled PID-lock TOCTOU window. The outer call re-execs this script under
 # /usr/bin/lockf -k -t 0; on contention (another consolidation running) it skips
 # cleanly. The kernel releases the advisory lock on process death — no stale
@@ -300,7 +300,7 @@ enqueue_revalidation() {
 
 # --- Check 1: Staleness scan (read-only flag; propose-only states) ---
 CURRENT_CHECK="Check 1"
-# decay model (.4): last_validated is the SOLE decay input
+# decay model: last_validated is the SOLE decay input
 # (required per schema 2.0.0). A SINGLE 180-day interval applies to all
 # non-episodic memory; episodic NEVER decays. States:
 #   FRESH (<180d) → no action

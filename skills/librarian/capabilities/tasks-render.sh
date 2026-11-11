@@ -242,8 +242,14 @@ def emit(d):
 
 
 def _yq(s):
+    import re
     s = " ".join(str(s).split())
-    if ": " in s or s.endswith(":") or (s and s[0] in "#&*[]{}!|>%@`\"'"):
+    if (not s or ": " in s or " #" in s or s.endswith(":") or s[0] in ",#&*[]{}!|>%@`\"'"
+            or re.match(r"^[-?:]( |$)", s)
+            or s.lower() in ("true", "false", "null", "yes", "no", "on", "off", "y", "n", "~", "=", "<<",
+                             ".inf", "-.inf", "+.inf", ".nan")
+            or (" " not in s and re.match(r"^[-+]?\.?[0-9]", s))
+            or re.match(r"^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}[Tt ]", s)):
         return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
     return s
 
@@ -288,8 +294,13 @@ def upsert_fm_cohort(text):
     if "title" not in keys:
         add.append("title: %s" % _yq(fallback_title))
     if "description" not in keys:
-        dv = keys.get("title", (None, ""))[1].strip('"').strip("'") or fallback_title
-        add.append("description: %s" % _yq(dv))
+        dv = keys.get("title", (None, ""))[1]
+        if len(dv) >= 2 and dv[0] == '"' and dv[-1] == '"':
+            # a title _yq quoted: drop the outer quotes, then read \" as " and \\ as \
+            dv = re.sub(r'\\(["\\])', r"\1", dv[1:-1])
+        else:
+            dv = dv.strip('"').strip("'")
+        add.append("description: %s" % _yq(dv or fallback_title))
     if "created" not in keys:
         add.append("created: %s" % today)
     if "updated" not in keys:
@@ -313,7 +324,7 @@ def upsert_fm_cohort(text):
 # master predicate (the master<->sub reconciler's contract) so the two renderers + the
 # reconciler share ONE detection contract and nothing new drifts. On a master: emit a single
 # observable level:info finding and exit 0 WITHOUT rendering tasks.md (the rollup is
-# hand-reconciled, never renderer-owned).
+# written by new-plan.sh --rollup, never by this renderer).
 if manifest.get("type") == "master" or manifest.get("sub_plans"):
     # heal the master preface cohort. A master's file is never rendered, but its frontmatter
     # preface still carries the cohort every replica carries. In write mode an existing file
@@ -543,7 +554,7 @@ if not preface.strip():
     # anymore; the plan's authoritative status lives on manifest.json :: status.
     preface = (
         "---\n"
-        "title: %s — Tasks\n"
+        "title: %s\n"
         "type: tasks\n"
         "created: %s\n"
         "updated: %s\n"
@@ -553,7 +564,7 @@ if not preface.strip():
         "**Last Updated:** %s\n\n"
         "## Status Key\n\n"
         "`not-started` | `in-progress` | `done` | `blocked` | `cut`\n\n"
-    ) % (title, today, today, title, spec_path, today)
+    ) % (_yq("%s — Tasks" % title), today, today, title, spec_path, today)
 else:
     # DERIVE: an EXISTING preface must not retain a stale status: line — the manifest
     # is the sole status SoT, so re-derivation = removal. Strip it from the preface's

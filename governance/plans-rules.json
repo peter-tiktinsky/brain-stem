@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0.0",
   "pillar": "plans",
-  "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31/R-56 skill-tier + R-61/R-62/R-63 master/sub reconciler-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
+  "_description": "Pillar 8 — Plans-tree governance (per-pillar rule model). Carries the plans-pillar _rules[] SoT (home=plans; R-29/R-30/R-31 librarian-tier, R-56 skill-tier, R-61/R-62 master/sub reconciler-tier, R-63 advisory-tier), the canonical 6-state plan lifecycle, the subplan_rules.metadata_flow orchestrator-worker contract, the per-plan ADR ledger convention, and the structural config the plans-tree is validated against. Loaded by hooks/pre-write-guard.sh + the librarian plan/backlog capabilities.",
   "_design_notes": {
     "consumer": "hooks/pre-write-guard.sh (R-27/R-28 via naming pillar; librarian-only root-file writes), skills/librarian/capabilities/{plan-index,backlog-index}.sh, the librarian reconciler (R-61/R-62/R-63 cross-file)",
     "lockstep_pair": "schemas/plan-manifest-schema.json + governance/file-type-contracts/{manifest.json,spec.md,tasks.md,adr.md}.json + hooks/pre-write-guard.sh",
@@ -13,42 +13,42 @@
       "home": "plans",
       "category": "C3",
       "surface": "plan-governance",
-      "tier": "skill",
+      "tier": "librarian",
       "enforcement_layer": [
-        "skill:backlog-hygiene"
+        "librarian:backlog-index"
       ],
       "status": "active",
       "source": "governance/plans-rules.json :: _rules (SoT)",
-      "rule_text": "Backlog row size is bounded — a row in the unified _backlog.md carries only a current-state pointer; session history lives in the satellite, not the row. backlog-hygiene flags over-long rows.",
-      "failure_mode": "Unbounded backlog rows accrete session narrative inline; the index becomes a log; scan-readability collapses. Skill-enforced (backlog-hygiene), never write-time."
+      "rule_text": "Backlog row size is bounded — a row in the unified _backlog.md carries only a current-state pointer; session history lives in the satellite, not the row. Held by construction by the librarian backlog-index capability for every generated column; the Notes column is carried forward unchanged and is the one unbounded column.",
+      "failure_mode": "Unbounded backlog rows accrete session narrative inline; the index becomes a log; scan-readability collapses. Held by construction (backlog-index), never write-time and not a skill check."
     },
     {
       "id": "R-30",
       "home": "plans",
       "category": "C3",
       "surface": "plan-governance",
-      "tier": "skill",
+      "tier": "librarian",
       "enforcement_layer": [
-        "skill:backlog-hygiene"
+        "librarian:backlog-index"
       ],
       "status": "active",
       "source": "governance/plans-rules.json :: _rules (SoT)",
-      "rule_text": "Backlog sentinel pattern — the row carries the current-state pointer; the satellite at the plan dir / handoff.md is the single source of session history. backlog-hygiene validates the pattern.",
-      "failure_mode": "Drift between row and satellite; history scattered. Skill-enforced (backlog-hygiene), never write-time."
+      "rule_text": "Backlog sentinel pattern — the row carries the current-state pointer; the satellite at the plan dir / handoff.md is the single source of session history. Held by construction: the librarian backlog-index capability renders the sentinel-bounded regions from the plan manifests.",
+      "failure_mode": "Drift between row and satellite; history scattered. Held by construction (backlog-index), never write-time and not a skill check."
     },
     {
       "id": "R-31",
       "home": "plans",
       "category": "C3",
       "surface": "plan-governance",
-      "tier": "skill",
+      "tier": "librarian",
       "enforcement_layer": [
-        "skill:backlog-hygiene"
+        "librarian:backlog-index"
       ],
       "status": "active",
       "source": "governance/plans-rules.json :: _rules (SoT)",
-      "rule_text": "Backlog sentinel pattern (companion to R-30) — sentinel-bounded row regions are librarian-regenerated; operator narrative is preserved outside the sentinels. backlog-hygiene validates parity.",
-      "failure_mode": "Hand-edits inside sentinel regions are clobbered on regen, or stale regions diverge. Skill-enforced (backlog-hygiene), never write-time."
+      "rule_text": "Backlog sentinel pattern (companion to R-30) — sentinel-bounded row regions are librarian-regenerated; operator narrative is preserved outside the sentinels. Held by construction: the librarian backlog-index capability renders the sentinel-bounded regions from the plan manifests.",
+      "failure_mode": "Hand-edits inside sentinel regions are clobbered on regen, or stale regions diverge. Held by construction (backlog-index), never write-time and not a skill check."
     },
     {
       "id": "R-56",
@@ -179,7 +179,9 @@
       }
     },
     "grandfathered": [],
-    "rollout": "deny"
+    "_grandfathered_note": "TRANSITIONAL-ONLY; ad-hoc dirs are never grandfathered — non-conforming stock is re-homed to its owning context, not blessed as a durable root surface. An entry names a still-present historical root file pending relocation out of the plans root: the write guard must never deny writes to a file that still lives at the root. The re-homing pass that relocates a file removes its entry in the same change. Currently EMPTY — every historical root file has been relocated to its owning context; an empty list is the completed state, and the mechanism stays for any future transitional need.",
+    "rollout": "deny",
+    "_rollout_note": "Advisory-to-blocking (ask->deny) rollout idiom — FLIPPED to deny at the re-home completion (the non-conforming ad-hoc root stock now lives in its owning plan; the ask phase ran clean). PLANS_ROOT_ROLLOUT=ask restores the advisory path; PLANS_ROOT_OK=1 is the per-write, audit-logged escape hatch."
   },
   "plan_folder_quartet": {
     "required": [
@@ -273,6 +275,7 @@
     "manifest_pointer": "manifest.decision_records[]"
   },
   "gate_records": {
+    "_rationale": "Gate records (validation charges, round records, verdicts) live in one flat <plan>/_gates/ folder, so validation exhaust never enters a plan's declared research. Both ends of the research inflow guard read this key: hooks/pre-write-guard.sh refuses a new gate-named or prefix-colliding file under _research/, and plan-research-declare refuses to declare either. Gate-named: a basename token, split on -, _ or ., equals a keyword or fully matches a keyword pattern.",
     "dir": "_gates",
     "filename_pattern": "^[0-9]{2}-gate[12]-[a-z0-9-]+\\.md$",
     "keywords": [
@@ -296,6 +299,7 @@
       "Updated",
       "Notes"
     ],
+    "_required_fields_note": "Project Dir carries the row's owning Claude project-home directory, resolved from the manifest/note `project:` spoke key via governance/anchored-spoke-registry.json cwd_anchors (the same per-row ownership standard the plan index uses); Target carries the machine-joinable promoted_to/absorbed_into plan-dir key.",
     "settled_section": {
       "sentinels": [
         "<!-- backlog-settled:start -->",
@@ -334,6 +338,7 @@
     "dir": "_inbox/",
     "note_glob": "_inbox/*.md",
     "settled_dir": "_inbox/_settled/",
+    "_settled_dir_note": "Settled home for funnel notes, FORWARD-ONLY: a settlement EVENT (the librarian:backlog-index closure-loop stamp, or the librarian:inbox-settle manual channel) relocates the note here in the same run; already-settled notes sitting flat are never moved by the renderer. The one carve-out is a parked NO-BUILD note: when its registered reopen_gate is met, backlog-index moves it back to the flat inbox with the disposition and resolution cleared (reopen_gates, resolution parked). The settled ledger renders residents of this folder at their real location; a resident without settlement evidence draws the inbox-settled-misfiled advisory. A settled note keeps owning its slug — capture collision-versioning probes this folder too.",
     "writers_allowed": [
       "any"
     ],
@@ -348,6 +353,7 @@
         "created",
         "project"
       ],
+      "_project_note": "Registry-resolved owning-spoke key (governance/anchored-spoke-registry.json), stamped mechanically at capture by the promote-from-inbox helper; graduation precedence is the --project flag, then the note key, then cwd auto-resolution.",
       "optional": [
         "updated",
         "disposition",
@@ -375,13 +381,22 @@
       "size_enum": [
         "day",
         "build"
-      ]
+      ],
+      "_class_keys_note": "A STANDALONE disposition is decided at capture with a release_class from release_class_enum and a size from size_enum; the promote-from-inbox helper refuses either value outside its enum and stamps both keys. They apply to STANDALONE only.",
+      "_reopen_keys_note": "A NO-BUILD disposition carries reopen_gate: the id of a gate in inbox.reopen_gates. A note's frontmatter only ever names an id; the gate itself is registered here. backlog-index stamps reopened_at and reopened_from_gate when it re-opens a parked note.",
+      "_target_keys_note": "promoted_to/absorbed_into are machine-joinable plan-dir keys — NN-<slug> or a sub-plan NN-<slug>/SS-<subslug>, with an optional ' :: T-N' task suffix — resolvable against the plans root; an ABSORB disposition requires a resolvable absorbed_into at triage."
     },
     "funnel_status_enum": [
       "new",
       "triaged",
       "briefed"
     ],
+    "graduation_precondition": {
+      "status": [
+        "triaged",
+        "briefed"
+      ]
+    },
     "resolution_enum": [
       "promoted",
       "absorbed",
@@ -391,6 +406,7 @@
       "discharged",
       "parked"
     ],
+    "_resolution_note": "Terminal settlement vocabulary, orthogonal to funnel_status_enum: stamped write-if-changed by the librarian:backlog-index closure loop when a note's target plan reaches lifecycle.terminal_status — settled notes render in the settled ledger and leave the active table. 'superseded' records replaced-by-other-work (pair with superseded_by); 'discharged' records need-eliminated-at-source by a named fix. Classification precedence: terminal-resolution EVIDENCE wins over funnel status — a note also settles on an out-of-enum resolution when corroborated by resolved_at or superseded_by (operator-judgment settlement an enum cannot enumerate), and that path emits the inbox-resolution-out-of-enum advisory so vocabulary drift stays visible instead of mis-rendering the note. 'parked' records a NO-BUILD decision settled under a re-open gate: unlike 'dropped' it is re-openable (see reopen_gates).",
     "reopen_gates": {
       "manual": {
         "kind": "manual"
@@ -403,20 +419,25 @@
         "timeout_s": 30
       }
     },
+    "_reopen_gates_note": "Closed registry of re-open gates a NO-BUILD note may name through its reopen_gate key, an object keyed by gate id so an overlay can ADD an id. A gate is {\"kind\": \"manual\"} (an operator re-opens the note with skills/backlog-triage/scripts/reopen-idea.sh <slug>; backlog-index never evaluates it) or {\"kind\": \"command\", \"argv\": [<path>, <args>...], \"timeout_s\": <n>}. argv[0] is an absolute path or a path relative to the foundation root (no leading slash, no .. component); the command runs without a shell, and exit 0 means the gate is met. hooks/lib/reopen-gate.sh is the reader.",
     "undecided_threshold": 10,
+    "_undecided_threshold_note": "The count of open undecided flat inbox notes (a note is decided only as STANDALONE with a release_class and a size, ABSORB with a resolvable absorbed_into, or NO-BUILD with a registered reopen_gate) above which the SessionStart reader surfaces an inbox-drain line. The librarian:inbox-drain-check capability persists the count and this value; a session close blocks only on that session's own undecided captures, never on this total.",
     "capture_freeze_record": "_projects/<spoke>/.capture-freeze",
+    "_capture_freeze_record_note": "Path pattern (plans-root-relative, <spoke> standing for the spoke key) of a spoke's capture-freeze record: one line start_sha=<40-hex>, the plans-repo commit that recorded the opening ruling. While the file exists, backlog-index reports every open flat note of that spoke added to _inbox/ after that commit that carries no target (an ABSORB into a plan or sub-plan key that resolves to a manifest.json, or a STANDALONE disposition with release_class post-release, the next patch release); an absent file means no freeze is in force. hooks/lib/field-set.sh capture-freeze open|lift <spoke> writes and removes the record.",
     "near_duplicate": {
       "overlap_min": 0.33,
       "corroborated_overlap_min": 0.3,
       "stem_min_tokens": 2,
       "min_shared_tokens": 3
     },
+    "_near_duplicate_note": "Thresholds the near-duplicate scorer (hooks/lib/inbox-near-dup.sh) applies to a pair of idea notes. overlap_min is the Jaccard overlap of title plus Idea-section tokens (template placeholder lines excluded) at which a pair is flagged on its own; corroborated_overlap_min applies when the pair also shares a path:line cite or a slug stem of stem_min_tokens (at least 2) leading hyphen tokens. A shared cite or stem alone never flags, and the overlap signal counts only when the pair shares at least min_shared_tokens tokens (a floor against two short titles that share one word). A note carrying a resolution is not open and is never scored as one. Calibrated over the real inbox so that both notes of each known duplicate pair flag. An overlay re-tunes a value by a plain deep-merge. A capture that matches an open note refuses unless --amend <existing> or --distinct-from <existing> with --distinct-scope names the difference.",
     "index_file": "_inbox/_index.md",
+    "_index_file_note": "Machine-written inbox index (active roster + settled roster + remediation highlights) rendered by librarian:backlog-index in the same pass as _backlog.md; excluded from the note walk.",
     "body": "free-form extended idea content (description / rationale / notes); grows in place across funnel stages until graduation"
   },
   "_status_model_note": "Two object types, two vocabularies. (1) Plan manifests carry the ONE canonical 6-state `status` (lifecycle.status_enum below; on plan-manifest-schema.json :: status). (2) Inbox idea notes carry inbox.funnel_status_enum {new, triaged, briefed} — a DIFFERENT object type (a pre-plan idea note, not a plan manifest), NOT collapsed into the 6-state plan status. The inbox funnel is separate from the plan-status enum. backlog_row.status_enum is the documented union shown in the rendered _backlog.md view.",
   "lifecycle": {
-    "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; archival is a display-only view filter over completed plans, never a status.",
+    "_description": "ONE canonical 6-state plan `status`. The single authoritative `status` lives on schemas/plan-manifest-schema.json :: status; this block declares the transition gates the librarian reconciler enforces. completed is the sole terminal done-state; superseded is also terminal and is set by a hand edit of the manifest status (the status setter refuses it), so no transition edge leads into it; archival is a display-only view filter over completed plans, never a status.",
     "status_enum": [
       "researching",
       "planned",

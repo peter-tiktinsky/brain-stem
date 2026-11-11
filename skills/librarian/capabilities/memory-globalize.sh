@@ -135,7 +135,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN="true"; shift ;;
     --target) TARGET="$2"; shift 2 ;;
     --paths) PATHS="$2"; shift 2 ;;
-    -h|--help) sed -n '2,99p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "memory-globalize: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

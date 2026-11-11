@@ -11,8 +11,7 @@ by capability NAME. This SKILL.md is a `<500-line` dispatcher:
 each capability gets a `## Capability:` heading + a one-line purpose + a runtime
 pointer. The per-capability prose lives in the capability `.sh` body's header,
 the `capability-registry.json` `output_contract` block (the contract-of-record),
-and the single GENERATED `docs/capability-reference.md` (generated
-at release by `tools/`, not hand-authored here — anti-third-copy).
+and no third copy: the registry's `output_contract` block is the contract of record and the capability header is the operator-facing prose.
 
 ## Topology
 
@@ -114,8 +113,8 @@ Runtime: `capabilities/index-maintain.sh`.
 ## Capability: log-subtype-canonical
 
 Audit-time (Layer 2) detector of unregistered `#log/*` / `#status/*` subtypes +
-near-match drift in the registry (the Layer-1 write-time hook is foundation-owned, not
-here). Categories: log-subtype-unregistered, log-subtype-near-match-drift,
+near-match drift in the registry (no write-time hook checks a vault subtype; this capability is the audit-time check).
+Categories: log-subtype-unregistered, log-subtype-near-match-drift,
 log-subtype-owner-orphan.
 Runtime: `capabilities/log-subtype-canonical.sh`.
 
@@ -177,7 +176,7 @@ Runtime: `capabilities/matrix-render.sh`.
 
 ## Capability: subplan-aggregate
 
-Pull-based master `sub_plans[]` aggregator () — reads each
+Pull-based master `sub_plans[]` aggregator — reads each
 sub-plan's published status into the master's `sub_plans[]` read-replica
 (element shape `{sub_plan_id, slug, status, graduation_timestamp}`; the
 graduation_timestamp WRITER; coarse-bucket keying). Never
@@ -258,7 +257,8 @@ on-disk `capabilities/*.sh` across the drift-class roster (bijection,
 script-missing, schema-version, emits→writes_manifest_subtree, disk→registry
 orphan, manifest-write-fiction, index exec-mode, full-runs roster — the
 lettered enumeration in the capability's header comment is the SoT; the count
-is deliberately unpinned). Report-only (exit 0).
+is deliberately unpinned). Report-only (exit 0). `--root <dir>` audits an
+adopter's own capability root instead of the shipped one.
 Runtime: `capabilities/capability-registry-parity.sh`.
 
 ## Capability: coverage-guard
@@ -313,7 +313,8 @@ Runtime: `capabilities/pointer-currency-scan.sh`.
 Validates (and optionally `--fix`es) frontmatter on vault files against the
 6-row type table (`foundation-master.json` frontmatter.types); runs the provides-canonicality, size-monitoring, and
 schema-type-coverage drift audits, persisting `drift_findings.*` to the
-librarian-manifest. Ported as-is.
+librarian-manifest. Defaults to the recent files (`--recent`); `--full` walks the
+whole vault, and `--scope <path>` narrows the walk and skips the drift audits.
 Runtime: `capabilities/frontmatter-enforce.sh`.
 The whole-vault `--full` walk follows symlinks to reach vault-proper clusters behind them
 (with a realpath cycle-guard), but PRUNES the external symlink surfaces —
@@ -327,7 +328,8 @@ symlink-inert.
 ## Capability: placement-validate
 
 Validates vault file placement against the governance placement rules; emits
-placement findings. Ported as-is. In plans scope (`--scope` equal to the plans root) it
+placement findings; `--scope <path>` narrows the walk and `--dry-run` prints summary
+counts only. In plans scope (`--scope` equal to the plans root) it
 also reports `plan-unmanaged-entry`: a top-level entry of a non-terminal plan outside the
 managed set, not a sub-plan dir, the `architecture_path` target or a dotfile, and with no
 manifest `assets[]` row. The finding names `librarian plan-asset add`.
@@ -336,7 +338,8 @@ Runtime: `capabilities/placement-validate.sh`.
 ## Capability: xref-check
 
 Cross-reference integrity check over vault `.md` links; computes the xref_graph
-into the librarian-manifest. Ported as-is.
+into the librarian-manifest. Reports broken wikilinks and markdown links, one-way
+People links and orphaned files; scans the last 7 days by default, `--full` the whole vault.
 Runtime: `capabilities/xref-check.sh`.
 
 ## Capability: stale-detect
@@ -360,14 +363,16 @@ Runtime: `capabilities/stale-detect.sh`.
 ## Capability: tag-coverage-audit
 
 Audits vault tag-taxonomy coverage (reads `vault.tag_audit_exemptions` from the
-user-manifest); emits coverage findings. Ported as-is.
+user-manifest); emits a finding for a missing or empty `tags:` field and for a tag
+prefix outside the taxonomy.
 Runtime: `capabilities/tag-coverage-audit.sh`.
 
 ## Capability: sanctioned-schema-drift-detect
 
 Byte-diffs all shipped schemas (every `schemas/*.json` in the foundation-manifest)
 between the foundation-repo source and the live `~/.claude/schemas/` install;
-exit 1 on drift. Self-contained (no lib source). Ported as-is.
+exit 1 on drift. Self-contained (no lib source); on an install with no foundation repo
+it exits 0 with no findings.
 Runtime: `capabilities/sanctioned-schema-drift-detect.sh`.
 
 ## Capability: managed-surface-census
@@ -487,26 +492,33 @@ Runtime: `capabilities/plan-parent-resolve.sh`.
 
 Validates a staged `librarian-manifest.json` write against
 `schemas/librarian-manifest-schema.json` (tier ajv → python-jsonschema →
-minimal); DENY (exit 1) + diagnostic log on schema-invalid. Ported as-is.
+minimal); DENY (exit 1) + diagnostic log on schema-invalid. `--file <path>` and `--stdin`
+validate a payload other than the live manifest.
 Runtime: `capabilities/librarian-manifest-validate.sh`.
 
 ## Capability: skill-parity
 
-Audits the skill registry against the on-disk skill bodies for parity drift.
-Ported as-is.
+Audits the frontmatter of every `SKILL.md` for parity drift: a missing frontmatter
+block, a missing or mismatched `name:`, a missing or over-long `description:`
+(`skill-parity-description-length`, over 1024 characters), a top-level key Claude
+Code does not recognize (`skill-parity-unknown-frontmatter-key`; the platform
+ignores such a key without a warning, so keep your own data under `metadata:`),
+and a `description:` plus `when_to_use:` longer than the 1,536 characters the
+skill listing keeps by default (`skill-parity-listing-length`).
 Runtime: `capabilities/skill-parity.sh`.
 
 ## Capability: waiver-audit
 
 Read-only audit of the governance waiver registry (the canonical writer is the
-SP-owned `hooks/cascade-waiver.sh`, elsewhere). Ported as-is.
+SP-owned `hooks/cascade-waiver.sh`, elsewhere). `--scope waivers|overrides|all` picks
+the cascade-waivers log, the hook audit log's override entries, or both.
 Runtime: `capabilities/waiver-audit.sh`.
 
 ## Capability: rules-hygiene
 
 The `.claude/rules` lifecycle auditor — audits rule files against
 `schemas/rules-schema.json` (judgment cap, requires confirmation). DISTINCT
-from the `rules-index` regenerator. Ported as-is.
+from the `rules-index` regenerator. Propose-only: it flags drift and writes nothing.
 Runtime: `capabilities/rules-hygiene.sh`.
 
 Deterministic classes: `size` (body line-count vs the 500-line ceiling),
@@ -561,7 +573,8 @@ Runtime: `capabilities/backup.sh`.
 ## Capability: wikilink-repair
 
 Rename-aware wikilink fixups over vault `.md` files (dry-run by default; atomic
-per-file rewrite after review). Ported as-is.
+per-file rewrite after review). A repair is proposed only when a broken target's
+basename matches a doc-dependency registry entry; there is no fuzzy matching.
 Runtime: `capabilities/wikilink-repair.sh`.
 
 ## Capability: rename-detect
@@ -569,7 +582,7 @@ Runtime: `capabilities/wikilink-repair.sh`.
 Detects file renames via `git log --diff-filter=R` across the vault + plans
 roots; with `--register`, appends `drift_findings.rename_detected` to the
 librarian-manifest (late-sources `hooks/lib/manifest.sh`). Upstream signal for
-rename-cascade. Ported as-is.
+rename-cascade. Scans the last 24 hours by default; `--since <iso8601>` overrides.
 Runtime: `capabilities/rename-detect.sh`.
 
 ## Capability: rename-cascade
@@ -601,7 +614,9 @@ A read-only `--census` arm lists each `research_artifacts[]` entry of a top-leve
 `completed` plan that carries no `library_refs` (superseded plans excluded): one
 NDJSON finding per entry (plan, RA id, path) plus a count line, and it writes
 nothing. Promotion of a listed entry runs through library-scrub itself (the
-PROMO-4 stamp rail). The judgment fan-out that decides which listed entries are
+PROMO-4 stamp rail). For a listed plan that is outside the promotion queue, the
+path is `--enqueue <plan>`, then `--triage <plan>`, then `--answer <plan> yes`.
+The judgment fan-out that decides which listed entries are
 worth promoting is the documented recipe under `### Recipe: isolated subagent for the promotion fan-out`.
 Runtime: `capabilities/library-scrub.sh`.
 
@@ -612,7 +627,7 @@ Runtime: `capabilities/library-scrub.sh`.
 - **Reads:** the `library-scrub.sh --census` output, one batch per plan, and each research artifact it lists.
 - **Returns:** one verdict per listed entry, `promote` or `skip`, with a topic and a reason; the topic is a short library topic name and the reason is one line.
 - **Writes:** none by the subagent; its tools are Read, Grep and Glob.
-- **Then:** the main session copies each `promote` entry whose `research_artifacts[]` entry is `finalized` into the workshop home as `<topic>-<plan-slug>/<basename>`, runs `library-scrub.sh --topic <topic>-<plan-slug>` to propose (it writes nothing), shows the operator the diff, and runs it with `--apply` only on the operator's yes; a `skip` entry changes nothing.
+- **Then:** the main session copies each `promote` entry whose `research_artifacts[]` entry is `finalized` into the workshop home as `<topic>-<plan-slug>/<basename>`, runs `library-scrub.sh --topic <topic>-<plan-slug>` to propose (it writes nothing), shows the operator the diff, and runs it with `--apply` only on the operator's yes; a `skip` entry changes nothing. For a plan the promotion queue never offered, it instead runs `library-scrub.sh --enqueue <plan>`, `--triage <plan>` and `--answer <plan> yes`.
 
 ### library-scrub promotion queue
 
@@ -621,17 +636,25 @@ research for promotion. The mode is
 `behavioral.hook_preferences.library_promotion` in the user manifest: `prompt`,
 `auto` or `off`, and an unset key reads `off`. While it reads `off`, the queue
 modes exit 0 with no model call and no write. The first switch to `prompt` or
-`auto` records a baseline of the plans already completed, which are never
-offered. State lives under `$CLAUDE_STATE_ROOT/library-promotion/`, and every
+`auto` from `off` records a baseline of the plans already completed, which are never
+offered; `--mode set off` drops the baseline, so every later switch-on records it afresh.
+`--enqueue <plan>` is the one exception: it queues a named plan the baseline holds.
+`--answer <plan> always` also sets the mode to `auto`. A Stop hook's detached run makes
+one model call per plan awaiting triage. State lives under `$CLAUDE_STATE_ROOT/library-promotion/`, and every
 state-writing mode runs under the `lockf.sh` re-exec.
 
 - `--candidates` queues each top-level `completed` plan outside the baseline and
   the queue, with no model call. Sub-plans are never queued.
+- `--enqueue <plan>` queues one named top-level `completed` plan as `pending`,
+  with no model call and the baseline untouched; it exits 1 for a plan that is
+  not completed or is already queued.
 - `--triage <plan>` sends the plan's canonical research (declared under
   `_research/`, status neither `superseded` nor `deferred`, gate records dropped)
-  to `claude --bare -p --model haiku` under a watchdog, and records `promote` or
-  `skip` plus a library topic. An empty canonical set is `skip` with no call; a
-  failed call leaves the candidate pending with the reason.
+  to `claude --safe-mode -p --model haiku` under a watchdog, and records `promote`
+  or `skip` plus a library topic. The call uses your own Claude Code login and
+  loads none of your hooks, plugins, MCP servers, CLAUDE.md files or auto memory.
+  An empty canonical set is `skip` with no call; a failed call leaves the
+  candidate pending with the reason.
 - `--next <session-id>` claims one unclaimed `promote` candidate and prints its slug.
 - `--answer <plan> yes|no|always`: `yes` promotes through the `_research/` source
   arm (the triage topic, no workshop needed, the source never written or moved,
@@ -800,6 +823,12 @@ ruling that changes the spec to a decision record.
   `decision_records.filename_pattern`; sections Context, Decision, Consequences), appends the
   `decision_records[]` entry with status `accepted`, and appends `- Amended by ADR-NN: <title>`
   under the spec's `## Amendment register`, a heading created once at the end of spec.md.
+- Add `--body-file <path>` (with `--spec-change` only) to supply the ADR's text. The file is
+  markdown holding `## Context`, `## Decision` and `## Consequences` blocks; a block the file
+  omits keeps the generated text, and a supplied block, trimmed of leading and trailing blank
+  lines, replaces it. A file that is unreadable, empty, opens with text before its first heading,
+  names a heading that is not a required section, repeats a section or leaves one empty is
+  refused. The minted ADR keeps `**Status:** accepted` and the accepted-ADR lock applies to it.
 
 Every check runs before the first write; a miss exits 2 and writes nothing. `pre-write-guard.sh`
 names this verb when a spec.md write adds an Amendment, Operator decision points or Rulings
@@ -832,7 +861,7 @@ Runtime: `capabilities/plan-context.sh`.
 
 ## Capability: plan-research-declare
 
-The A1-clause-4 session-close DECLARATION writer (140) — the SINGLE
+The A1-clause-4 session-close DECLARATION writer — the SINGLE
 surface that populates `research_artifacts[]`. At session close (step 2, BEFORE
 `plan-research-index`) it reconciles each active-spoke plan's
 `manifest.research_artifacts[]` from that plan's OWN research homes: the sanctioned
@@ -1050,13 +1079,15 @@ Runtime: `capabilities/memory-globalize.sh`.
 
 The memory lifecycle auditor — index-health + staleness over
 `system.memory_dir` (resolved via `hooks/lib/paths.sh`; thresholds via
-`hooks/lib/dates.sh`; requires confirmation). Ported as-is.
+`hooks/lib/dates.sh`; requires confirmation). Reports orphan, index, temporal and
+budget findings directly and emits judgment candidates for synthesis at `/librarian` runtime.
 Runtime: `capabilities/memory-hygiene.sh`.
 
 ## Capability: memory-staleness
 
 Detects stale memory entries against `schemas/memory-schema.json` staleness
-thresholds; emits NDJSON candidates (skip-and-log). Ported as-is.
+thresholds; emits NDJSON candidates (skip-and-log). Propose-only: it applies one
+180-day re-validation interval to non-episodic entries, and episodic entries never decay.
 Runtime: `capabilities/memory-staleness.sh`.
 
 ## Capability: session-close
@@ -1093,6 +1124,22 @@ exits 0 with an empty list when nothing references the skill, and exits 2 with a
 `--root` and an unknown flag. It replaces only the grep: reading each referrer and changing it
 stays with the operator.
 Runtime: `capabilities/skill-referrers.sh`.
+
+## Capability: system-map
+
+`system-map.sh [--render | --check | --dry-run] [--out DIR]` renders a map of what the installed
+system runs: one six-line page per hook, capability, skill and scheduled job, plus an `index.md`
+that counts each kind. It reads the installed home, so a capability root, skill or hook of your own
+appears on the next render. The hooks are the distinct (event, matcher, command) entries of
+`settings.json`; the capabilities are the keys of every `skills/*/capability-registry.json`; the
+skills are the folders holding a `SKILL.md`; the jobs are the launchd templates and rendered plists.
+The output root is `--out`, else `$SYSTEM_MAP_OUT`, else `$CLAUDE_STATE_ROOT/system-map`, marked by a
+`.system-map-root` file; a non-empty root without the marker is refused (exit 2) and left untouched.
+`--render` writes the pages (two renders are byte-identical) and removes the pages of members that no
+longer exist; `--check`, the default, renders to a temp tree and reports the first page that differs
+(exit 1 on drift); `--dry-run` prints the counts and writes nothing. A `settings.json` or registry
+that is not valid JSON stops the run with nothing written.
+Runtime: `capabilities/system-map.sh`.
 
 ## Capability: memory-spill
 
@@ -1155,7 +1202,10 @@ Runtime: `capabilities/review.sh`.
      - `promotion` → compose the memory file from the item's `payload`, write it to
        `{system.memory_dir}/<topic>.md`, then `review.sh confirm <id> --written <topic>.md`
        (the ONLY System-B→System-A memory write — Gate 1; `mem-promote` NEVER writes — the
-       apply point is HERE, inside the review walk).
+       apply point is HERE, inside the review walk). When the payload carries a
+       `reshaped_memory` object and no `--written` is given, `review.sh confirm <id>`
+       writes that file itself from the object, then runs the same checks and hooks;
+       `--written` wins when both are present.
      - `revalidation` → `review.sh confirm <id>` stamps `last_validated: <today>` on the file
        named by `memory_ref` (resets the 180d clock).
      - `conflict` → `review.sh confirm <id> --resolution <text>` records the operator-chosen

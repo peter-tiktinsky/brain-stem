@@ -14,7 +14,8 @@
 #              --reopen-gate names a gate registered in the plans rules, not `_`-prefixed
 # Triage is one-way: a note whose status is not `new` is refused. `updated` is set to today and
 # `- [backlog-triage <today>] <CLASS>: <rationale>` is appended after the last non-blank line of
-# the `## Notes` section. Every other byte of the note is unchanged.
+# the `## Notes` section, which is created when the note has none (the heading after the body's
+# last non-blank line, one blank line between). Every other byte of the note is unchanged.
 #
 # EXIT CODES: 0 done; 2 refused with the note byte-identical; 1 the write failed (nothing changed).
 # A refusal prints `triage-apply: refused: <reason>` on stderr. A refusal after the arguments
@@ -217,6 +218,13 @@ try:
     disp_enum = rules["backlog_row"]["disposition_enum"]
 except (ValueError, KeyError, TypeError):
     refuse("no plans rules found")
+# plan statuses that end a plan; an absent lifecycle block or list reads as empty (every target open)
+try:
+    terminal_status = rules.get("lifecycle", {}).get("terminal_status", [])
+except AttributeError:
+    terminal_status = []
+if not isinstance(terminal_status, list):
+    terminal_status = []
 
 
 def gate_registered(gid):
@@ -285,8 +293,7 @@ for i, ln in enumerate(blines):
     if ln.rstrip() == "## Notes":
         h = i
         break
-if h < 0:
-    refuse("_inbox/%s.md has no '## Notes' section" % slug)
+notes_missing = h < 0
 
 # 9. an existing related value must be a flow list before a line edit can rewrite it
 old_related = []
@@ -341,6 +348,14 @@ if edited.get("disposition", "") == "ABSORB":
         and os.path.isfile(os.path.join(root, key, "manifest.json"))
     if not resolves:
         refuse("ABSORB needs an absorbed_into target that resolves to a plan dir")
+    try:
+        with open(os.path.join(root, key, "manifest.json"), encoding="utf-8") as mfh:
+            target_status = json.load(mfh).get("status", "")
+    except (OSError, ValueError, AttributeError):
+        target_status = ""
+    if isinstance(target_status, str) and target_status and target_status in terminal_status:
+        refuse("ABSORB target '%s' is a terminal plan (status %s); an absorbed note needs an open target"
+               % (key, target_status))
 for k in required:
     if not edited.get(k, "").strip():
         refuse("required key '%s' is missing or empty" % k)
@@ -352,20 +367,26 @@ if disp and disp not in disp_enum:
 if disp == "NO-BUILD" and not gate_registered(edited.get("reopen_gate", "")):
     refuse("reopen gate '%s' is not registered in inbox.reopen_gates" % edited.get("reopen_gate", ""))
 
-# the Notes line: directly after the section's last non-blank line (after the heading when empty)
-stop = len(blines)
-for i in range(h + 1, len(blines)):
-    if blines[i].startswith("## "):
-        stop = i
-        break
-last = h
-for i in range(h + 1, stop):
-    if blines[i].strip():
-        last = i
-blines.insert(last + 1, "- [backlog-triage %s] %s: %s" % (today, cls, rationale))
-new_body = "\n".join(blines)
-if not new_body.endswith("\n"):
-    new_body += "\n"
+# the Notes line: directly after the section's last non-blank line (after the heading when empty);
+# a note with no section gets the heading after the body's last non-blank line, one blank line between
+notes_line = "- [backlog-triage %s] %s: %s" % (today, cls, rationale)
+if notes_missing:
+    head = body.rstrip("\n")
+    new_body = (head + "\n\n" if head else "") + "## Notes\n\n" + notes_line + "\n"
+else:
+    stop = len(blines)
+    for i in range(h + 1, len(blines)):
+        if blines[i].startswith("## "):
+            stop = i
+            break
+    last = h
+    for i in range(h + 1, stop):
+        if blines[i].strip():
+            last = i
+    blines.insert(last + 1, notes_line)
+    new_body = "\n".join(blines)
+    if not new_body.endswith("\n"):
+        new_body += "\n"
 new_text = text[:4] + "\n".join(new_fm) + "\n---\n" + new_body
 
 try:

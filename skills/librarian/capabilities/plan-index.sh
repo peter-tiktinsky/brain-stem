@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true; shift ;;
     --parent)  PARENT_FILTER="$2"; shift 2 ;;
     --all|--archived) SHOW_ALL=true; shift ;;
-    -h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "plan-index: unknown flag: $1" >&2; exit 2 ;;
   esac
 done

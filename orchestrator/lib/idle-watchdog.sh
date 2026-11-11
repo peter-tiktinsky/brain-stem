@@ -9,8 +9,7 @@
 #   watchdog_idle "$pid" "$call_log" 180
 #   rc=$?
 #
-# Extracted from an earlier cron pipeline. Watches the ndjson artifact a
-# backgrounded
+# Watches the ndjson artifact a backgrounded
 # `claude -p` is writing to. Every $WATCHDOG_SAMPLE_INTERVAL seconds (10s
 # default), samples file size; if the file has not grown for `timeout`
 # accumulated seconds, escalates SIGTERM → 2s grace → SIGKILL if still
@@ -106,10 +105,8 @@ watchdog_idle() {
       _watchdog_log "--- last 20 lines of $ndjson_path ---"
       _watchdog_tail "$ndjson_path"
 
-      # Escalation: SIGTERM, 2s grace, SIGKILL if still alive. Source
-      # librarian-cron.sh used a single `kill` then `wait`; the SIGKILL
-      # fallback is a forward improvement called out in the spec for
-      # processes that ignore SIGTERM.
+      # Escalation: SIGTERM, 2s grace, SIGKILL if still alive. The SIGKILL
+      # fallback covers a process that ignores SIGTERM.
       kill "$pid" 2>/dev/null || true
       sleep 2
       if kill -0 "$pid" 2>/dev/null; then

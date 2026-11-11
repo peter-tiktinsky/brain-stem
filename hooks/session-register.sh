@@ -186,7 +186,13 @@ if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
   if [ "$_row_rc" -ne 0 ]; then
     _sr_dir="${LOG_DIR:-}"
     if [ -z "$_sr_dir" ] || [ ! -d "$_sr_dir" ]; then _sr_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
-    echo "$(date -Iseconds) session-register.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; session recovery applies)" \
+    # Only rc 75 is lock contention; any other rc is a failed row update and is logged as one.
+    if [ "$_row_rc" -eq 75 ]; then
+      _sr_why="registry lock contention on $REGISTRY_LOCK"
+    else
+      _sr_why="registry row update failed (rc=$_row_rc) on $REGISTRY_LOCK"
+    fi
+    echo "$(date -Iseconds) session-register.sh skip: $_sr_why (row update deferred; session recovery applies)" \
       >> "$_sr_dir/session-register-skip.log" 2>/dev/null || true
   fi
 else

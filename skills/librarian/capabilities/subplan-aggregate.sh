@@ -32,6 +32,15 @@
 #   Pre-write validation: assert the master dir + manifest.json present; the
 #     master must declare type:master (or sub_plans[] already present).
 #   Failure mode: block-and-log; never write-and-hope. Sub manifests read-only.
+#   Lock: outside --check, an exclusive flock(2) on the master directory (the lock
+#     new-plan.sh --add-subplan and --rollup take), taken directly before the master
+#     manifest is read and held to exit, so a writer that holds it cannot lose its
+#     update. The acquire is non-blocking and polled for SUBPLAN_AGGREGATE_LOCK_WAIT
+#     whole seconds (default 10; empty, 0 or non-numeric reads as 10). On timeout
+#     nothing is written, stderr gets "subplan-aggregate: master directory lock held
+#     by another writer for <N>s; <plan> not written (block-and-log)", the warning
+#     finding subplan-aggregate-lock-busy is emitted and the exit is 1. --check never
+#     locks.
 #   plan-manifest-schema degrade-contract: REFUSE-AND-FREEZE (loud-skip) — a schema-invalid master is refused (no partial write); the skip is surfaced via a subplan-master-schema-invalid FINDINGS_OUTPUT finding (session-close path) + a "skipped <plan> — manifest invalid: … fails schema" stderr line (direct path); the read-replica is never silently frozen.
 #
 # Finding categories:
@@ -39,6 +48,8 @@
 #   subplan-status-published      (info-event) a sub's status read into the replica
 #   subplan-graduation-stamped    (info-event) graduation_timestamp written for a terminal sub
 #   subplan-missing-manifest      (warning) a sub dir lacks a manifest.json
+#   subplan-aggregate-lock-busy   (warning) the master directory lock stayed held for
+#                                 the whole wait; nothing written
 #
 # CLI:
 #   subplan-aggregate.sh <master-dir>          # regenerate master sub_plans[]
@@ -50,6 +61,11 @@
 #   PLANS_ROOT / PLANS_DIR   plan-tree root (test isolation)
 #   PLAN_MANIFEST_SCHEMA     plan-manifest-schema.json (default: foundation -> live)
 #   FINDINGS_OUTPUT          NDJSON sink (default: stdout)
+#   SUBPLAN_AGGREGATE_LOCK_HELD  a master directory whose lock the caller already holds
+#                            (new-plan.sh --rollup sets it for its one aggregator child);
+#                            when it names this master directory (realpath equal) the
+#                            aggregator takes no lock
+#   SUBPLAN_AGGREGATE_LOCK_WAIT  whole seconds to wait for the lock (default 10)
 #
 # Bash 3.2 clean per R-23. Argv-based Python heredoc per R-24.
 
@@ -71,7 +87,7 @@ TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_ONLY="true"; shift ;;
-    -h|--help) sed -n '2,57p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     --*) echo "subplan-aggregate: unknown flag '$1'" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
@@ -108,7 +124,7 @@ if [[ -z "$SCHEMA_PATH" ]]; then
 fi
 
 python3 - "$MASTER_DIR" "$CHECK_ONLY" "$SCHEMA_PATH" <<'PY'
-import json, os, re, sys, tempfile
+import fcntl, json, os, re, sys, tempfile, time
 from datetime import datetime, timezone
 
 master_dir = sys.argv[1]
@@ -134,6 +150,36 @@ def emit(d):
         sys.stdout.write(line + "\n")
 
 master_path = os.path.join(master_dir, "manifest.json")
+
+# Master-directory lock, outside --check: exclusive, taken directly before the master is
+# read and held to exit. A caller that already holds it names the directory in
+# SUBPLAN_AGGREGATE_LOCK_HELD, and no second lock is taken for that directory.
+lock_held = os.environ.get("SUBPLAN_AGGREGATE_LOCK_HELD", "")
+if not check_only and not (lock_held and os.path.realpath(lock_held) == os.path.realpath(master_dir)):
+    try:
+        lock_wait = int(os.environ.get("SUBPLAN_AGGREGATE_LOCK_WAIT", ""))
+    except ValueError:
+        lock_wait = 0
+    if lock_wait <= 0:
+        lock_wait = 10
+    lock_fd = os.open(master_dir, os.O_RDONLY)
+    lock_deadline = time.monotonic() + lock_wait
+    while True:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= lock_deadline:
+                plan = os.path.basename(master_dir.rstrip("/"))
+                emit({"finding": "subplan-aggregate-lock-busy", "level": "warning",
+                      "file": master_path, "slug": plan,
+                      "detail": "master directory lock held for %ds; sub_plans[] not rewritten" % lock_wait,
+                      "detected_at": now_iso[:10]})
+                print("subplan-aggregate: master directory lock held by another writer for %ds; "
+                      "%s not written (block-and-log)" % (lock_wait, plan), file=sys.stderr)
+                sys.exit(1)
+            time.sleep(0.05)
+
 try:
     with open(master_path, encoding="utf-8") as fh:
         master = json.load(fh)

@@ -79,7 +79,7 @@ PILLARS=""
 PAYLOAD_FILES=""
 PILLAR_COUNT=0
 DRY_RUN=0
-PROPOSED_BY="direct-govern-register-invocation"
+PROPOSED_BY="user-direct"
 KIND=""
 TARGET=""
 RETRACT=0
@@ -130,8 +130,7 @@ Optional:
                     Required if not --dry-run.
   --target          Target string for action-log (folder path, file-type
                     slug, tag dimension, writer name).
-  --proposed-by     Entry-path enum per action-log schema. Default:
-                    direct-govern-register-invocation.
+  --proposed-by     Entry-path enum per action-log schema. Default: user-direct.
   --dry-run         Run validation only; do NOT mv tempfile; do NOT append
                     to action-log. Foundation-repo CI mode.
 
@@ -379,7 +378,13 @@ fi
 # behavior. Surface registry-read failure as warning, not fatal.
 UNION_PATHS_JSON='[]'
 if [ -r "$MERGE_REGISTRY" ]; then
-  UNION_PATHS_JSON=$(jq -c '(.strategies // {}) | to_entries | map(select(.value == "union") | .key)' "$MERGE_REGISTRY" 2>/dev/null) || UNION_PATHS_JSON='[]'
+  UNION_RC=0
+  # swallow-ok: reports=stderr the jq exit code is captured and a non-zero code prints the unreadable-registry line
+  UNION_PATHS_JSON=$(jq -c '(.strategies // {}) | to_entries | map(select(.value == "union") | .key)' "$MERGE_REGISTRY" 2>/dev/null) || UNION_RC=$?
+  if [ "$UNION_RC" -ne 0 ]; then
+    printf 'overlay-master-mutate.sh: merge-strategy registry unreadable at %s (jq rc %s); union leaves degrade to REPLACE\n' "$MERGE_REGISTRY" "$UNION_RC" >&2
+    UNION_PATHS_JSON='[]'
+  fi
   [ -z "$UNION_PATHS_JSON" ] && UNION_PATHS_JSON='[]'
 fi
 

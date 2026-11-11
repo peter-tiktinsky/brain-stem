@@ -39,6 +39,7 @@
         "plans-tree machine indexes owned by registered librarian writers (Plans/ — the plan navigation index, the inbox funnel index, the library topic/root indexes): librarian-generated, not mandate-bootstrapped, and not exemption conflicts"
       ],
       "_de_exemption_via_overlay": "A folder covered by a static exemption (Work/**) is RE-INCLUDED in the _index.md mandate when it is registered via the overlay's frontmatter.path_routing.rules[] — registration in the overlay IS the de-exemption, and a registered glob WINS over a static exemption that also matches the path. The overlay's path_routing rule set is the SINGLE SOURCE OF TRUTH for which Work-subtree folders carry the mandate; there is NO separate de-exemption list. Globs are matched by fnmatch so nested and wildcard-spoke patterns (Work/<spoke>/<sub>/**) de-exempt correctly at depth. Consumers: skills/librarian/capabilities/index-maintain.sh (audit-time bootstrap) and hooks/post-write-verify.sh (write-time bootstrap).",
+      "_cohort_location_scope": "The universal typed frontmatter cohort (frontmatter-rules.json#cohort) applies LOCATION-BASED to the whole brain folder including symlink-followed subtrees: the librarian frontmatter walk + index-maintain descend Work/ with followlinks; out-of-folder machine files (logs, XDG state) are exempt by location (no per-emitter edits, no log-type carve-out); memory files are exempt by location too (memory-auto-stamp.sh owns created=today — a git-date backfill would collide). Write-time versus audit-time: the cohort fires WRITE-TIME on a REGISTERED-spoke Work/ write (pre-write-guard.sh remap prelude rewrites the registered Work/<spoke>/ path onto the vault view before the 3-tier block); post-write-verify stamps the cohort at write time on a Markdown file under the physical $WORK_HOME as well as under the vault view (the Work/ symlink), taking the id from the Work/<rel> vault-view path; the audit-time pass (the scoped librarian frontmatter-enforce) is --check only, and frontmatter-enforce --fix is the manual backfill, which no hook or close step runs. The strict/standard/minimal tier semantics (frontmatter-rules.json#tier_compliance) are preserved — the cohort is layered onto the strict per-type required[], not a tier flatten.",
       "_generated_index_cohort_exemption": "Writer-owned machine indexes — the same writes[]-derived ownership as the exemption-conflict skip set (skills/librarian/capability-registry.json :: output_contract.writes[]) — are exempt from the identity cohort [description, created, id, schema_version] per frontmatter-rules.json#types.index.generated_exemption (mirrored in the file-type contract); the cohort binds the mandate-bootstrapped/hand-authored flow, whose post-write-verify Tier-1 bootstrap mints all seven fields.",
       "enforcement_mechanism": "structural — post-write-verify.sh Tier 1 auto-bootstrap creates _index.md at first-write to a non-exempt folder lacking one; librarian index-maintain Tier 2 sweep catches hand-created folders never written to. One-line self-exempt loop guard at hook entry prevents recursion on the hook's own writes.",
       "consumers": [
@@ -66,11 +67,7 @@
       },
       "overflow_routing": {
         "_description": "Cold-spill seam. The librarian memory-spill capability relocates the COLDEST non-episodic entries to an on-demand MEMORY-archive.md and leaves one pointer line in the index, on request and only once the index reaches the YELLOW band; automatic spill is not built (volume-gated). MEMORY-archive.md is created by the first applied spill, never before. The fixed section order below makes the cold boundary always knowable.",
-        "fixed_section_order": [
-          "Semantic",
-          "Procedural",
-          "Episodic"
-        ],
+        "fixed_section_order": ["Semantic", "Procedural", "Episodic"],
         "fixed_section_order_note": "Schema-derived 1:1 from memory-schema.json type enum; most-loaded-first. The cold boundary for overflow routing is always the tail of the coldest non-episodic section (Procedural, then Semantic); Episodic is a single pointer line to the append-only episodic-chronicle.md and is not cold-spilled.",
         "archive_target": "MEMORY-archive.md",
         "archive_created": false,
@@ -113,10 +110,7 @@
       },
       "claude_md": {
         "max_lines": 200,
-        "line_bands": [
-          150,
-          180
-        ],
+        "line_bands": [150, 180],
         "max_units_per_file": 1,
         "max_units_per_chain": 1,
         "_note": "CLAUDE.md loads in full with no platform cap and the hierarchy is concatenated, so the byte unit applies to EACH file and to the CONCATENATED chain. The line cap is the documented ~200-line authoring convention and applies per file; line_bands are its absolute yellow/red line counts."
@@ -153,9 +147,7 @@
       "category": "C1",
       "surface": "vault-writers",
       "tier": "mandate",
-      "enforcement_layer": [
-        "pre-write-guard.sh Branch 3 (vault-writer-reference)"
-      ],
+      "enforcement_layer": ["pre-write-guard.sh Branch 3 (vault-writer-reference)"],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates.vault_writer_reference",
       "rule_text": "Vault Writers/<writer>.md writer-reference files MUST conform to the writer-reference shape defined by governance/file-type-contracts/vault-writer.md.json (the single authority for writer-reference shape; R-58 matcher contract). Branch 3 DENIES a frontmatter-schema violation at write-time. R-58 is the mandate (vault-writer reference — Branch 3), home mandatory-files, category C1.",
@@ -168,9 +160,7 @@
       "home": "mandatory-files",
       "category": "C5",
       "tier": "mandate",
-      "enforcement_layer": [
-        "hooks/pre-write-guard.sh PreToolUse Edit|Write advisory (additionalContext warning when any threshold exceeded; never blocks write)"
-      ],
+      "enforcement_layer": ["hooks/pre-write-guard.sh PreToolUse Edit|Write advisory (additionalContext warning when any threshold exceeded; never blocks write)"],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates._memory_md_cap",
       "failure_mode": "Adopter writes MEMORY.md entries past the documented 200-line/25,000-unit cap; the harness truncates at load-time and appends a WARNING footer saying so, but only from the next session onward, and the bottom entries never reach the model. Without the advisory, the adopter has no write-time signal that part of their index will be invisible.",
@@ -207,9 +197,7 @@
       "home": "mandatory-files",
       "category": "C5",
       "tier": "mandate",
-      "enforcement_layer": [
-        "skills/librarian/capabilities/context-budget-index.sh (after-session read-replica + one finding per non-GREEN row; never blocks)"
-      ],
+      "enforcement_layer": ["skills/librarian/capabilities/context-budget-index.sh (after-session read-replica + one finding per non-GREEN row; never blocks)"],
       "status": "active",
       "source": "governance/mandatory-files-rules.json :: mandates._always_on_context_budget",
       "failure_mode": "The always-on file surfaces grow unmeasured: they are re-sent with every request and re-created for every subagent, so growth is paid on every turn of every session and nothing reports it. Without the index, a rules/ corpus or a CLAUDE.md chain past the convention is invisible until someone reads a context report by hand.",

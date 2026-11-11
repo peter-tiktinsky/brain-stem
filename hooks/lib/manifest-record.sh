@@ -7,7 +7,7 @@
 # Ported from the lib/manifest-record.sh (TOP-LEVEL lib/);
 # RELOCATED to hooks/lib/ per (brain-stem has no top-level lib/).:
 # the VAULT_WRITER_STATE_ROOT default resolves under ~/.local/share/brain-stem
-# (NOT the's ~/.local/share/). The DDL companion
+# (NOT the earlier product's state path). The DDL companion
 # manifest-migrate.sql resolves via this lib's own SCRIPT_DIR (now hooks/lib/).
 # T-01 (writer-pipeline substrate).
 #

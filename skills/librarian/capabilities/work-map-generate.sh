@@ -103,7 +103,7 @@ while [ $# -gt 0 ]; do
     # marker-less (legacy/hand-authored) CLAUDE.md so it can be brought under maintenance.
     # OFF by default (the leave-orphan posture is preserved on a normal run).
     --bootstrap-markers) BOOTSTRAP="true"; shift ;;
-    -h|--help) sed -n '2,76p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "work-map-generate: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

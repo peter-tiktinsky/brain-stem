@@ -92,7 +92,14 @@ if [ -n "$_lp_host" ]; then
         [ -n "$_lp_queued$_lp_failed" ] && lp_line="${lp_line} Answer with: bash $_lp_host --answer <plan> yes|no|always."
       fi ;;
     *)
-      if [ ! -e "$_lp_state/library-promotion-notice-shown" ]; then
+      # Headless (nobody to read it): neither shown nor marked, as the Stop hook tests it.
+      # CLAUDE_CODE_SESSION_ATTENDED reads 0 headless; where absent, an sdk-* entrypoint does.
+      _lp_headless=0
+      if [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ]; then _lp_headless=1; fi
+      if [ -z "${CLAUDE_CODE_SESSION_ATTENDED:-}" ]; then
+        case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk-*) _lp_headless=1 ;; esac
+      fi
+      if [ "$_lp_headless" = "0" ] && [ ! -e "$_lp_state/library-promotion-notice-shown" ]; then
         lp_line="[Library promotion] Off. When on, a newly completed plan's research can be offered for the shared library: run bash $_lp_host --mode set prompt (or auto). This notice shows once."
         mkdir -p "$_lp_state" 2>/dev/null && : > "$_lp_state/library-promotion-notice-shown" 2>/dev/null
       fi ;;
@@ -111,6 +118,21 @@ fi
 
 # The queue lib must be present to surface anything; degrade silently otherwise.
 command -v review_queue_pending_count >/dev/null 2>&1 || exit_banner
+
+# A queue file that is not valid JSON reads as zero pending through the readers below,
+# and this hook discards their stderr, so name the file here: one banner line, then exit.
+# `jq empty` rejects malformed text but accepts a valid null or false, which is not corrupt.
+_rq_qf="$(_rq_queue_file)"
+if [ -n "$_rq_qf" ] && [ -f "$_rq_qf" ] && command -v jq >/dev/null 2>&1 \
+   && ! jq empty "$_rq_qf" >/dev/null 2>&1; then
+  _rq_bad="[Memory review] The review queue file $_rq_qf is not valid JSON, so its items cannot be counted. Repair or remove it, then run /librarian review."
+  if [ -n "$lp_line" ]; then
+    _rq_bad="${_rq_bad}
+${lp_line}"
+  fi
+  emit_banner "$_rq_bad"
+  exit 0
+fi
 
 pending="$(review_queue_pending_count 2>/dev/null || echo 0)"
 reval="$(review_queue_revalidation_count 2>/dev/null || echo 0)"

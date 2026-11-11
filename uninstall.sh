@@ -16,15 +16,18 @@
 #   - foundation-manifest.json read + parse + per-file fingerprint table
 #   - .pre-uninstall-<ts>/ backup via cp -R (round-trip integrity)
 #   - launchctl bootout gui/$UID com.brain-stem.* (LAUNCHCTL_BIN env
-#     override for MOCK_LAUNCHCTL=1 hermetic tests; defense-in-depth G6)
+#     override for MOCK_LAUNCHCTL=1 hermetic tests; defense-in-depth G6);
+#     only labels whose definition belongs to this home are booted out and have
+#     their plist removed (home_owns_label); a job defined for another home stays
 #   - G6 namespace gate: refuse to bootout labels outside com.brain-stem.*
 #     prefix; secondary guard catches impersonation labels (prefix as substring
 #     but not at position 1)
 #   - Per-file fingerprint walk inside foundation_known_entries directories:
 #       baseline match → rm; baseline mismatch → preserve + log to stderr +
 #       record in provenance user_edited_foundation[]; not-in-baseline → preserve
-#   - Root-level foundation files (settings.json, settings.local.json,
-#     foundation-manifest.json) — not tracked in manifest; rm by basename
+#   - Root-level settings files (the manifest does not track either one):
+#     settings.local.json is always preserved; settings.json is removed only when its
+#     sha256 equals the one install.sh recorded (--force-rm-edited removes it anyway)
 #     (settings.json reverse-merge deferred)
 #   - Preserve logs/ (uninstall provenance lands here) + hooks/state/ (session
 #     state preserved naturally by per-file walk — files not in baseline) +
@@ -496,6 +499,67 @@ domain="gui/$uid"
 
 g6_violation=0
 boot_count=0
+bootout_skipped_count=0
+
+# Ownership: a launchd domain is keyed by uid, not by CLAUDE_HOME, so a label the
+# list shows may belong to a different install on the same account. A label is
+# this home's when its definition says so; nothing else is booted out or removed.
+#   * A plist at $LA_DIR/<label>.plist decides whenever it is a file: the label is
+#     owned when its CLAUDE_HOME value is empty, absent (no such key, or an empty
+#     or declaration-only file: the file is still this home's definition) or equal
+#     to $CLAUDE_HOME (trailing slashes ignored on both sides).
+#   * Only when no such plist exists does the staged copy decide: the directory
+#     the session-start bootstrap hook loads from (its LAUNCHD_STAGING_DIR
+#     override included, then the default under $CLAUDE_HOME). A staged copy never
+#     overrides a plist that names another home (install stages every lane).
+# Known limit: with no $LA_DIR definition and a staged copy here, the loaded job
+# is treated as this home's; two homes that only stage the same label cannot be
+# told apart from files (launchctl list rows carry no path).
+# The plist is read with grep/sed over the XML, so it needs no property-list
+# tool and works on a guest that has none.
+LA_DIR="${HOME:-/}/Library/LaunchAgents"
+own_kind=""
+own_value=""
+
+norm_path() {  # $1 = path ; echoes it without trailing slashes (a lone / stays)
+  local v="$1"
+  while [ "${#v}" -gt 1 ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
+  printf '%s' "$v"
+}
+
+plist_home_value() {  # $1 = plist file ; echoes its CLAUDE_HOME string value, empty when absent or empty
+  tr '\n' ' ' < "$1" 2>/dev/null | sed -n 's#.*<key>CLAUDE_HOME</key>[[:space:]]*<string>\([^<]*\)</string>.*#\1#p'
+}
+
+home_owns_label() {  # $1 = label ; returns 0 when this home owns it; sets own_kind (la|staged|other|none) and own_value
+  local label="$1" d v c
+  own_kind=""
+  own_value=""
+  if [ -f "$LA_DIR/$label.plist" ]; then
+    v="$(plist_home_value "$LA_DIR/$label.plist")"
+    own_value="$v"
+    if [ -z "$v" ]; then
+      own_kind="la"
+      return 0
+    fi
+    c="$(norm_path "$CLAUDE_HOME")"
+    if [ "$(norm_path "$v")" = "$c" ]; then
+      own_kind="la"
+      return 0
+    fi
+    own_kind="other"
+    return 1
+  fi
+  for d in "${LAUNCHD_STAGING_DIR:-}" "$CLAUDE_HOME/Library/LaunchAgents.staging"; do
+    [ -n "$d" ] || continue
+    if [ -f "$d/$label.plist" ]; then
+      own_kind="staged"
+      return 0
+    fi
+  done
+  own_kind="none"
+  return 1
+}
 
 # Primary G6: filter launchctl list output by prefix at awk; non-matching
 # labels never reach the bootout call.
@@ -530,6 +594,16 @@ if [ -n "$labels" ]; then
         continue
         ;;
     esac
+    # Ownership: leave a job that is not defined for this home loaded.
+    if ! home_owns_label "$label"; then
+      if [ "$own_kind" = "other" ]; then
+        info "not booted out: $label (its definition in $LA_DIR names another home: $own_value)"
+      else
+        info "not booted out: $label (no definition for this home in $LA_DIR or the staging directory)"
+      fi
+      bootout_skipped_count=$((bootout_skipped_count + 1))
+      continue
+    fi
     if "$LAUNCHCTL_BIN" bootout "$domain/$label" 2>/dev/null; then
       info "bootout $label"
       boot_count=$((boot_count + 1))
@@ -555,11 +629,18 @@ info "bootout complete: $boot_count labels"
 # Symmetric with G6 awk-filter: only com.brain-stem.*.plist files are
 # removed; foreign plists in the same directory are preserved. Glob iteration
 # uses [ -e ] guard for the empty-glob case (Bash 3.2 compat).
-LA_DIR="${HOME:-/}/Library/LaunchAgents"
+# A plist that names another home is kept (home_owns_label; LA_DIR is set above).
 plist_rm_count=0
+plist_kept_count=0
 if [ -d "$LA_DIR" ]; then
   for plist in "$LA_DIR"/com.brain-stem.*.plist; do
     [ -e "$plist" ] || continue
+    plist_base="$(basename "$plist")"
+    if [ -f "$plist" ] && ! home_owns_label "${plist_base%.plist}"; then
+      info "kept $plist_base (names another home: $own_value)"
+      plist_kept_count=$((plist_kept_count + 1))
+      continue
+    fi
     if rm -f "$plist" 2>/dev/null; then
       info "rm $(basename "$plist") from $LA_DIR"
       plist_rm_count=$((plist_rm_count+1))
@@ -574,9 +655,11 @@ info "plist cleanup: $plist_rm_count foundation plist(s) removed from $LA_DIR"
 # Top-level dispatch:
 #   - logs/                    → preserve entirely (uninstall provenance lands here)
 #   - non-foundation entries   → preserve (basename not in foundation_known_entries)
-#   - foundation root files    → rm by basename (manifest does NOT track
-#                                 settings.json / settings.local.json;
-#                                 reverse-merge is deferred)
+#   - foundation root files    → settings.local.json: always preserved;
+#                                 settings.json: removed only when its sha256
+#                                 equals the one install.sh recorded (the
+#                                 manifest does NOT track either file); the
+#                                 reverse-merge stays deferred
 #   - governance/foundation-manifest.json → SPECIAL CASE rm during per-file
 #                                 walk (chicken-and-egg: the manifest
 #                                 doesn't track its own sha256; lives under
@@ -591,9 +674,23 @@ info "plist cleanup: $plist_rm_count foundation plist(s) removed from $LA_DIR"
 # When fingerprint_check_skipped=1 (manifest absent + --force-remove), per-file
 # walk degenerates to rm-rf the foundation directories — basename allowlist
 # fallback for graceful recovery from incomplete-install state.
+# The sha256 install.sh recorded for settings.json is read BEFORE the per-entry
+# loop: the governance/ walk removes .installed-state.json. A missing file,
+# unreadable JSON or a missing key leaves it empty (no record to compare
+# against). The path goes through argv, never a piped stdin.
+settings_recorded_sha=""
+if [ -f "$CLAUDE_HOME/governance/.installed-state.json" ]; then
+  # swallow-ok: reports=stderr an unreadable record leaves the value empty, and the settings.json arm then keeps the file and warns that there is no install record to compare against
+  settings_recorded_sha="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('settings_json_sha256') or '')" "$CLAUDE_HOME/governance/.installed-state.json" 2>/dev/null)" || settings_recorded_sha=""
+fi
 removed_count=0
 preserved_count=0
 user_edited_foundation_count=0
+# Settings files kept by the root-file arm: a count, the paths (newline-separated)
+# for the provenance log, and whether settings.local.json is among them.
+settings_preserved_count=0
+settings_preserved_paths=""
+settings_local_preserved=0
 # provenance counter for stale-but-pristine prior-release
 # files removed by the historical-sha disambiguation branch — distinct from removed_count
 # (current-baseline matches) and user_edited_foundation_count (genuine adopter edits), so
@@ -728,8 +825,9 @@ for entry in "$CLAUDE_HOME"/* "$CLAUDE_HOME"/.[!.]*; do
       # under preserve-bias is the coarse, name-deterministic set the install owns
       # unambiguously and that cannot collide with user content: the governance/
       # foundation-manifest.json + governance-action-log.jsonl carve-outs handled
-      # above, and the root-level foundation config files settings.json /
-      # settings.local.json handled by the basename rm below. Everything inside a
+      # above. The root-level foundation config files settings.json /
+      # settings.local.json follow the settings check in the root-file arm below
+      # (settings.local.json is always kept). Everything inside a
       # foundation directory body is preserved. The never-remove set is already
       # honored above.
       if [ "$force_preserve_bias" = "1" ]; then
@@ -818,10 +916,46 @@ EOF
     find "$entry" -depth -type d -empty -exec rmdir {} \; 2>/dev/null || true
   else
     # Foundation root file (settings.json / settings.local.json). Manifest
-    # doesn't track these. rm by basename.
+    # doesn't track these, so each gets its own check before any removal:
+    #   settings.local.json - always kept (it holds the adopter's permissions and
+    #     may hold tokens; the installer never writes it), under every flag.
+    #   settings.json - removed only when its sha256 equals the recorded one;
+    #     otherwise kept with a warning, unless --force-rm-edited overrides.
+    # Any other root basename keeps the plain rm below.
     # foundation-manifest.json lives under governance/
     # (handled via special-case in governance/ per-file walk above).
-    if rm -rf "$entry" 2>/dev/null; then
+    settings_keep=0
+    case "$base" in
+      settings.local.json)
+        info "preserved (settings.local.json holds your permissions and may hold tokens; the installer never writes it): $entry"
+        settings_keep=1
+        settings_local_preserved=1
+        ;;
+      settings.json)
+        settings_actual_sha="$(shasum -a 256 "$entry" 2>/dev/null | awk '{print $1}')"
+        if [ -n "$settings_recorded_sha" ] && [ "$settings_actual_sha" = "$settings_recorded_sha" ]; then
+          :
+        elif [ "$FORCE_RM_EDITED" = "1" ]; then
+          if [ -n "$settings_recorded_sha" ]; then
+            warn "--force-rm-edited: removing settings.json although it differs from the install record: $entry"
+          else
+            warn "--force-rm-edited: removing settings.json with no install record to compare against: $entry"
+          fi
+        else
+          if [ -n "$settings_recorded_sha" ]; then
+            warn "preserved (settings.json differs from the bytes the installer recorded): $entry"
+          else
+            warn "preserved (settings.json: no install record to compare against): $entry"
+          fi
+          settings_keep=1
+        fi
+        ;;
+    esac
+    if [ "$settings_keep" = "1" ]; then
+      preserved_count=$((preserved_count + 1))
+      settings_preserved_count=$((settings_preserved_count + 1))
+      settings_preserved_paths="$settings_preserved_paths$entry"$'\n'
+    elif rm -rf "$entry" 2>/dev/null; then
       info "removed $entry"
       removed_count=$((removed_count + 1))
     else
@@ -831,6 +965,12 @@ EOF
 done
 
 info "rm complete: removed=$removed_count stale_pristine_removed=$stale_pristine_removed_count preserved=$preserved_count user_edited=$user_edited_foundation_count"
+if [ "$settings_preserved_count" -gt 0 ]; then
+  info "settings preserved: $settings_preserved_count file(s); hook entries the installer registered in settings.json still name scripts this uninstall removed"
+  if [ "$settings_local_preserved" = "1" ]; then
+    info "the backup copy of settings.local.json masks any token-shaped permissions.allow entry; the live file was left in place"
+  fi
+fi
 
 # --- provenance log header (G10 emit; symmetric with install.sh) ---
 log_path="$CLAUDE_HOME/logs/uninstall-$(date -u +%Y%m%d-%H%M%S)-$$.log"
@@ -847,12 +987,15 @@ fi
   printf 'backup_dir: %s\n'                      "$backup_dir"
   printf 'backup_entry_count: %d\n'              "$backup_count"
   printf 'bootout_count: %d\n'                   "$boot_count"
+  printf 'bootout_skipped_count: %d\n'           "$bootout_skipped_count"
   printf 'plist_rm_count: %d\n'                  "$plist_rm_count"
+  printf 'plist_kept_count: %d\n'                "$plist_kept_count"
   printf 'plist_rm_dir: %s\n'                    "$LA_DIR"
   printf 'removed_count: %d\n'                   "$removed_count"
   printf 'stale_pristine_removed_count: %d\n'    "$stale_pristine_removed_count"
   printf 'preserved_count: %d\n'                 "$preserved_count"
   printf 'user_edited_foundation_count: %d\n'    "$user_edited_foundation_count"
+  printf 'settings_preserved_count: %d\n'        "$settings_preserved_count"
   printf 'fingerprint_check_skipped: %s\n'       "$fingerprint_check_skipped_str"
   printf 'manifest_record_count: %d\n'           "$manifest_record_count"
   printf 'force_rm_edited: %d\n'                 "$FORCE_RM_EDITED"
@@ -866,7 +1009,14 @@ fi
       printf '  - %s\n' "$p"
     done < "$user_edited_paths_log"
   fi
-  printf 'slice_scope: G1-pre symmetric + provenance-log-driven CLAUDE_HOME confirm + foundation-manifest.json read + .pre-uninstall-<ts>/ backup + launchctl bootout (LAUNCHCTL_BIN-overridable, G6-gated, com.brain-stem.* only) + foundation plist rm at $HOME/Library/LaunchAgents/ (G6-symmetric prefix filter) + per-file fingerprint walk inside foundation directories + basename rm for foundation root files + logs/ + non-foundation top-level preservation + --force-rm-edited / --force-remove\n'
+  if [ "$settings_preserved_count" -gt 0 ]; then
+    printf 'settings_preserved:\n'
+    printf '%s' "$settings_preserved_paths" | while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      printf '  - %s\n' "$p"
+    done
+  fi
+  printf 'slice_scope: G1-pre symmetric + provenance-log-driven CLAUDE_HOME confirm + foundation-manifest.json read + .pre-uninstall-<ts>/ backup + launchctl bootout (LAUNCHCTL_BIN-overridable, G6-gated; only com.brain-stem.* labels whose plist or staged copy belongs to this home) + plist rm at $HOME/Library/LaunchAgents/ (only com.brain-stem.*.plist files that do not name another home) + per-file fingerprint walk inside foundation directories + basename rm for foundation root files (settings.local.json kept; settings.json removed only when its fingerprint matches the installed one) + logs/ + non-foundation top-level preservation + --force-rm-edited / --force-remove\n'
   printf 'deferred: 10s/plist timeout wrapper around launchctl bootout; settings.json baseline jq-reverse unmerge (G7-symmetric); --selective/--full/--dry-run/--keep-backup flag matrix; runner-shell negative rehearsal; provenance-log freshness validation\n'
 } > "$log_path" || { diag "uninstall provenance log write failed"; exit 11; }
 

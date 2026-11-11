@@ -2,7 +2,7 @@
 # Source this file — do not execute it.
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/review-queue.sh"
 #   enqueue_item <item-json>
-# The guaranteed-surfacing + persistent-reminder substrate (.7).
+# The guaranteed-surfacing + persistent-reminder substrate.
 # Producers (mem-promote, memory-consolidation-run, memory-staleness) append
 # review items to .review-queue.json (beside .consolidation-state.json under the
 # memory state tier). The SessionStart banner (memory-review-banner.sh) and the
@@ -119,18 +119,20 @@ enqueue_item() {
   # Optional schema-conformance gate when a validator + schema are present.
   # The schema describes the whole queue FILE ({version, items}); an item is
   # validated as a one-item queue document, which reaches definitions.item
-  # through the schema's own $ref (no deprecated resolver API, so no silent
-  # fail-open if one is removed).
+  # through the schema's own $ref (no deprecated resolver API is used).
+  # When jsonschema cannot be imported the gate cannot run: it is skipped with
+  # one stderr line saying so, and the item is still enqueued (the gate is
+  # optional), so the skip is reported rather than silent.
   local schema
   schema="$(_rq_schema_path)"
   if [ -r "$schema" ] && command -v python3 >/dev/null 2>&1; then
-    local serr
+    local serr serc
     serr=$(printf '%s' "$item_json" | python3 -c '
 import sys, json
 try:
     import jsonschema
 except Exception:
-    sys.exit(0)
+    sys.exit(3)
 try:
     schema=json.load(open(sys.argv[1]))
     item=json.load(sys.stdin)
@@ -140,7 +142,10 @@ errs=list(jsonschema.Draft7Validator(schema).iter_errors({"version": 1, "items":
 if errs:
     print(errs[0].message)
 ' "$schema" 2>/dev/null)
-    if [ -n "$serr" ]; then
+    serc=$?
+    if [ "$serc" -eq 3 ]; then
+      printf '%s\n' "review-queue: schema gate skipped: jsonschema is not importable; the item was enqueued unvalidated" >&2
+    elif [ -n "$serr" ]; then
       _rq_log "REFUSED enqueue: schema violation: $serr"
       return 5
     fi

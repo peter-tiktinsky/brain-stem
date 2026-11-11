@@ -6,6 +6,9 @@
 #      foundation+overlay type table (foundation-master.frontmatter.types unioned with
 #      overlay-master.frontmatter.types via the R-52 merger), empty optionals, tag
 #      taxonomy. Emits `frontmatter-*` findings via emit_finding (stdout / FINDINGS_OUTPUT).
+#      A writer-owned (registered writes[] target) or `generated: true` `_index.md` is exempt
+#      from the fields listed in the bundle's frontmatter.types.index.generated_exemption;
+#      every other required field still reports.
 #   2. Drift audits (vault-wide, unless --scope):
 #        (a) provides-canonicality-drift    — DC-NNN
 #        (b) size-warning-{soft,strong} + size-guard-violation — SM-NNN
@@ -78,7 +81,7 @@ while [[ $# -gt 0 ]]; do
     --check)     MODE="check"; shift ;;
     --fix)       MODE="fix"; shift ;;
     --dry-run)   DRY_RUN="true"; shift ;;
-    -h|--help)   sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)   awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "frontmatter-enforce: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -142,6 +145,12 @@ export FM_STRATEGIC_DIRNAME="${FM_STRATEGIC_DIRNAME_RAW:-Strategic}"
 FM_PLANNING_DIRNAME_RAW="$(umr_get_string '.vault.planning_dirname' 2>/dev/null || true)"
 export FM_PLANNING_DIRNAME="${FM_PLANNING_DIRNAME_RAW:-Planning}"
 export FM_VAULT_ROOT="$VAULT_ROOT"
+# The writer-owned set behind the generated_exemption consumer reads the same two inputs
+# index-maintain.sh hands its _writer_owned_globs: the capability registry (env override
+# for test isolation, else the registry beside this capability root) and the plans root
+# (PLANS_DIR, the paths.sh export). A missing registry yields an empty set.
+export FM_CAP_REGISTRY="${CAPABILITY_REGISTRY:-$(cd "$(dirname "$0")/.." && pwd)/capability-registry.json}"
+export FM_PLANS_ROOT="${PLANS_DIR:-$HOME/.claude-plans}"
 # T-8: the SHARED description-derivation helper (reused from T-7) for the cohort
 # backfill's description field. CLAUDE_HOME-first, repo-lib fallback for dev.
 FM_DERIVE_DESC_RES="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/derive-description.sh"
@@ -389,6 +398,104 @@ def _load_required_matrix():
     return matrix
 
 REQUIRED = _load_required_matrix()
+
+# ---------- generated-index exemption (types.index.generated_exemption) ----------
+# A regenerated read-replica `_index.md` takes its identity from its writer, so the
+# governance bundle exempts it from the identity cohort. The exempt fields are READ from
+# the composed bundle (the same .frontmatter.types path _load_required_matrix reads), never
+# hardcoded. An index is exempt when it carries the `generated: true` sentinel or when its
+# realpath matches a registered writer's declared output (capability-registry
+# output_contract.writes[]). Only the listed fields are subtracted; every other required
+# field still reports.
+def _load_generated_exempt_fields():
+    bundle_path = os.environ.get("FM_FOUNDATION_MASTER", "")
+    try:
+        with open(bundle_path) as fh:
+            bundle = json.load(fh)
+    except Exception:
+        return []
+    types = (bundle.get("frontmatter", {}) or {}).get("types", {}) or {}
+    if not isinstance(types, dict):
+        return []
+    gen = (types.get("index") or {}).get("generated_exemption") or {}
+    fields = gen.get("exempt_fields") if isinstance(gen, dict) else None
+    if not isinstance(fields, list):
+        return []
+    return [f for f in fields if isinstance(f, str)]
+
+GENERATED_EXEMPT_FIELDS = _load_generated_exempt_fields()
+
+# The writer-owned derivation is a COPY of index-maintain.sh `_writer_owned_globs` and its
+# `_expand_braces` helper: same placeholder rules ({PLANS_ROOT}, {library}, {VAULT_ROOT},
+# $WORK_HOME, <x> to *, /.../ to /*/, brace expansion), same fnmatch over realpaths (fnmatch
+# `*` also matches `/`), same skip of index-maintain's own entry, same empty set for a
+# missing or unparsable registry. Keep the two in lockstep: a parity fixture compares what each
+# one treats as writer-owned over one seeded tree.
+def _expand_braces(glob):
+    i = glob.find("{")
+    if i < 0:
+        return [glob]
+    j = glob.find("}", i)
+    if j < 0:
+        return [glob]
+    pre, opts, post = glob[:i], glob[i + 1:j], glob[j + 1:]
+    out = []
+    for opt in opts.split(","):
+        out.extend(_expand_braces(pre + opt + post))
+    return out
+
+def _writer_owned_globs():
+    globs = []
+    registry_path = os.environ.get("FM_CAP_REGISTRY", "")
+    plans_root = os.environ.get("FM_PLANS_ROOT", "")
+    if not registry_path:
+        return globs
+    try:
+        with open(registry_path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except Exception:
+        return globs
+    caps = reg.get("capabilities", {}) if isinstance(reg, dict) else {}
+    pr = os.path.realpath(plans_root) if plans_root else ""
+    lib_root = os.path.join(pr, "_library") if pr else ""
+    wh = os.environ.get("WORK_HOME", "") or os.environ.get("BRAIN_STEM_WORK_HOME", "")
+    wh = os.path.realpath(wh) if wh else ""
+    vr = os.path.realpath(vault_root)
+    for name, cap in caps.items():
+        if name == "index-maintain" or not isinstance(cap, dict):
+            continue
+        for w in ((cap.get("output_contract") or {}).get("writes") or []):
+            if not isinstance(w, str):
+                continue
+            token = w.split(" ", 1)[0].strip()
+            if not token.endswith("/_index.md"):
+                continue
+            token = token.replace("{PLANS_ROOT}", pr or "\0")
+            token = token.replace("{library}", lib_root or "\0")
+            token = token.replace("{VAULT_ROOT}", vr)
+            token = token.replace("$WORK_HOME", wh or "\0")
+            token = re.sub(r"<[^/>]+>", "*", token)
+            token = token.replace("/.../", "/*/")
+            for t in _expand_braces(token):
+                if "\0" in t or "{" in t:
+                    continue  # placeholder unresolvable in this environment
+                globs.append(t)
+    return globs
+
+_OWNED_GLOBS = _writer_owned_globs() if GENERATED_EXEMPT_FIELDS else []
+
+def _writer_owned(path):
+    rp = os.path.realpath(path)
+    for g in _OWNED_GLOBS:
+        if fnmatch.fnmatch(rp, g):
+            return True
+    return False
+
+def _generated_index(full, fm):
+    sentinel = fm.get("generated")
+    if isinstance(sentinel, str) and sentinel.strip().lower() == "true":
+        return True
+    return _writer_owned(full)
 
 # Deliverables live under the Work/ surface (a symlink to the external work home).
 # build_scope() follows symlinks on the scoped Work lane AND the whole-vault --full lane
@@ -656,6 +763,11 @@ def run_per_file(files):
 
         # --- missing required
         missing = [k for k in required if k not in fm or (isinstance(fm[k], str) and fm[k].strip() == "")]
+        # --- generated-index exemption: subtract only the bundle's exempt_fields
+        if (canonical == "index" and GENERATED_EXEMPT_FIELDS
+                and any(k in GENERATED_EXEMPT_FIELDS for k in missing)
+                and _generated_index(full, fm)):
+            missing = [k for k in missing if k not in GENERATED_EXEMPT_FIELDS]
         # --- empty optional
         empties = empty_str_optional(fm, set(required))
         # --- tag taxonomy (T-3: pass rel for seed-taxonomy exemption)
@@ -736,20 +848,35 @@ def _rewrite_frontmatter(path, fm, body, fm_end_line):
             break
     if end == -1:
         return
-    # Rebuild frontmatter lines preserving order of keys in the old block, then
-    # append any newly-added keys at the end of the fm block.
-    old_keys_in_order = []
+    # Insert-only rewrite. Split the old block into per-key segments (a key line plus its
+    # indented / "- " continuation lines); a comment, a blank line or any other line outside a
+    # key segment is kept as-is. A key whose parsed value is unchanged keeps its original raw
+    # lines byte-for-byte (a flow-style list, quoted strings, comments, multi-line values);
+    # only a changed key is re-rendered, a removed key drops its own segment, and newly-added
+    # keys append at the end of the fm block.
+    old_fm, _old_body, _old_end = parse_frontmatter(path)
+    segs = []
     for raw in lines[1:end]:
         m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:", raw)
         if m:
-            old_keys_in_order.append(m.group(1))
+            segs.append([m.group(1), [raw]])
+        elif segs and segs[-1][0] is not None and (raw[:1] in (" ", "\t") or raw.startswith("- ")):
+            segs[-1][1].append(raw)
+        else:
+            segs.append([None, [raw]])
     new_fm_lines = []
     seen = set()
-    for k in old_keys_in_order:
+    for k, raws in segs:
+        if k is None:
+            new_fm_lines.extend(raws)
+            continue
         if k not in fm:
             continue  # removed (e.g., empty optional)
         seen.add(k)
-        new_fm_lines.extend(_render_key(k, fm[k]))
+        if k in old_fm and fm[k] == old_fm[k]:
+            new_fm_lines.extend(raws)  # untouched: original lines survive
+        else:
+            new_fm_lines.extend(_render_key(k, fm[k]))
     for k, v in fm.items():
         if k in seen:
             continue
@@ -760,13 +887,23 @@ def _rewrite_frontmatter(path, fm, body, fm_end_line):
         f.write("\n".join(out_lines))
     os.replace(tmp, path)
 
+_YAML_ITEM_SPECIAL = re.compile(r"""^[#&*!|>%@`'"\[\]{},?:-]|:\s|\s#|[\[\]{},]""")
+
+def _quote_item(item):
+    # A list item that starts with # (a tag), or carries a YAML-significant character, is
+    # double-quoted so it reads back as a string; an unquoted "#project/x" is a YAML comment.
+    s = str(item)
+    if s == "" or _YAML_ITEM_SPECIAL.search(s):
+        return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+    return s
+
 def _render_key(k, v):
     if isinstance(v, list):
         if not v:
             return [f"{k}: []"]
         out = [f"{k}:"]
         for item in v:
-            out.append(f"  - {item}")
+            out.append(f"  - {_quote_item(item)}")
         return out
     return [f"{k}: {v}"]
 

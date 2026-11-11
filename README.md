@@ -67,9 +67,9 @@ Brain Stem ships a **comprehensive suite of capabilities, wired into how Claude 
 
 #### [Idea capture to autonomous execution](https://peter-tiktinsky.github.io/brain-stem-docs/project-management.html)
 *Project management.* Set up and run multi-step work on the most optimal, research-backed conventions — with every piece of context it produces captured, organized, and kept as living reference.
-- **Cheap idea capture** — jot any initiative down for almost nothing; it's triaged, stored, and maintained, then promotable into a full plan on demand.
+- **Cheap idea capture** — jot any initiative down for almost nothing; it's triaged, stored, and maintained, then promotable into a full plan on demand once triaged: a note graduates only at status `triaged` or `briefed`, and an untriaged note is refused with the triage command to run.
 - **Research-backed plans** — ideas become well-formed plans whose research, decisions, and materials are organized so you can thoughtfully one-shot the work.
-- **Autonomous orchestration & scheduling** — ready plans run through a propose-and-gate orchestrator and scheduled skill runs, with human gates on anything irreversible.
+- **Autonomous orchestration & scheduling** — ready plans run through a propose-and-gate orchestrator and scheduled skill runs. Under `--plan`, a task marked irreversible halts until you rerun with `PLAN_RUNNER_APPROVE=1`, as does any task of a sub-plan that enables `live_mutation_scope`, and a plan entry of a batch file runs the same way; job and cron runs, in a batch or not, and scheduled skill runs carry no approval step.
 - **A project binder that compounds** — Claude indexes every plan in a project and rolls its key materials into persistent context that grows on its own; the more you work in a directory, the better its output gets. Universal materials promote up for reuse anywhere.
 
 #### [A doorman at every write](https://peter-tiktinsky.github.io/brain-stem-docs/write-time-governance.html)
@@ -126,6 +126,8 @@ CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT=false
 ```
 
 Hook output is capped at 10,000 characters and, once you have real history, that index runs well past it — so the harness spills it to a `hook-*-additionalContext.txt` file in the session directory and the model receives only a preview of legend and column-key boilerplate: you pay for it every session and get almost nothing back. The trap: do not shrink it to sit just under 10,000 characters, because under the cap nothing is spilled and the whole payload is delivered in full, which costs far more than the preview does; go to zero or leave the defaults alone. Capture is untouched — the plugin's PostToolUse, Stop and SessionEnd hooks keep recording, and Brain Stem's own SessionEnd memory hook is untouched — so recall stays available on demand through the plugin's MCP search tools and its mem-search skill.
+
+To apply the recipe above in one step, run `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/onboarder/scripts/claude-mem-context-set.sh`. It is a dry run by default and writes to `~/.claude-mem/settings.json` only when you add `--apply`.
 
 ## Contributing
 

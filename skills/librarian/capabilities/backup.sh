@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --scope)   SCOPE_OVERRIDE="$2"; shift 2 ;;
     --message) MESSAGE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "backup: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -78,7 +78,7 @@ else
   # the default TARGETS, so it was entirely unbacked with no owning target. Add
   # WORK_HOME (guarded like VAULT_ROOT with a non-empty check so an empty/unset
   # WORK_HOME degrades cleanly under `set -u` — no empty target). A ~/work without
-  # .git routes to the non-repo WARNING branch (133), not a hard FAILED.
+  # .git routes to the non-repo WARNING branch, not a hard FAILED.
   [[ -n "${WORK_HOME:-}" ]] && TARGETS="${TARGETS:+$TARGETS:}$WORK_HOME"
   # User-extension list from manifest (graceful-degrade if missing/jq-absent).
   while IFS= read -r extra_path; do
@@ -94,7 +94,7 @@ fi
 # (colon-separated) is UNIONED with the manifest-declared
 # .system.backup_no_remote_targets[] list. Genuine push failures on a target WITH
 # a remote still set FAILED=1; a no-.git target still routes to the exit-3
-# branch (133) — the posture only reshapes the "committed-but-no-remote" case.
+# branch — the posture only reshapes the "committed-but-no-remote" case.
 NO_REMOTE_TARGETS="${BACKUP_NO_REMOTE_TARGETS:-}"
 while IFS= read -r _nr_path; do
   [[ -n "$_nr_path" ]] && NO_REMOTE_TARGETS="${NO_REMOTE_TARGETS:+$NO_REMOTE_TARGETS:}$_nr_path"

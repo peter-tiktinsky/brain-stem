@@ -45,16 +45,19 @@
 # overruled its conclusions. A sub-plan is not walked, because promotion
 # resolves a plan at the top level only. It needs no workshop and writes
 # nothing; an unreadable manifest is reported, never skipped silently.
-# Promoting a listed entry stays an operator library-scrub run.
+# Promoting a listed entry stays an operator library-scrub run. For an entry
+# from a plan that is outside the promotion queue the path is --enqueue <plan>,
+# then --triage <plan>, then --answer <plan> yes.
 #
-# LIBRARY PROMOTION (--candidates, --triage, --next, --answer, --claim-answer,
-# --mode, --pending):
+# LIBRARY PROMOTION (--candidates, --enqueue, --triage, --next, --answer,
+# --claim-answer, --mode, --pending):
 # a queue that offers each newly completed plan's research for promotion. The
 # mode is behavioral.hook_preferences.library_promotion in the user manifest
 # (prompt | auto | off; an unset key reads off). While it reads off, --candidates,
-# --triage and --next exit 0 with no model call and no write. State lives under
+# --enqueue, --triage and --next exit 0 with no model call and no write. State lives under
 # $CLAUDE_STATE_ROOT/library-promotion/: baseline.json (the plans already
-# completed when the mode was switched on, never offered), queue.json (one
+# completed when the mode was last switched on, never offered; --mode set off drops it,
+# so each switch-on records it afresh), queue.json (one
 # record per candidate: state, triage topic and reason, and the session holding
 # its claim) and scan-marker (a manifest older than it is not re-read). Every
 # state-writing mode runs under the lockf.sh re-exec on
@@ -65,17 +68,26 @@
 #                        is never queued: promotion resolves a plan at the top
 #                        level only. A mode set by hand, with no baseline yet,
 #                        records the baseline on this first run and queues nothing.
+#   (one detached Stop run makes one --triage model call per plan awaiting triage)
+#   --enqueue <plan>     queue one named top-level `completed` plan for triage, the
+#                        pending record --candidates writes, with no model call: the
+#                        way a census entry from a plan the queue never offered (in
+#                        the baseline, or completed before the mode was on) enters
+#                        it. It is the one exception to "a plan completed before the
+#                        switch-on is never offered": the operator names the plan. A plan that is not completed, or is already queued,
+#                        exits 1 naming why. The baseline is untouched.
 #   --triage <plan>      send the plan's canonical research (declared under
 #                        _research/, status neither superseded nor deferred, gate
 #                        records dropped by path or title) to a small model
-#                        (`claude --bare -p --model haiku`, JSON-schema output,
+#                        (`claude --safe-mode -p --model haiku`, JSON-schema output,
 #                        under a watchdog) and record promote or skip plus a
 #                        library topic. An empty canonical set is recorded skip
 #                        with no call; a failed call leaves the candidate pending
 #                        with the reason.
 #   --next <session-id>  claim one unclaimed `promote` candidate; print its slug.
 #   --claim-answer <session-id> yes|no|always
-#                        the auto-mode combined operation: claim one unclaimed
+#                        the auto-mode combined operation (claims nothing in any
+#                        other mode): claim one unclaimed
 #                        `promote` candidate for the session AND answer it under
 #                        one lock acquisition. Contention (lockf timeout) exits 0
 #                        having claimed nothing — the skip line records it and the
@@ -88,11 +100,11 @@
 #                        written or moved (no PROMO-3, no PROMO-6), and both
 #                        PROMO-4 stamps are re-read before success is reported.
 #                        no records the plan declined; it is never offered again.
-#                        always promotes, then sets the mode to auto. yes and
+#                        always promotes, then also turns auto on (sets the mode to auto). yes and
 #                        always keep the --apply non-interactive guard.
 #   --mode get | --mode set prompt|auto|off
-#                        read or write the mode; the first switch to prompt or
-#                        auto records the baseline.
+#                        read or write the mode; every switch-on from off records the
+#                        baseline, and off drops it.
 #   --pending            list the unanswered candidates: state, claim, topic, reason.
 #
 # Flow-maintained artifacts (workshop/_archive/, _library/<topic>/_raw/) carry
@@ -164,6 +176,7 @@
 #   library-scrub.sh --dry-run            # summary counts only; no findings/writes
 #   library-scrub.sh --census             # read-only: unpromoted research of completed plans
 #   library-scrub.sh --candidates         # queue newly completed plans (no model call)
+#   library-scrub.sh --enqueue <plan>     # queue one named completed plan for triage (no model call)
 #   library-scrub.sh --triage <plan>      # small-model promote/skip verdict + topic
 #   library-scrub.sh --next <session-id>  # claim one promote candidate; print its slug
 #   library-scrub.sh --answer <plan> yes|no|always
@@ -235,12 +248,12 @@ while [[ $# -gt 0 ]]; do
     --census) CENSUS="true"; shift ;;
     --candidates) promo_op candidates; shift ;;
     --pending) promo_op pending; shift ;;
-    --triage|--next)
+    --triage|--next|--enqueue)
       if [[ $# -lt 2 || -z "$2" ]]; then
         echo "library-scrub: $1 takes an argument" >&2; exit 2
       fi
       promo_op "${1#--}"
-      if [[ "$1" == "--triage" ]]; then PROMO_PLAN="$2"; else PROMO_ARG="$2"; fi
+      if [[ "$1" == "--triage" || "$1" == "--enqueue" ]]; then PROMO_PLAN="$2"; else PROMO_ARG="$2"; fi
       shift 2 ;;
     --answer)
       if [[ $# -lt 3 ]]; then
@@ -391,6 +404,11 @@ VERDICT_SCHEMA = {
     "required": ["verdict", "topic", "reason"],
     "additionalProperties": False,
 }
+TRIAGE_SETTINGS = {
+    "disableAllHooks": True,
+    "syncClaudeAiPlugins": False,
+    "autoMemoryEnabled": False,
+}
 PROMPT_HEAD = (
     "You decide whether one completed project's research belongs in a shared\n"
     "reference library that other projects read. Answer promote only when the\n"
@@ -493,7 +511,7 @@ def write_baseline():
 
 def set_mode(value):
     """Persist behavioral.hook_preferences.library_promotion, keeping every
-    other key. The first switch to prompt or auto records the baseline."""
+    other key. Every switch-on from off records the baseline; off drops it."""
     try:
         with open(um_path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -517,7 +535,14 @@ def set_mode(value):
     prefs["library_promotion"] = value
     try:
         write_json(um_path, data)
-        if value in ("prompt", "auto") and not os.path.exists(baseline_path):
+        if value == "off":
+            # Switching off drops the baseline, so the next switch-on re-records it
+            # and a plan completed while off is never offered.
+            try:
+                os.remove(baseline_path)
+            except FileNotFoundError:
+                pass
+        elif value in ("prompt", "auto") and not os.path.exists(baseline_path):
             write_baseline()
     except OSError as exc:
         say("mode write failed (%s)" % exc)
@@ -567,8 +592,13 @@ def call_model(prompt):
         timeout = max(1, int(os.environ.get("LIBRARY_PROMOTION_TRIAGE_TIMEOUT") or 120))
     except ValueError:
         timeout = 120
-    argv = [exe, "--bare", "-p", "--model", "haiku", "--output-format", "json",
-            "--json-schema", json.dumps(VERDICT_SCHEMA)]
+    # Safe mode keeps the account login and loads none of the user's hooks, plugins,
+    # MCP servers or CLAUDE.md files. The settings are a second hooks-off switch, the
+    # plugin-sync switch and the auto-memory switch. No session is written. A hook
+    # that started triage could otherwise start it again from inside the call.
+    argv = [exe, "--safe-mode", "-p", "--model", "haiku", "--output-format", "json",
+            "--json-schema", json.dumps(VERDICT_SCHEMA), "--no-session-persistence",
+            "--settings", json.dumps(TRIAGE_SETTINGS, separators=(",", ":"))]
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, start_new_session=True)
@@ -646,6 +676,23 @@ def op_candidates():
     return 0
 
 
+def op_enqueue():
+    if plan not in top_level_completed():
+        say("%s is not a top-level completed plan" % plan)
+        return 1
+    q = load_queue()
+    if plan in q:
+        rec = q[plan]
+        say("%s is already queued (%s)" % (
+            plan, rec.get("state") if isinstance(rec, dict) else "unknown"))
+        return 1
+    q[plan] = {"state": "pending", "queued_at": now(), "topic": "",
+               "reason": "awaiting triage", "claimed_by": ""}
+    save_queue(q)
+    print("library-scrub: %s queued for triage" % plan)
+    return 0
+
+
 def op_triage():
     q = load_queue()
     rec = q.get(plan)
@@ -668,13 +715,21 @@ def op_triage():
         return 0
     parts = [PROMPT_HEAD, "\nPlan: %s\n" % plan]
     budget = PROMPT_CAP
+    kept = 0
     for e in entries:
         if budget <= 0:
             parts.append("\n(further research omitted at the length cap)\n")
             break
+        # A research file whose resolved path leaves the plan dir (a symlink or a
+        # ".." path) is skipped, so no out-of-tree file is sent to the model.
+        src = os.path.join(plans_dir, plan, os.path.normpath(e["path"]))
+        plan_real = os.path.realpath(os.path.join(plans_dir, plan))
+        if not os.path.realpath(src).startswith(plan_real + os.sep):
+            say("%s: research %s resolves outside the plan; skipped" % (plan, e.get("id")))
+            continue
+        kept += 1
         try:
-            with open(os.path.join(plans_dir, plan, os.path.normpath(e["path"])),
-                      encoding="utf-8", errors="replace") as fh:
+            with open(src, encoding="utf-8", errors="replace") as fh:
                 text = fh.read(EXCERPT_CHARS)
         except OSError:
             text = ""
@@ -682,6 +737,14 @@ def op_triage():
         budget -= len(text)
         parts.append("\n--- Research %s: %s\nPath: %s\n\n%s\n"
                      % (e.get("id"), flat(e.get("title")), e.get("path"), text))
+    if kept == 0:
+        # Every research file left the plan: the same empty-set skip, no model call.
+        rec.update(state="skip", topic="",
+                   reason="every research file resolves outside the plan",
+                   triaged_at=now())
+        save_queue(q)
+        print("%s\tskip\t-" % plan)
+        return 0
     verdict, err = call_model("".join(parts))
     if err:
         rec.update(state="pending", reason="triage failed: %s" % err, triaged_at=now())
@@ -793,7 +856,7 @@ def op_answer_record():
 
 
 OPS = {
-    "candidates": op_candidates, "triage": op_triage, "next": op_next,
+    "candidates": op_candidates, "enqueue": op_enqueue, "triage": op_triage, "next": op_next,
     "pending": op_pending, "answer-skipped": op_answer_skipped,
     "answer-no": op_answer_no, "answer-prepare": op_answer_prepare,
     "answer-record": op_answer_record, "mode-set": lambda: set_mode(arg),
@@ -831,7 +894,7 @@ if [[ -n "$PROMO_OP" ]]; then
   case "$PROMO_OP" in
     mode-get) printf '%s\n' "$PROMO_MODE"; exit 0 ;;
     pending) promo_py pending; exit 0 ;;
-    candidates|triage|next|claim-answer)
+    candidates|enqueue|triage|next|claim-answer)
       if [[ "$PROMO_MODE" == "off" ]]; then exit 0; fi ;;
   esac
 
@@ -855,7 +918,12 @@ if [[ -n "$PROMO_OP" ]]; then
   # selection (PROMO_ARG carries the session id); an empty answer means nothing
   # was claimable for this session, a clean exit 0. A claimed slug falls through
   # to the answer flow below under the SAME held lock.
+  # It claims nothing unless the mode is auto: in prompt mode the user answers, so
+  # an unasked answer would promote research the user was never offered.
   if [[ "$PROMO_OP" == "claim-answer" ]]; then
+    if [[ "$PROMO_MODE" != "auto" ]]; then
+      exit 0
+    fi
     _ca_slug="$(promo_py next)"
     if [[ -z "$_ca_slug" ]]; then
       exit 0
@@ -1460,6 +1528,10 @@ if research_plan:
         if rel.split(os.sep)[0] != "_research" or ".." in rel.split(os.sep) \
                 or not src.endswith(".md"):
             research_blocked(src_path, "not a _research/ markdown entry")
+            continue
+        # Same rule as triage: a file whose real path leaves the plan folder is blocked.
+        if not os.path.realpath(src_path).startswith(os.path.realpath(plan_root) + os.sep):
+            research_blocked(src_path, "research resolves outside the plan")
             continue
         try:
             with open(src_path, encoding="utf-8") as fh:

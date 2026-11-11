@@ -7,9 +7,9 @@
 #     per schema 2.0.0); `updated` does NOT reset the clock. States are
 #     FRESH (<180d → none) / STALE (180-360d → propose revalidate) / EXPIRED
 #     (≥360d → propose {revalidate|supersede|archive}); ALL propose-only —
-#     nothing is auto-deleted/auto-archived (.4).
+#     nothing is auto-deleted/auto-archived.
 #   - The consolidation lock uses lockf (sourced from hooks/lib/lockf.sh,
-#     hand-rolled PID-lock TOCTOU window (.6). The kernel
+#     hand-rolled PID-lock TOCTOU window. The kernel
 #     releases the advisory lock on process death — no stale-lock class.
 #   - SessionEnd gate (≥24h AND ≥5 sessions) + audit log preserved (incl. a
 #     ## Skipped entry on opt-out so absence is observable).
@@ -48,7 +48,7 @@ MEMORY_DIR="$(resolve_memory_dir)"
 #      + sed + jq subprocesses). The scrub is env assignment, not work.
 #   2. STATE_FILE/LOG_FILE/LOCK_FILE derive from MEMORY_DIR, so the pin must precede
 #      them or the hook's own state paths would disagree with the runner's.
-# ADDITIVE: the decay-contract exports at the spawn (134) are untouched.
+# ADDITIVE: the decay-contract exports at the spawn are untouched.
 # PLACEMENT: the block resolves $SCRIPT_DIR, so it MUST stay BELOW the SCRIPT_DIR
 # assignment. Above it every clause degrades politely and the scrub is INERT while
 # grepping identically to a working one (asserted by the T-2/T-3 line-order guards).
@@ -62,7 +62,7 @@ STATE_FILE="$MEMORY_DIR/.consolidation-state.json"
 LOG_FILE="${CLAUDE_LOG_DIR:-$MEMORY_DIR}/.consolidation-log.md"  # G6: LOG → state/logs/; state STAYS in MEMORY_DIR
 RUNNER="$(cd "$(dirname "$0")" && pwd)/memory-consolidation-run.sh"
 
-# Single re-validation interval (.4). All non-episodic memory
+# Single re-validation interval. All non-episodic memory
 # shares one 180-day interval; episodic never decays.
 REVALIDATION_INTERVAL_DAYS=180
 STALE_DAYS=180

@@ -187,16 +187,35 @@ _entity_slots_for() {
 # Registry-declared R-52 entity metadata, shared by the collision walk AND the
 # null-scan (which runs regardless of --force-override): per-slot array-entry
 # identity keys, the underscore-entity allowlist, and the union-leaf roster.
-# Missing/empty registry degrades each to its empty shape — identity keys then
+# An ABSENT registry degrades each to its empty shape — identity keys then
 # FAIL-CLOSED on any live array collision (by design: R-52 without its
 # declarations must not fail open), underscore admission degrades to
-# metadata-filter-everything (the pre-registry posture).
-IDK_JSON=$(jq -c '(.entity_identity_keys // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || IDK_JSON='{}'
-US_JSON=$(jq -c '(.underscore_entities // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || US_JSON='{}'
-UNION_JSON=$(jq -c '[(.strategies // {}) | to_entries[] | select(.value=="union") | .key]' "$MERGE_REGISTRY" 2>/dev/null) || UNION_JSON='[]'
-[ -z "$IDK_JSON" ] && IDK_JSON='{}'
-[ -z "$US_JSON" ] && US_JSON='{}'
-[ -z "$UNION_JSON" ] && UNION_JSON='[]'
+# metadata-filter-everything (the pre-registry posture). A registry that EXISTS
+# but cannot be read is not absent: it prints the unreadable-registry line and
+# exits 5 — before the collision walk and whether or not --force-override is
+# set — exactly as the union-leaf read further down does.
+registry_unreadable_exit() {
+  printf 'foundation-overlay-load.sh: merge-strategy registry unreadable at %s (jq rc %s); fail-closed exit 5\n' "$MERGE_REGISTRY" "$1" >&2
+  exit 5
+}
+IDK_JSON='{}'
+US_JSON='{}'
+UNION_JSON='[]'
+if [ -r "$MERGE_REGISTRY" ]; then
+  REG_RC=0
+  # swallow-ok: reports=stderr the jq exit code is captured and a non-zero code prints the unreadable-registry line
+  IDK_JSON=$(jq -c '(.entity_identity_keys // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || REG_RC=$?
+  if [ "$REG_RC" -ne 0 ]; then registry_unreadable_exit "$REG_RC"; fi
+  # swallow-ok: reports=stderr the jq exit code is captured and a non-zero code prints the unreadable-registry line
+  US_JSON=$(jq -c '(.underscore_entities // {}) | del(._description)' "$MERGE_REGISTRY" 2>/dev/null) || REG_RC=$?
+  if [ "$REG_RC" -ne 0 ]; then registry_unreadable_exit "$REG_RC"; fi
+  # swallow-ok: reports=stderr the jq exit code is captured and a non-zero code prints the unreadable-registry line
+  UNION_JSON=$(jq -c '[(.strategies // {}) | to_entries[] | select(.value=="union") | .key]' "$MERGE_REGISTRY" 2>/dev/null) || REG_RC=$?
+  if [ "$REG_RC" -ne 0 ]; then registry_unreadable_exit "$REG_RC"; fi
+  [ -z "$IDK_JSON" ] && IDK_JSON='{}'
+  [ -z "$US_JSON" ] && US_JSON='{}'
+  [ -z "$UNION_JSON" ] && UNION_JSON='[]'
+fi
 
 if [ "$FORCE_OVERRIDE" != "1" ]; then
   DENIED_KEYS=""
@@ -265,7 +284,13 @@ if [ "$FORCE_OVERRIDE" != "1" ]; then
   # belongs to those two probes, not to read-path side effects. Every other
   # hook/skill read passes the flag. A NEW no-flag consumer inherits this
   # walk's DENY as a runtime failure mode and must handle exit 1 deliberately.
-  R52_UNION_PATHS=$(jq -r '(.strategies // {}) | to_entries[] | select(.value=="union") | .key' "$MERGE_REGISTRY" 2>/dev/null || true)
+  R52_UNION_PATHS=""
+  if [ -r "$MERGE_REGISTRY" ]; then
+    REG_RC=0
+    # swallow-ok: reports=stderr the jq exit code is captured and a non-zero code prints the unreadable-registry line
+    R52_UNION_PATHS=$(jq -r '(.strategies // {}) | to_entries[] | select(.value=="union") | .key' "$MERGE_REGISTRY" 2>/dev/null) || REG_RC=$?
+    if [ "$REG_RC" -ne 0 ]; then registry_unreadable_exit "$REG_RC"; fi
+  fi
 
   # Iterate selected pillars (default = all 8; --collision-pillars narrows).
   IFS_SAVED="$IFS"
@@ -427,7 +452,7 @@ EOF2
       printf 'foundation-overlay-load.sh: R-52 violation — overlay shadows foundation entries without _override_reason:\n'
       printf '%b' "$DENIED_KEYS"
       printf 'To resolve, either:\n'
-      printf '  (a) add per-entry _override_reason: "<text>" to the shadowing overlay entry (per), OR\n'
+      printf '  (a) add per-entry _override_reason: "<text>" to the shadowing overlay entry, OR\n'
       printf '  (b) pass --force-override for single-invocation bypass (per-write; no persistent disable per).\n'
       printf 'Array-of-object slots match entries on the registry-declared identity key\n'
       printf '(merge-strategy-registry.json entity_identity_keys): unmatched = ADD; matched-and-differing =\n'

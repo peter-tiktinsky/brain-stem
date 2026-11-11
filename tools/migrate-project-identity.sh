@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --plans-root) PLANS_ROOT_ARG="${2:-}"; shift 2 ;;
     --dry-run)    DRY_RUN="true"; shift ;;
-    -h|--help)    /usr/bin/sed -n '2,41p' "$0" | /usr/bin/sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    /usr/bin/awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "migrate-project-identity: unexpected arg '$1'" >&2; exit 2 ;;
   esac
 done

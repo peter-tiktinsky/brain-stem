@@ -4,10 +4,10 @@
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/context-pressure.sh"
 #   write_context_pressure "$TRANSCRIPT_PATH" "$PRESSURE_FILE"
 #
-# THE MISSING WRITER (sweep item 1 /). The R-26 bands (prompt-context.sh
+# THE MISSING WRITER. The R-26 bands (prompt-context.sh
 # warn/mandate; stop-checkpoint-check.sh freshness/existence gates) read
 # `$CLAUDE_STATE_ROOT/sessions/<sid>/context-pressure.json :: .pct`, named by the
-# binding spec as "the .pct source for the bands" — but the clean-room
+# documented contract as "the .pct source for the bands" — but the
 # rebuild never ported a producer, so .pct defaulted to 0 and every band was inert
 # in fresh installs. This helper computes pct from Claude Code's session transcript
 # (the `transcript_path` every hook receives on stdin) and writes the file the bands
@@ -38,7 +38,7 @@
 #
 # FAILURE MODE: graceful no-op. Returns non-zero and writes NOTHING when the
 # transcript is absent/unreadable, jq is missing, or no usage block exists — so the
-# bands degrade to exactly the pre-behavior (pct=0), never an error and never a
+# bands degrade to exactly the writer-less behavior (pct=0), never an error and never a
 # stale clobber. Atomic temp+rename. Bash 3.2 clean (R-23).
 
 write_context_pressure() {

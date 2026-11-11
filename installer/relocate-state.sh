@@ -39,6 +39,13 @@
 #   - Catchable failure (trap): reverse-restore every journaled move from
 #     --backup-dir and exit non-zero (the in-home foundation_version never bumps;
 #     this tool is out of the migration chain).
+# Peer-mutex. Resolve the lock's COORD_DIR self-contained — this is the
+# LOCK home only, not source discovery, so deriving it from the XDG default is
+# correct (and avoids sourcing the new paths.sh). lockf.sh:31 makes the CALLER
+# own the parent-dir mkdir; relocate-state.sh runs upgrade-context so it must
+# not assume $COORD_DIR exists. A 2nd concurrent mover exits 0 (lockf-75 skip);
+# mv -n is per-file convergent, NOT a peer-mutex (two interleaved movers would
+# diverge the journal + break reverse-restore).
 # Usage:
 #   relocate-state.sh --backup-dir <dir>   # real run (--backup-dir MANDATORY)
 #   relocate-state.sh --dry-run            # list the move plan, mutate nothing
@@ -51,13 +58,6 @@ prog="$(basename "$0")"
 info() { printf '%s: %s\n' "$prog" "$1"; }
 diag() { printf '%s: %s\n' "$prog" "$1" >&2; }
 
-# Peer-mutex. Resolve the lock's COORD_DIR self-contained — this is the
-# LOCK home only, not source discovery, so deriving it from the XDG default is
-# correct (and avoids sourcing the new paths.sh). lockf.sh:31 makes the CALLER
-# own the parent-dir mkdir; relocate-state.sh runs upgrade-context so it must
-# not assume $COORD_DIR exists. A 2nd concurrent mover exits 0 (lockf-75 skip);
-# mv -n is per-file convergent, NOT a peer-mutex (two interleaved movers would
-# diverge the journal + break reverse-restore).
 LOCK_COORD_DIR="${COORD_DIR:-${CLAUDE_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/brain-stem}/.coordination}"
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _lockf_lib="${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/lockf.sh"
@@ -79,7 +79,7 @@ while [ $# -gt 0 ]; do
     --backup-dir) [ $# -ge 2 ] || { diag "--backup-dir requires a path"; exit 2; }
                   BACKUP_DIR="$2"; shift 2 ;;
     --backup-dir=*) BACKUP_DIR="${1#--backup-dir=}"; shift ;;
-    -h|--help) sed -n '2,70p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) diag "unknown arg: $1"; exit 2 ;;
   esac
 done

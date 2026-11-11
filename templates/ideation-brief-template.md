@@ -20,7 +20,7 @@
 - `{skill-name}` — {how: new dependency, modified interface, absorbed, etc.}
 
 **Downstream consumers:**
-- {e.g., "digest-run Phase 3 reads this file — format change requires parser update"}
+- {e.g., "the doc-amender reads this file — format change requires parser update"}
 
 ## Infrastructure Dependencies
 

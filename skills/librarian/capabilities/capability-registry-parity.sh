@@ -146,12 +146,27 @@
 #   Files written: findings (NDJSON via hooks/lib/findings.sh) + a markdown
 #     summary to stdout.
 #   Failure mode: report-only (exit 0; drift findings emitted as JSON;
-#     non-zero finding count does NOT change exit). exit 2 only on unknown flag.
+#     non-zero finding count does NOT change exit). exit 2 only on an unknown flag
+#     or a `--root` given no existing directory.
 #
 # Usage:
 #   capability-registry-parity.sh                 # check (default)
 #   capability-registry-parity.sh --check         # explicit
 #   capability-registry-parity.sh --dry-run       # summary only, no findings
+#   capability-registry-parity.sh --root <dir>    # audit the capability root <dir>, not the shipped one
+#
+# --root <dir> audits an adopter's own capability root: a skill folder holding
+# capability-registry.json, a SKILL.md with `## Capability: <name>` headings and
+# capabilities/*.sh. It has the semantics of LIBRARIAN_ROOT_OVERRIDE (and wins over
+# it); every path read from the root (registry, SKILL.md, capabilities/) is derived
+# after the flags are parsed. Under --root, the classes that look at the SHIPPED
+# home (the sibling govern skill, class (i); the shipped-tree tag sweep, class (n))
+# do not guess a root from where <dir> sits: each takes its root only from
+# GOVERN_ROOT_OVERRIDE / TAG_PARITY_ROOT_OVERRIDE and skips when that is unset. The
+# walk-reach class (m) stays gated on WALK_REACH_ROOT_OVERRIDE / $VAULT_ROOT, and the
+# full-roster prose class (h) keeps its existing skip. A missing directory, or no
+# value, prints `capability-registry-parity: --root needs an existing directory`
+# on stderr and exits 2. The default run (no --root) is unchanged.
 #
 # Env overrides (testing):
 #   LIBRARIAN_ROOT_OVERRIDE   relocate librarian/ root for fixture tests
@@ -172,7 +187,26 @@ CLAUDE_HOME_RES="${CLAUDE_HOME:-$HOME/.claude}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIBRARIAN_ROOT_DEFAULT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIBRARIAN_ROOT="${LIBRARIAN_ROOT_OVERRIDE:-$LIBRARIAN_ROOT_DEFAULT}"
+
+# The flags are parsed first: every path derived from the audited root is computed after this loop.
+MODE="check"
+ROOT_ARG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)   MODE="check"; shift ;;
+    --dry-run) MODE="dry-run"; shift ;;
+    --root)
+      if [[ $# -lt 2 || ! -d "$2" ]]; then
+        echo "capability-registry-parity: --root needs an existing directory" >&2
+        exit 2
+      fi
+      ROOT_ARG="$(cd "$2" && pwd)"; shift 2 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
+    *) echo "capability-registry-parity: unknown flag '$1'" >&2; exit 2 ;;
+  esac
+done
+
+LIBRARIAN_ROOT="${ROOT_ARG:-${LIBRARIAN_ROOT_OVERRIDE:-$LIBRARIAN_ROOT_DEFAULT}}"
 
 REGISTRY="$LIBRARIAN_ROOT/capability-registry.json"
 SKILL_MD="$LIBRARIAN_ROOT/SKILL.md"
@@ -181,23 +215,19 @@ CAPABILITIES_DIR="$LIBRARIAN_ROOT/capabilities"
 # the govern skill's executable modes/ inventory (a capability-like
 # surface with NO registry) audited for disk<->declaration bijection. GOVERN_ROOT_OVERRIDE for
 # fixture tests; else the sibling skills/govern/ (one level up from LIBRARIAN_ROOT).
-GOVERN_ROOT="${GOVERN_ROOT_OVERRIDE:-$(cd "$LIBRARIAN_ROOT/../govern" 2>/dev/null && pwd)}"
+if [[ -n "$ROOT_ARG" ]]; then
+  # Under --root the audited root's ../govern is the shipped home, not the adopter's: take the
+  # root from the override only, and skip the class when it is unset.
+  GOVERN_ROOT="${GOVERN_ROOT_OVERRIDE:-}"
+else
+  GOVERN_ROOT="${GOVERN_ROOT_OVERRIDE:-$(cd "$LIBRARIAN_ROOT/../govern" 2>/dev/null && pwd)}"
+fi
 
 EXPECTED_SCHEMA_VERSION="${EXPECTED_SCHEMA_VERSION:-1}"
 
 # shellcheck source=/dev/null
 source "$CLAUDE_HOME_RES/hooks/lib/findings.sh" 2>/dev/null \
   || source "$(cd "$LIBRARIAN_ROOT/../.." && pwd)/hooks/lib/findings.sh"
-
-MODE="check"
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --check)   MODE="check"; shift ;;
-    --dry-run) MODE="dry-run"; shift ;;
-    -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "capability-registry-parity: unknown flag '$1'" >&2; exit 2 ;;
-  esac
-done
 
 if [[ ! -f "$REGISTRY" ]]; then
   echo "## Capability Registry Parity (skipped)"
@@ -800,7 +830,8 @@ fi
 TAG_PARITY_ROOT=""
 if [[ -n "${TAG_PARITY_ROOT_OVERRIDE:-}" && -f "${TAG_PARITY_ROOT_OVERRIDE}/governance/foundation-master.json" ]]; then
   TAG_PARITY_ROOT="$TAG_PARITY_ROOT_OVERRIDE"
-else
+elif [[ -z "$ROOT_ARG" ]]; then
+  # Skipped under --root: the audited root's grandparent is the shipped home, not the adopter's.
   _tp_cand="$(cd "$LIBRARIAN_ROOT/../.." 2>/dev/null && pwd)"
   [[ -n "$_tp_cand" && -f "$_tp_cand/governance/foundation-master.json" ]] && TAG_PARITY_ROOT="$_tp_cand"
   unset _tp_cand

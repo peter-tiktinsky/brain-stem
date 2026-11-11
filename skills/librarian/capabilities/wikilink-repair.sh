@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
     --report) REPORT_PATH="$2"; shift 2 ;;
     --dry-run) shift ;;  # default; kept for CLI-contract symmetry with other capabilities
     -h|--help)
-      sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"
       exit 0
       ;;
     *) echo "wikilink-repair: unknown flag '$1'" >&2; exit 2 ;;

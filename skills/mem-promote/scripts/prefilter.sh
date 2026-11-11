@@ -1,7 +1,7 @@
 #!/bin/bash
 # mem-promote/scripts/prefilter.sh — standalone gather + dedup prefilter.
 #
-# Phase 1+2 of the mem-promote pipeline (.8): read claude-mem
+# Phase 1+2 of the mem-promote pipeline: read claude-mem
 # observations for the named session(s), cluster by Jaccard token overlap, and
 # de-conflict each cluster against the curated memory/*.md file set. Emits
 # ranked candidates with up to ≤8 neighbors (capture floor Jaccard ≥0.20).
@@ -19,12 +19,13 @@
 # Standalone (FORK-A): NO librarian-lib dependency. Resolves the memory
 # dir via hooks/lib/paths.sh when present, else a sane default.
 #
+# Resolve install root: skills/mem-promote/scripts → up 3 = $CLAUDE_HOME.
+#
 # Bash 3.2 clean (R-23). Argv-based Python heredoc (data via argv, never stdin).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Resolve install root: skills/mem-promote/scripts → up 3 = $CLAUDE_HOME.
 CLAUDE_HOME_GUESS="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CLAUDE_HOME="${CLAUDE_HOME:-$CLAUDE_HOME_GUESS}"
 
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
     --session-glob) SESSION_GLOB="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     --enqueue) ENQUEUE="true"; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "mem-promote/prefilter: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -76,7 +77,7 @@ NEIGHBOR_CAP="${MEM_PROMOTE_NEIGHBOR_CAP:-8}"
 
 # no-claude-mem-DB graceful degradation. DB absent → status n/a, 0
 # candidates, clean exit. This is the dead-but-harmless Gate-1 contract — never
-# an error, never a non-zero exit (.9).
+# an error, never a non-zero exit.
 if [ ! -f "$CLAUDE_MEM_DB" ]; then
   echo "mem-promote: claude-mem DB absent at $CLAUDE_MEM_DB — status=n/a candidates=0 (System B is optional; foundation floor complete without it)" >&2
   if [ "$DRY_RUN" = "true" ]; then

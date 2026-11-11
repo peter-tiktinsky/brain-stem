@@ -3,8 +3,8 @@
 # Routes to plan-runner.sh or job-runner.sh based on job type.
 # Adds trigger metadata to all logs.
 # Usage:
-#   dispatch.sh --plan <slug> [--immediate|--overnight|--delay <spec>]
-#   dispatch.sh --job <name> [--immediate|--overnight|--delay <spec>]
+#   dispatch.sh --plan <slug> [--immediate|--delay <spec>]
+#   dispatch.sh --job <name> [--immediate|--delay <spec>]
 #   dispatch.sh --cron <cron-name> [--immediate]
 #   dispatch.sh --batch <file.json> [--immediate]
 #   dispatch.sh --list-pending
@@ -52,12 +52,13 @@ source "$TCC_DENYLIST"
 # --- Parse args ---
 MODE=""        # plan | job | cron | batch | list-pending | cancel | hold | unhold | queue-status
 TARGET=""
-TIMING="immediate"  # immediate | overnight | delay
+TIMING="immediate"  # immediate | delay
 DELAY_SPEC=""
 MODEL="sonnet"
 TIMEOUT=""
 BUDGET=""
 TRIGGER_TYPE="on-demand"
+FIRE_AT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -70,21 +71,23 @@ while [[ $# -gt 0 ]]; do
     --hold)     MODE="hold"; TARGET="$2"; shift 2 ;;
     --unhold)   MODE="unhold"; TARGET="$2"; shift 2 ;;
     --queue-status) MODE="queue-status"; shift ;;
-    --circuit-breaker-status) MODE="circuit-breaker-status"; shift ;;  # F0 ()
-    --clear-circuit-breaker) MODE="clear-circuit-breaker"; shift ;;    # F0 ()
+    --circuit-breaker-status) MODE="circuit-breaker-status"; shift ;;  # F0
+    --clear-circuit-breaker) MODE="clear-circuit-breaker"; shift ;;    # F0
     --immediate)   TIMING="immediate"; shift ;;
-    --overnight)   TIMING="overnight"; shift ;;
+    # --overnight is refused before any side effect: no shipped command runs a queued run.
+    --overnight)   echo "dispatch.sh: --overnight is not supported: no command in this release runs a queued run. Use --delay <spec> to start a run later (for example --delay 2h), or --immediate to start it now." >&2; exit 2 ;;
     --delay)       TIMING="delay"; DELAY_SPEC="$2"; shift 2 ;;
     --model)       MODEL="$2"; shift 2 ;;
     --timeout)     TIMEOUT="$2"; shift 2 ;;
     --budget)      BUDGET="$2"; shift 2 ;;
     --trigger-type) TRIGGER_TYPE="$2"; shift 2 ;;
+    --fire-at)     FIRE_AT="$2"; shift 2 ;;   # epoch seconds; set only by the launchd plist a long delay writes
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "$MODE" ]]; then
-  echo "Usage: dispatch.sh --plan|--job|--cron|--batch <target> [--immediate|--overnight|--delay <spec>]" >&2
+  echo "Usage: dispatch.sh --plan|--job|--cron|--batch <target> [--immediate|--delay <spec>]" >&2
   echo "       dispatch.sh --list-pending | --cancel <name> | --hold <name> | --unhold <name> | --queue-status" >&2
   exit 1
 fi
@@ -228,27 +231,32 @@ run_immediate() {
   esac
 }
 
-# --- Queue for overnight ---
-run_overnight() {
-  local type="$1" target="$2"
-  local ref=""
+# --- Run a scheduled one-shot launchd job exactly once ---
+# The plist's calendar interval carries no year, so launchd fires it on the same date every year,
+# and runs a missed one when the Mac wakes. The fired run therefore checks the time it was scheduled
+# for: it runs when that time is now or past and less than 7 days ago (a late wake), and runs nothing
+# before it or 7 or more days after it. Either way it removes the plist and the pending row, and unloads the label LAST, because launchd stops the
+# job when its label is unloaded and an earlier unload would kill the run before it finished.
+run_fired() {
+  local type="$1" target="$2" rc=0
+  local slug plist_name plist_path
+  slug=$(to_slug "$target")
+  plist_name="com.claude.dispatch-onetime-${slug}"
+  plist_path="$HOME/Library/LaunchAgents/${plist_name}.plist"
 
-  case "$type" in
-    plan)
-      ref=$(resolve_plan "$target") || exit 1
-      ;;
-    job)
-      ref=$(resolve_job "$target") || exit 1
-      ;;
-  esac
-
-  local timeout_val="${TIMEOUT:-3600}"
-  if exec_queue_add "$target" "$type" "$ref" "$MODEL" "$timeout_val" "$BUDGET" "normal" "manual"; then
-    echo "Queued '$target' ($type) for overnight execution."
+  local now_s
+  now_s=$(date +%s)
+  if ! [[ "$FIRE_AT" =~ ^[0-9]+$ ]] || (( now_s < FIRE_AT || now_s - FIRE_AT >= 604800 )); then
+    echo "Not running '$target': it was scheduled for epoch $FIRE_AT, outside the 7 days after that time. Removing the one-shot job."
   else
-    echo "WARNING: '$target' already in queue or queue full." >&2
-    exit 1
+    rm -f "$plist_path"
+    ( run_immediate "$type" "$target" ) || rc=$?
   fi
+  rm -f "$plist_path"
+  remove_pending "$target"
+  # swallow-ok: reports=none the label may already be gone (cancel, or a failed load); the plist and pending row are removed above either way
+  launchctl remove "$plist_name" 2>/dev/null || true
+  exit "$rc"
 }
 
 # --- Schedule with delay ---
@@ -289,12 +297,14 @@ run_delayed() {
     local plist_name="com.claude.dispatch-onetime-${slug}"
     local plist_path="$HOME/Library/LaunchAgents/${plist_name}.plist"
 
-    # Parse target time components
-    local fire_hour fire_min fire_day fire_month
-    fire_hour=$(date -v+"${delay_seconds}S" +%H 2>/dev/null)
-    fire_min=$(date -v+"${delay_seconds}S" +%M 2>/dev/null)
-    fire_day=$(date -v+"${delay_seconds}S" +%d 2>/dev/null)
-    fire_month=$(date -v+"${delay_seconds}S" +%m 2>/dev/null)
+    # Parse target time components from ONE date call, so a midnight tick cannot split them.
+    # The calendar interval below has no year, so launchd would fire it again on this date every
+    # year; the fired run is handed the full scheduled date and refuses any other (run_fired).
+    local fire_stamp fire_year fire_hour fire_min fire_day fire_month fire_epoch fire_date
+    fire_stamp=$(date -v+"${delay_seconds}S" +%Y-%m-%d-%H-%M-%s 2>/dev/null)
+    IFS=- read -r fire_year fire_month fire_day fire_hour fire_min fire_epoch <<<"$fire_stamp"
+    # launchd fires on the whole minute, so the scheduled time is the epoch floored to its minute.
+    fire_date=$(( fire_epoch - fire_epoch % 60 ))
 
     # Fail closed if the resolved std-path lands in a TCC-protected dir — launchd
     # opens StandardOut/ErrorPath BEFORE exec and aborts the spawn with EX_CONFIG(78)
@@ -325,6 +335,8 @@ run_delayed() {
     <string>${MODEL}</string>
     <string>--trigger-type</string>
     <string>${TRIGGER_TYPE}</string>
+    <string>--fire-at</string>
+    <string>${fire_date}</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -424,8 +436,9 @@ esac
 case "$MODE" in
   plan|job)
     case "$TIMING" in
-      immediate)  run_immediate "$MODE" "$TARGET" ;;
-      overnight)  run_overnight "$MODE" "$TARGET" ;;
+      immediate)
+        if [[ -n "$FIRE_AT" ]]; then run_fired "$MODE" "$TARGET"; else run_immediate "$MODE" "$TARGET"; fi
+        ;;
       delay)      run_delayed "$MODE" "$TARGET" "$DELAY_SPEC" ;;
     esac
     ;;
@@ -506,7 +519,7 @@ case "$MODE" in
     # A queue RMW that lost the execution-queue lock is a hold that
     # did NOT land — say so loudly and fail, never print Held: over a no-op.
     if exec_queue_hold "$TARGET"; then
-      echo "Held: $TARGET (will be skipped by overnight execution)"
+      echo "Held: $TARGET (any queued entry of that name is now held; this release runs no queue)"
     else
       echo "WARNING: '$TARGET' not held: execution-queue lock contention." >&2
       exit 1
@@ -515,7 +528,7 @@ case "$MODE" in
 
   unhold)
     if exec_queue_unhold "$TARGET"; then
-      echo "Unheld: $TARGET (will be picked up by next execution)"
+      echo "Unheld: $TARGET (any held entry of that name is queued again; this release runs no queue)"
     else
       echo "WARNING: '$TARGET' not unheld: execution-queue lock contention." >&2
       exit 1

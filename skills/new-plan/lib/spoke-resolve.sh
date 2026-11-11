@@ -2,7 +2,7 @@
 # spoke-resolve.sh — cwd→spoke-key resolution against the anchored-spoke registry.
 #
 # Implements the collision-safe resolver and the --project
-# override validation (surface-architecture). Sourced by the plan-creation
+# override validation. Sourced by the plan-creation
 # writers (new-plan.sh, promote-from-inbox.sh); the resolution + collision +
 # override logic lives in one place so both writers stay drift-resistant.
 #

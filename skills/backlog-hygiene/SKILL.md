@@ -2,7 +2,7 @@
 name: backlog-hygiene
 description: >
   Audit the manifest-derived backlog for staleness and missing dispositions across the idea
-  inbox and in-flight plan manifests, enforcing the R-29/30/31/56 lifecycle rules; --fix
+  inbox and in-flight plan manifests, checking R-56 (R-29/30/31 are held by construction by backlog-index); --fix
   applies safe auto-maintenance and table regeneration is delegated to the librarian. Runs
   on demand. Trigger on: "backlog hygiene", "clean up backlog",
   "/backlog-hygiene", "stale backlog items", or any request to audit backlog freshness.
@@ -12,16 +12,15 @@ argument-hint: "[--dry-run] [--fix]"
 
 # Backlog Hygiene
 
-The GTD review-loop stage of the orchestration funnel () and the **declared
-enforcement home for R-29 / R-30 / R-31 / R-56** (`plans-rules.json :: _rules[]
-enforcement_layer: ["skill:backlog-hygiene"]` — these rules have NO enforcement until
-this skill ships). Periodic sweep over the manifest-derived backlog: flags
+The GTD review-loop stage of the orchestration funnel and the **enforcement home for R-56**;
+it does not check R-29, R-30 or R-31 (no row-size, sentinel or parity check is encoded).
+Periodic sweep over the manifest-derived backlog: flags
 funnel/lifecycle timeouts and missing dispositions and produces a hygiene report so the
 active backlog stays trustworthy. It is a **reporter + delegator** — it never moves
 rows and never writes `_backlog.md`; with `--fix` it applies only the single safe
 auto-maintenance operation the disposition rule (R-56) sanctions.
 
-The backlog is a **manifest-derived read replica** ():
+The backlog is a **manifest-derived read replica**:
 - `{paths.plans_root}/_backlog.md` is the unified rendered view, owned exclusively by
   `librarian:backlog-index` (`writers_allowed: ["librarian"]`).
 - Archival is **not** a separate store: the plan-index default-hides `completed` plans
@@ -33,11 +32,11 @@ The backlog is a **manifest-derived read replica** ():
   6-state `lifecycle.status` (`researching / planned / in-progress / paused / completed /
   superseded`).
 - Session history lives **with the work item** in the plan dir / master `handoff.md` +
-  git — there is NO per-plan progress satellite (: RETIRED entirely; the entire
+  git — there is NO per-plan progress satellite (that design is RETIRED entirely; the entire
   satellite-health check class + the old `--fix` skeleton-render + the
   `See [[Logs/...]]` reference regex are GONE, not relocated).
 
-Hygiene reads R-29/30/31/56 + `backlog_row.stale_advisory_days` from the landed
+Hygiene reads R-56 + `backlog_row.stale_advisory_days` from the landed
 `governance/plans-rules.json`, computes findings, and **delegates** the one mutating
 operation it must NOT perform itself:
 - **Table regeneration** → `librarian:backlog-index` (recommended, or run `/librarian backlog-index`).
@@ -60,7 +59,7 @@ from `user-manifest.json` via `hooks/lib/paths.sh`.
 
 **Never written:**
 - `{paths.plans_root}/_backlog.md` — librarian-owned. Regeneration is delegated to `librarian:backlog-index`.
-- No per-plan progress satellite, no skeleton-render, no vault `Logs/` write ().
+- No per-plan progress satellite, no skeleton-render, no vault `Logs/` write.
 
 **Schema:** the report is written outside the vault (no `frontmatter-rules.json#types`
 gate). With `--fix`, the only write is a flag line appended to an idea note's `## Notes`
@@ -98,7 +97,7 @@ Re-run safety: stamp
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--dry-run` | off | Produce the report only; write zero files (suppresses both the report write and `--fix`). |
-| `--fix` | off | Apply safe auto-maintenance: auto-flag missing dispositions past the 21d escalation (R-56). Mutually exclusive with `--dry-run`. |
+| `--fix` | off | Apply safe auto-maintenance: auto-flag missing dispositions past the 21d escalation (R-56). Ignored under `--dry-run`, which suppresses it. |
 
 > Archival is a display-only plan-index view filter (default-hides `completed` plans
 > older than 14 days; `--all` shows them). Nothing is promoted, moved, or stamped —
@@ -113,7 +112,7 @@ Run `bash ${CLAUDE_HOME:-$HOME/.claude}/skills/backlog-hygiene/scripts/hygiene-a
 ### 1. Load the backlog substrate + the rules
 
 Read, in order:
-1. `governance/plans-rules.json` — extract `_rules[]` R-29/R-30/R-31/R-56 (the lifecycle/disposition contracts this skill enforces), `backlog_row.stale_advisory_days` (`[14, 21]`), `backlog_row.disposition_enum`, `lifecycle.status_enum`, and `inbox.funnel_status_enum`.
+1. `governance/plans-rules.json` — extract `_rules[]` R-56 (the disposition contract this skill enforces), `backlog_row.stale_advisory_days` (`[14, 21]`), `backlog_row.disposition_enum`, `lifecycle.status_enum`, and `inbox.funnel_status_enum`.
 2. `{paths.plans_root}/_backlog.md` — the unified rendered view (for cross-referencing rows to sources). Read-only.
 3. Every `{paths.plans_root}/_inbox/*.md` idea note — extract `title`, funnel `status`, `disposition`, `updated`, and whether its `## Idea` section still contains the capture template placeholder.
 4. Every `{paths.plans_root}/<NN>-<slug>/manifest.json` — extract `title`, `status`, `disposition`, `updated`.
@@ -182,7 +181,7 @@ Write `{paths.hooks_state}/backlog-hygiene-report.md` (skip entirely on `--dry-r
 | Item | Source | Status | Days stale | Severity | Issue | Recommended action |
 | ... |
 
-## Disposition + lifecycle issues (R-56 / R-29/30/31)
+## Disposition + lifecycle issues (R-56; R-29/30/31 held by construction by backlog-index)
 
 | Item | Issue | Severity | Detail |
 | ... |

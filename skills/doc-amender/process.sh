@@ -9,7 +9,7 @@
 # T-03 (Layer-1 consumer runtime port).
 #
 # Reads amender-eligible packets from staging, joins them against
-# governance/doc-dependencies.json writer-fan-in entries; for an eligible
+# the effective .doc_dependencies slot's writer-fan-in entries; for an eligible
 # packet it runs the operator-authored prompt asset through `claude -p`
 # (persistence.mode=llm-mediated / hybrid) OR dispatches to compose-deterministic.sh
 # (persistence.mode=deterministic, T-06), then emits a REPLACEMENT packet via
@@ -68,6 +68,9 @@ COMPOSE_DETERMINISTIC="$DEFAULT_COMPOSE_DETERMINISTIC"
 AUDIT_LOG=""
 DRY_RUN=0
 ONCE=0
+LIST_CONFLICTS=0
+RESOLVE_SET=0
+RESOLVE_PATH=""
 
 usage() {
   cat <<EOF
@@ -78,6 +81,8 @@ Usage:
              [--audit-log PATH] [--doc-deps-file PATH]
              [--staging-emit PATH] [--manifest-record PATH]
              [--compose-deterministic PATH]
+  process.sh [--staging-root PATH] --list-conflicts
+  process.sh [--staging-root PATH] --resolve SIDECAR
 
 Defaults:
   --staging-root           \$STAGING_ROOT env (or \$CLAUDE_STATE_ROOT/vault-staging)
@@ -94,6 +99,14 @@ Flags:
                            stdout; skip LLM calls and staging-emit.
   --once                   Single scan + exit (same as default behavior;
                            WatchPaths fires the process per event).
+  --list-conflicts         List the conflict sidecars under the staging root,
+                           one tab-separated row each (path, reason,
+                           destination, candidate count). Takes no lock and
+                           writes nothing; exclusive with --resolve and the
+                           scan flags.
+  --resolve SIDECAR        Move one conflict sidecar to <writer dir>/_resolved/
+                           (never deleted; the retained packet is untouched).
+                           Exclusive with --list-conflicts and the scan flags.
 
 Exit codes:
   0   success (or no eligible packets)
@@ -115,6 +128,11 @@ while [ $# -gt 0 ]; do
     --audit-log)             AUDIT_LOG="$2"; shift 2 ;;
     --dry-run)               DRY_RUN=1; shift ;;
     --once)                  ONCE=1; shift ;;
+    --list-conflicts)        LIST_CONFLICTS=1; shift ;;
+    --resolve)
+      RESOLVE_SET=1
+      if [ $# -ge 2 ]; then RESOLVE_PATH="$2"; shift 2; else RESOLVE_PATH=""; shift; fi
+      ;;
     -h|--help)               usage; exit 0 ;;
     *) printf 'process.sh: unknown arg: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -143,6 +161,93 @@ for tool in jq shasum; do
     exit 2
   fi
 done
+
+# ---- conflict-sidecar verbs (no doc-deps file, no staging-emit, no lock) -----
+# --list-conflicts prints one row per conflict sidecar under the staging root;
+# --resolve <sidecar> moves one to <writer dir>/_resolved/ and never deletes it. Both run
+# here, ahead of the staging-root no-op and the lock step, and read no dependency file. A
+# writer dir is a directory directly under the physical staging root whose name is neither
+# _archive nor ends in +amender: the set the scan loop visits. Every printed path is physical.
+if [ "$LIST_CONFLICTS" = "1" ] || [ "$RESOLVE_SET" = "1" ]; then
+  if { [ "$LIST_CONFLICTS" = "1" ] && [ "$RESOLVE_SET" = "1" ]; } || [ "$ONCE" = "1" ] || [ "$DRY_RUN" = "1" ]; then
+    printf 'process.sh: --list-conflicts and --resolve are exclusive and take no scan flags\n' >&2
+    exit 2
+  fi
+  PHYS_ROOT=""
+  if [ -d "$STAGING_ROOT" ]; then
+    PHYS_ROOT=$(cd -P "$STAGING_ROOT" && pwd -P)
+  fi
+
+  if [ "$LIST_CONFLICTS" = "1" ]; then
+    if [ -z "$PHYS_ROOT" ]; then
+      printf 'process.sh: staging root %s does not exist; no-op\n' "$STAGING_ROOT" >&2
+      exit 0
+    fi
+    CONFLICT_ROWS=""
+    CONFLICT_N=0
+    for cdir in "$PHYS_ROOT"/*/; do
+      [ -d "$cdir" ] || continue
+      case "$(basename "$cdir")" in
+        _archive|*+amender) continue ;;
+      esac
+      for csc in "$cdir"*.amender-conflict.json; do
+        [ -f "$csc" ] || continue
+        if ! crow=$(jq -r '[(.reason // ""), (.destination_path // ""), ((.candidates // []) | length)] | @tsv' "$csc" 2>/dev/null); then
+          crow=$(printf '\t\t0')
+        fi
+        CONFLICT_ROWS="${CONFLICT_ROWS}${csc}$(printf '\t')${crow}
+"
+        CONFLICT_N=$((CONFLICT_N + 1))
+      done
+    done
+    if [ "$CONFLICT_N" -gt 0 ]; then
+      printf '%s' "$CONFLICT_ROWS" | LC_ALL=C sort
+    fi
+    printf 'process.sh: %s conflict sidecar(s) under %s\n' "$CONFLICT_N" "$PHYS_ROOT" >&2
+    exit 0
+  fi
+
+  resolve_refuse() {
+    printf 'process.sh: --resolve refused: %s\n' "$1" >&2
+    exit 2
+  }
+  rsc="$RESOLVE_PATH"
+  [ -n "$rsc" ] || resolve_refuse "needs a sidecar path"
+  case "$rsc" in
+    *.amender-conflict.json) : ;;
+    *) resolve_refuse "$rsc is not a *.amender-conflict.json file" ;;
+  esac
+  [ -f "$rsc" ] || resolve_refuse "$rsc does not exist"
+  rsc_base=$(basename "$rsc")
+  rsc_dir=$(cd -P "$(dirname "$rsc")" && pwd -P)
+  rsc_ok=0
+  if [ -n "$PHYS_ROOT" ] && [ -n "$rsc_dir" ] && [ "$(dirname "$rsc_dir")" = "$PHYS_ROOT" ]; then
+    case "$(basename "$rsc_dir")" in
+      _archive|*+amender) : ;;
+      *) rsc_ok=1 ;;
+    esac
+  fi
+  [ "$rsc_ok" = "1" ] || resolve_refuse "$rsc is not under the staging root"
+  jq empty "$rsc" >/dev/null 2>&1 || resolve_refuse "$rsc is not valid JSON"
+  jq -e '.packet_kind == "amender-conflict"' "$rsc" >/dev/null 2>&1 || resolve_refuse "$rsc is not an amender-conflict record"
+  rsc_dest="$rsc_dir/_resolved/$rsc_base"
+  if [ -e "$rsc_dest" ] || [ -L "$rsc_dest" ]; then
+    resolve_refuse "_resolved/$rsc_base already exists"
+  fi
+  mkdir -p "$rsc_dir/_resolved"
+  if { [ -e "$rsc_dest" ] || [ -L "$rsc_dest" ]; } || ! mv "$rsc" "$rsc_dest"; then
+    printf 'process.sh: could not move %s to %s; nothing changed\n' "$rsc" "$rsc_dest" >&2
+    exit 1
+  fi
+  printf 'process.sh: resolved %s -> %s\n' "$rsc_base" "$rsc_dest"
+  rsc_packet="${rsc_base%.amender-conflict.json}"
+  if [ -f "$rsc_dir/$rsc_packet" ]; then
+    printf 'process.sh: the retained packet %s is untouched; the reconciler processes it on its next tick\n' "$rsc_packet"
+  else
+    printf 'process.sh: the original packet %s is no longer in staging\n' "$rsc_packet"
+  fi
+  exit 0
+fi
 
 if [ ! -d "$STAGING_ROOT" ]; then
   # Missing staging root → silent no-op (WatchPaths fired before any writer

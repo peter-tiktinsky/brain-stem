@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
     --file)         INPUT_MODE="file"; INPUT_PATH="$2"; shift 2 ;;
     --stdin)        INPUT_MODE="stdin"; shift ;;
     --schema-file)  SCHEMA_FILE="$2"; shift 2 ;;
-    -h|--help)      sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)      awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "librarian-manifest-validate: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

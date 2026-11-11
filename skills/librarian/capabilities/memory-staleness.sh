@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     --all-projects) ALL_PROJECTS="true"; shift ;;
-    -h|--help) sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "memory-staleness: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done

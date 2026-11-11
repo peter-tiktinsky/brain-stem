@@ -3,7 +3,7 @@
 # functions. Sourced by hook scripts and registry-op.sh.
 # (machine-local coordination): COORD_DIR is resolved via
 # hooks/lib/paths.sh under $CLAUDE_STATE_ROOT (machine-local ephemeral), NOT
-# the's in-vault $VAULT_LOGS/.coordination. The coordination registry +
+# an in-vault $VAULT_LOGS/.coordination. The coordination registry +
 # the four lockf locks (registry/manifest/tasks/reconcile.lock) live at
 # $CLAUDE_STATE_ROOT/.coordination/ — machine-local ephemeral. The
 # REGISTRY_FILE symbol exported to consumer hooks is UNCHANGED; consumer hooks
@@ -27,8 +27,8 @@ done
 unset _peer _peer_path _REGISTRY_LIB_DIR
 
 # Fail-OPEN fallbacks. The hook-journal + validate-hook-output peers are
-# deliberately NOT shipped in brain-stem (clean-room drops emission telemetry
-# + the pre-emit JSON validator; named nowhere in the binding SoT). The peer-loop
+# deliberately NOT shipped in brain-stem (the foundation drops emission telemetry
+# + the pre-emit JSON validator; not a documented requirement). The peer-loop
 # above sources them when present (a dev/adopter who adds them), but the downstream
 # format_output_* calls are UNGUARDED — so without these fallbacks an absent peer
 # makes `validate_hook_output` undefined → rc=127 → format_output_deny emits NOTHING
@@ -133,11 +133,18 @@ heartbeat_row() {
   return 0
 }
 
-# Format hookSpecificOutput JSON. Args: event_name, context_text.
+# Format hookSpecificOutput JSON. Args: event_name, context_text. 9.5KB soft-truncate on
+# additionalContext.
+# Note-only: carries no permissionDecision, so the normal permission flow decides.
 # Returns 0 + emits payload to stdout on validator-pass.
 # Returns 1 + emits NOTHING on validator-reject (caller's emission suppressed).
 format_output() {
   local event="$1" ctx="$2" payload
+  local -r MAX=9728
+  if (( ${#ctx} > MAX )); then
+    ctx="${ctx:0:$((MAX - 60))}"$'\n[... truncated to 9.5KB by format_output]'
+    echo "[format_output] additionalContext exceeded ${MAX}B; soft-truncated. event=$event" >&2
+  fi
   payload=$(jq -n --arg event "$event" --arg ctx "$ctx" \
     '{"hookSpecificOutput":{"hookEventName":$event,"additionalContext":$ctx}}')
 
@@ -177,6 +184,7 @@ format_output_user_notice() {
 
 # Format hookSpecificOutput with permissionDecision="allow" + additionalContext.
 # Args: event_name, additional_context. 9.5KB soft-truncate on additionalContext.
+# Approves: skips the permission prompt on PreToolUse; call it only where the hook means to approve.
 format_output_allow() {
   local event="$1" ctx="$2" payload
   local -r MAX=9728

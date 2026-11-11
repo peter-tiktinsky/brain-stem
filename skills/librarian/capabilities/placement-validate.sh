@@ -6,7 +6,7 @@
 # Rules per SKILL.md:
 #   1. Vault root allowlist: CLAUDE.md (the only foundation-shipped mandatory
 #      vault-root file; System Backlog.md + System Backlog - Archive.md
-#      retired per T-15 Tier B 2026-05-22 — backlog lifecycle now
+#      retired 2026-05-22 — backlog lifecycle now
 #      librarian-owned at ~/.claude-plans/_backlog.md per
 #      governance/plans-rules.json :: root_files).
 #   2. Project folders: only `{Project} - *.md` + `_index.md` + `File-Index.md`
@@ -15,7 +15,7 @@
 #   5. Cluster root: standard files + CLAUDE.md + _index.md + File-Index.md (cluster-parameterized;
 #      skipped when cluster_folder is unset)
 #   6. Reference/ (Tier 1): no engagement-specific files
-#   (rule 7, Logs/ allowed patterns, retired at G3 — vault Logs/ no longer ships)
+#   (rule 7, Logs/ allowed patterns, retired — vault Logs/ no longer ships)
 #
 # Plans scope (--scope equal to $PLANS_DIR) runs the plans-tree rules instead:
 # plans-root-namespace-violation, manifest-less-nn-dir, binder-root-stray-entry, and
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
-    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *) echo "placement-validate: unknown flag '$1'" >&2; exit 2 ;;
   esac
 done
@@ -356,7 +356,7 @@ def emit(payload):
         sys.stdout.write(line + "\n")
 
 # Vault root allowlist (CLAUDE.md per foundation ship; System Backlog
-# entries retired per T-15 Tier B 2026-05-22)
+# entries retired 2026-05-22)
 # + index-file convention.
 VAULT_ROOT_ALLOWLIST = {
     "CLAUDE.md",
@@ -466,7 +466,7 @@ for dirpath, dirnames, filenames in os.walk(scope_root, followlinks=True):
                 findings_count += 1
                 continue
 
-        # Rule 7 (Logs/ allowed patterns) retired at G3 — vault Logs/ no longer
+        # Rule 7 (Logs/ allowed patterns) is retired — vault Logs/ no longer
         # ships; the run-log home relocated to $CLAUDE_LOG_DIR (G4/G7).
 
 if dry_run:
@@ -489,12 +489,12 @@ fi
 
 # Persist the placement summary subtree to the librarian-manifest. This makes
 # the registry's declared writes_manifest_subtree: "drift_findings.placement"
-# real (3-notwired-swallowed-2 fix), mirroring xref-check.sh's manifest_set.
+# real, mirroring xref-check.sh's manifest_set.
 # Review-hardening (empty-VAULT_LOGS contract): a manifest write needs a
 # configured vault — with empty VAULT_LOGS the manifest_set lockfile resolves to
 # '/.coordination/manifest.lock' (uncreatable) and the helper raises under set -e,
 # which a no-vault fresh adopter's session-close logs as a spurious capability
-# error — but G2 moved the manifest under $CLAUDE_STATE_ROOT/manifests and
+# error — but the manifest now lives under $CLAUDE_STATE_ROOT/manifests and
 # its lock under $COORD_DIR (both always creatable), so the persist no longer needs a
 # non-empty VAULT_LOGS. Gate only on having a finding subtree to write.
 # SCOPE-KEYED subtree: the vault sweep and the plans-root-namespace sweep both persist
@@ -511,7 +511,7 @@ if [[ -s "$MANIFEST_SUBTREE_OUT" ]]; then
 fi
 rm -f "$MANIFEST_SUBTREE_OUT"
 
-# === R-15 promotion: RETIRED 2026-05-22 per T-15 Tier B ===============
+# === R-15 promotion: RETIRED 2026-05-22 ===============
 # The backlog-row-missing session-close finding was the librarian-side R-15
 # promotion (lockstep peer with hooks/pre-write-guard.sh R-15 PL_CONTEXT
 # injection retired in the same commit set). Backlog lifecycle now

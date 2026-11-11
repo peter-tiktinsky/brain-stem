@@ -23,7 +23,8 @@
 #   R-32  type: allowlist (Tier 2 DENY)               — line 675+
 #   R-33  folder placement advisory (Tier 1)          — line 705+
 # Rules implemented elsewhere:
-#   R-29/R-30/R-31  backlog row size + sentinel pattern  — ~/.claude/skills/backlog-hygiene/SKILL.md
+#   R-29/R-30/R-31  backlog row size + sentinel pattern  — held by construction by ~/.claude/skills/librarian/capabilities/backlog-index.sh
+#   R-56  backlog row disposition signal                 — ~/.claude/skills/backlog-hygiene/SKILL.md
 #   R-34  self-healing boundary                          — documentary
 #   R-35  stage-gated promotion framework               — documentary
 #   R-37  schema-addition lockstep commit rule         — documentary (enforced by git atomicity); NO hook branch exists. T-3 audit (2026-05-21) confirmed: the "R-37 atomic lockstep DENY" referenced in the tasks.md T-3 description is a misframing — there is no enforcement code to retrofit. Documentary-only across pre-write-guard.sh.
@@ -107,8 +108,8 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 # the session's sentinels on SessionStart source=compact, so the pointer returns after a
 # compaction. Sentinel-only by design: no transcript is read, so an earlier Read of the
 # spec does not suppress the pointer. It never denies and adds no hook
-# registration: the pointer rides whichever allow this hook emits (the wrapper below), or an
-# allow of its own on a silent exit (the EXIT trap). A deny carries no pointer and writes no
+# registration: the pointer rides whichever note this hook emits (the wrapper below), or a
+# note of its own on a silent exit (the EXIT trap). A deny carries no pointer and writes no
 # sentinel. Every step is guarded; any failure leaves the arm silent.
 INFL_CTX=""
 INFL_SENTINEL=""
@@ -191,17 +192,17 @@ if [[ "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Write" ]]; then
   fi
 fi
 if [[ -n "$INFL_CTX" ]]; then
-  eval "_infl_allow_base() $(declare -f format_output_allow | sed '1d')"
+  eval "_infl_note_base() $(declare -f format_output | sed '1d')"
   eval "_infl_deny_base() $(declare -f format_output_deny | sed '1d')"
   _infl_mark() {
     mkdir -p "$(dirname "$INFL_SENTINEL")" 2>/dev/null || true
     : > "$INFL_SENTINEL" 2>/dev/null || true
   }
-  format_output_allow() {
+  format_output() {
     local ev="$1" ctx="${2:-}"
     INFL_OUTPUT_DONE=1
     if [[ -n "$ctx" ]]; then ctx="${ctx}"$'\n\n'"${INFL_CTX}"; else ctx="$INFL_CTX"; fi
-    if _infl_allow_base "$ev" "$ctx"; then _infl_mark; return 0; fi
+    if _infl_note_base "$ev" "$ctx"; then _infl_mark; return 0; fi
     return 1
   }
   format_output_deny() {
@@ -212,7 +213,7 @@ if [[ -n "$INFL_CTX" ]]; then
     local rc=$?
     if [[ "$rc" -eq 0 && "$INFL_OUTPUT_DONE" -eq 0 ]]; then
       INFL_OUTPUT_DONE=1
-      if _infl_allow_base "PreToolUse" "$INFL_CTX"; then _infl_mark; fi
+      if _infl_note_base "PreToolUse" "$INFL_CTX"; then _infl_mark; fi
     fi
     return 0
   }
@@ -283,10 +284,10 @@ fi
 # Work/<spoke>/<rest> (the vault surfaces ~/work as Work/ via a build-time
 # symlink). This prelude rewrites the in-engine FILE_PATH from the physical
 # work-home form to the vault-view form so every downstream consumer — the
-# doc-dependency cascade (1169), Branch #1 Class A (1241), and the 3-tier
-# R-32/R-33/R-47 schema enforcement (1466) — governs the write as Work/<spoke>/…
+# doc-dependency cascade, Branch #1 Class A, and the 3-tier
+# R-32/R-33/R-47 schema enforcement — governs the write as Work/<spoke>/…
 # It MUST precede those consumers; it is inserted before the G1 gate (CORRECTED
-# from a later draft window because :1169 runs first).
+# from a later draft window because the doc-dependency cascade runs first).
 #
 # Three-way gate — ALL must hold to remap (else byte-identical pass-through):
 #   1. WORK_CONFIGURED=1            (vault + Work/ view + WORK_HOME all present)
@@ -362,11 +363,12 @@ fi
 # OUTSIDE that gate: on the first write of a session under an UNREGISTERED
 # $WORK_HOME/<seg>/ it advises /govern register --kind project — the sole mint
 # path for the Work/<seg>/** routing overlay that makes write-time governance
-# fire for the spoke. ADVISORY ONLY, never a deny (terminal allow branch). A
+# fire for the spoke. ADVISORY ONLY, never a deny (terminal advisory branch). A
 # registered spoke (remapped above when WORK_CONFIGURED=1, or resolved here),
 # a hand-scaffolded one (CLAUDE.md present — the predicate that also covers the
 # Bash-mkdir-then-Write path, since this matcher never sees shell mkdir), a bare
-# $WORK_HOME/file.md (no segment) and a once-per-session repeat never see it.
+# $WORK_HOME/file.md (no segment), a dot-prefixed first segment such as .git (tool
+# state, never a spoke candidate) and a once-per-session repeat never see it.
 # `.no-spoke` is the explicit per-folder opt-out for a NON-project folder parked
 # under ~/work (a dotfile the work-map/work-index generators do not list); the
 # advisory teaches the marker at the moment it applies. Fail-OPEN: any resolver
@@ -375,6 +377,7 @@ if [[ -n "${WORK_HOME:-}" ]] && [[ "$FILE_PATH" == "$WORK_HOME/"* ]]; then
   WO_REL="${FILE_PATH#$WORK_HOME/}"
   WO_SEG="${WO_REL%%/*}"
   if [[ -n "$WO_SEG" ]] && [[ "$WO_REL" == */* ]] \
+     && [[ "$WO_SEG" != .* ]] \
      && [[ ! -f "$WORK_HOME/$WO_SEG/CLAUDE.md" ]] \
      && [[ ! -f "$WORK_HOME/$WO_SEG/.no-spoke" ]]; then
     # Registered check — the same resolver + candidate list as the prelude.
@@ -408,7 +411,7 @@ if [[ -n "${WORK_HOME:-}" ]] && [[ "$FILE_PATH" == "$WORK_HOME/"* ]]; then
           mkdir -p "$WO_STATE_DIR/work-onramp-seen/$WO_SID" 2>/dev/null || true
           touch "$WO_STATE_DIR/work-onramp-seen/$WO_SID/$WO_SEG" 2>/dev/null || true
         fi
-        format_output_allow "PreToolUse" "[WORK SPOKE] first write under an unregistered ~/work/<seg>/ — run /govern register --kind project from that directory first (--layout flat is the default; --layout master --first-sub <name> for a master with sub-projects). It records the spoke, scaffolds the layout and emits the Work/<seg>/** routing rule so write-time governance fires. Proactive on-ramp, never a gate — this write is allowed. Not a project? touch ~/work/<seg>/.no-spoke silences this for that folder."
+        format_output "PreToolUse" "[WORK SPOKE] first write under an unregistered ~/work/<seg>/ — this write is allowed (proactive on-ramp, never a gate). Write-time governance fires for the spoke once the operator registers it: from that directory, /govern register --kind project (--layout flat is the default; --layout master --first-sub <name> for a master with sub-projects). Not a project? The operator runs: touch ~/work/<seg>/.no-spoke to silence this for that folder."
         exit 0
       fi
     fi
@@ -423,7 +426,7 @@ fi
 # vault 3-tier schema gate does NOT apply to the plans tree at either address:
 # before this prelude, the SAME file hard-DENIED via its Plans/ vault spelling
 # while the physical spelling passed every schema arm (no remap; the
-# plan-frontmatter block exits allow first) — a guard whose verdict depends on the spelling of a path is
+# plan-frontmatter block exits first with its advisory) — a guard whose verdict depends on the spelling of a path is
 # not an enforcement layer.
 #
 # Mechanism (mirror-image of the Work remap above, opposite direction): when
@@ -527,7 +530,7 @@ if [[ "$FILE_PATH" == "$T5_OVERLAY_TARGET" ]] && [[ "${R52_FORCE_OVERRIDE:-0}" !
     T5_UNAVAILABLE="foundation master missing"
   fi
   if [[ -n "$T5_UNAVAILABLE" ]]; then
-    format_output_allow "PreToolUse" "R-52 write-time check unavailable: ${T5_UNAVAILABLE} (overlay write to $(basename "$FILE_PATH") not checked for unreasoned foundation shadowing)."
+    format_output "PreToolUse" "R-52 write-time check unavailable: ${T5_UNAVAILABLE} (overlay write to $(basename "$FILE_PATH") not checked for unreasoned foundation shadowing)."
     exit 0
   fi
   # Every failure below is an enforcement decision and DENIES (fail-closed):
@@ -578,7 +581,7 @@ PY
   if [[ "$T5_HELPER_RC" == "1" ]]; then
     # R-52 collision detected. Surface helper stderr verbatim plus
     # canonical-shape resolution guidance.
-    T5_DENY_MSG="R-52 write-time DENY (T-5): the pending overlay at $(basename "$FILE_PATH") would shadow foundation entries without per-entry _override_reason. Helper output:"$'\n'"${T5_HELPER_STDERR}"$'\n'"Resolve by adding _override_reason: \"<text>\" inline on each shadowing entry. To bypass for a single write, re-invoke with R52_FORCE_OVERRIDE=1 (per-write only; no persistent disable)."
+    T5_DENY_MSG="R-52 write-time DENY: the pending overlay at $(basename "$FILE_PATH") would shadow foundation entries without per-entry _override_reason. Helper output:"$'\n'"${T5_HELPER_STDERR}"$'\n'"Resolve by adding _override_reason: \"<text>\" inline on each shadowing entry. To bypass for a single write, re-invoke with R52_FORCE_OVERRIDE=1 (per-write only; no persistent disable)."
     format_output_deny "PreToolUse" "$T5_DENY_MSG"
     exit 0
   elif [[ "$T5_HELPER_RC" != "0" ]]; then
@@ -755,7 +758,6 @@ PYEOF
 
     if [[ "$MSF_HATCH_USED" == "true" ]]; then
       { mkdir -p "${CLAUDE_STATE_ROOT}/audit" 2>/dev/null && echo "$(date -Iseconds) | pre-write-guard | MANAGED_SURFACE_OK override | $FILE_PATH" >> "${CLAUDE_STATE_ROOT}/audit/hook-audit.log"; } 2>/dev/null || true
-      format_output_allow "PreToolUse" ""
       exit 0
     fi
 
@@ -765,7 +767,6 @@ PYEOF
     fi
 
     if [[ "$MSF_SUPPRESSED" == "true" ]]; then
-      format_output_allow "PreToolUse" ""
       exit 0
     fi
     if [[ -n "$MSF_KEY" ]]; then
@@ -773,7 +774,7 @@ PYEOF
       : > "$MSF_SEEN_DIR/$MSF_KEY" 2>/dev/null || true
       find "$MSF_SEEN_DIR" -type f -mtime +7 -delete 2>/dev/null || true
     fi
-    format_output_allow "PreToolUse" "[MANAGED-SURFACE ADVISORY] $FILE_PATH is a managed live file (foundation-manifest member '${MSF_REL}', install v${MSF_VERSION}). A live-only edit forks the managed tree: the next release delivery reverts it silently and the change is lost. Route the edit through the foundation source repo and ship it via a release. Sanctioned temporary-test lane only: export MANAGED_SURFACE_OK=1 (every use audit-logged), then port the change and clean the live fork. This note fires once per file per session; every write is still recorded for promotion telemetry, and shell-vector writes are watched by the managed-surface census."
+    format_output "PreToolUse" "[MANAGED-SURFACE ADVISORY] $FILE_PATH is a managed live file (foundation-manifest member '${MSF_REL}', install v${MSF_VERSION}). A live-only edit forks the managed tree: the next release delivery reverts it silently and the change is lost. Route the edit through the foundation source repo and ship it via a release. Sanctioned temporary-test lane only: export MANAGED_SURFACE_OK=1 (every use audit-logged), then port the change and clean the live fork. This note fires once per file per session; every write is still recorded for promotion telemetry, and shell-vector writes are watched by the managed-surface census."
     exit 0
   fi
 fi
@@ -783,7 +784,7 @@ fi
 # Enforces librarian-only
 # writes to the 2 plans-tree root files (_index.md / _backlog.md).
 # Detection: path-glob match against $HOME/.claude-plans/_{index,backlog}.md.
-# Caller-detection: env-var stamp CLAUDE_LIBRARIAN_WRITE=1 (per).
+# Caller-detection: env-var stamp CLAUDE_LIBRARIAN_WRITE=1.
 # Action: DENY when env unset; advisory directs caller to the librarian skill.
 # Positioned BEFORE R-27 because the librarian-generated registry files are
 # NOT plans (they don't carry NN- prefix or status markers); R-27 would
@@ -912,6 +913,7 @@ if [[ "$FILE_PATH" == "$PR_PLANS_DIR/"* ]]; then
       PR_ROLLOUT="${PLANS_ROOT_ROLLOUT:-deny}"   # deny (default since the re-home) | ask (advisory override)
       PR_MSG="[plans-root closed namespace] '${PR_TOP}' is not an allowed plans-root entry (plans-rules.json :: root_namespace). A durable artifact with no owning plan is captured then graduated through the funnel — the sole mint path — never written to a hand-invented ~/.claude-plans/ root surface:
   capture:   promote-from-inbox.sh --capture <slug> --disposition <value>   # write the decided idea note now
+  triage:    triage-apply.sh <slug> --classification <class> --rationale <line>  # classify it (new -> triaged)
   graduate:  promote-from-inbox.sh <slug>                                   # mint the NN-<slug>/ plan when ready
 then precursors go in a workshop dir (workshop open <topic>-<plan-slug>) and the one synthesis moves into <plan>/_research/ with workshop promote <key> <file> --plan <plan-dir>. Escape hatch: export PLANS_ROOT_OK=1 (logged)."
       if [[ "${PLANS_ROOT_OK:-0}" == "1" ]]; then
@@ -920,7 +922,7 @@ then precursors go in a workshop dir (workshop open <topic>-<plan-slug>) and the
         format_output_deny "PreToolUse" "$PR_MSG"
         exit 0
       else
-        format_output_allow "PreToolUse" "$PR_MSG (advisory; rollout=ask)"
+        format_output "PreToolUse" "$PR_MSG (advisory; rollout=ask)"
         exit 0
       fi
     fi
@@ -1212,7 +1214,7 @@ def verdict():
 print(verdict())
 ' 2>/dev/null)
     if [[ "$OB_VERDICT" == "deny" ]]; then
-      OB_REASON="One-block-per-page (T-7): this markdown page carries a SECOND frontmatter block. A page may have at most ONE frontmatter block (the top-of-file YAML). A second '---...---' fence pair that is adjacent to the first block, or whose interior is YAML-like (>=70% key:value with a top-level key), renders as a broken/second Obsidian Properties block. De-fence the second block (collapse it to non-fenced content) or move its keys into the top frontmatter. Prose thematic breaks (HR '---') are not affected. Escape hatch: export ONE_BLOCK_OK=1 (logged)."
+      OB_REASON="One-block-per-page: this markdown page carries a SECOND frontmatter block. A page may have at most ONE frontmatter block (the top-of-file YAML). A second '---...---' fence pair that is adjacent to the first block, or whose interior is YAML-like (>=70% key:value with a top-level key), renders as a broken/second Obsidian Properties block. De-fence the second block (collapse it to non-fenced content) or move its keys into the top frontmatter. Prose thematic breaks (HR '---') are not affected. Escape hatch: export ONE_BLOCK_OK=1 (logged)."
       format_output_deny "PreToolUse" "$OB_REASON"
       exit 0
     fi
@@ -1667,7 +1669,7 @@ PYEOF
       # decisions/, its decision_records[] entry, one pointer line under the spec's
       # ## Amendment register. A write that adds an Amendment, Operator decision points or
       # Rulings heading to spec.md is hand-authoring that record, so name the verb.
-      # Allow plus context only; never denies. A heading already on disk does not fire.
+      # Note only; never denies. A heading already on disk does not fire.
       if [[ "$PL_EXPECTED_TYPE" == "spec" ]]; then
         SA_HEAD_RE='^#{1,6}[[:space:]]+.*(amendment|operator decision points|rulings)'
         SA_NEW=$(printf '%s\n' "$PL_CONTENT" | grep -iE "$SA_HEAD_RE" 2>/dev/null | sed -E 's/[[:space:]]+$//' | sort || true)
@@ -1806,7 +1808,7 @@ PYEOF
   #               free NN-). This is the block's only deny: an existing file and an Edit are
   #               never denied.
   #   _gates/     a Write that creates a file whose name misses gate_records.filename_pattern
-  #               gets an allow-plus-context advisory.
+  #               gets a note-only advisory.
   # Scope: .md writes under <plans-root>/<NN-plan>/ in a _research/ or _gates/ folder.
   # Absent key (no master, no gate_records slot) skips the block; an UNREADABLE source denies.
   # Like every Edit|Write arm it is blind to shell writes; the close-time refusal covers those.
@@ -1986,15 +1988,14 @@ PYEOF
   # See block header comment for rationale. Only the plan-frontmatter advisory remains here.
 
   if [[ -z "$R40_ADVISORY" ]]; then
-    # No advisory — pass through allow.: format_output_allow with empty
-    # ctx (adds empty additionalContext; decision/permissionDecision unchanged).
-    format_output_allow "PreToolUse" ""
+    # No advisory: no opinion. The hook emits nothing and the normal permission flow decides.
+    :
   elif [[ -n "$R65_DENY_MSG" ]] && [[ "${R65_ALLOW_OVERRIDE:-0}" != "1" ]]; then
     # R65_PROMOTED: the canonical-type arm DENIES (mechanism-named message;
     # the legacy advisory below survives only under the rollback override).
     format_output_deny "PreToolUse" "$R65_DENY_MSG"
   else
-    format_output_allow "PreToolUse" "$R40_ADVISORY"
+    format_output "PreToolUse" "$R40_ADVISORY"
   fi
   exit 0
 fi
@@ -2101,7 +2102,7 @@ if [[ "$FILE_PATH" == "${CLAUDE_HOME:-$HOME/.claude}/skills/"*"/SKILL.md" ]] || 
     fi
   fi
 
-  format_output_allow "PreToolUse" "$SKILL_CTX"
+  format_output "PreToolUse" "$SKILL_CTX"
   exit 0
 fi
 
@@ -2154,7 +2155,7 @@ case "$FILE_PATH" in
           ;;
       esac
     fi
-    format_output_allow "PreToolUse" "$RS_ADVISORY"
+    if [[ -n "$RS_ADVISORY" ]]; then format_output "PreToolUse" "$RS_ADVISORY"; fi
     exit 0
     ;;
   "${CLAUDE_HOME:-$HOME/.claude}/schemas/"*.json|"${FOUNDATION_REPO:-$HOME/Code/brain-stem}/schemas/"*.json)
@@ -2171,7 +2172,7 @@ case "$FILE_PATH" in
         RS_JSON_ADVISORY="[SCHEMA JSON] $(basename "$FILE_PATH") under schemas/ is NOT well-formed JSON (jq failed to parse the post-write content). A malformed schema silently disables every validator that consumes it. Advisory only — this write is allowed."
       fi
     fi
-    format_output_allow "PreToolUse" "$RS_JSON_ADVISORY"
+    if [[ -n "$RS_JSON_ADVISORY" ]]; then format_output "PreToolUse" "$RS_JSON_ADVISORY"; fi
     exit 0
     ;;
 esac
@@ -2280,7 +2281,7 @@ PYEOF
       MEM_BREACHES="${MEM_BREACHES}\n- a vault-pointer entry starts at line ${MEM_G1_LINE}, past the 200-line/${MEM_BYTE_CAP}-byte fold [POINTER PLACEMENT ADVISORY — G1/R-59]: it loads invisibly — move it above the fold (the TOP of its section)"
     fi
     if [[ -n "$MEM_BREACHES" ]]; then
-      format_output_allow "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25,000 UTF-16 code units (whichever first) of MEMORY.md at session start, measured on the trimmed, frontmatter- and comment-stripped text (documented at code.claude.com/docs/en/memory). Entries past the cap drop from context — the bottom of your index never reaches the model — and from the next session on the harness says so, appending a visible WARNING footer to the part it did load. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. (4) to relocate the coldest entries to MEMORY-archive.md, run /librarian memory-spill (preview) and then /librarian memory-spill --apply. MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
+      format_output "PreToolUse" "[MEMORY.md CAP ADVISORY — R-59] Write to ${FILE_PATH#$HOME/} exceeds Anthropic-documented load contract thresholds:${MEM_BREACHES}\n\nThe harness loads only the first 200 lines OR first 25,000 UTF-16 code units (whichever first) of MEMORY.md at session start, measured on the trimmed, frontmatter- and comment-stripped text (documented at code.claude.com/docs/en/memory). Entries past the cap drop from context — the bottom of your index never reaches the model — and from the next session on the harness says so, appending a visible WARNING footer to the part it did load. Remediation: (1) move detail to per-topic files under memory/ and reference via [[wikilinks]] from the index, (2) trim verbose index entries to the ≤200-char one-line-per-entry discipline, (3) keep vault-pointer entries at the TOP of their section so they load above the fold. (4) to relocate the coldest entries to MEMORY-archive.md, run /librarian memory-spill (preview) and then /librarian memory-spill --apply. MEMORY.md is a read-replica/index, not load-bearing curated content. Advisory only — write proceeds; promotion to BLOCK gated on 30-day adoption data."
       exit 0
     fi
   fi
@@ -2289,7 +2290,7 @@ fi
 # --- WARNING: Memory file overlap detection + schema validation ---
 # Index dir is the memory file's OWN dir (the line-below guard confirms
 # FILE_PATH is a .../projects/<slug>/memory/*.md path). Keying-agnostic: works
-# for per-project memory dirs and's symlinked shared dir alike.
+# for per-project memory dirs and a symlinked shared dir alike.
 # T-3: replaces a hardcoded $HOME-slug that only resolved on the symlinked setup.
 if [[ "$FILE_PATH" == *"/.claude/projects/"*"/memory/"*".md" ]] && \
    [[ "$(basename "$FILE_PATH")" != "MEMORY.md" ]]; then
@@ -2488,7 +2489,7 @@ PYEOF
       [[ -n "$COMBINED" ]] && COMBINED="${COMBINED}\n\n"
       COMBINED="${COMBINED}${SCHEMA_MSG}"
     fi
-    format_output_allow "PreToolUse" "$COMBINED"
+    format_output "PreToolUse" "$COMBINED"
     exit 0
   fi
 fi
@@ -2632,7 +2633,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ -n "$BUNDLE_JSON" ]]; then
       )
   ' <<<"$BUNDLE_JSON" 2>/dev/null || true)
   if [[ -n "$DEP_MATCH" ]]; then
-    DOC_DEP_CTX="[DOC-DEPENDENCY CASCADE] This write touches a registered documentation dependency:\n${DEP_MATCH}\n\nReview the mirrors in this same session, OR file a waiver via the canonical writer:\n  source ~/.claude/hooks/cascade-waiver.sh && cascade_waiver_write <entry_id> \"<reason>\"\n(Do NOT write cascade-waivers.json directly — drifted shapes have accumulated across 24 sessions. T-1 audit 2026-04-20.)\nLibrarian session-close Step 2c will block otherwise."
+    DOC_DEP_CTX="[DOC-DEPENDENCY CASCADE] This write touches a registered documentation dependency:\n${DEP_MATCH}\n\nReview the mirrors in this same session, OR file a waiver via the canonical writer:\n  source ~/.claude/hooks/cascade-waiver.sh && cascade_waiver_write <entry_id> \"<reason>\"\n(Do NOT write cascade-waivers.json directly.)\nLibrarian session-close Step 2c will block otherwise."
   fi
 fi
 
@@ -2683,7 +2684,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
           # proposal path) so it falls through to the 3-TIER VAULT SCHEMA gate
           # below — the same existing-file enforcement every deeper path
           # already has. Without this, a type: hijack on the root _index.md
-          # short-circuits to allow with a misleading "creating" advisory.
+          # short-circuits to a misleading "creating" advisory.
           B1_DEPTH0_EXISTING=1
         else
           B1_FRAGMENT="[Propose-and-Validate — Branch #1 Class B] You are creating a new vault-root file: '${B1_REL}'. The only mandatory vault-root file is CLAUDE.md. New vault-root files register a new semantic extension. Suggested: run \`/govern register --kind file-type --name <type-slug> --contract <path>\` to register a contract for this file, OR dismiss to proceed (logged in governance-action-log as \`unregistered: true\`, proposed_by: hook-class-b; surfaces via librarian governance-parity-audit). Soft-mandate; frictionless skip available."
@@ -2734,7 +2735,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   # in foundation/overlay or was previously registered). An EXISTING depth-0
   # file is likewise excluded (B1_DEPTH0_EXISTING): overwriting an existing
   # vault-root file is a mutation, not a new-file-type proposal, and must
-  # reach the 3-tier gate below rather than allow-with-advisory here.
+  # reach the 3-tier gate below rather than advise-only here.
   if [[ -z "$B1_FRAGMENT" ]] && [[ "$B1_DEPTH0_EXISTING" == "0" ]] && [[ "$TOOL_NAME" == "Write" ]]; then
     B1_C_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
     if [[ -n "$B1_C_CONTENT" ]]; then
@@ -2756,7 +2757,7 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   fi
 
   if [[ -n "$B1_FRAGMENT" ]]; then
-    format_output_allow "PreToolUse" "$B1_FRAGMENT"
+    format_output "PreToolUse" "$B1_FRAGMENT"
     exit 0
   fi
 fi
@@ -2774,8 +2775,8 @@ fi
 if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && [[ "$FILE_PATH" == *.md ]]; then
   B2_BASENAME=$(basename "$FILE_PATH" .md)
   # T-3: TZ + pillar 7 universal read via union view (replaces direct
-  # overlay file read at-and direct vault-writers-rules.json file
-  # read at-). Foundation pillar 7 is composed into the bundle at
+  # overlay file read and direct vault-writers-rules.json file read).
+  # Foundation pillar 7 is composed into the bundle at
   # `.vault_writers`; overlay can extend via `.vault_writers.*` per per-leaf
   # merge strategy (T-7). TZ default chain: union .system.timezone → empty
   # → hardcoded "America/New_York" per.
@@ -2818,7 +2819,10 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
         # not the on-disk governance/file-type-contracts/<type>.md.json (never
         # written for an adopter type). Fall back to the union pillar so the
         # adopter's per-type contract is actually READ (pre-fix it was 0-readers).
-        B2_PATTERN=$(jq -r --arg t "$B2_TYPE" '.file_type_contracts[$t].historical_data_warning_pattern // empty' <<<"$UNION_JSON" 2>/dev/null || true)
+        # The key is the bare type name (the /govern file-type mode writes it so) first,
+        # then the .md-suffixed name the composed foundation contracts carry (bare wins).
+        # swallow-ok: reports=none a failed union read falls through to the universal historical-data pattern; the warning is advisory only
+        B2_PATTERN=$(jq -r --arg t "$B2_TYPE" '.file_type_contracts[$t].historical_data_warning_pattern // .file_type_contracts[$t + ".md"].historical_data_warning_pattern // empty' <<<"$UNION_JSON" 2>/dev/null || true)
       fi
     fi
   fi
@@ -2827,10 +2831,10 @@ if [[ "$VAULT_CONFIGURED" == "1" ]] && [[ "$FILE_PATH" == "$VAULT_ROOT/"* ]] && 
   if [[ -n "$B2_PATTERN" ]]; then
     if printf '%s\n' "$B2_BASENAME" | grep -qE "$B2_PATTERN"; then
       # Extract leading YYYY-MM-DD date portion if present.
-      B2_PARSED_DATE=$(printf '%s\n' "$B2_BASENAME" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE "$B2_PATTERN"' (:1815) whose default ^\d{4}-\d{2}-\d{2} is equivalent to this ^[0-9]{4}-[0-9]{2}-[0-9]{2} (BSD grep -E \d==[0-9]); guarded by [[ -n "$B2_PARSED_DATE" ]] at :1818
+      B2_PARSED_DATE=$(printf '%s\n' "$B2_BASENAME" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE "$B2_PATTERN"' whose default ^\d{4}-\d{2}-\d{2} is equivalent to this ^[0-9]{4}-[0-9]{2}-[0-9]{2} (BSD grep -E \d==[0-9]); guarded by the [[ -n "$B2_PARSED_DATE" ]] test on the next line
       if [[ -n "$B2_PARSED_DATE" ]] && [[ "$B2_PARSED_DATE" < "$B2_TODAY" ]]; then
         B2_CTX="[Historical Data Warning] This file's basename indicates a past date (${B2_PARSED_DATE} < ${B2_TODAY} in ${B2_TZ}). Are you intentionally modifying historical content? If you're capturing a correction or addendum, consider creating a new dated file referencing the original instead. (Advisory only — write proceeds.) Source pattern: $([ -n "$B2_TYPE" ] && echo "file-type-contracts/${B2_TYPE}.md.json :: historical_data_warning_pattern" || echo "vault-writers-rules.json :: historical_data_warning_default")."
-        format_output_allow "PreToolUse" "$B2_CTX"
+        format_output "PreToolUse" "$B2_CTX"
         exit 0
       fi
     fi
@@ -3175,7 +3179,7 @@ print(content, end='')
         # the R-32 TYPE-allowlist single-load + variable-hold pattern.
         # Derives R32_TAXONOMY_UNION_PREFIXES from union .tagging.taxonomy.
         # dimension_prefixes; composes regex + list mirroring the foundation-
-        # only derivation at-. Fall-back to foundation-only regex
+        # only derivation. Fall-back to foundation-only regex
         # if UNION_JSON empty (preserves pre-retrofit behavior).
         # Closes Surprise #3 (scope packet): packet 06 reproduction
         # targets this branch but retargeted to R-32 TYPE-allowlist.
@@ -3271,7 +3275,7 @@ print(content, end='')
           fi
         fi
 
-        # TIER 1 — Auto-fix guidance (additionalContext, always ALLOW)
+        # TIER 1 — Auto-fix guidance (additionalContext only, never a decision)
 
         # Check for missing 'updated' field — gated on schema's required list
         # for the target type (source of truth). Types whose schema does not
@@ -3338,7 +3342,7 @@ print(content, end='')
         TAGS_BLOCK=$(echo "$FRONTMATTER" | awk '/^tags:[[:space:]]*$/{found=1;next} found && /^  - /{print; next} found{exit}')
         TAGS_INLINE_CONTENT=""
         if echo "$FRONTMATTER" | grep -qE '^tags:[[:space:]]*\['; then
-          TAGS_INLINE_CONTENT=$(echo "$FRONTMATTER" | grep -E '^tags:[[:space:]]*\[' | head -1 | sed -E 's/^tags:[[:space:]]*\[[[:space:]]*//; s/[[:space:]]*\].*//')  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE ^tags:...\[' (:2219) which uses the identical pattern, guaranteeing this grep matches
+          TAGS_INLINE_CONTENT=$(echo "$FRONTMATTER" | grep -E '^tags:[[:space:]]*\[' | head -1 | sed -E 's/^tags:[[:space:]]*\[[[:space:]]*//; s/[[:space:]]*\].*//')  # errexit-crash-guard-ok: FP zero-match impossible: reached only inside 'if ... grep -qE ^tags:...\[' which uses the identical pattern, guaranteeing this grep matches
         fi
         TAGS_RAW="${TAGS_INLINE_CONTENT}${TAGS_BLOCK}"
 
@@ -3623,7 +3627,7 @@ PYEOF
             fi
             COHORT_SOFT_MISSING="${COHORT_SOFT_MISSING%, }"
             if [[ -n "$COHORT_SOFT_MISSING" ]]; then
-              TIER1_MSGS="${TIER1_MSGS}[R-64 COHORT FIELD] File type '${SCHEMA_KEY}' is missing soft-tier cohort field(s): ${COHORT_SOFT_MISSING}. These WARN but do not block — forward-governance auto-stamp and the frontmatter-enforce --fix backfill populate created/description/id/schema_version; add them manually or run the fixer. Advisory only — not blocking.\n"
+              TIER1_MSGS="${TIER1_MSGS}[R-64 COHORT FIELD] File type '${SCHEMA_KEY}' is missing soft-tier cohort field(s): ${COHORT_SOFT_MISSING}. These WARN but do not block — the write-time auto-stamp covers vault and physical Work Edit and Write and populates created/description/id/schema_version; frontmatter-enforce --fix is a manual backfill that does not run automatically, so add them manually or run the fixer by hand. Advisory only — not blocking.\n"
             fi
             SCOPE_SOFT_MISSING="${SCOPE_SOFT_MISSING%, }"
             if [[ -n "$SCOPE_SOFT_MISSING" ]]; then
@@ -3829,7 +3833,7 @@ Work"
         fi
 
         if [[ -n "$COMBINED_CTX" ]]; then
-          format_output_allow "PreToolUse" "$COMBINED_CTX"
+          format_output "PreToolUse" "$COMBINED_CTX"
           exit 0
         fi
       fi
@@ -3869,7 +3873,7 @@ if [[ -f "$REGISTRY" ]] && [[ -n "$OVERLAP_SID" ]]; then
     ' "$REGISTRY" 2>/dev/null | head -1)
 
     if [[ -n "$PEER" ]]; then
-      format_output_allow "PreToolUse" "[MULTI-SESSION OVERLAP] File ${REL_PATH} was already modified by peer session ${PEER}. Coordinate before making conflicting changes."
+      format_output "PreToolUse" "[MULTI-SESSION OVERLAP] File ${REL_PATH} was already modified by peer session ${PEER}. Coordinate before making conflicting changes."
       exit 0
     fi
   fi
@@ -3880,7 +3884,7 @@ fi
 # write that skipped the 3-tier block), surface the reminder here so the
 # doc-dependency cascade warning never silently drops.
 if [[ -n "${DOC_DEP_CTX:-}" ]]; then
-  format_output_allow "PreToolUse" "$DOC_DEP_CTX"
+  format_output "PreToolUse" "$DOC_DEP_CTX"
   exit 0
 fi
 

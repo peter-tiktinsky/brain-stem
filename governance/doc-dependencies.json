@@ -43,6 +43,7 @@
       "_framing": "thin/legacy — the vault-writer fan-out (R-58 / writer-reference contract) is the FORWARD path; R-54 covers the registry-declared cascade edges only."
     }
   ],
+  "_entries_note": "entries[] ships EMPTY BY DESIGN, and an empty array here is the correct state of a fresh install — not a defect and not a stripped registry. A cascade edge names two concrete documents in one adopter's tree, so the foundation has none to declare: entries[] is the ADOPTER-REGISTERED slot (an R-52 entity slot under doc_dependencies, extended via overlay-master.json), and the foundation-side coupling it would otherwise carry is already the forward vault-writer fan-out (R-58 / the writer-reference contract), of which R-54 is the thin/legacy companion. Consumers read it defensively: the write-time cascade advisory in pre-write-guard.sh and the doc-amender writer-fan-in lane both no-op on zero eligible entries. A file-type contract must therefore NOT name a slot in this array as a lockstep pair — there is nothing shipped to move with it.",
   "entries": [],
   "entities": {
     "_comment": "Entity parity registry. Each entity declares a canonical source path template with {name} placeholder, an instance-enumerator (glob/file-list/directory-index), the canonical field to compare, and mirrors with strict/presence-only flags. Declarative entity-mirror registry; per-type parity enforced independently by trinity-drift-detect (plan) + memory-hygiene (memory); no generic entity-parity capability ships.",

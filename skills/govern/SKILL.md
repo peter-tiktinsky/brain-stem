@@ -23,7 +23,7 @@ Both hook-invocation (via additionalContext from `pre-write-guard.sh` branch
 code path. Plans-tree creation is ORTHOGONAL — use `/new-plan` or
 `/backlog-research`; never `/govern register`.
 
-## Invocation contracts (per)
+## Invocation contracts
 
 ```sh
 # Class A — new top-level vault folder
@@ -68,7 +68,7 @@ mutation is folder-class). It NEVER appends to the vault-root `CLAUDE.md` tree
 (the FIX#3 carve-out — a project's identity lives in its own work `CLAUDE.md`;
 cross-plan state lives in the machine-derived binder at `~/.claude-plans/_projects/<spoke>/`).
 
-**Two create shapes ():**
+**Two create shapes:**
 
 - `--layout flat` (default) — the flat MVP (CLAUDE.md + README + updates.md +
   `deliverables/` + `reference/`); overlay rule `Work/<spoke>/**`.
@@ -84,7 +84,7 @@ cross-plan state lives in the machine-derived binder at `~/.claude-plans/_projec
 **Identity bound (the #1 recursion control):** a spoke is minted ONLY for a
 directory EXACTLY one level under `$WORK_HOME` — `project.sh` rejects any cwd
 where `canonical(dirname(cwd)) != canonical($WORK_HOME)` (depth-2 BLOCKS). Only
-the MASTER registers a spoke; sub-projects are ORGANIZATIONAL UNITS () with no
+the MASTER registers a spoke; sub-projects are ORGANIZATIONAL UNITS with no
 spoke, no anchor, no `CLAUDE.md` (— each sub `README` carries a
 one-line launch advisory). Re-registering an existing spoke BLOCKS (no dup anchor,
 no re-scaffold).
@@ -522,5 +522,4 @@ code, and a structural layer beats a remembered reminder:
 - `schemas/overlay-master-schema.json` (overlay pillar structure — Batch A)
 - `schemas/governance-action-log-schema.json` (action-log row shape — Batch A)
 - `governance/file-type-contracts/vault-writer.md.json` (writer-reference contract — T-12)
-- Foundation governance semantic-extension-flow reference (lock chain — + Class D)
-- Foundation governance target-state doc / / / (6-step protocol canonical)
+- The 6-step protocol mapping above is canonical

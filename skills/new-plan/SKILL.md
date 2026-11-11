@@ -32,7 +32,7 @@ The mechanical engine is `new-plan.sh`; the `_inbox` graduation helper is
 | **research-skip (default)** | `/new-plan <slug>` | flat depth-2 quartet + placeholder brief; `type: plan` |
 | **research-backed** | `/backlog-research <item>` (peer skill) | same quartet, filled brief |
 | **`--master` (OPT-IN)** | `/new-plan --master <slug> --sub <sub-slug>` | master quartet + first sub-plan quartet |
-| **`--add-subplan`** | `/new-plan --add-subplan <master-NN-slug> --sub <sub-slug>` | new sub-plan quartet into an existing master; registers it in the master's `sub_plans[]` |
+| **`--add-subplan`** | `/new-plan --add-subplan <master-NN-slug> --sub <sub-slug>` | new sub-plan quartet into an existing master; registers it in the master's `sub_plans[]`, then runs the master rollup so the master `tasks.md` rows are current |
 | **`--graduate`** | `/new-plan --graduate <flat-NN-slug> --sub <sub-slug> [--dry-run]` | turns a flat plan into a master whose first sub-plan is the plan's own content; the plan keeps its number |
 | **`--rollup`** | `/new-plan --rollup <master-NN-slug>` | rewrites the master `tasks.md` rollup rows from the master's `sub_plans[]` aggregate |
 
@@ -117,7 +117,7 @@ amendment-pointer-block, per the ideation-brief body-structure contract.)
 
 | Aspect | Value |
 |---|---|
-| Files written | **flat:** 5 files (`spec.md`, `tasks.md`, `handoff.md`, `manifest.json`, `00-ideation-brief.md`) under `<plans-root>/NN-<slug>/`. **--master:** master quartet (4) + first sub-plan quartet (4) under `NN-<slug>/` and `NN-<slug>/01-<sub-slug>/`. **--add-subplan:** sub-plan quartet (4) under `NN-<slug>/NN-<sub-slug>/` + a `sub_plans[]` skeleton append to the master manifest. **--graduate:** the plan's whole content moves under `NN-<slug>/01-<sub-slug>/`, the master quartet (4) is rendered at `NN-<slug>/`, and the sub-plan manifest, the frontmatter lines of the moved `spec.md` / `tasks.md` / `handoff.md` / `00-ideation-brief.md` and the master manifest are rewritten. **--rollup:** the rollup rows of the master `tasks.md`, plus the master manifest's `sub_plans[]` when the pull changed it. |
+| Files written | **flat:** 5 files (`spec.md`, `tasks.md`, `handoff.md`, `manifest.json`, `00-ideation-brief.md`) under `<plans-root>/NN-<slug>/`. **--master:** master quartet (4) + first sub-plan quartet (4) under `NN-<slug>/` and `NN-<slug>/01-<sub-slug>/`. **--add-subplan:** sub-plan quartet (4) under `NN-<slug>/NN-<sub-slug>/` + a `sub_plans[]` skeleton append to the master manifest, then the rollup rows of the master `tasks.md` (a rollup that cannot run prints one NOTE naming `new-plan.sh --rollup` and the exit code stays 0). **--graduate:** the plan's whole content moves under `NN-<slug>/01-<sub-slug>/`, the master quartet (4) is rendered at `NN-<slug>/`, and the sub-plan manifest, the frontmatter lines of the moved `spec.md` / `tasks.md` / `handoff.md` / `00-ideation-brief.md` and the master manifest are rewritten. **--rollup:** the rollup rows of the master `tasks.md`, plus the master manifest's `sub_plans[]` when the pull changed it. |
 | Schema type | plan manifests validated against `schemas/plan-manifest-schema.json` (`type: plan` / `master` / `sub-plan`; ADR if/then type-binding). Markdown bodies conform to the `governance/file-type-contracts/{spec,tasks,handoff,manifest,ideation-brief}.md.json` contracts. |
 | Pre-write validation | (a) slug shape + shame-slug regex; (b) length 3–60; (c) next-prefix computation; (d) base-slug collision check; (e) template presence; (f) for `--add-subplan`: master exists + `type == master` + sub-slug collision check. All run BEFORE any write. |
 | Failure mode | **block-and-log** — validate fully before any write; on any mid-scaffold write failure, roll back the created directory and report. Never leave partial state; never write-and-hope. |
@@ -152,8 +152,29 @@ subagent returned. Step 9 is the one setter command, the same one `skills/backlo
 names in its step 9:
 `${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/field-set.sh plan set <manifest> status=planned disposition=<disposition>`
 
+## Arming the active plan
+
+The active-plan pointer (`<plans-root>/_projects/<spoke>/.active-plan`) names the plan a spoke is building;
+the readers of `hooks/lib/active-plan-resolve.sh` take their armed path from it. Two commands write it:
+
+```
+bash ${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/active-plan.sh set <plan-key> [<sp>|.] [--project <spoke-key>] [--plans-root DIR]
+bash ${CLAUDE_HOME:-$HOME/.claude}/skills/new-plan/lib/active-plan.sh clear [--project <spoke-key>] [--plans-root DIR]
+```
+
+`set` writes the plan key to the spoke's pointer (the spoke is `--project`, else the plan manifest's own
+`project`, checked against the anchored-spoke registry) and, when `<sp>` is given, the sub-plan to
+`<plan>/.active-sp`. It stamps the plan in-progress through hooks/lib/field-set.sh plan set, when the manifest
+the pointer resolves to is planned or paused; an in-progress plan is left as it is, so a second `set` changes
+nothing. It refuses a completed or superseded plan, and it refuses a plan that is not ready to arm (any other
+status, or none), before it writes anything. `clear` removes the pointer and leaves the plan's status alone
+(without `--project` the spoke is the one the working directory resolves to). Neither command looks at
+the plan's review state or where it is being built.
+
 ## Related
 
+- `lib/active-plan.sh` — the `set` / `clear` verb for the active-plan pointer; `set` stamps the plan in-progress
+  through the field setter and refuses a terminal plan.
 - `new-plan.sh` — the mechanical scaffolder entrypoint (flat / `--master` / `--add-subplan` / `--graduate` / `--rollup`).
 - `lib/promote-from-inbox.sh` — the internal R-34 mechanical helper: graduates an `_inbox`
   idea note into a plan dir (version-on-collision at capture; reject-on-collision at

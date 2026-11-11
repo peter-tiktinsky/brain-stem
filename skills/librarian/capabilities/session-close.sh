@@ -21,8 +21,8 @@
 #             inbox-drain-check, plan-index, plan-parent-resolve) + the auto-fire adds:
 #             writers-index-refresh + writers-overlap-refresh (vault-health),
 #             drift-sweep --plans --fix (the master<->sub reconciler), and
-#             governance-parity-audit (R-37's enforcement vehicle — BUILD-DOGFOOD
-#             ONLY, excluded from the adopter chain per LOCKED G2). The 3 cut caps
+#             governance-parity-audit (the R-37 backstop; --upgrade on the build box,
+#             the base arms on an adopter install). The 3 cut caps
 #             (cron-log-architecture, sync-check, architect-triage) were struck.
 #   Step 2b : rename cascade. Runs
 #             rename-detect.sh over last-24h git log across VAULT + PLANS,
@@ -380,7 +380,7 @@ esac
 # last receipt exits 0 here, before any capability work. Dry runs never short-
 # circuit: they write nothing, so they always report the full would-do walk.
 #
-# Session-scoped (T-6): a receipt suppresses THIS session's
+# Session-scoped: a receipt suppresses THIS session's
 # close only when it is <60s old AND its `session_id:` line equals this
 # session's SELF_SESSION_ID, is bare, or is absent (receipts written before the
 # id was stamped). EVERY fresh receipt is checked, not only the newest, so two
@@ -452,6 +452,24 @@ record_capability() {
   fi
 }
 
+# This session's touched_files from the session registry, read for the scan named in $1 and
+# left in SESSION_TOUCHED_FILES, one path per line. The jq exit code is captured through a
+# command substitution in this shell (a process substitution would hide it, and a subshell
+# would lose the record). A registry that exists but cannot be read records one
+# touched-files error naming the scan, and the scan runs with an empty list. The callers
+# keep the absent-registry guard, so an absent registry stays silent.
+SESSION_TOUCHED_FILES=""
+read_session_touched_files() {
+  local scan="$1" jrc
+  SESSION_TOUCHED_FILES="$(jq -r --arg s "$SELF_SESSION_ID" \
+    '.sessions[$s].touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null)"
+  jrc=$?
+  if [[ "$jrc" -ne 0 ]]; then
+    SESSION_TOUCHED_FILES=""
+    record_capability "touched-files" "error" "registry unreadable at $SESSION_REGISTRY (jq exit $jrc); $scan scan ran without session files"
+  fi
+}
+
 # Stub-aware runner. In test mode, emit a deterministic token and skip the
 # real invocation. In normal mode, invoke the capability and record status.
 #
@@ -512,7 +530,7 @@ run_capability() {
   FINDINGS_OUTPUT="$RUN_FINDINGS_NDJSON" "$cap_path" "$@" \
     >"$cap_stdout" 2>"$out_file"
   rc=$?
-  # T-8: a failed sink append must surface. Collect the finding
+  # A failed sink append must surface. Collect the finding
   # lines first, append only when there are any, and record findings-sink: error
   # naming the capability and the sink when the append fails — findings would
   # otherwise vanish with no trace in the receipt.
@@ -574,10 +592,9 @@ run_reconcile_sweep() {
 }
 
 # ---- build-dogfood detection -----------------------------------------------
-# governance-parity-audit is R-37's enforcement vehicle, but its repo-only
-# pillar inputs are unsatisfiable on an adopter install, so it chains ONLY on
-# the build's own dogfood session-close and is EXCLUDED from the shipped
-# adopter chain. Signal = the foundation source repo present at
+# governance-parity-audit runs at every close; is_build_dogfood only selects
+# whether the build box also runs its --upgrade arm, whose repo-only diff inputs an
+# adopter install does not have. Signal = the foundation source repo present at
 # $FOUNDATION_REPO (default ~/Code/brain-stem) with a governance/ pillar tree —
 # the build box, never an adopter install.
 is_build_dogfood() {
@@ -695,13 +712,13 @@ step2_integrity() {
     done
     IFS="$_hd_oifs"
   elif [[ -n "$SELF_SESSION_ID" && -f "$SESSION_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    read_session_touched_files handoff-disposition
     while IFS= read -r _hd_f; do
       [[ -z "$_hd_f" ]] && continue
       case "$_hd_f" in
         *handoff.md) _hd_files+=(--files "$_hd_f") ;;
       esac
-    done < <(jq -r --arg s "$SELF_SESSION_ID" \
-      '.sessions[$s].touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null)
+    done <<< "$SESSION_TOUCHED_FILES"
   fi
   if [[ ${#_hd_files[@]} -gt 0 ]]; then
     run_capability handoff-disposition-check "${_hd_files[@]}"
@@ -724,12 +741,12 @@ step2_integrity() {
     done
     IFS="$_ib_oifs"
   elif [[ -n "$SELF_SESSION_ID" && -f "$SESSION_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    read_session_touched_files inbox-drain
     while IFS= read -r _ib_f; do
       case "$_ib_f" in
         */_inbox/*.md) _ib_args+=(--files "$_ib_f") ;;
       esac
-    done < <(jq -r --arg s "$SELF_SESSION_ID" \
-      '.sessions[$s].touched_files // [] | .[]' "$SESSION_REGISTRY" 2>/dev/null)
+    done <<< "$SESSION_TOUCHED_FILES"
   fi
   run_capability inbox-drain-check ${_ib_args[@]+"${_ib_args[@]}"}
   # T-4: maintain the episodic chronicle. Chained AFTER
@@ -836,7 +853,7 @@ step2_integrity() {
     # is written here as exactly ONE line and replayed below to stderr + the capability chain.
     _ca_refusals="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.refusals"
     : > "$_ca_refusals"
-    # T-8: the write-failure channel (the python block appends
+    # The write-failure channel (the python block appends
     # "write failed: <manifest path>" here when os.replace fails) and the stderr
     # capture (a crash replays its first line below).
     _ca_wchan="${TMPDIR:-/tmp}/session-close-terminal-gate-$$.wchan"
@@ -1028,7 +1045,7 @@ PY
       done < "$_ca_refusals"
     fi
     rm -f "$_ca_refusals"
-    # T-8: surface a failed stamp write instead of folding it
+    # Surface a failed stamp write instead of folding it
     # into a clean count. The python block writes "write failed: <manifest
     # path>" into the fifth-argv channel when os.replace fails; a non-zero exit
     # (a crash) replays the first captured stderr line. Both record as errors,
@@ -1332,7 +1349,7 @@ step2d_trinity_drift() {
   run_capability trinity-drift-detect --axis trinity-status
 }
 
-# T-11: heal every tasks.md whose ledger STATUS contradicts its
+# Heal every tasks.md whose ledger STATUS contradicts its
 # manifest. The drift findings step2d_trinity_drift just collected carry
 # status_drift_ids + plan_dir (tasks-render emits them), so this step re-renders
 # exactly the flagged plans through the same sole writer — a targeted re-render
@@ -1349,9 +1366,10 @@ step2d_tasks_md_heal() {
     record_capability "tasks-md-heal" "dry-run" "would re-render status-drifted tasks.md replicas"
     return 0
   fi
-  local healed=0 f kind slug rc heal_sink walked_root
+  local healed=0 f kind slug rc heal_sink heal_err heal_digest walked_root
   walked_root="${PLANS_DIR:-}"
   heal_sink="$(mktemp "${TMPDIR:-/tmp}/session-close-heal-XXXXXX.ndjson")"
+  heal_err="$(mktemp "${TMPDIR:-/tmp}/session-close-heal-err-XXXXXX")"
   while IFS=$'\t' read -r f kind; do
     [[ -n "$f" ]] || continue
     if [[ "$kind" != "inside" ]]; then
@@ -1359,13 +1377,25 @@ step2d_tasks_md_heal() {
       continue
     fi
     slug="$(basename "$f")"
-    FINDINGS_OUTPUT="$heal_sink" bash "$CAPS_DIR/tasks-render.sh" "$f"
+    # The render's stderr is captured. A refusal (the vocabulary the armed tasks-render
+    # block below uses) is a skip and a frozen replica; every other failure keeps the
+    # error line and replays the captured text.
+    : > "$heal_err"
+    FINDINGS_OUTPUT="$heal_sink" bash "$CAPS_DIR/tasks-render.sh" "$f" 2>"$heal_err"
     rc=$?
     if [[ "$rc" -eq 0 ]]; then
       healed=$((healed + 1))
       record_capability "tasks-md-heal" "ok" "$slug — re-rendered from manifest.tasks[]"
+      cat "$heal_err" >&2
     else
-      record_capability "tasks-md-heal" "error" "$slug — render exit $rc"
+      heal_digest="$(head -1 "$heal_err" | sed 's/^[[:space:]]*//')"
+      case "$heal_digest" in
+        *"skipped"*|*"refusing to render"*|*"refusing to write"*)
+          record_capability "tasks-md-heal" "skip" "$slug — refused, replica frozen: $heal_digest" ;;
+        *)
+          record_capability "tasks-md-heal" "error" "$slug — render exit $rc"
+          cat "$heal_err" >&2 ;;
+      esac
     fi
   done < <(jq -r --arg root "$walked_root" '
       select(((.status_drift_ids // []) | length) > 0)
@@ -1376,7 +1406,7 @@ step2d_tasks_md_heal() {
         else
           "\($p)\toutside"
         end' "$RUN_FINDINGS_NDJSON")
-  rm -f "$heal_sink"
+  rm -f "$heal_sink" "$heal_err"
   if [[ "$healed" -eq 0 ]]; then
     record_capability "tasks-md-heal" "ok" "no status-drifted replica"
   fi
@@ -1433,7 +1463,7 @@ step2e_cadence_roster() {
   roster="$(cadence_roster 2>/dev/null | cut -f1)"
   for cap in $roster; do
     printf '%s\n' "$step2" | grep -qxF "$cap" && continue
-    # T-8: sweep_due reports on stderr and that stream is the
+    # sweep_due reports on stderr and that stream is the
     # verdict channel — capture it instead of discarding it. rc 2 (a roster
     # member it cannot schedule) records a cadence-roster error; a "but ledger
     # stamp failed" line (a FIRE whose ledger stamp could not persist) records
@@ -1494,7 +1524,7 @@ write_log() {
     return 0
   fi
   mkdir -p "$LOG_DIR"
-  # T-6: the receipt is created exclusively (noclobber); a
+  # The receipt is created exclusively (noclobber); a
   # same-second collision takes the pid-suffixed name below and leaves the
   # first receipt's bytes untouched. The primary name stays session-close-$TS.md.
   RECEIPT_TARGET="$LOG_PATH"
@@ -1505,7 +1535,7 @@ write_log() {
       return 0
     fi
   fi
-  {
+  if {
     echo "---"
     echo "type: log"
     echo "log-type: session-close"
@@ -1548,8 +1578,17 @@ write_log() {
       echo "One or more capabilities exited non-zero. Session-close is advisory"
       echo "and did not halt. Review the capability chain section for details."
     fi
-  } > "$RECEIPT_TARGET"
-  echo "session-close log: $RECEIPT_TARGET"
+  } > "$RECEIPT_TARGET"; then
+    echo "session-close log: $RECEIPT_TARGET"
+  else
+    # The exclusive create above left an empty receipt. It has no session_id value, so the
+    # idempotency guard would read it as written and skip a close inside the next 60 seconds:
+    # remove it, say so, and print no receipt line. (The condition is not negated: a
+    # failed redirection on a negated group keeps its failure status under bash 3.2.)
+    rm -f "$RECEIPT_TARGET"
+    echo "[write_log] receipt write failed: $RECEIPT_TARGET" >&2
+    return 0
+  fi
 }
 
 # ---- orchestration ----------------------------------------------------------

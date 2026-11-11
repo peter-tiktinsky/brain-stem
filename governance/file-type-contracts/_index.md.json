@@ -38,7 +38,8 @@
         "id",
         "schema_version"
       ],
-      "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list."
+      "criterion": "machine-generated, writer-owned index files: a file that is a registered writer's declared output (skills/librarian/capability-registry.json :: output_contract.writes[]) or that carries the `generated: true` frontmatter sentinel. The exempt set derives at audit time from the capability registry — the same writes[]-derived ownership the mandatory-files exemption-conflict arm uses — never a hardcoded path list.",
+      "_rationale": "A regenerated read-replica derives its identity from its writer and is rebuilt in place, so a minted created/id would churn or demand per-writer state; the identity cohort binds the hand-authored/mandate-bootstrapped flow, whose post-write-verify Tier-1 bootstrap mints all seven required fields."
     },
     "optional": [
       "provides"

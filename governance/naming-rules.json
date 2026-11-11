@@ -16,7 +16,7 @@
       "enforcement_layer": [
         "pre-write-guard.sh known-root allowlist",
         "pre-write-guard.sh single-file exemption block",
-        "librarian placement-validation"
+        "librarian placement-validate"
       ],
       "status": "active",
       "source": "governance/naming-rules.json :: _rules (SoT)",
@@ -55,7 +55,7 @@
         "Declare consumer — which skill, hook, capability, or query parses this path",
         "Add governance/frontmatter-rules.json#types entry + governance/file-type-contracts/<file>.json body-structure contract (the latter only if the new root carries a foundation-shipped mandatory file)",
         "Add the root to governance/naming-rules.json :: _rules[R-04].known_roots (the SoT the guard reads from the composed bundle at write time) + rebuild the composed master; the hook's hardcoded list is only the bundle-less fallback mirror and moves with the pillar",
-        "Add librarian-capability entry (placement-validation / plan-index / walker)",
+        "Add librarian-capability entry (placement-validate / plan-index / walker)",
         "Commit R-37 documentary lockstep — all surfaces move in one commit"
       ]
     },

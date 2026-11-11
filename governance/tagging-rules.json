@@ -24,6 +24,7 @@
       "project",
       "library"
     ],
+    "_project_dimension_note": "project is a foundation-tier, user-facing dimension (#project/<slug>) — it tags work-project material to its project identity and is queryable in the user-side graph. It is NOT a system-utility dimension (no canonical-value registry) and is EXEMPT from the user-facing-dimension cap because a project slug is an identifier, not a vocabulary term.",
     "system_utility_dimensions": [
       "status",
       "log",
@@ -33,7 +34,8 @@
     "cap_25_applies_to": "user_facing_dimensions",
     "system_utility_governance": "log-subtype-registry (canonical values per dimension; audit-time near-match check via R-05)",
     "_adopter_extension_path": "overlay-master.tagging.taxonomy.dimension_prefixes[] + .user_facing_dimensions[]",
-    "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it."
+    "_runtime_allowlist_resolution": "hooks/lib/foundation-overlay-load.sh produces the read-time union view: hooks/lib/merge-strategy-registry.json declares tagging.taxonomy.dimension_prefixes and tagging.taxonomy.user_facing_dimensions as union leaves, and the loader emits an order-preserving concat+dedup of foundation-master + overlay-master values for each (payload-replace applies only to non-union leaves). Consumers read the UNION view, never a single bundle — pre-write-guard.sh's tag-taxonomy branch derives its prefix allowlist (R32_TAXONOMY_UNION_PREFIXES) from it, falling back to the foundation-only set when no overlay is present. foundation-master.json composes the foundation side from this pillar; the adopter overlay extends it.",
+    "_generated_page_tagging_rationale": "Generated and index pages MAY carry taxonomy tags: a machine-stamped dimension is registered rather than stripped, so the write-time tag check and the tag panel agree on one allowlist. episode and scope are the machine-stamped members; their values are set by the emitting generators, not by hand."
   },
   "_rules": [
     {
@@ -75,6 +77,7 @@
       "seed_taxonomy_exempt_paths": [
         "Vault Writers/_index.md"
       ],
+      "_retired_exempt_note": "The System Governance/** seed-taxonomy exemption was retired because the foundation no longer ships the in-vault System Governance/ folder; only the Vault Writers/_index.md seed surface remains exempt.",
       "seed_taxonomy_exempt_paths_semantics": "DEDICATED tag-TAXONOMY exempt-list — SEPARATE from r47_exempt_paths (which is the tag-PRESENCE exempt-list for R-47). The foundation seeds #vault-writers on Vault Writers/_index.md to model good tagging for adopters; the foundation taxonomy ships NO vault-writers dimension (its user-facing dimension set is project-only — taxonomy.user_facing_dimensions), so that seed tag is NOT a member of the foundation allowlist and the tag-taxonomy membership arm would flag it. This one glob surface exempts EXACTLY that seed from the tag-not-in-taxonomy membership check ONLY — the seed stays byte-unchanged, still obeys the R-47 tag-PRESENCE rule (r47_exempt_paths untouched), and adopter-authored tags on non-exempt paths are unaffected. Composed deterministically to foundation-master.json#seed_taxonomy_exempt_paths_composed via tools/build-foundation-master.sh (never hand-edit the bundle)."
     },
     {

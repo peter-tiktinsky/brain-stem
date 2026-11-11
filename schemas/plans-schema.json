@@ -9,6 +9,8 @@
     "traceability-matrix.md": "traceability-matrix",
     "manifest.json": "manifest"
   },
+  "_derive_note": "status: is deliberately ABSENT from every Markdown artifact's required[] and optional[]: the corpus ruled DERIVE — manifest.json :: status is the SOLE status surface, and a plan artifact carries no status: frontmatter. Do not re-add it here. tags: is likewise absent by ruling (plan artifacts are not vault-tagged content).",
+  "_parent_plan_rule": "parent_plan is conditional_required at path depth >= 3 under the plans root (sub-plan artifacts point at their master); optional at depth 2. Declared here because this field lives in the plans lane, never in the vault frontmatter pillar.",
   "spec": {
     "required": [
       "type",

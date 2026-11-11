@@ -84,7 +84,7 @@ while [ $# -gt 0 ]; do
     --transcript-dir)      TRANSCRIPT_DIR="$2"; shift 2 ;;
     --prompt-card)         PROMPT_CARD="$2"; shift 2 ;;
     --extraction-template) EXTRACTION_TEMPLATE="$2"; shift 2 ;;
-    -h|--help)             sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help)             awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)                     diag "unknown arg: $1"; exit 2 ;;
   esac
 done

@@ -14,7 +14,7 @@ Your job: capture the live session state into `$CLAUDE_STATE_ROOT/sessions/<sid>
 ## Output Contract
 
 **Files written:**
-- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh /); the legacy bare path under the install root was retired (cross-session-pollution incident class closure,).
+- `$CLAUDE_STATE_ROOT/sessions/<sid>/checkpoint.md` — single canonical "current session state" file PER SESSION (where `<sid>` is the resolved session id `${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}`). Overwritten atomically on each invocation. `$CLAUDE_STATE_ROOT` resolves through the two-root XDG tier (paths.sh); the legacy bare path under the install root was retired (cross-session-pollution incident class closure).
 
 **Schema:** Session Continuity Block, keyed fields (the 10-field block below). The flat scalar lines `plan_id`/`phase`/`task_id` are a binding invariant (see Checkpoint file contract).
 

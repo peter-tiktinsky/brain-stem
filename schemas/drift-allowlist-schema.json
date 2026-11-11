@@ -20,18 +20,27 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
+        "required": ["capability"],
         "properties": {
+          "capability": {
+            "type": "string",
+            "description": "The capability whose provides overlap is exempted. The reader keys on this field: an entry without it is ignored."
+          },
           "skill": {
             "type": "string",
-            "description": "Skill or capability name claiming the provides label."
+            "description": "Informational: the skill or capability name claiming the provides label. The reader does not use it."
           },
           "label": {
             "type": "string",
-            "description": "The provides label whose overlap is exempted."
+            "description": "Informational: the provides label whose overlap is exempted. The reader does not use it."
           },
           "reason": {
             "type": "string",
             "description": "Human-readable rationale. Surfaced in librarian audit reports."
+          },
+          "added_at": {
+            "type": "string",
+            "description": "Date the entry was recorded (YYYY-MM-DD)."
           }
         }
       }

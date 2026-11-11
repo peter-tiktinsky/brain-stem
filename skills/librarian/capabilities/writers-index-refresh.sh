@@ -1,7 +1,9 @@
 #!/bin/bash
 # writers-index-refresh — Regenerate the canonical Vault Writers/_index.md
 # catalog table from the writer-reference files in Vault Writers/.
-# NET-NEW librarian body (1.1 line 139). Authored from the
+# NET-NEW librarian body. The contract of record is this capability's
+# output_contract block in skills/librarian/capability-registry.json; this header is its
+# operator-facing prose. Reuses the backlog-index/plan-index sentinel-regeneration pattern;
 # the net-new logic is the column composer + the per-writer
 # vault-writer.md.json validation loop.
 # Output Contract
@@ -17,7 +19,7 @@
 #     sentinel pair can be located NOR a fresh file initialized.
 #   Failure mode: block-and-log; never write-and-hope. Atomic temp+rename.
 #     Read-only against writer-reference files.
-# Finding categories (4 — §Finding categories):
+# Finding categories (4):
 #   writer-frontmatter-malformed (warning) unparseable / contract-failing frontmatter
 #   writer-missing-required-field(warning) required frontmatter field absent
 #   writer-kind-violation        (warning) writer_kind conditional-required field absent

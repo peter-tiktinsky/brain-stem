@@ -88,7 +88,7 @@ while [ $# -gt 0 ]; do
     --schema)     SCHEMA="$2"; shift 2 ;;
     --out)        OUT="$2"; shift 2 ;;
     --audit-log)  AUDIT_LOG="$2"; shift 2 ;;
-    -h|--help)    sed -n '2,60p' "$0"; exit 0 ;;
+    -h|--help)    awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
     *)            diag "unknown arg: $1"; exit 2 ;;
   esac
 done

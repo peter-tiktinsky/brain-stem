@@ -102,7 +102,8 @@
 #   that recorded the opening ruling) has a freeze in force. inbox-capture-freeze-open: an
 #   open flat note of that spoke, added to _inbox/ after that commit (committed, staged or
 #   untracked), carries no target; a target is disposition ABSORB with an absorbed_into key
-#   (optional ' :: T-N' stripped) that resolves to a manifest.json under the plans root.
+#   (optional ' :: T-N' stripped) that resolves to a manifest.json under the plans root, or
+#   disposition STANDALONE with release_class post-release (aimed at the next patch release).
 #   inbox-capture-freeze-unevaluable: the record is not exactly that one line, names a sha
 #   the plans repo does not know, or the plans root is not a git repository. No record, nothing
 #   reported; neither finding changes a byte.)
@@ -115,6 +116,8 @@
 #       # spoke) {"spoke","freeze","start_sha","open":[{"inbox_slug",...}]}; no spoke with a
 #       # record prints freeze false. Exit 0 when open is empty, 1 when not, 2 when a record
 #       # cannot be evaluated (the object then carries an "error" key).
+#       # A note is open unless it is targeted: an ABSORB into a resolving key, or a STANDALONE
+#       # note of class post-release.
 #       # The record is opened by hooks/lib/field-set.sh capture-freeze open <spoke> (it writes
 #       # start_sha= of the plans repository's HEAD) and lifted by capture-freeze lift <spoke>.
 #   backlog-index.sh --help
@@ -632,7 +635,8 @@ def atomic_write(path, text):
 # spoke key) has opened a freeze: the record is exactly one line `start_sha=<40-hex>`, the plans
 # repo commit that recorded the opening ruling. Every open flat note of that spoke added to
 # _inbox/ after that commit (committed, staged or untracked) must name a target: ABSORB into a
-# key that resolves to a plan or sub-plan manifest. No record means no freeze. A record that
+# key that resolves to a plan or sub-plan manifest, or a STANDALONE note of class post-release
+# (the next patch release). Any other class stays open. No record means no freeze. A record that
 # cannot be read as a sha of this plans repo cannot be evaluated, and says so.
 _FREEZE_LINE_RE = re.compile(r"^start_sha=([0-9a-f]{40})$")
 freeze_pattern = inbox_cfg.get("capture_freeze_record", "")
@@ -726,6 +730,8 @@ def freeze_eval(spoke):
         disp = fm.get("disposition", "").strip("\"'")
         target = fm.get("absorbed_into", "").strip("\"'")
         if disp == "ABSORB" and resolve_plan_dir(target)[0]:
+            continue
+        if disp == "STANDALONE" and fm.get("release_class", "").strip("\"'") == "post-release":
             continue
         res["open"].append({"inbox_slug": slug, "disposition": disp, "absorbed_into": target})
     res["open"].sort(key=lambda o: o["inbox_slug"])

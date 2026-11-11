@@ -3,7 +3,7 @@
 # C2-owned body (canonical/SessionEnd fire-order: session-deregister ->
 # session-episode-write;.6 always-on SessionEnd). Two responsibilities:
 #   1. Mark this session's registry row closed (status: "closed").
-#   2. Reconciliation is effectively always-on (.6): whenever a
+#   2. Reconciliation is effectively always-on: whenever a
 #      `closed-pending-reconciliation` peer exists, spawn reconcile-sessions.sh
 #      in the BACKGROUND (a detached, non-blocking spawn — SessionEnd must not
 #      block on a synchronous reconcile). reconcile-sessions.sh (T-04) is the
@@ -127,12 +127,30 @@ if [ -n "${REGISTRY_LOCK:-}" ] && command -v lockf >/dev/null 2>&1; then
   if [ "$_row_rc" -ne 0 ]; then
     _sdr_dir="${LOG_DIR:-}"
     if [ -z "$_sdr_dir" ] || [ ! -d "$_sdr_dir" ]; then _sdr_dir="${HOOKS_STATE:-$(dirname "$REGISTRY_LOCK")}"; fi
-    echo "$(date -Iseconds) session-deregister.sh skip: registry lock contention on $REGISTRY_LOCK (row update deferred; session recovery applies)" \
+    # Only rc 75 is lock contention; any other rc is a failed row update and is logged as one.
+    if [ "$_row_rc" -eq 75 ]; then
+      _sdr_why="registry lock contention on $REGISTRY_LOCK"
+    else
+      _sdr_why="registry row update failed (rc=$_row_rc) on $REGISTRY_LOCK"
+    fi
+    echo "$(date -Iseconds) session-deregister.sh skip: $_sdr_why (row update deferred; session recovery applies)" \
       >> "$_sdr_dir/session-deregister-skip.log" 2>/dev/null || true
   fi
 else
   close_row "$SESSION_ID"
 fi
+
+# --- 1a. Touched-files snapshot for the auto-close spawn (section 3) -----------
+# The reconciler spawned just below can delete this session's row before the detached
+# close reads it, and the close's own registry fallback would then see no files. So the
+# row's touched_files is read HERE, after the row is closed and before the reconciler
+# spawn, into one comma-joined CSV that section 3 threads to the close as
+# --touched-files. Only string entries that contain neither a comma nor a newline are
+# kept: neither survives a CSV unambiguously. The SessionStart integrity backstop takes
+# the same snapshot of a crashed row before it spawns its recovery close.
+SESSION_TOUCHED=""
+# swallow-ok: reports=none a failed read yields an empty CSV, and the close then reads the registry as it does today
+SESSION_TOUCHED="$(read_registry | jq -r --arg s "$SESSION_ID" '[.sessions[$s].touched_files // [] | .[] | select((type == "string") and (contains(",") | not) and (contains("\n") | not))] | join(",")' 2>/dev/null)"
 
 # --- 2. Unconditional reconcile spawn at SessionEnd (T-8,.6) ------
 # Spawn reconcile-sessions.sh detached UNCONDITIONALLY at every SessionEnd. The old
@@ -162,7 +180,7 @@ fi
 SESSION_CLOSE="$SCRIPT_DIR/../skills/librarian/capabilities/session-close.sh"
 if [ -f "$SESSION_CLOSE" ]; then
   AC_LOG_DIR="${SESSION_CLOSE_LOG_DIR:-${CLAUDE_STATE_ROOT:-$HOME/.local/state/brain-stem}/logs}"
-  # T-6: the same session-scoped match rule the close's
+  # The same session-scoped match rule the close's
   # idempotent_guard applies. A fresh (<60s) receipt suppresses THIS session's
   # auto-close spawn only when its `session_id:` line equals $SESSION_ID, is
   # bare, or is absent; a FOREIGN-id receipt does not suppress. Every receipt
@@ -189,11 +207,21 @@ EOF
     # resolves the ACTIVE SPOKE from it, and every binder writer in its chain is scoped to
     # that one key. Without the thread the child resolves its own ambient $PWD and can
     # rewrite another spoke's binder. Both branches keep the id thread; the cwd rides only
-    # when the payload carried one.
+    # when the payload carried one. The touched-files snapshot of section 1a rides both
+    # branches, only when it is non-empty: an empty one leaves the close on its documented
+    # registry fallback, so the argv is exactly what it was.
     if [ -n "$SESSION_CWD" ]; then
-      ( "$SESSION_CLOSE" --session-id "$SESSION_ID" --cwd "$SESSION_CWD" >/dev/null 2>&1 & ) || true
+      if [ -n "$SESSION_TOUCHED" ]; then
+        ( "$SESSION_CLOSE" --session-id "$SESSION_ID" --cwd "$SESSION_CWD" --touched-files "$SESSION_TOUCHED" >/dev/null 2>&1 & ) || true
+      else
+        ( "$SESSION_CLOSE" --session-id "$SESSION_ID" --cwd "$SESSION_CWD" >/dev/null 2>&1 & ) || true
+      fi
     else
-      ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
+      if [ -n "$SESSION_TOUCHED" ]; then
+        ( "$SESSION_CLOSE" --session-id "$SESSION_ID" --touched-files "$SESSION_TOUCHED" >/dev/null 2>&1 & ) || true
+      else
+        ( "$SESSION_CLOSE" --session-id "$SESSION_ID" >/dev/null 2>&1 & ) || true
+      fi
     fi
   fi
 fi

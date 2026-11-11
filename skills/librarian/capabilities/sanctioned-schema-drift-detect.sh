@@ -17,14 +17,30 @@
 # concern (a live-hash vs manifest-recorded-hash mechanism), NOT this live-vs-source
 # check — the clean-skip is deliberate, not a coverage regression.
 #
+# Shipped form. The source schema is the development copy, and an install writes the
+# cleaned form of it, so a live schema can differ from the source and still be exactly
+# what the install shipped. When a live file differs from the source, the installed
+# manifest is consulted: a live file whose `shasum -a 256` equals the sha256 that
+# manifest records for schemas/<name>.json is the shipped form and is not drift; a live
+# file that equals neither the source nor the record is DRIFT (the line then ends "and
+# from the installed manifest's recorded sha256"). With no installed manifest, or no
+# record for the schema, only the source comparison applies and the output is unchanged.
+# The PASS line gains "; K match the shipped form the installed manifest records" only
+# when K > 0. --json keeps its shape.
+#
 # Env overrides:
 #   FOUNDATION_REPO   the foundation source repo (default: $HOME/Code/brain-stem);
 #                     when its governance/ + schemas/ are absent this is an adopter
 #                     install and the cap clean-skips
 #   LIVE_SCHEMAS      default: $HOME/.claude/schemas
+#   SSDD_INSTALLED_MANIFEST  the installed manifest whose recorded sha256 marks a live
+#                     schema as the shipped form (default:
+#                     governance/foundation-manifest.json under the parent of LIVE_SCHEMAS,
+#                     the governance/ directory that sits beside schemas/)
 #
-# Exit 0: no drift detected (all sanctioned schemas byte-identical to source) OR
-#         adopter clean-skip (no foundation repo present)
+# Exit 0: no drift detected (every sanctioned schema byte-identical to source or equal to
+#         the installed manifest's recorded sha256) OR adopter clean-skip (no foundation
+#         repo present)
 # Exit 1: drift detected (writes finding lines to stdout)
 # Exit 2: usage / unknown flag
 
@@ -77,7 +93,12 @@ if [ ! -d "$FOUNDATION_REPO/governance" ] || [ ! -d "$FOUNDATION_REPO/schemas" ]
 fi
 
 drift_count=0
+shipped_form_count=0
 findings=()
+
+# The installed manifest: its recorded sha256 for a schema marks the live file as the
+# shipped form. A missing, unreadable or record-less manifest means "no record".
+_SSDD_INSTALLED="${SSDD_INSTALLED_MANIFEST:-$(dirname "$LIVE_SCHEMAS")/governance/foundation-manifest.json}"
 
 for name in "${SANCTIONED[@]}"; do
   live="$LIVE_SCHEMAS/$name.json"
@@ -93,8 +114,26 @@ for name in "${SANCTIONED[@]}"; do
     continue
   fi
   if ! diff -q "$live" "$src" >/dev/null 2>&1; then
-    findings+=("DRIFT: $name (live $live differs from source $src)")
-    drift_count=$((drift_count + 1))
+    recorded=""
+    if command -v jq >/dev/null 2>&1 && [ -f "$_SSDD_INSTALLED" ]; then
+      if ! recorded="$(jq -r --arg p "schemas/$name.json" \
+          '[.files[]? | select(.path == $p) | .sha256? | strings] | first // empty' "$_SSDD_INSTALLED" 2>&1)"; then
+        recorded=""
+      fi
+    fi
+    live_sha=""
+    if [ -n "$recorded" ]; then
+      if live_sha="$(shasum -a 256 "$live")"; then live_sha="${live_sha%% *}"; else live_sha=""; fi
+    fi
+    if [ -n "$recorded" ] && [ "$live_sha" = "$recorded" ]; then
+      shipped_form_count=$((shipped_form_count + 1))
+    elif [ -n "$recorded" ]; then
+      findings+=("DRIFT: $name (live $live differs from source $src and from the installed manifest's recorded sha256)")
+      drift_count=$((drift_count + 1))
+    else
+      findings+=("DRIFT: $name (live $live differs from source $src)")
+      drift_count=$((drift_count + 1))
+    fi
   fi
 done
 
@@ -112,7 +151,11 @@ if [[ "$JSON_MODE" == "true" ]]; then
   printf ']}\n'
 else
   if [[ $drift_count -eq 0 ]]; then
-    echo "PASS: ${#SANCTIONED[@]}/${#SANCTIONED[@]} sanctioned schemas match foundation-repo source"
+    pass_line="PASS: ${#SANCTIONED[@]}/${#SANCTIONED[@]} sanctioned schemas match foundation-repo source"
+    if [[ $shipped_form_count -gt 0 ]]; then
+      pass_line="$pass_line; $shipped_form_count match the shipped form the installed manifest records"
+    fi
+    echo "$pass_line"
   else
     echo "FAIL: $drift_count finding(s):"
     for f in "${findings[@]}"; do

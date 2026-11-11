@@ -1,14 +1,15 @@
 #!/bin/bash
 # Hook: PreToolUse (AskUserQuestion) — Session-decision-guard for option-shape
-# decisions. Matcher-split discipline:
+# decisions. It reads the question payload, detects a substantive option set, and
+# asks for a `research_complete:` annotation (a nudge under Phase 1, a deny under
+# Phase 2) while a hard-constraints reminder rides along. Matcher-split discipline:
 # AskUserQuestion lives here; Edit|Write lives in pre-write-guard.sh.
 #
-# Branches (modular composition per — each branch is an independent
+# Branches (modular composition — each branch is an independent
 # function that emits a text fragment or empty; composer concatenates):
 #   decision_quality_branch()   — the decision-quality advisory + telemetry/
 #                                 annotation grammar + Phase 1/2 env-var-flip.
-#                                 Ported from the live pre-write-guard prelude
-#                                 per T-2 (port-first discipline).
+#                                 Writes one telemetry row per fire.
 #   hard_constraints_branch()   — Hard-Constraints-Override-Spec reminder
 #                                 (branch #5). Fires when substantive
 #                                 option set is detected.
@@ -68,8 +69,7 @@ DQP_FRAGMENT=""
 HC_FRAGMENT=""
 
 # === decision_quality_branch() ============================================
-# PORTED from the live ~/.claude/hooks/pre-write-guard.sh prelude per T-2
-# (port-first discipline). Preserves the decision-quality protocol:
+# Preserves the decision-quality protocol:
 #   - Substantive-shape heuristic (option count ≥ 2 + description > 50 chars
 #     OR keyword match in question text)
 #   - Skip-conditions (yes/no canonical labels; no signals)
@@ -199,7 +199,7 @@ PYEOF
 3. Live-vault state — read current files; do not trust memory.
 4. +1 unconsidered option — generate one option NOT yet on the table; expand the option space.
 
-Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. Empirically, the user overrides the first-presented option ≈100% of the time without this pass. If you recommend one option, place it FIRST and append \"(Recommended)\" to THAT option's label — the label marks the option you actually recommend, never the one that happens to be listed first; when you recommend none, label none. State the recommendation and its reason in prose BEFORE the call; do not bury it in co-equal-looking option lists. Show your work: name the trade-off each of the four pillars surfaced."
+Then re-rank, recommend, and surface trade-offs. After running the pass, re-issue this AskUserQuestion with \`research_complete: <one-line summary>\` prefixed to the question text (or embedded in an option description). The annotation marks this call as protocol-compliant. If you recommend one option, place it FIRST and append \"(Recommended)\" to THAT option's label — the label marks the option you actually recommend, never the one that happens to be listed first; when you recommend none, label none. State the recommendation and its reason in prose BEFORE the call; do not bury it in co-equal-looking option lists. Show your work: name the trade-off each of the four pillars surfaced."
       DQP_DECISION="allow"
       ;;
     deny)
@@ -214,12 +214,12 @@ Then re-rank, recommend, and surface trade-offs. After running the pass, re-issu
 }
 
 # === hard_constraints_branch() ============================================
-# Per +: emits Hard-Constraints-Override-Spec reminder when a
+# Emits the Hard-Constraints-Override-Spec reminder when a
 # substantive option set is detected. Replaces the rule formerly stated in
 # a rule the operator may keep as a rules/ entry; this hook is the enforcement.
 #
-# Reuses the substantive-shape detection logic (replicated, not shared,
-# per modular-independence principle). Fires regardless of annotation —
+# Reuses the substantive-shape detection logic (replicated, not shared: each
+# branch keeps its own copy so the branches stay independent). Fires regardless of annotation —
 # the constraint check is orthogonal to research-completeness.
 #
 # Sets HC_FRAGMENT (text or empty). Never denies.
@@ -269,9 +269,8 @@ PYEOF
 
 # === compose_additional_context() =========================================
 # Concatenates non-empty fragments with a blank-line separator. Returns the
-# combined text on stdout (empty string if no fragments). Per: "Hook
-# concatenates fragments into a single additionalContext and emits one
-# allow decision."
+# combined text on stdout (empty string if no fragments). The hook joins the fragments into one
+# additionalContext and emits it as one note-only output, with no permissionDecision.
 compose_additional_context() {
   local combined=""
   if [[ -n "$DQP_FRAGMENT" ]]; then
@@ -308,6 +307,6 @@ fi
 
 ctx=$(compose_additional_context)
 if [[ -n "$ctx" ]]; then
-  format_output_allow "PreToolUse" "$ctx"
+  format_output "PreToolUse" "$ctx"
 fi
 exit 0

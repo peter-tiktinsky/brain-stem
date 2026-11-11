@@ -6,14 +6,15 @@
 # launchd jobs (.3:78 + installer band line 281):
 #   - writer-reconciler  (WatchPaths primary + relaxed StartInterval backstop)
 #   - doc-amender        (WatchPaths only — event-driven LLM lane)
-# The's connector/non-foundation job cases (architect, digest-run,
-# chat-scrape, calendar-sync, meeting-processor, connector-runtime,
-# inbox-processor) are DROPPED — the inbox-processor job + its stale
+# The inbox-processor job + its stale
 # `--vault-root`/`--state-file` cron-wrapper flags are RETIRED, reconciled to
 # the writer-reconciler's actual arg surface (the cron-wrapper at
 # installer/cron-wrappers/writer-reconciler-cron.sh).
-# Usage: render-launchd.sh [--staging-dir <path>] [--dry-run] <job>
+# Usage: render-launchd.sh [--staging-dir <path>] [--dry-run] (--all | <job>)
 # Modes (mutually composable):
+#   --all                  Renders every shipped job (writer-reconciler, then doc-amender) by
+#                          running this script once per job with the same flags. A failed job
+#                          does not stop the next one. Takes no <job>.
 #   default                Production install. Writes to ~/Library/LaunchAgents/<Label>.plist,
 #                          unconditionally `launchctl bootout` then `launchctl bootstrap`.
 #   --staging-dir <path>   Staging install. Writes to <path>/<Label>.plist, skips
@@ -32,6 +33,7 @@
 #   4  rendered plist failed plutil -lint or atomic mv failed
 #   5  rendered Label extraction failed or Label format invalid
 #   6  launchctl bootstrap returned non-zero (production mode only)
+#   7  --all: one or more jobs failed to render
 # Dependencies: jq, plutil, launchctl (production mode only). Template
 # substitution is a portable sed render over the fixed, format-validated var set
 # (-ENV: the hard envsubst/GNU-gettext dependency was dropped — gettext is
@@ -43,13 +45,22 @@ set -u
 diag() { printf 'render-launchd FAIL: %s\n' "$1" >&2; }
 info() { printf 'render-launchd: %s\n' "$1"; }
 
+# Every shipped job, in render order. This mirrors the render mapping below
+# (`case "$job" in`): a job added there is added here.
+ALL_JOBS="writer-reconciler doc-amender"
+
 # --- arg parse ---
 staging_dir=""
 dry_run=0
+all=0
 job=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --all)
+      all=1
+      shift
+      ;;
     --staging-dir)
       if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
         diag "--staging-dir requires a path argument"
@@ -85,8 +96,46 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# --- --all: run this script once per shipped job, before anything is sourced ---
+# Each child is `bash <this script> [--staging-dir <path>] [--dry-run] <job>`, resolved from
+# BASH_SOURCE the way self_dir is below (never a PATH lookup). A failed job is counted and
+# the next one still runs; production mode reaches launchctl only through the per-job child.
+if [ "$all" -eq 1 ]; then
+  if [ -n "$job" ]; then
+    diag "--all takes no <job> argument"
+    exit 2
+  fi
+  all_self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  all_total=0
+  all_failed=0
+  all_failed_names=""
+  for all_job in $ALL_JOBS; do
+    all_total=$((all_total + 1))
+    all_rc=0
+    if [ -n "$staging_dir" ] && [ "$dry_run" -eq 1 ]; then
+      bash "$all_self" --staging-dir "$staging_dir" --dry-run "$all_job" || all_rc=$?
+    elif [ -n "$staging_dir" ]; then
+      bash "$all_self" --staging-dir "$staging_dir" "$all_job" || all_rc=$?
+    elif [ "$dry_run" -eq 1 ]; then
+      bash "$all_self" --dry-run "$all_job" || all_rc=$?
+    else
+      bash "$all_self" "$all_job" || all_rc=$?
+    fi
+    if [ "$all_rc" -ne 0 ]; then
+      all_failed=$((all_failed + 1))
+      all_failed_names="${all_failed_names:+$all_failed_names }$all_job"
+    fi
+  done
+  if [ "$all_failed" -gt 0 ]; then
+    diag "--all: $all_failed of $all_total jobs failed ($all_failed_names)"
+    exit 7
+  fi
+  info "--all: $all_total of $all_total jobs rendered"
+  exit 0
+fi
+
 if [ -z "$job" ]; then
-  diag "missing <job> arg. Usage: render-launchd.sh [--staging-dir <path>] [--dry-run] <job>"
+  diag "missing <job> arg. Usage: render-launchd.sh [--staging-dir <path>] [--dry-run] (--all | <job>)"
   exit 2
 fi
 case "$job" in

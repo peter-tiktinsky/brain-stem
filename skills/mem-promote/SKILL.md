@@ -95,6 +95,15 @@ Each proposal is buffered (NOT applied) via `enqueue_item` with the artifact:
 mapped onto the review-queue item shape (`id`, `severity`, `state: "open"`,
 `class`, `defer_count: 0`, `dismiss_count: 0`, `payload`). The item `id` is the artifact's `candidate_id`, verbatim, so a re-run over the same cluster re-enqueues the same id and keeps the operator's review outcome. The operator clears
 each item only on explicit confirm OR reject-with-reason via `/librarian review`.
+When present on a promotion item's `payload`, `reshaped_memory` is this object, and
+`/librarian review` writes the memory file from it at confirm:
+```
+{ "file": "<topic>.md", "name": "...", "description": "<one line>",
+  "type": "semantic|procedural|episodic", "tags": ["..."], "body": "<markdown>" }
+```
+`file`, `name`, `description`, `type` and `body` are required; `tags` is optional.
+`file` names a `.md` topic file directly inside the memory directory (not
+`MEMORY.md`) that does not exist yet. This skill still writes no memory file.
 
 ## Degradation (no-claude-mem-DB graceful-degradation contract)
 The foundation floor is complete from System A + Gate 2 (globalize) + RULES

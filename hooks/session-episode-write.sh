@@ -22,7 +22,8 @@
 #       Touched  = `touched: <COUNT> file(s) on <branch>` (COUNT from the registry
 #                  row; branch via git rev-parse --abbrev-ref HEAD).
 #       Next     = the verbatim `**Next session:**` line harvested from the
-#                  close-out/handoff (no-LLM python3 argv line-harvest).
+#                  newest session block of the close-out/handoff (no-LLM python3
+#                  argv line-harvest); `— none —` when that block carries none.
 #       Summary  = the LITERAL placeholder `— summary on review —`; the
 #                  chronicle-index capability BACKFILLS it at librarian
 #                  session-close. The hook NEVER parses transcript_path.
@@ -47,6 +48,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || exit 0
 [ -r "$SCRIPT_DIR/lib/registry.sh" ] && source "$SCRIPT_DIR/lib/registry.sh" 2>/dev/null
 [ -r "$SCRIPT_DIR/lib/plan-path.sh" ] && source "$SCRIPT_DIR/lib/plan-path.sh" 2>/dev/null
+# The shared session-heading recognizer (exports the HANDOFF_*_PY patterns the Next-session
+# harvest below compiles). Unreadable: the harvest is skipped and the Next field stays
+# `— none —`; the hook never fails hard.
+[ -r "$SCRIPT_DIR/lib/handoff-recognizer.sh" ] && source "$SCRIPT_DIR/lib/handoff-recognizer.sh" 2>/dev/null
 
 # Read the SessionEnd JSON payload (session_id fallback).
 # BOUNDED capture: `[ ! -t 0 ]` tests "is stdin a TERMINAL", not "will stdin deliver
@@ -155,17 +160,38 @@ elif [ -n "${PLANS_DIR:-}" ] && [ "$PLAN_PHASE" != "— none —" ] && [ -r "$PL
   HANDOFF_FILE="$PLANS_DIR/$PLAN_PHASE/handoff.md"
 fi
 NEXT_SESSION="— none —"
-if [ -n "$HANDOFF_FILE" ] && [ -r "$HANDOFF_FILE" ] && command -v python3 >/dev/null 2>&1; then
+if [ -n "$HANDOFF_FILE" ] && [ -r "$HANDOFF_FILE" ] && [ -n "${HANDOFF_SESSION_HEADING_PY:-}" ] && command -v python3 >/dev/null 2>&1; then
   harvested="$(python3 - "$HANDOFF_FILE" <<'PY'
-import re, sys
+import os, re, sys
 path = sys.argv[1]
-# Word-boundary harvest of the verbatim `**Next session:**` line (first hit).
+# Word-boundary harvest of the verbatim `**Next session:**` line (first hit, taken inside
+# the block chosen below).
 hit_re = re.compile(r"\*\*Next session:\*\*\s*(.+?)\s*$")
+# The handoff is split at every line the shared heading recognizer matches, and each block
+# is keyed as the chronicle appender keys it: (the ordinal in the heading or -1, the date
+# in the heading or "", the index of the block in document order). The max key is the block
+# harvested, so a tie on ordinal and date goes to the later block. A handoff with no
+# recognized heading is harvested whole.
+heading_re = re.compile(os.environ["HANDOFF_SESSION_HEADING_PY"], re.IGNORECASE)
+num_re = re.compile(os.environ["HANDOFF_SESSION_NUM_PY"], re.IGNORECASE)
+date_re = re.compile(os.environ["HANDOFF_DATE_PY"])
 try:
     with open(path) as f:
-        lines = f.readlines()
+        lines = f.read().splitlines()
 except Exception:
     sys.exit(0)
+bounds = [i for i, l in enumerate(lines) if heading_re.match(l)]
+if bounds:
+    best = None
+    for k, start in enumerate(bounds):
+        end = bounds[k + 1] if k + 1 < len(bounds) else len(lines)
+        heading = lines[start].lstrip("# ").strip()
+        snum = num_re.search(heading)
+        sdate = date_re.search(heading)
+        key = (int(snum.group(1)) if snum else -1, sdate.group(1) if sdate else "", k)
+        if best is None or key > best[0]:
+            best = (key, start, end)
+    lines = lines[best[1]:best[2]]
 for line in lines:
     m = hit_re.search(line)
     if m and m.group(1).strip():

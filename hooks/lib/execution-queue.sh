@@ -6,30 +6,28 @@
 #
 #   source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/execution-queue.sh"
 #
-# (NET-NEW). The connector dispatch.sh hard-sources at
-# load time (dispatch.sh's QUEUE_LIB=$HOOKS_DIR/lib/execution-queue.sh export +
-# source). Provides queue persistence for the --overnight / --delay ≥4h timing
-# modes and the queue ops (--hold/--unhold/--queue-status). The ported engine
-# cannot run until this lib exists (HARD intra-SP dep →/).
+# dispatch.sh sources this file for the queue ops (--hold, --unhold,
+# --queue-status). Nothing in this release adds to the queue or runs it:
+# --overnight is refused, and no shipped command calls the executor-side ops
+# (pick, update, remove, prune), which remain for a queue file an earlier
+# release wrote.
 #
 # Function contract consumed by dispatch.sh:
-#   exec_queue_add <name> <type> <ref> <model> <timeout> <budget> <priority> <queued_by>
 #   exec_queue_hold <name>
 #   exec_queue_unhold <name>
 #   exec_queue_list [status]
-# Plus the executor-side ops (pick/update/remove/prune) the overnight cron
-# wrapper consumes.
+# Defined, with no shipped caller in this release:
+#   exec_queue_add <name> <type> <ref> <model> <timeout> <budget> <priority> <queued_by>
+#   exec_queue_pick, exec_queue_update, exec_queue_remove, exec_queue_prune
 #
-# Hook-portability: the queue file + lock resolve under
-# $CLAUDE_STATE_ROOT via hooks/lib/paths.sh — NO $HOME/.claude literal. The
-# queue is machine-local ephemeral state (same tier as the coordination
-# registry per).
+# The queue file and lock resolve under $CLAUDE_STATE_ROOT via
+# hooks/lib/paths.sh (no $HOME/.claude literal); the queue is machine-local
+# ephemeral state.
 #
 # Bash 3.2 clean (R-23): no associative arrays, no mapfile/readarray, no
 # parameter-expansion case conversion, no GNU-only constructs.
 
-# Resolve state-root via paths.sh (no $HOME/.claude literal — Hook-portability
-# AC). HOOKS_STATE resolves under $CLAUDE_STATE_ROOT per .
+# Resolve the state root via paths.sh; HOOKS_STATE resolves under $CLAUDE_STATE_ROOT.
 source "${CLAUDE_HOME:-$HOME/.claude}/hooks/lib/paths.sh"
 
 EXEC_QUEUE_FILE="${EXEC_QUEUE_FILE:-$HOOKS_STATE/execution-queue.json}"
@@ -69,8 +67,8 @@ exec_write_queue() {
 # Every queue read-modify-write runs as ONE /usr/bin/lockf -k -t 2 child on the
 # EXEC_QUEUE_LOCK this lib defines (kernel-backed -k, the hooks/lib/lockf.sh
 # idiom; claude_lockf_reexec is inapplicable to a sourced lib — it re-execs $0,
-# the caller's CLI). Contention is LOUD, never a silent skip: a vanished
-# overnight job has no self-heal, unlike the registry rows. Only rc 75 (lockf
+# the caller's CLI). Contention is LOUD, never a silent skip: a queue write
+# lost to contention has no self-heal, unlike the registry rows. Only rc 75 (lockf
 # timeout) is contention; any other non-zero child rc (the lib's documented
 # failures — duplicate add, queue full — or a child error) prints the plain
 # failure line with no contention wording.
@@ -186,7 +184,7 @@ exec_queue_update() {
   exec_write_queue "$queue"
 }
 
-# Hold an item — executor skips it, item keeps its place.
+# Hold an item — marks it held; it keeps its place.
 # Args: name
 exec_queue_hold() {
   if [ -z "${EXEC_QUEUE_LOCKED:-}" ] && command -v lockf >/dev/null 2>&1; then
